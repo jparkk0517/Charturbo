@@ -125,7 +125,7 @@ console.log('Top 5 most similar items to item 0:', topK);
 ### 3. Interactive 3D Graphs & Networks
 
 ```ts
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { VizEngineSDK, escapeHtml } from 'viz-engine-sdk';
 
 const canvas = document.querySelector('canvas')!;
 const sdk = await VizEngineSDK.create(canvas, {
@@ -152,18 +152,42 @@ sdk.enableNodeInteractions(canvas, {
   highlightNeighborsOnClick: 1,
   autoRender: true,
   touch: { pinchZoom: true, tapTooltip: true, longPressScrub: true }, // defaults
+  // Mouse: drag = orbit, Shift / right / middle drag = pan, wheel = zoom (defaults: all on)
+  cameraControls: { orbit: true, pan: true, zoom: true },
   onNodeClick: (node) => {
     if (node) {
       console.log('Selected node:', node.label, 'Neighbors:', node.neighbors);
     }
   },
+  // Optional custom tooltip: the returned HTML is used as-is, so escape data strings
+  // formatTooltip: (d) => `<b>${escapeHtml(d.label)}</b>`,
 });
 
 // Apply 3D layout preset ('cluster-sphere' | 'radial-shells' | 'helix' | 'grid-3d')
 sdk.applyLayout('cluster-sphere', 85);
-sdk.fitToView();
+sdk.fitToView(); // fills the view on its tighter axis (horizontal or vertical)
 sdk.render();
+
+sdk.focusNode(42); // center on a node and move closer (40 % of the fitToView distance)
+const camera = sdk.getCameraState(); // { target, eye, distance, yaw, pitch, fovY, aspect } | null
 ```
+
+- **Built-in camera controls** (`cameraControls`, graph / point-cloud / scene views; charts keep their own
+  wheel / drag navigation): left drag orbits, Shift + drag or right / middle drag pans (the content follows
+  the pointer), the wheel zooms proportionally to the distance without scrolling the page. Drags use
+  pointer capture (releasing outside the canvas ends them); a press released within 5 px stays a click.
+  `{ orbit: false }` makes a left drag pan, `{ pan: false }` / `{ zoom: false }` disable one move, and
+  `cameraControls: false` disables them all (hosts driving the camera themselves); the same switches gate
+  the camera moves of touch gestures. The canvas context menu is suppressed in graph views while pan is on.
+  Hosts with their own pointer handlers can check `sdk.handlesCameraControls()`.
+- **Framing**: double-click (or `focusNode(id, { distance })`) centers on a node and moves the camera
+  closer immediately; `getCameraState()`, distance-scaled zoom / pan and the focus distance need the
+  engine's `camera_state` binding (older builds: `null`, fixed gains, target-only focus).
+- **Default tooltip**: label, category, cluster, degree, neighbors, position, tags and up to 6 attributes in
+  the theme's text colors. Every data-derived string is HTML-escaped (a label like `<img onerror=…>` renders
+  as text); fixed strings follow the SDK / chart locale (`ko*` = Korean, otherwise English). The default
+  chart tooltips escape series names, x labels, attributes and formatted values too (a
+  `tooltip.valueFormatter` result is shown as text).
 
 ## Documentation
 

@@ -1,4 +1,4 @@
-import { VizEngineSDK, type EmbeddingProjectionMode, type NodeMetadata } from 'viz-engine-sdk';
+import { VizEngineSDK, escapeHtml, type EmbeddingProjectionMode, type NodeMetadata } from 'viz-engine-sdk';
 
 export const meta = {
   title: '1536-dim embeddings → 3D with cosine k-NN',
@@ -63,7 +63,6 @@ export default async function mount(host: HTMLElement) {
     });
     sdk.setNodeMetadata(metadata);
     sdk.fitToView();
-    sdk.zoomCamera(-30); // a little closer than the bounding-sphere fit
     sdk.render();
     status.textContent = `${stats.nodeCount.toLocaleString()} vectors · ${stats.edgeCount.toLocaleString()} k-NN edges · ${stats.elapsedMs.toFixed(0)} ms`;
     for (const b of toolbar.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.textContent === projection));
@@ -86,33 +85,18 @@ export default async function mount(host: HTMLElement) {
       item.append(` ${match.label} · ${sdk.getNodeMetadata(match.nodeId).category}`);
     }
   };
+  // Built-in orbit / pan / zoom; a compact custom tooltip (escape data-derived text)
   sdk.enableNodeInteractions(canvas, {
     autoRender: true,
     highlightNeighborsOnClick: 1, // its k-NN edges
-    formatTooltip: (d) => `<b>${d.label}</b><div style="color:#38bdf8">${d.metadata.category}</div>`,
+    formatTooltip: (d) => `<b>${escapeHtml(d.label)}</b><div style="color:#38bdf8">${escapeHtml(d.metadata.category ?? '')}</div>`,
     onNodeClick: (node) => {
       if (node) showSimilar(node.id);
       else sdk.clearSelection();
     },
   });
 
-  // Mouse orbit / pan / zoom (touch gestures are built into enableNodeInteractions)
-  const events = new AbortController();
-  const signal = events.signal;
-  let last: { x: number; y: number } | null = null;
-  canvas.addEventListener('pointerdown', (e) => e.pointerType === 'mouse' && (last = { x: e.clientX, y: e.clientY }), { signal });
-  canvas.addEventListener('pointerup', () => (last = null), { signal });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!last || e.buttons === 0) return;
-    const [dx, dy] = [e.clientX - last.x, e.clientY - last.y];
-    last = { x: e.clientX, y: e.clientY };
-    if (e.shiftKey) sdk.panCamera(-dx * 0.25, dy * 0.25);
-    else sdk.rotateCamera(-dx * 0.006, dy * 0.006);
-    sdk.render();
-  }, { signal });
-  canvas.addEventListener('wheel', (e) => (e.preventDefault(), sdk.zoomCamera(e.deltaY * 0.18), sdk.render()), { passive: false, signal });
-
   project('pca');
   showSimilar(0);
-  return { sdk, dispose: () => (events.abort(), sdk.dispose()) };
+  return { sdk, dispose: () => sdk.dispose() };
 }

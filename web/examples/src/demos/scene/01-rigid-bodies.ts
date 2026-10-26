@@ -3,7 +3,7 @@ import { VizEngineSDK, type RgbaTuple } from 'viz-engine-sdk';
 export const meta = {
   title: 'Rigid-body drop with raycast picking',
   description:
-    'Dynamic boxes, spheres and cylinders fall under gravity and collide with a static floor and steps (AABB contacts, restitution). Click an object: a ray from the camera returns the object and the hit point. Drag orbits, wheel zooms.',
+    'Dynamic boxes, spheres and cylinders fall under gravity and collide with a static floor and steps (oriented-box SAT contacts, sort-and-sweep broadphase, restitution). Click an object: a ray from the camera returns the object and the hit point. Drag orbits, Shift + drag pans, wheel zooms.',
   height: 460,
 };
 
@@ -67,27 +67,18 @@ export default async function mount(host: HTMLElement) {
   }
   toolbar.appendChild(status);
 
-  // Mouse orbit / zoom + click-to-pick (a click = press and release within 5 px)
-  const events = new AbortController();
-  const signal = events.signal;
-  let last: { x: number; y: number } | null = null;
-  let down: { x: number; y: number } | null = null;
-  canvas.addEventListener('pointerdown', (e) => (last = down = { x: e.clientX, y: e.clientY }), { signal });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!last || e.buttons === 0) return;
-    sdk.rotateCamera(-(e.clientX - last.x) * 0.006, (e.clientY - last.y) * 0.006);
-    last = { x: e.clientX, y: e.clientY };
-  }, { signal });
-  canvas.addEventListener('pointerup', (e) => {
-    last = null;
-    if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
-    const rect = canvas.getBoundingClientRect();
-    const hit = sdk.raycastObjectAtNdc(((e.clientX - rect.left) / rect.width) * 2 - 1, 1 - ((e.clientY - rect.top) / rect.height) * 2);
-    const picked = hit && sdk.getObjectRecord(hit.objectId);
-    sdk.selectObject(picked?.bodyType === 'dynamic' ? picked.id : null); // outline falling objects only
-    status.textContent = hit ? `${picked?.name} hit at (${hit.point.map((v) => v.toFixed(1)).join(', ')})` : `${sdk.objectCount()} objects`;
-  }, { signal });
-  canvas.addEventListener('wheel', (e) => (e.preventDefault(), sdk.zoomCamera(e.deltaY * 0.18)), { passive: false, signal });
+  // Built-in orbit / pan / zoom; a click (press + release within 5 px) casts a ray into the scene
+  const detach = sdk.enableNodeInteractions(canvas, {
+    builtInTooltip: false, // no graph nodes here
+    focusOnDoubleClick: false,
+    onNodeClick: (_node, e) => {
+      const rect = canvas.getBoundingClientRect();
+      const hit = sdk.raycastObjectAtNdc(((e.clientX - rect.left) / rect.width) * 2 - 1, 1 - ((e.clientY - rect.top) / rect.height) * 2);
+      const picked = hit && sdk.getObjectRecord(hit.objectId);
+      sdk.selectObject(picked?.id ?? null); // large static planes get an outline-only selection
+      status.textContent = hit ? `${picked?.name} hit at (${hit.point.map((v) => v.toFixed(1)).join(', ')})` : `${sdk.objectCount()} objects`;
+    },
+  });
 
   // Physics + render loop
   let frame = 0;
@@ -98,5 +89,5 @@ export default async function mount(host: HTMLElement) {
   };
   reset();
   tick();
-  return { sdk, dispose: () => (cancelAnimationFrame(frame), events.abort(), sdk.dispose()) };
+  return { sdk, dispose: () => (cancelAnimationFrame(frame), detach(), sdk.dispose()) };
 }

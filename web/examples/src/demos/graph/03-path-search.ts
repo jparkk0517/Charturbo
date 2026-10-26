@@ -25,7 +25,6 @@ export default async function mount(host: HTMLElement) {
   sdk.generateDefaultMetadata('svc'); // labels 'svc-0000'…, categories, tags, attributes
   sdk.warmup(150);
   sdk.fitToView();
-  sdk.zoomCamera(-80); // a little closer than the bounding-sphere fit
 
   const name = (id: number) => sdk.getNodeMetadata(id).label ?? `#${id}`;
   let start: number | null = null;
@@ -36,10 +35,10 @@ export default async function mount(host: HTMLElement) {
       : `${name(from)} and ${name(to)} are not connected`;
     sdk.render();
   };
+  // Default tooltip; drag orbits, Shift / right drag pans, wheel zooms
   sdk.enableNodeInteractions(canvas, {
     autoRender: true,
     highlightNeighborsOnClick: 0, // clicks pick path endpoints instead
-    formatTooltip: (d) => `<b>${d.label}</b><div style="color:#38bdf8">${d.metadata.category} · ${d.degree} links</div>`,
     onNodeClick: (node) => {
       if (!node) {
         start = null;
@@ -67,7 +66,7 @@ export default async function mount(host: HTMLElement) {
       const button = results.appendChild(document.createElement('button'));
       button.textContent = node.label;
       button.onclick = () => {
-        sdk.focusNode(node.id);
+        sdk.focusNode(node.id); // centers on the node and moves the camera closer
         sdk.highlightNeighbors(node.id, 1);
         status.textContent = `${node.label} (${node.metadata.category}), neighbors: ${node.neighbors.length}`;
         sdk.render();
@@ -75,22 +74,6 @@ export default async function mount(host: HTMLElement) {
     }
   };
 
-  // Mouse orbit / pan / zoom (touch gestures are built into enableNodeInteractions)
-  const events = new AbortController();
-  const signal = events.signal;
-  let last: { x: number; y: number } | null = null;
-  canvas.addEventListener('pointerdown', (e) => e.pointerType === 'mouse' && (last = { x: e.clientX, y: e.clientY }), { signal });
-  canvas.addEventListener('pointerup', () => (last = null), { signal });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!last || e.buttons === 0) return;
-    const [dx, dy] = [e.clientX - last.x, e.clientY - last.y];
-    last = { x: e.clientX, y: e.clientY };
-    if (e.shiftKey) sdk.panCamera(-dx * 0.25, dy * 0.25);
-    else sdk.rotateCamera(-dx * 0.006, dy * 0.006);
-    sdk.render();
-  }, { signal });
-  canvas.addEventListener('wheel', (e) => (e.preventDefault(), sdk.zoomCamera(e.deltaY * 0.18), sdk.render()), { passive: false, signal });
-
   tracePath(0, 1_999);
-  return { sdk, dispose: () => (events.abort(), sdk.dispose()) };
+  return { sdk, dispose: () => sdk.dispose() };
 }

@@ -1392,6 +1392,8 @@ export class VizShowcaseController {
       if (!this.active || !this.isDragging) return;
       // Touch / pen gestures (orbit, pinch, chart pan) are owned by the SDK; mouse stays here
       if (e.pointerType !== 'mouse' && this.sdk.handlesTouchGestures()) return;
+      // Graph / 3D views: the SDK's built-in camera controls orbit / pan / zoom
+      if (this.sdk.handlesCameraControls()) return;
       const dx = e.clientX - this.lastPointerX;
       const dy = e.clientY - this.lastPointerY;
       this.lastPointerX = e.clientX;

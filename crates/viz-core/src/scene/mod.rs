@@ -1,7 +1,12 @@
 use crate::renderer::{EdgeVertexRaw, MeshDraw, MeshInstanceRaw, MeshVertexRaw, SceneLightUniformRaw};
 use crate::spatial::Ray;
+use collision::{Collider, Contact};
 use glam::{Mat3, Mat4, Quat, Vec3};
 use std::f32::consts::{PI, TAU};
+
+mod collision;
+#[cfg(test)]
+mod collision_tests;
 
 /// Primitive 3D shape types supported natively by the scene engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,7 +198,7 @@ impl SceneObject {
                 intersect_local_sphere(local_origin, local_dir, 0.5)
             }
             SceneGeometry::Primitive(PrimitiveKind::Plane) => {
-                intersect_local_aabb(local_origin, local_dir, Vec3::new(0.5, 0.05, 0.5))
+                intersect_local_plane(local_origin, local_dir)
             }
             SceneGeometry::Primitive(PrimitiveKind::Box | PrimitiveKind::Cylinder) => {
                 intersect_local_aabb(local_origin, local_dir, Vec3::splat(0.5))
@@ -257,6 +262,16 @@ fn intersect_local_triangles(
     } else {
         None
     }
+}
+
+/// A plane is the infinitely thin unit square at local `y = 0` (its scale.y never thickens it).
+fn intersect_local_plane(origin: Vec3, dir: Vec3) -> Option<f32> {
+    if dir.y.abs() < 1e-6 {
+        return None;
+    }
+    let t = -origin.y / dir.y;
+    let p = origin + dir * t;
+    (t >= 0.0 && p.x.abs() <= 0.5 && p.z.abs() <= 0.5).then_some(t)
 }
 
 fn intersect_local_sphere(origin: Vec3, dir: Vec3, radius: f32) -> Option<f32> {
@@ -770,7 +785,7 @@ impl SceneWorld {
         best_id.map(|id| (id, ray.origin + ray.direction * best_t))
     }
 
-    /// Steps 3D rigid-body physics (gravity, integration, floor & AABB collision resolution).
+    /// Steps 3D rigid-body physics (gravity, integration, oriented collision resolution).
     pub fn step_physics(&mut self, dt: f32) -> f32 {
         if !self.rigid_physics_enabled || self.objects.is_empty() {
             return 0.0;
@@ -807,103 +822,34 @@ impl SceneWorld {
             obj.transform.euler_radians += obj.body.angular_velocity * clamped_dt;
         }
 
-        // 2. Resolve collisions between Dynamic bodies and all other bodies (Static & Dynamic).
-        //    Positions / extents / flags are gathered once into compact arrays (parented
-        //    colliders resolved to world space); the O(M^2) pair loop reads only those.
+        // 2. Resolve collisions of Dynamic bodies against all other bodies with oriented shapes
+        //    (collision.rs). World transforms are resolved once (parented colliders included), a
+        //    sort-and-sweep broad phase lists candidate pairs, and a few sequential passes settle
+        //    stacks. Contacts below `rest_speed` do not bounce, so resting bodies stay put.
         let len = self.objects.len();
-        let mut pos: Vec<Vec3> = Vec::with_capacity(len);
-        let mut half: Vec<Vec3> = Vec::with_capacity(len);
+        let mut world = std::mem::take(&mut self.world_scratch);
+        self.compute_world_matrices(&mut world);
+        let mut colliders: Vec<Collider> = Vec::with_capacity(len);
         let mut dynamic: Vec<bool> = Vec::with_capacity(len);
-        for o in &self.objects {
-            pos.push(if o.transform.parent_id.is_some() {
-                self.world_matrix_of(o.id).w_axis.truncate()
-            } else {
-                o.transform.position
-            });
-            half.push(o.world_half_extents());
+        let mut group: Vec<usize> = Vec::with_capacity(len);
+        for (i, o) in self.objects.iter().enumerate() {
+            colliders.push(Collider::from_object(o, &world[i]));
             dynamic.push(o.body.body_type == BodyType::Dynamic && o.transform.parent_id.is_none());
+            group.push(self.root_index(i));
         }
-        for i in 0..len {
-            for j in (i + 1)..len {
-                let a_dyn = dynamic[i];
-                let b_dyn = dynamic[j];
-                if !a_dyn && !b_dyn {
-                    continue;
-                }
+        self.world_scratch = world;
+        let mut boxes = Vec::with_capacity(len);
+        collision::aabbs(&colliders, BROADPHASE_MARGIN, &mut boxes);
+        let mut order = std::mem::take(&mut self.order_scratch);
+        let mut pairs = Vec::new();
+        collision::sweep_pairs(&boxes, &dynamic, &group, &mut order, &mut pairs);
+        self.order_scratch = order;
 
-                let pos_a = pos[i];
-                let half_a = half[i];
-                let pos_b = pos[j];
-                let half_b = half[j];
-                let delta = pos_b - pos_a;
-                let overlap = (half_a + half_b) - delta.abs();
-
-                if overlap.x > 0.0 && overlap.y > 0.0 && overlap.z > 0.0 {
-                    // Find minimum penetration axis
-                    let (normal, pen) = if overlap.y <= overlap.x && overlap.y <= overlap.z {
-                        let sign = if delta.y >= 0.0 { 1.0 } else { -1.0 };
-                        (Vec3::new(0.0, sign, 0.0), overlap.y)
-                    } else if overlap.x <= overlap.z {
-                        let sign = if delta.x >= 0.0 { 1.0 } else { -1.0 };
-                        (Vec3::new(sign, 0.0, 0.0), overlap.x)
-                    } else {
-                        let sign = if delta.z >= 0.0 { 1.0 } else { -1.0 };
-                        (Vec3::new(0.0, 0.0, sign), overlap.z)
-                    };
-
-                    let restitution = (self.objects[i].body.restitution
-                        * self.objects[j].body.restitution)
-                        .sqrt();
-                    let friction =
-                        (self.objects[i].body.friction * self.objects[j].body.friction).sqrt();
-
-                    if a_dyn && !b_dyn {
-                        self.objects[i].transform.position -= normal * pen;
-                        pos[i] = self.objects[i].transform.position;
-                        let vn = self.objects[i].body.velocity.dot(normal);
-                        if vn > 0.0 {
-                            let impulse = -(1.0 + restitution) * vn;
-                            self.objects[i].body.velocity += normal * impulse;
-                            // Apply tangential friction
-                            let tangent_v = self.objects[i].body.velocity
-                                - normal * self.objects[i].body.velocity.dot(normal);
-                            self.objects[i].body.velocity -=
-                                tangent_v * (1.0 - friction).clamp(0.02, 0.35);
-                        }
-                    } else if !a_dyn && b_dyn {
-                        self.objects[j].transform.position += normal * pen;
-                        pos[j] = self.objects[j].transform.position;
-                        let vn = self.objects[j].body.velocity.dot(normal);
-                        if vn < 0.0 {
-                            let impulse = -(1.0 + restitution) * vn;
-                            self.objects[j].body.velocity += normal * impulse;
-                            let tangent_v = self.objects[j].body.velocity
-                                - normal * self.objects[j].body.velocity.dot(normal);
-                            self.objects[j].body.velocity -=
-                                tangent_v * (1.0 - friction).clamp(0.02, 0.35);
-                        }
-                    } else {
-                        // Both dynamic
-                        let m_a = self.objects[i].body.mass;
-                        let m_b = self.objects[j].body.mass;
-                        let inv_a = 1.0 / m_a;
-                        let inv_b = 1.0 / m_b;
-                        let total_inv = inv_a + inv_b;
-
-                        self.objects[i].transform.position -= normal * (pen * (inv_a / total_inv));
-                        self.objects[j].transform.position += normal * (pen * (inv_b / total_inv));
-                        pos[i] = self.objects[i].transform.position;
-                        pos[j] = self.objects[j].transform.position;
-
-                        let rel_v = self.objects[j].body.velocity - self.objects[i].body.velocity;
-                        let vel_along_normal = rel_v.dot(normal);
-                        if vel_along_normal < 0.0 {
-                            let j_impulse = -(1.0 + restitution) * vel_along_normal / total_inv;
-                            let impulse_vec = normal * j_impulse;
-                            self.objects[i].body.velocity -= impulse_vec * inv_a;
-                            self.objects[j].body.velocity += impulse_vec * inv_b;
-                        }
-                    }
+        let rest_speed = self.gravity.length() * clamped_dt * 2.0 + 0.05;
+        for _ in 0..SOLVER_ITERATIONS {
+            for &(i, j) in &pairs {
+                if let Some(c) = collision::collide(&colliders[i], &colliders[j]) {
+                    self.resolve_contact(i, j, dynamic[i], dynamic[j], c, rest_speed, &mut colliders);
                 }
             }
         }
@@ -914,6 +860,77 @@ impl SceneWorld {
             .filter(|o| o.body.body_type == BodyType::Dynamic)
             .map(|o| 0.5 * o.body.mass * o.body.velocity.length_squared())
             .sum()
+    }
+
+    /// Index of the top-most ancestor of `idx` (itself when unparented).
+    fn root_index(&self, mut idx: usize) -> usize {
+        for _ in 0..MAX_HIERARCHY_DEPTH {
+            match self.objects[idx].transform.parent_id.and_then(|p| self.index_of(p)) {
+                Some(p) => idx = p,
+                None => break,
+            }
+        }
+        idx
+    }
+
+    /// Separates one contact (`normal` from `i` to `j`): positional correction split by inverse
+    /// mass, then a restitution impulse if the bodies approach. Against non-dynamic bodies the
+    /// tangential velocity is damped by friction; any contact damps spin the same way.
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_contact(
+        &mut self,
+        i: usize,
+        j: usize,
+        a_dyn: bool,
+        b_dyn: bool,
+        contact: Contact,
+        rest_speed: f32,
+        colliders: &mut [Collider],
+    ) {
+        let (normal, pen) = (contact.normal, contact.depth);
+        let restitution = (self.objects[i].body.restitution * self.objects[j].body.restitution).sqrt();
+        let friction = (self.objects[i].body.friction * self.objects[j].body.friction).sqrt();
+        let damp = (1.0 - friction).clamp(0.02, 0.35);
+        let bounce = |approach: f32| if approach < rest_speed { 0.0 } else { restitution };
+
+        if a_dyn != b_dyn {
+            // One dynamic body pushed out along `out` from an immovable one
+            let (k, out) = if a_dyn { (i, -normal) } else { (j, normal) };
+            self.objects[k].transform.position += out * pen;
+            colliders[k].center += out * pen;
+            let body = &mut self.objects[k].body;
+            let approach = -body.velocity.dot(out);
+            if approach > 0.0 {
+                body.velocity += out * ((1.0 + bounce(approach)) * approach);
+                let tangent_v = body.velocity - out * body.velocity.dot(out);
+                body.velocity -= tangent_v * damp;
+                body.angular_velocity -= body.angular_velocity * damp;
+            }
+            return;
+        }
+
+        // Both dynamic
+        let inv_a = 1.0 / self.objects[i].body.mass;
+        let inv_b = 1.0 / self.objects[j].body.mass;
+        let total_inv = inv_a + inv_b;
+        let (move_a, move_b) = (normal * (pen * inv_a / total_inv), normal * (pen * inv_b / total_inv));
+        self.objects[i].transform.position -= move_a;
+        self.objects[j].transform.position += move_b;
+        colliders[i].center -= move_a;
+        colliders[j].center += move_b;
+
+        let rel_v = self.objects[j].body.velocity - self.objects[i].body.velocity;
+        let vel_along_normal = rel_v.dot(normal);
+        if vel_along_normal < 0.0 {
+            let j_impulse = -(1.0 + bounce(-vel_along_normal)) * vel_along_normal / total_inv;
+            let impulse_vec = normal * j_impulse;
+            self.objects[i].body.velocity -= impulse_vec * inv_a;
+            self.objects[j].body.velocity += impulse_vec * inv_b;
+            for k in [i, j] {
+                let body = &mut self.objects[k].body;
+                body.angular_velocity -= body.angular_velocity * damp;
+            }
+        }
     }
 
     /// Monotonic revision bumped by every change that affects packed geometry or colors.
@@ -1157,7 +1174,9 @@ impl SceneWorld {
 
         let mut base_color = obj.material.color;
         let mut emissive = obj.material.emissive;
-        if is_hovered {
+        // Floors / large static backdrops: a tint would fill the view, the outline is enough
+        let tint = (is_hovered || is_selected) && !highlight_outline_only(obj, world_mat);
+        if tint && is_hovered {
             base_color = [
                 (base_color[0] + 0.25).min(1.0),
                 (base_color[1] + 0.25).min(1.0),
@@ -1165,7 +1184,7 @@ impl SceneWorld {
                 base_color[3],
             ];
             emissive = (emissive + 0.35).min(2.0);
-        } else if is_selected {
+        } else if tint {
             emissive = (emissive + 0.2).min(2.0);
         }
 
@@ -1194,9 +1213,29 @@ impl SceneWorld {
             } else {
                 [0.45, 0.92, 1.0, 0.75]
             };
-            append_wireframe_box(&mut self.helper_lines, world_mat, he, wire_color);
+            if matches!(obj.geometry, SceneGeometry::Primitive(PrimitiveKind::Plane)) {
+                // The plane slab spans local y in [-0.02, 0]: hug it instead of straddling y = 0
+                let slab = *world_mat * Mat4::from_translation(Vec3::new(0.0, -0.01, 0.0));
+                append_wireframe_box(&mut self.helper_lines, &slab, Vec3::new(0.5, 0.01, 0.5) * 1.03, wire_color);
+            } else {
+                append_wireframe_box(&mut self.helper_lines, world_mat, he, wire_color);
+            }
         }
     }
+}
+
+/// Static objects at least this wide (world half extent on x or z) are highlighted by outline only.
+const LARGE_STATIC_HALF_EXTENT: f32 = 10.0;
+
+/// Planes and large static objects skip the hover / selection tint (outline only).
+fn highlight_outline_only(obj: &SceneObject, world_mat: &Mat4) -> bool {
+    if matches!(obj.geometry, SceneGeometry::Primitive(PrimitiveKind::Plane)) {
+        return true;
+    }
+    let he = obj.base_half_extents();
+    let wide = (he.x * world_mat.x_axis.truncate().length())
+        .max(he.z * world_mat.z_axis.truncate().length());
+    obj.body.body_type == BodyType::Static && wide >= LARGE_STATIC_HALF_EXTENT
 }
 
 /// Packed scene for one upload.
@@ -1207,6 +1246,12 @@ pub struct PackedScene<'a> {
     pub draws: &'a [MeshDraw],
     pub helper_lines: &'a [EdgeVertexRaw],
 }
+
+/// Sequential contact passes per physics step (lets stacks settle without sinking).
+const SOLVER_ITERATIONS: usize = 4;
+
+/// Broad-phase AABB growth so contacts created by positional corrections are still candidates.
+const BROADPHASE_MARGIN: f32 = 0.02;
 
 /// Max parent chain length followed when resolving world matrices (guards against cycles).
 const MAX_HIERARCHY_DEPTH: usize = 32;
@@ -1355,10 +1400,11 @@ fn build_unit_box() -> (Vec<LocalVertex>, Vec<u32>) {
 }
 
 fn build_unit_plane() -> (Vec<LocalVertex>, Vec<u32>) {
-    // Thin slab centered at Y=0 so both top and bottom have clean normals and depth
+    // Thin slab just below Y=0 (clean normals and depth on both sides); its top face is the
+    // plane surface that picking and collisions use
     let (mut verts, indices) = build_unit_box();
     for v in &mut verts {
-        v.position.y *= 0.02;
+        v.position.y = v.position.y * 0.02 - 0.01;
     }
     (verts, indices)
 }
@@ -1504,7 +1550,7 @@ mod tests {
     #[test]
     fn scene_world_rigid_body_falls_and_collides_with_static_floor() {
         let mut scene = SceneWorld::new();
-        // Static floor at Y = 0 with scale (100, 2, 100) -> top surface at Y = 0.02
+        // Static floor plane at Y = 0 -> its surface (and the resting contact) is at Y = 0
         scene.add_primitive(
             PrimitiveKind::Plane,
             Vec3::ZERO,

@@ -1,5 +1,7 @@
 use glam::Vec3;
 
+mod knn;
+
 /// Portable 32-bit XorShift PRNG so Rust and TypeScript generate identical sequences.
 #[derive(Debug, Clone)]
 pub struct DeterministicRng {
@@ -1158,44 +1160,7 @@ impl GraphDataset {
         }
 
         // 7. Build Cosine-Similarity k-NN Graph Edges in D-dimensional space
-        let mut edges = Vec::new();
-        let k = k_neighbors.min(n.saturating_sub(1));
-        if k > 0 && n >= 2 {
-            // To keep interactive ingestion super fast even for large N, cap candidate window if N > 1200
-            let max_scan = 800.min(n);
-            let step = (n / max_scan).max(1);
-            let mut top_matches: Vec<(u32, f32)> = Vec::with_capacity(k + 1);
-
-            for i in 0..n {
-                top_matches.clear();
-                let row_i = &normalized[i * dim..(i + 1) * dim];
-
-                let mut idx = (i + 1) % n;
-                let mut scanned = 0;
-                while scanned < max_scan && idx != i {
-                    let row_j = &normalized[idx * dim..(idx + 1) * dim];
-                    let mut sim = 0.0f32;
-                    for d in 0..dim {
-                        sim += row_i[d] * row_j[d];
-                    }
-                    if sim >= similarity_threshold {
-                        if top_matches.len() < k {
-                            top_matches.push((idx as u32, sim));
-                            top_matches.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                        } else if sim > top_matches[k - 1].1 {
-                            top_matches[k - 1] = (idx as u32, sim);
-                            top_matches.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                        }
-                    }
-                    idx = (idx + step) % n;
-                    scanned += 1;
-                }
-
-                for &(dst, sim) in &top_matches {
-                    edges.push(EdgeData::new(i as u32, dst, sim.clamp(0.1, 2.0)));
-                }
-            }
-        }
+        let edges = knn::cosine_knn_edges(&normalized, n, dim, k_neighbors, similarity_threshold);
 
         Ok(Self {
             nodes,

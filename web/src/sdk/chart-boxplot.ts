@@ -269,11 +269,12 @@ export function whiskerLabel(w: BoxChartMeta['whiskers'], iqrFactor = 1.5): stri
 }
 
 /** Default tooltip HTML of a box / outlier hit. */
-export function boxTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, fmt: (v: number) => string, count: (v: number) => string): string {
+export function boxTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, format: (v: number) => string, count: (v: number) => string): string {
   const b = ctx.box;
   const it = ctx.items[0];
   if (!b || !it) return '';
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const fmt = (v: number) => esc(format(v));
   const swatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;flex:none;background:${it.color};"></span>`;
   const row = (label: string, v: string) => `
         <div style="display:flex;gap:12px;justify-content:space-between;">
@@ -297,8 +298,8 @@ export function boxTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, fmt: (
         ${row('Min', fmt(b.min))}
         ${row('Mean', fmt(b.mean))}
         ${whiskers}
-        ${row('n', count(b.n))}
-        ${b.violin ? '' : row('Outliers', count(b.outliers))}`;
+        ${row('n', esc(count(b.n)))}
+        ${b.violin ? '' : row('Outliers', esc(count(b.outliers)))}`;
 }
 
 // ---------------------------------------------------------------------------

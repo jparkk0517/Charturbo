@@ -252,7 +252,10 @@ async function bootstrap(): Promise<void> {
       for (const [k, v] of Object.entries(attrs)) {
         const pill = document.createElement('div');
         pill.className = 'node-attr-pill';
-        pill.innerHTML = `<span>${k}</span><strong>${String(v)}</strong>`;
+        const key = pill.appendChild(document.createElement('span'));
+        key.textContent = k;
+        const value = pill.appendChild(document.createElement('strong'));
+        value.textContent = String(v);
         attrsEl.appendChild(pill);
       }
     }
@@ -398,6 +401,7 @@ async function bootstrap(): Promise<void> {
           autoRender: true,
           // Benchmark: attachPointerControls drives both engines' cameras in sync (touch included)
           touch: false,
+          cameraControls: false,
           onNodeHover: () => {
             if (currentTask.kind === 'idle') {
               rustAdapter.sdk.render();

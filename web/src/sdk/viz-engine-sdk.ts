@@ -1,5 +1,7 @@
 import initWasm, { WasmVizEngine } from '../wasm-pkg/viz_core';
 import { createTouchGestures, isGesturePointer, type TouchInteractionOptions } from './chart-gestures';
+import { createCameraControls, resolveCameraControls, type CameraControlOptions } from './camera-controls';
+export type { CameraControlOptions } from './camera-controls';
 
 export type { TouchInteractionOptions } from './chart-gestures';
 import { ChartA11y, type ChartDataTable, type DataTableOptions } from './chart-a11y';
@@ -201,7 +203,9 @@ import {
   sendBusinessTheme,
   type BusinessChartMeta,
 } from './chart-business';
-import type { BusinessLabelLayer } from './chart-business-util';
+import { esc, type BusinessLabelLayer } from './chart-business-util';
+import { graphTooltipHtml } from './graph-tooltip';
+export { esc as escapeHtml } from './chart-business-util';
 import { radarMeta, sendRadar, type ChartRadarTooltip, type RadarChartData, type RadarChartOptions } from './chart-radar';
 import { gaugeMeta, sendGauge, type ChartGaugeTooltip, type GaugeChartData, type GaugeChartOptions } from './chart-gauge';
 import { funnelLabelSpace, funnelMeta, sendFunnel, type ChartFunnelTooltip, type FunnelChartData, type FunnelChartOptions } from './chart-funnel';
@@ -322,6 +326,9 @@ export const DEFAULT_SDK_FORCE_OPTIONS: ForceOptions = {
 export type PrimitiveShape = 'box' | 'sphere' | 'plane' | 'cylinder';
 export type RigidBodyType = 'static' | 'dynamic' | 'kinematic';
 export type Vec3Tuple = [number, number, number];
+
+/** `focusNode` default distance as a fraction of the overview (`fitToView`) distance */
+const FOCUS_DISTANCE_RATIO = 0.4;
 export type LayoutPresetMode = 'cluster-sphere' | 'radial-shells' | 'helix' | 'grid-3d';
 export type EmbeddingProjectionMode = 'pca' | 'pca-umap' | 'random-projection';
 
@@ -917,6 +924,33 @@ export interface NodeMetadata {
   attributes?: Record<string, string | number | boolean>;
 }
 
+/** Orbit camera pose (`getCameraState`). */
+export interface VizCameraState {
+  /** Point the camera orbits around and looks at */
+  target: Vec3Tuple;
+  /** Eye position */
+  eye: Vec3Tuple;
+  /** Eye-to-target distance (world units) */
+  distance: number;
+  /** Rotation around the world y axis (rad) */
+  yaw: number;
+  /** Elevation of the eye above the target (rad, within ±π/2) */
+  pitch: number;
+  /** Vertical field of view (rad) */
+  fovY: number;
+  /** Viewport width / height */
+  aspect: number;
+}
+
+export interface FocusNodeOptions {
+  /**
+   * Camera distance after focusing. Default: 40 % of the overview distance (the last `fitToView`
+   * / `setCameraPose` framing), never farther than the current distance; `false` keeps the
+   * distance (target only). Needs an engine build with `camera_state`, else only the target moves.
+   */
+  distance?: number | false;
+}
+
 export interface NodeDetails {
   id: number;
   label: string;
@@ -967,6 +1001,15 @@ export interface NodeInteractionOptions {
    * pinch zooms, two-finger drag pans, tap selects, double-tap focuses. `false` disables (default: all on).
    */
   touch?: false | TouchInteractionOptions;
+  /**
+   * Built-in camera controls of graph / point-cloud / scene views (no chart shown). Mouse: left
+   * drag orbits, Shift + left / right / middle drag pans, wheel zooms (dolly). The same switches
+   * gate the camera moves of touch gestures (drag orbit, two-finger pan, pinch zoom).
+   * `{ orbit: false }` makes a left drag pan (2D-style navigation); `false` turns every built-in
+   * camera move off (hosts driving the camera themselves). Charts keep their own wheel / drag
+   * navigation either way (default: all on).
+   */
+  cameraControls?: false | CameraControlOptions;
   /**
    * Brush / box selection on 2D charts (mouse): `'x'` selects an x interval (time range), `'xy'`
    * a rectangle (bars always brush x). While enabled, drag draws the brush and Alt + drag pans;
@@ -1144,6 +1187,8 @@ export interface WasmVizEngineBackend extends AnimationBackend, ZoomBackend, Ren
   pan_camera(deltaRight: number, deltaUp: number): void;
   fit_to_view(): void;
   focus_on_node(nodeId: number): boolean;
+  /** `[target x, y, z, distance, yaw, pitch, fov y, aspect]` of the orbit camera */
+  camera_state?(): Float32Array;
   resize(width: number, height: number): void;
   pick_node_at_ndc(ndcX: number, ndcY: number): number;
   select_box_ndc(minNdcX: number, minNdcY: number, maxNdcX: number, maxNdcY: number): Uint32Array;
@@ -2198,6 +2243,10 @@ export class VizEngineSDK {
   private disposers = new Set<() => void>();
   /** Live `enableNodeInteractions` bindings that own touch / pen gestures */
   private touchGestureOwners = 0;
+  /** Live `enableNodeInteractions` bindings with built-in camera controls (graph / 3D views) */
+  private cameraControlOwners = 0;
+  /** Camera distance of the overview framing (`fitToView` / `setCameraPose`): `focusNode` zooms relative to it */
+  private overviewDistance: number | null = null;
   /** Camera faces the XY plane (2D scatter / bar): one-finger touch drag pans instead of orbiting */
   private flatCameraView = false;
   private canvas: HTMLCanvasElement | null = null;
@@ -2533,6 +2582,8 @@ export class VizEngineSDK {
    */
   loadDataset(data: RawGraphData): void {
     this.exitChartMode();
+    // New data: the next fitToView / setCameraPose (or first focus) sets the overview again
+    this.overviewDistance = null;
     this.backend.load_raw_dataset(
       data.positions,
       data.masses ?? EMPTY_F32,
@@ -2573,6 +2624,8 @@ export class VizEngineSDK {
 
   reloadSeededDataset(seed: number, nodeCount: number, edgeCount: number, clusterCount: number): void {
     this.exitChartMode();
+    // New data: the next fitToView / setCameraPose (or first focus) sets the overview again
+    this.overviewDistance = null;
     this.backend.reload_dataset(seed, nodeCount, edgeCount, clusterCount);
   }
 
@@ -2643,7 +2696,11 @@ export class VizEngineSDK {
     if (!next) this.animDriverRef?.finish();
   }
 
-  setAutoSleep(enabled: boolean, sleepThreshold = 0.01): void {
+  /**
+   * Stops the force simulation once the layout is at rest. `sleepThreshold` = mean kinetic
+   * energy per (unpinned) node; the layout sleeps after 30 consecutive calm steps (default 0.05).
+   */
+  setAutoSleep(enabled: boolean, sleepThreshold = 0.05): void {
     this.backend.set_auto_sleep(enabled, sleepThreshold);
   }
 
@@ -2694,14 +2751,55 @@ export class VizEngineSDK {
 
   setCameraPose(eye: Vec3Tuple, target: Vec3Tuple): void {
     this.backend.set_camera_pose?.(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
+    this.overviewDistance = this.getCameraState()?.distance ?? null;
   }
 
+  /**
+   * Frames every node: centers the camera on them and sets the distance at which they fill the
+   * view from the current direction (the engine fits horizontally and vertically, so wide and
+   * tall canvases both fill). Also the overview distance `focusNode` zooms relative to.
+   */
   fitToView(): void {
     this.backend.fit_to_view();
+    this.overviewDistance = this.getCameraState()?.distance ?? null;
   }
 
-  focusNode(nodeId: number): boolean {
-    return this.backend.focus_on_node(nodeId);
+  /**
+   * Centers the camera on a node (a chart data point in chart mode) and, in graph / 3D views,
+   * moves it closer: by default to 40 % of the overview distance (`fitToView` / `setCameraPose`),
+   * never farther than it is (`options.distance` overrides; `false` keeps it). The move is
+   * immediate. Returns false for an unknown id.
+   */
+  focusNode(nodeId: number, options?: FocusNodeOptions): boolean {
+    const before = this.chartMode || options?.distance === false ? null : this.getCameraState();
+    if (!this.backend.focus_on_node(nodeId)) return false;
+    if (!before) return true;
+    // No framing yet (camera set by the engine / a host): the current distance is the overview
+    this.overviewDistance ??= before.distance;
+    const want = options?.distance;
+    const goal = typeof want === 'number' ? want : Math.min(before.distance, this.overviewDistance * FOCUS_DISTANCE_RATIO);
+    if (Number.isFinite(goal) && goal > 0 && goal !== before.distance) this.backend.zoom_camera(goal - before.distance);
+    return true;
+  }
+
+  /**
+   * Orbit camera pose: target, eye, distance, yaw / pitch, field of view and aspect. `null` on
+   * engine builds without the `camera_state` binding.
+   */
+  getCameraState(): VizCameraState | null {
+    const c = this.backend.camera_state?.();
+    if (!c || c.length < 8) return null;
+    const [tx, ty, tz, distance, yaw, pitch, fovY, aspect] = c;
+    const cp = Math.cos(pitch);
+    return {
+      target: [tx, ty, tz],
+      eye: [tx + distance * cp * Math.sin(yaw), ty + distance * Math.sin(pitch), tz + distance * cp * Math.cos(yaw)],
+      distance,
+      yaw,
+      pitch,
+      fovY,
+      aspect,
+    };
   }
 
   resize(width: number, height: number): void {
@@ -3235,6 +3333,8 @@ export class VizEngineSDK {
 
     const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     this.exitChartMode();
+    // New data: the next fitToView / setCameraPose (or first focus) sets the overview again
+    this.overviewDistance = null;
     this.backend.load_high_dim_embeddings?.(
       vectors,
       dim,
@@ -3518,6 +3618,35 @@ export class VizEngineSDK {
     const resetNav = () => nav.reset();
     this.hoverResetHooks.add(resetNav);
 
+    /** Mouse orbit / pan / wheel zoom of graph / 3D views (camera-controls.ts) */
+    const cameraOptions = resolveCameraControls(options?.cameraControls);
+    const cameraOwned = cameraOptions.orbit || cameraOptions.pan || cameraOptions.zoom;
+    const camera = createCameraControls({
+      options: cameraOptions,
+      active: () => !this.chartMode,
+      rotate: (yaw, pitch) => this.rotateCamera(yaw, pitch),
+      pan: (r, u) => this.panCamera(r, u),
+      zoom: (d) => this.zoomCamera(d),
+      unitsPerPixel: () => {
+        const c = this.getCameraState();
+        // View-plane height at the target depth / viewport height: the content tracks the pointer
+        return c ? (2 * c.distance * Math.tan(c.fovY / 2)) / Math.max(1, canvas.getBoundingClientRect().height) : null;
+      },
+      distance: () => this.getCameraState()?.distance ?? null,
+      viewHeight: () => canvas.getBoundingClientRect().height,
+      capture: (id) => {
+        try {
+          canvas.setPointerCapture?.(id);
+        } catch {
+          // Synthetic / already released pointers cannot be captured
+        }
+      },
+      setCursor: (c) => (canvas.style.cursor = c),
+      changed: () => {
+        if (autoRender) this.render();
+      },
+    });
+
     /**
      * Places the tooltip next to the pointer, flipping sides near the viewport edges.
      * `aboveFinger`: touch puts it above the contact point so the finger does not cover it.
@@ -3541,7 +3670,11 @@ export class VizEngineSDK {
       const t = this.theme;
       /** `tooltip.valueFormatter`, else `fallback` (the chart's own value format) */
       const userValue = tooltipValueFormatter(tooltipOptions, this.chartLocale());
+      // Formatted values and every data-derived string (series / category names, x labels,
+      // attributes, axis titles) are HTML-escaped: they come from user data
+      // (raw here: the chart modules' own tooltip builders escape what they interpolate)
       const valueFmt = (fallback: (v: number) => string) => userValue ?? fallback;
+      const escFmt = (f: (v: number) => string) => (v: number) => esc(f(v));
       const num = (v: number) => formatChartValue(v, this.chartLocale());
       const yFmt = valueFmt(resolveFormat(this.chartPresentation?.yAxis.format, this.chartLocale()) ?? num);
       const swatch = (color: string) =>
@@ -3550,16 +3683,16 @@ export class VizEngineSDK {
         .map(
           (it) => `
         <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;">
-          <span style="display:flex;align-items:center;color:${t.textSecondary};">${swatch(it.color)}${it.seriesName}</span>
-          <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${valueFmt(num)(it.value)}${
+          <span style="display:flex;align-items:center;color:${t.textSecondary};">${swatch(it.color)}${esc(it.seriesName)}</span>
+          <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${escFmt(valueFmt(num))(it.value)}${
             it.error
-              ? ` <span style="color:${t.textMuted};font-weight:400;">${formatBarError(it.error, valueFmt(num))}</span>`
+              ? ` <span style="color:${t.textMuted};font-weight:400;">${esc(formatBarError(it.error, valueFmt(num)))}</span>`
               : ''
           }${
             it.percent !== undefined ? ` <span style="color:${t.textMuted};font-weight:400;">${it.percent.toFixed(1)}%</span>` : ''
           }${
             it.band
-              ? ` <span style="color:${t.textMuted};font-weight:400;">${valueFmt(num)(it.band.lower)} – ${valueFmt(num)(it.band.upper)}</span>`
+              ? ` <span style="color:${t.textMuted};font-weight:400;">${escFmt(valueFmt(num))(it.band.lower)} – ${escFmt(valueFmt(num))(it.band.upper)}</span>`
               : ''
           }</span>
         </div>`
@@ -3567,7 +3700,7 @@ export class VizEngineSDK {
         .join('');
       if (ctx.ohlc) {
         const o = ctx.ohlc;
-        const fy = yFmt;
+        const fy = escFmt(yFmt);
         const row = (label: string, v: string, color = t.textPrimary) => `
         <div style="display:flex;gap:12px;justify-content:space-between;">
           <span style="color:${t.textMuted};">${label}</span>
@@ -3576,7 +3709,7 @@ export class VizEngineSDK {
         const change = o.open !== 0 ? ((o.close - o.open) / Math.abs(o.open)) * 100 : 0;
         const dir = ctx.items[0]?.color ?? t.textPrimary;
         return `
-        <div style="color:${t.textMuted};font-size:11px;margin-bottom:4px;">${ctx.xLabel}${
+        <div style="color:${t.textMuted};font-size:11px;margin-bottom:4px;">${esc(ctx.xLabel)}${
           o.count > 1 ? ` · ${o.count.toLocaleString(this.chartLocale())} candles` : ''
         }</div>
         ${row('Open', fy(o.open))}
@@ -3610,20 +3743,20 @@ export class VizEngineSDK {
           <span style="color:${t.textMuted};">${label}</span>
           <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${v}</span>
         </div>`;
-        const fx = resolveFormat(p?.xAxis.format, this.chartLocale()) ?? num;
-        const fy = yFmt;
+        const fx = escFmt(resolveFormat(p?.xAxis.format, this.chartLocale()) ?? num);
+        const fy = escFmt(yFmt);
         const head = ctx.items[0];
         return `
-        <div style="display:flex;align-items:center;color:${t.textSecondary};margin-bottom:4px;">${head ? swatch(head.color) + head.seriesName : ''}</div>
-        ${coord(p?.xAxis.title ?? 'x', fx(ctx.point.x))}
-        ${coord(p?.yAxis.title ?? 'y', fy(ctx.point.y))}
+        <div style="display:flex;align-items:center;color:${t.textSecondary};margin-bottom:4px;">${head ? swatch(head.color) + esc(head.seriesName) : ''}</div>
+        ${coord(esc(p?.xAxis.title ?? 'x'), fx(ctx.point.x))}
+        ${coord(esc(p?.yAxis.title ?? 'y'), fy(ctx.point.y))}
       `;
       }
       const total =
         ctx.total !== undefined
           ? `<div style="display:flex;gap:12px;justify-content:space-between;margin-top:4px;padding-top:4px;border-top:1px solid ${t.tooltipBorder};">
           <span style="color:${t.textMuted};">Total</span>
-          <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${valueFmt(num)(ctx.total)}</span>
+          <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${escFmt(valueFmt(num))(ctx.total)}</span>
         </div>`
           : '';
       // Single-series bars list their item attributes; multi-series bars list the column instead
@@ -3633,12 +3766,12 @@ export class VizEngineSDK {
               .filter(([k]) => k !== 'value')
               .map(
                 ([k, v]) =>
-                  `<div style="color:${t.textMuted};font-size:11px;">${k}: <span style="color:${t.textSecondary};">${v}</span></div>`
+                  `<div style="color:${t.textMuted};font-size:11px;">${esc(k)}: <span style="color:${t.textSecondary};">${esc(String(v))}</span></div>`
               )
               .join('')
           : '';
       return `
-        <div style="color:${t.textMuted};font-size:11px;margin-bottom:4px;">${ctx.xLabel}</div>
+        <div style="color:${t.textMuted};font-size:11px;margin-bottom:4px;">${esc(ctx.xLabel)}</div>
         ${rows}
         ${total}
         ${extra ? `<div style="margin-top:4px;">${extra}</div>` : ''}
@@ -3672,17 +3805,9 @@ export class VizEngineSDK {
       placeTooltip(rect.left + (ndc[0] * 0.5 + 0.5) * rect.width, rect.top + (0.5 - ndc[1] * 0.5) * rect.height);
     };
 
-    const defaultFormatTooltip = (d: NodeDetails): string => {
-      const [x, y, z] = d.position;
-      const cat = d.metadata.category ? `<span style="color:#38bdf8">${d.metadata.category}</span>` : '';
-      return `
-        <div style="font-weight:700;color:#fff;margin-bottom:2px;">${d.label} <span style="color:#94a3b8;font-weight:400;">(#${d.id})</span></div>
-        ${cat ? `<div style="font-size:10.5px;margin-bottom:4px;">${cat} · Cluster ${d.clusterId}</div>` : `<div style="font-size:10.5px;color:#94a3b8;margin-bottom:4px;">Cluster ${d.clusterId}</div>`}
-        <div style="color:#cbd5e1;">연결 차수(Degree): <b>${d.degree}</b> (이웃 ${d.neighbors.length}개)</div>
-        <div style="color:#94a3b8;font-size:10.5px;">좌표: (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})</div>
-        <div style="color:#38bdf8;font-size:10px;margin-top:3px;">클릭하여 상세 데이터 및 이웃 노드 확인</div>
-      `;
-    };
+    // Data-derived text is escaped; fixed strings follow the locale (graph-tooltip.ts)
+    const defaultFormatTooltip = (d: NodeDetails): string =>
+      graphTooltipHtml(d, this.theme, this.chartLocale(), neighborHops > 0);
 
     /**
      * Chart hit-test runs in the engine (which also draws crosshair / markers / bar highlight);
@@ -3811,6 +3936,8 @@ export class VizEngineSDK {
       // Skip raycast while dragging; a navigable chart pans its x axis instead of the camera
       if (e.buttons !== 0) {
         hideTooltip();
+        // Graph / 3D view: orbit or pan
+        if (camera.pointerMove(e)) return;
         // Live box zoom rectangle
         if (zoom.pointerMove(e)) return;
         if (brushFrom && this.chartBrushMode) {
@@ -3930,6 +4057,8 @@ export class VizEngineSDK {
         }
         return;
       }
+      // Graph / 3D view: a camera drag may start (a release within 5 px is still a click)
+      camera.pointerDown(e);
       if (e.button === 0) {
         downPos = { x: e.clientX, y: e.clientY };
         // Brush mode: plain drag brushes, Alt + drag navigates
@@ -3942,8 +4071,18 @@ export class VizEngineSDK {
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      // A camera drag (past its slop) is never a click, wherever it is released
+      const orbited = camera.dragging();
+      camera.pointerUp();
       if (nav.pointerUp(e)) return;
       if (gestures?.pointerUp(e)) return;
+      if (orbited) {
+        downPos = null;
+        panLastX = null;
+        // Hover state is from before the drag; the next move updates it
+        canvas.style.cursor = lastHoveredId !== null ? 'pointer' : brushing() ? 'crosshair' : 'grab';
+        return;
+      }
       const boxed = zoom.pointerUp(e);
       if (boxed === 'click') {
         // A box press too small to zoom is a plain click (node click, tooltip pin)
@@ -4059,18 +4198,21 @@ export class VizEngineSDK {
     };
 
     const onLostCapture = (e: PointerEvent) => {
+      camera.pointerUp();
       nav.pointerUp(e);
       // A box whose release never arrives must not swallow the next drag
       zoom.cancel();
     };
     const onPointerCancel = (e: PointerEvent) => {
+      camera.pointerUp();
       zoom.cancel();
       if (nav.pointerUp(e)) return;
       gestures?.pointerCancel(e);
     };
-    // Android long-press would otherwise open the context menu mid-scrub
+    // Android long-press would otherwise open the context menu mid-scrub; a right-button
+    // drag pans a graph / 3D view
     const onContextMenu = (e: Event) => {
-      if (lastPointerType !== 'mouse') e.preventDefault();
+      if (lastPointerType !== 'mouse' ? gestures !== null : camera.wantsContextMenuBlocked()) e.preventDefault();
     };
 
     /** Touch / pen gestures (chart-gestures.ts); mouse keeps the handlers above. */
@@ -4086,7 +4228,9 @@ export class VizEngineSDK {
                   : // Fixed 2D layouts (no zoom / reset): a drag must not pan the framing camera
                     this.sparkline || this.chartMode === 'pie' || this.chartMode === 'box' || isBusinessKind(this.chartMode) || this.isHierarchyChart()
                     ? 'none'
-                    : this.flatCameraView ? 'flat' : 'orbit',
+                    : this.flatCameraView ? 'flat'
+                      // Graph / 3D view with `cameraControls.orbit` off: a drag pans
+                      : this.chartMode || cameraOptions.orbit ? 'orbit' : 'flat',
               canvasWidth: () => canvas.getBoundingClientRect().width,
               canvasHeight: () => canvas.getBoundingClientRect().height,
               toNdcX: (clientX) => toNdc({ clientX, clientY: 0 })[0],
@@ -4095,9 +4239,16 @@ export class VizEngineSDK {
               zoomChartX: (f, ndcX) => this.zoomChartX(f, ndcX),
               panChartXY: (dx, dy) => this.panChartXY(dx, dy),
               zoomChartXY: (f, ndcX, ndcY) => this.zoomChartXY(f, ndcX, ndcY),
-              rotateCamera: (yaw, pitch) => this.rotateCamera(yaw, pitch),
-              panCamera: (r, u) => this.panCamera(r, u),
-              zoomCamera: (d) => this.zoomCamera(d),
+              // `cameraControls` switches gate the graph / 3D view camera (3D charts keep orbiting)
+              rotateCamera: (yaw, pitch) => {
+                if (this.chartMode || cameraOptions.orbit) this.rotateCamera(yaw, pitch);
+              },
+              panCamera: (r, u) => {
+                if (this.chartMode || cameraOptions.pan) this.panCamera(r, u);
+              },
+              zoomCamera: (d) => {
+                if (this.chartMode || cameraOptions.zoom) this.zoomCamera(d);
+              },
               showTooltipAt: (clientX, clientY) => hoverAt({ clientX, clientY }, true),
               clearTooltip: () => {
                 tooltipPinned = false;
@@ -4116,6 +4267,13 @@ export class VizEngineSDK {
 
     // Wheel zooms the x axis of a navigable chart around the pointer (the page must not scroll)
     const onWheel = (e: WheelEvent) => {
+      // Graph / 3D view: dolly the camera (the page must not scroll)
+      if (camera.wheel(e)) {
+        e.preventDefault();
+        gestures?.stopFling();
+        hideTooltip();
+        return;
+      }
       if (!navigating()) return;
       e.preventDefault();
       gestures?.stopFling();
@@ -4159,11 +4317,13 @@ export class VizEngineSDK {
     if (gestures) {
       canvas.style.touchAction = 'none';
       canvas.addEventListener('pointercancel', onPointerCancel);
-      canvas.addEventListener('contextmenu', onContextMenu);
       // Scene / chart replaced: an old fling must not move the new view
       this.hoverResetHooks.add(stopFling);
       this.touchGestureOwners++;
     }
+    const blocksContextMenu = gestures !== null || cameraOptions.pan;
+    if (blocksContextMenu) canvas.addEventListener('contextmenu', onContextMenu);
+    if (cameraOwned) this.cameraControlOwners++;
 
     let detached = false;
     const detach = () => {
@@ -4175,9 +4335,12 @@ export class VizEngineSDK {
         gestures.reset();
         canvas.style.touchAction = prevTouchAction;
         canvas.removeEventListener('pointercancel', onPointerCancel);
-        canvas.removeEventListener('contextmenu', onContextMenu);
         this.touchGestureOwners--;
       }
+      if (blocksContextMenu) canvas.removeEventListener('contextmenu', onContextMenu);
+      if (cameraOwned) this.cameraControlOwners--;
+      if (camera.dragging()) canvas.style.cursor = '';
+      camera.reset();
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointerup', onPointerUp);
@@ -5263,6 +5426,14 @@ export class VizEngineSDK {
     return this.touchGestureOwners > 0;
   }
 
+  /**
+   * True while built-in camera controls (`enableNodeInteractions` `cameraControls`) drive the
+   * camera of the current graph / 3D view: hosts should skip their own camera drag / wheel handling.
+   */
+  handlesCameraControls(): boolean {
+    return this.cameraControlOwners > 0 && !this.chartMode;
+  }
+
   /** Detaches every interaction, removes overlay DOM, and releases the WASM engine. */
   dispose(): void {
     leaveSyncGroup(this);
@@ -5622,6 +5793,7 @@ export class VizEngineSDK {
     this.objectRecords.clear();
     this.backend.clear_scene_objects?.();
     this.exitChartMode();
+    this.overviewDistance = null;
     for (const hook of this.hoverResetHooks) hook();
   }
 

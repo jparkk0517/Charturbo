@@ -1,4 +1,4 @@
-import { VizEngineSDK, type NodeMetadata, type RawGraphData } from 'viz-engine-sdk';
+import { VizEngineSDK, escapeHtml, type NodeMetadata, type RawGraphData } from 'viz-engine-sdk';
 
 export const meta = {
   title: 'Force-directed service network',
@@ -41,8 +41,6 @@ function serviceNetwork(n: number): { graph: RawGraphData; metadata: NodeMetadat
   return { graph: { positions, clusters, edges: Uint32Array.from(edges) }, metadata };
 }
 
-const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-
 export default async function mount(host: HTMLElement) {
   const toolbar = host.appendChild(document.createElement('div'));
   toolbar.className = 'toolbar';
@@ -56,8 +54,8 @@ export default async function mount(host: HTMLElement) {
     const { graph, metadata } = serviceNetwork(n);
     sdk.loadDataset(graph);
     sdk.setNodeMetadata(metadata);
-    // Stop simulating once the layout is at rest (threshold = total kinetic energy)
-    sdk.setAutoSleep(true, n * 0.5);
+    // Stop simulating once the layout is at rest (mean kinetic energy per node, default threshold)
+    sdk.setAutoSleep(true);
     sdk.warmup(40); // settle the layout a bit before the first frame
     sdk.fitToView();
     sdk.wakeUp();
@@ -72,13 +70,15 @@ export default async function mount(host: HTMLElement) {
   }
   toolbar.appendChild(status);
 
+  // Built-in controls: drag orbits, Shift / right drag pans, wheel zooms, double-click focuses
   const detach = sdk.enableNodeInteractions(canvas, {
     builtInTooltip: true,
     highlightNeighborsOnClick: 1,
     focusOnDoubleClick: true,
     autoRender: true,
+    // Custom tooltip HTML: escape data-derived text (the built-in tooltip does this itself)
     formatTooltip: (d) => {
-      const rows = Object.entries(d.metadata.attributes ?? {}).map(([k, v]) => `<div>${k}: <b>${v}</b></div>`);
+      const rows = Object.entries(d.metadata.attributes ?? {}).map(([k, v]) => `<div>${escapeHtml(k)}: <b>${escapeHtml(String(v))}</b></div>`);
       return `<b>${escapeHtml(d.label)}</b><div style="color:#38bdf8">${escapeHtml(d.metadata.category ?? '')} · ${d.degree} links</div>${rows.join('')}`;
     },
     onNodeClick: (node) => {
@@ -88,22 +88,6 @@ export default async function mount(host: HTMLElement) {
       if (!node) sdk.clearSelection();
     },
   });
-
-  // Mouse orbit / pan / zoom (touch gestures are built into enableNodeInteractions)
-  const events = new AbortController();
-  const signal = events.signal;
-  let last: { x: number; y: number } | null = null;
-  canvas.addEventListener('pointerdown', (e) => e.pointerType === 'mouse' && (last = { x: e.clientX, y: e.clientY }), { signal });
-  canvas.addEventListener('pointerup', () => (last = null), { signal });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!last || e.buttons === 0) return;
-    const [dx, dy] = [e.clientX - last.x, e.clientY - last.y];
-    last = { x: e.clientX, y: e.clientY };
-    if (e.shiftKey) sdk.panCamera(-dx * 0.25, dy * 0.25);
-    else sdk.rotateCamera(-dx * 0.006, dy * 0.006);
-    sdk.render();
-  }, { signal });
-  canvas.addEventListener('wheel', (e) => (e.preventDefault(), sdk.zoomCamera(e.deltaY * 0.18), sdk.render()), { passive: false, signal });
 
   // Simulation loop: steps the forces until the layout sleeps, then only renders on input
   let frame = 0;
@@ -116,5 +100,5 @@ export default async function mount(host: HTMLElement) {
   };
   load(5_000);
   tick();
-  return { sdk, dispose: () => (cancelAnimationFrame(frame), events.abort(), detach(), sdk.dispose()) };
+  return { sdk, dispose: () => (cancelAnimationFrame(frame), detach(), sdk.dispose()) };
 }

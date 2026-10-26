@@ -61,18 +61,8 @@ export default async function mount(host: HTMLElement) {
   }
   applyLights();
 
-  // Mouse orbit / zoom
-  const events = new AbortController();
-  const signal = events.signal;
-  let last: { x: number; y: number } | null = null;
-  canvas.addEventListener('pointerdown', (e) => (last = { x: e.clientX, y: e.clientY }), { signal });
-  canvas.addEventListener('pointerup', () => (last = null), { signal });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!last || e.buttons === 0) return;
-    sdk.rotateCamera(-(e.clientX - last.x) * 0.006, (e.clientY - last.y) * 0.006);
-    last = { x: e.clientX, y: e.clientY };
-  }, { signal });
-  canvas.addEventListener('wheel', (e) => (e.preventDefault(), sdk.zoomCamera(e.deltaY * 0.18)), { passive: false, signal });
+  // Built-in orbit (drag), pan (Shift / right drag) and zoom (wheel)
+  const detach = sdk.enableNodeInteractions(canvas, { builtInTooltip: false, focusOnDoubleClick: false });
 
   // Animate: the point light circles, the torus spins
   let frame = 0;
@@ -85,5 +75,5 @@ export default async function mount(host: HTMLElement) {
     frame = requestAnimationFrame(tick);
   };
   tick();
-  return { sdk, dispose: () => (cancelAnimationFrame(frame), events.abort(), sdk.dispose()) };
+  return { sdk, dispose: () => (cancelAnimationFrame(frame), detach(), sdk.dispose()) };
 }

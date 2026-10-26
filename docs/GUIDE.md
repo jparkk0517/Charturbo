@@ -898,9 +898,21 @@ sdk.enableNodeInteractions(canvas, {
       console.log('선택된 노드:', details.label, '속성:', details.metadata);
     }
   },
+  // 내장 카메라 조작 (기본값: 모두 켜짐)
+  cameraControls: { orbit: true, pan: true, zoom: true },
 });
 
 sdk.applyLayout('cluster-sphere', 85);
 sdk.fitToView();
 sdk.render();
+
+// 카메라 상태 · 포커스
+sdk.focusNode(42);                    // 노드로 이동 + 개요 거리의 40 %까지 접근
+sdk.focusNode(42, { distance: 60 });  // 거리 지정 (`false` = 거리 유지)
+const cam = sdk.getCameraState();     // { target, eye, distance, yaw, pitch, fovY, aspect } | null
 ```
+
+- **내장 카메라 조작 (`cameraControls`, `camera-controls.ts`)**: 그래프 · 포인트 클라우드 · 3D 장면(차트가 없을 때)에서 마우스 왼쪽 드래그 = 궤도 회전, Shift + 드래그 · 오른쪽 · 가운데 드래그 = 팬(포인터 아래 내용이 따라옴), 휠 = 줌(현재 거리에 비례, 페이지 스크롤 없음). 드래그 중에는 포인터 캡처로 캔버스 밖에서 놓아도 드래그가 끝나고, 5 px 이내로 놓으면 클릭(노드 선택)으로 처리됩니다. `{ orbit: false }` = 왼쪽 드래그가 팬(2D식 탐색), `{ pan: false }` / `{ zoom: false }` = 해당 조작만 끔, `cameraControls: false` = 내장 카메라 조작 전부 끔(직접 카메라를 다루는 호스트용). 같은 스위치가 터치 제스처의 카메라 이동(드래그 회전 · 두 손가락 팬 · 핀치 줌)에도 적용됩니다. 차트의 휠 · 드래그 탐색은 그대로이며, 오른쪽 드래그 팬을 위해 그래프 뷰에서는 캔버스 컨텍스트 메뉴가 열리지 않습니다. 직접 포인터 핸들러를 가진 호스트는 `sdk.handlesCameraControls()`가 true일 때 자기 카메라 처리를 건너뛰면 됩니다. `enableNodeInteractions`가 반환한 함수(또는 `dispose()`)가 리스너를 모두 해제합니다.
+- **프레이밍**: `fitToView()`는 현재 방향에서 모든 노드가 가로 · 세로 중 더 빡빡한 FOV 기준으로 뷰를 채우도록(여백 10 %) 거리를 정합니다(넓은 캔버스도 꽉 참). `focusNode` / 더블클릭 포커스는 대상을 옮기고 개요 거리(마지막 `fitToView` / `setCameraPose`)의 40 %까지 즉시 다가갑니다(이미 더 가까우면 유지). `getCameraState()`와 거리 기반 줌 · 팬 · 포커스 거리는 엔진의 `camera_state` 바인딩이 필요하며, 없는 빌드에서는 `null` / 고정 이득 / 대상만 이동으로 동작합니다.
+- **기본 툴팁 (`graph-tooltip.ts`)**: 라벨 · `#id`, 카테고리 · 클러스터, 연결 차수, 이웃 수, 좌표, 태그, 속성(최대 6개)을 테마 텍스트 색으로 표시합니다. 라벨 · 카테고리 · 태그 · 속성 키/값 등 데이터에서 온 문자열은 모두 HTML 이스케이프되어 텍스트로만 렌더링됩니다(`<img onerror=…>` 같은 라벨도 실행되지 않음). 고정 문구는 SDK / 차트 로캘을 따릅니다(`ko*` = 한국어, 그 외 = 영어 기본), 숫자는 해당 로캘 형식. 차트 기본 툴팁도 시리즈 이름 · x 라벨 · 속성 · 축 제목 · 형식화된 값(`tooltip.valueFormatter` 반환값 포함, HTML이 아닌 텍스트로 표시)을 이스케이프합니다.
+- **커스텀 툴팁**: `formatTooltip` / `formatChartTooltip`이 반환한 HTML은 그대로 `innerHTML`에 들어가므로, 데이터 문자열은 내보낸 `escapeHtml`로 감싸세요: ``formatTooltip: (d) => `<b>${escapeHtml(d.label)}</b>` ``.

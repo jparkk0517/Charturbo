@@ -17,6 +17,7 @@ mod lib_animation;
 mod lib_svg;
 mod lib_zoom;
 mod lib_stats;
+mod lib_camera;
 pub mod physics;
 pub mod renderer;
 pub mod scene;
@@ -276,6 +277,9 @@ impl WasmVizEngine {
         self.inner.step_physics(dt)
     }
 
+    /// Auto-sleep for the graph layout. `sleep_threshold` is the MEAN kinetic energy per free
+    /// (unpinned) node, `0.5 * mass * speed^2`, so the same value works at any node count; the
+    /// layout sleeps after 30 consecutive steps below it and wakes on any edit / `wake_up`.
     pub fn set_auto_sleep(&mut self, enabled: bool, sleep_threshold: f32) {
         self.inner.set_auto_sleep(enabled, sleep_threshold);
     }

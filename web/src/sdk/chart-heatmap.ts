@@ -333,7 +333,7 @@ export function heatmapTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, fo
         <div style="color:${theme.textMuted};font-size:11px;margin-bottom:4px;">${esc(cell.yLabel)} · ${esc(cell.xLabel)}</div>
         <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;">
           <span style="display:flex;align-items:center;color:${theme.textSecondary};">${swatch}${esc(it.seriesName)}</span>
-          <span style="color:${theme.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${formatValue(it.value)}</span>
+          <span style="color:${theme.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${esc(formatValue(it.value))}</span>
         </div>`;
 }
 

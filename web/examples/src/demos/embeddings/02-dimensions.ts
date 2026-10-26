@@ -16,6 +16,7 @@ export default async function mount(host: HTMLElement) {
   const canvas = chart.appendChild(document.createElement('canvas'));
   const sdk = await VizEngineSDK.create(canvas, { nodeCount: 0, edgeCount: 0, locale: 'en-US' });
   sdk.setHelpers({ showAxes: true, axesLength: 85 });
+  // Built-in orbit / pan / zoom
   sdk.enableNodeInteractions(canvas, {
     autoRender: true,
     formatTooltip: (d) => `<b>vector #${d.id}</b><div style="color:#38bdf8">cluster ${d.clusterId} · ${d.degree} neighbors</div>`,
@@ -37,29 +38,17 @@ export default async function mount(host: HTMLElement) {
   }
   toolbar.appendChild(status);
 
-  // Mouse orbit / zoom; the camera turns slowly while idle
-  const events = new AbortController();
-  const signal = events.signal;
-  let last: { x: number; y: number } | null = null;
-  canvas.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'mouse') return;
-    last = { x: e.clientX, y: e.clientY };
-    canvas.setPointerCapture(e.pointerId); // the release lands here even outside the canvas
-  }, { signal });
-  canvas.addEventListener('pointerup', () => (last = null), { signal });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!last || e.buttons === 0) return;
-    sdk.rotateCamera(-(e.clientX - last.x) * 0.006, (e.clientY - last.y) * 0.006);
-    last = { x: e.clientX, y: e.clientY };
-  }, { signal });
-  canvas.addEventListener('wheel', (e) => (e.preventDefault(), sdk.zoomCamera(e.deltaY * 0.18)), { passive: false, signal });
+  // The camera turns slowly while the pointer is away
+  let hovering = false;
+  canvas.onpointerenter = () => (hovering = true);
+  canvas.onpointerleave = () => (hovering = false);
   let frame = 0;
   const tick = () => {
-    if (!last) sdk.rotateCamera(0.0025, 0);
+    if (!hovering) sdk.rotateCamera(0.0025, 0);
     sdk.render();
     frame = requestAnimationFrame(tick);
   };
   load(1536);
   tick();
-  return { sdk, dispose: () => (cancelAnimationFrame(frame), events.abort(), sdk.dispose()) };
+  return { sdk, dispose: () => (cancelAnimationFrame(frame), sdk.dispose()) };
 }

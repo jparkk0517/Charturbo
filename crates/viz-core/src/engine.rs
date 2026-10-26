@@ -23,6 +23,10 @@ use glam::Vec3;
 #[path = "engine_chart_ext.rs"]
 mod chart_ext;
 
+#[cfg(test)]
+#[path = "engine_sleep_tests.rs"]
+mod sleep_tests;
+
 /// Per-frame telemetry produced by `VisualizationEngine`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FrameTelemetry {
@@ -54,6 +58,12 @@ struct ScenePackKey {
     eye: Option<[f32; 3]>,
 }
 
+/// Consecutive calm layout steps (~0.5 s at 60 fps) before auto-sleep engages.
+pub const SLEEP_CALM_STEPS: u32 = 30;
+
+/// Share of the view `fit_to_view` fills (0.9 = 5 % margin on each side).
+const FIT_VIEW_MARGIN: f32 = 0.9;
+
 /// Facade coordinating `GraphDataset`, `SceneWorld`, `LayoutSimulator`, `OrbitCamera`, `InstancePacker`, and `RenderBackend`.
 pub struct VisualizationEngine {
     dataset: GraphDataset,
@@ -72,6 +82,8 @@ pub struct VisualizationEngine {
     auto_sleep_enabled: bool,
     sleep_threshold: f32,
     sleeping: bool,
+    /// Consecutive layout steps whose mean per-node kinetic energy stayed under the threshold
+    calm_steps: u32,
     viewport_px: (u32, u32),
     pixel_ratio: f32,
     node_hover_style: NodeHoverStyle,
@@ -112,6 +124,7 @@ impl VisualizationEngine {
             auto_sleep_enabled: false,
             sleep_threshold: 0.01,
             sleeping: false,
+            calm_steps: 0,
             viewport_px: (1, 1),
             pixel_ratio: 1.0,
             node_hover_style: NodeHoverStyle::default(),
@@ -129,7 +142,7 @@ impl VisualizationEngine {
         self.simulator.rebuild_spatial_index(&self.dataset);
         self.index_dirty = false;
         self.hovered_node = None;
-        self.sleeping = false;
+        self.wake_up();
     }
 
     pub fn load_raw_dataset(
@@ -154,7 +167,7 @@ impl VisualizationEngine {
         self.simulator.rebuild_spatial_index(&self.dataset);
         self.index_dirty = false;
         self.hovered_node = None;
-        self.sleeping = false;
+        self.wake_up();
         Ok(())
     }
 
@@ -166,14 +179,14 @@ impl VisualizationEngine {
         self.dataset.import_positions(positions)?;
         self.simulator.rebuild_spatial_index(&self.dataset);
         self.index_dirty = false;
-        self.sleeping = false;
+        self.wake_up();
         Ok(())
     }
 
     /// Runs `ticks` simulation iterations headlessly without rendering, returning final kinetic energy.
     pub fn warmup(&mut self, ticks: usize, dt: f32) -> f32 {
         self.ensure_spatial_index();
-        self.sleeping = false;
+        self.wake_up();
         for _ in 0..ticks {
             self.simulator.step(&mut self.dataset, dt);
         }
@@ -194,18 +207,33 @@ impl VisualizationEngine {
             .simulator
             .kinetic_energy()
             .unwrap_or_else(|| self.dataset.total_kinetic_energy());
-        if self.auto_sleep_enabled && ke < self.sleep_threshold {
-            self.sleeping = true;
+        if self.auto_sleep_enabled {
+            // Per free node, so one threshold means the same "settled" at 50 or 50k nodes
+            let free = self.dataset.nodes().iter().filter(|n| !n.is_pinned()).count();
+            let mean_ke = if free == 0 { 0.0 } else { ke / free as f32 };
+            if mean_ke < self.sleep_threshold {
+                self.calm_steps += 1;
+            } else {
+                self.calm_steps = 0;
+            }
+            // A layout released from rest is briefly slow on its first steps: require a calm streak
+            if self.calm_steps >= SLEEP_CALM_STEPS {
+                self.sleeping = true;
+            }
         }
         ke + scene_ke
     }
 
+    /// `sleep_threshold` is the mean kinetic energy per free (unpinned) node, `0.5 * m * v^2`;
+    /// the layout sleeps after `SLEEP_CALM_STEPS` consecutive steps below it.
     pub fn set_auto_sleep(&mut self, enabled: bool, sleep_threshold: f32) {
-        self.auto_sleep_enabled = enabled;
-        self.sleep_threshold = sleep_threshold.max(0.0);
-        if !enabled {
-            self.sleeping = false;
+        let threshold = sleep_threshold.max(0.0);
+        // Re-sending the same settings (e.g. every frame) must not keep the layout awake
+        if enabled != self.auto_sleep_enabled || threshold != self.sleep_threshold {
+            self.wake_up();
         }
+        self.auto_sleep_enabled = enabled;
+        self.sleep_threshold = threshold;
     }
 
     pub fn is_sleeping(&self) -> bool {
@@ -214,6 +242,7 @@ impl VisualizationEngine {
 
     pub fn wake_up(&mut self) {
         self.sleeping = false;
+        self.calm_steps = 0;
     }
 
     pub fn force_config(&self) -> ForceConfig {
@@ -222,7 +251,7 @@ impl VisualizationEngine {
 
     pub fn set_force_config(&mut self, config: ForceConfig) {
         self.simulator.set_force_config(config);
-        self.sleeping = false;
+        self.wake_up();
     }
 
     pub fn set_frustum_culling(&mut self, enabled: bool) {
@@ -396,9 +425,17 @@ impl VisualizationEngine {
         self.scene.raycast_object(&ray)
     }
 
+    /// Frames every node from the current view direction, filling the view on its tighter axis
+    /// (horizontal or vertical) with a 10 % margin.
     pub fn fit_to_view(&mut self) {
         let (center, radius) = self.dataset.compute_bounding_sphere();
-        self.camera.fit_to_bounds(center, radius);
+        let points = self.dataset.nodes().iter().map(|n| n.position());
+        self.camera.fit_to_points(center, points, radius, FIT_VIEW_MARGIN);
+    }
+
+    /// The orbit camera (pose, projection).
+    pub fn camera(&self) -> &OrbitCamera {
+        &self.camera
     }
 
     /// Centers the camera on a graph node, or on a chart data point (global id) in chart mode.
@@ -1145,7 +1182,7 @@ impl VisualizationEngine {
     pub fn set_node_pinned(&mut self, node_id: u32, pinned: bool) -> bool {
         let ok = self.dataset.set_node_pinned(node_id, pinned);
         if ok {
-            self.sleeping = false;
+            self.wake_up();
         }
         ok
     }
@@ -1154,7 +1191,7 @@ impl VisualizationEngine {
         let ok = self.dataset.set_node_position(node_id, position);
         if ok {
             self.index_dirty = true;
-            self.sleeping = false;
+            self.wake_up();
         }
         ok
     }
@@ -1209,7 +1246,7 @@ impl VisualizationEngine {
         self.dataset.apply_preset_layout(layout_kind, space_radius);
         self.simulator.rebuild_spatial_index(&self.dataset);
         self.index_dirty = false;
-        self.sleeping = false;
+        self.wake_up();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1236,7 +1273,7 @@ impl VisualizationEngine {
         self.leave_chart_mode();
         self.dataset = ds;
         self.hovered_node = None;
-        self.sleeping = false;
+        self.wake_up();
         self.simulator.rebuild_spatial_index(&self.dataset);
         self.index_dirty = false;
         if warmup_ticks > 0 {
@@ -1525,9 +1562,11 @@ mod tests {
         assert!(ke > 0.0);
         assert_eq!(mock_state.borrow().rendered_frames, 0);
 
-        // Enable auto-sleep with a very high threshold so next step puts engine to sleep
+        // Enable auto-sleep with a very high threshold: sleeps once the calm streak completes
         engine.set_auto_sleep(true, 1e9);
-        engine.step_physics(0.016);
+        for _ in 0..SLEEP_CALM_STEPS {
+            engine.step_physics(0.016);
+        }
         assert!(engine.is_sleeping());
 
         // Moving a node wakes the engine back up

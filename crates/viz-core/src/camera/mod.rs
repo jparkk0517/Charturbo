@@ -44,6 +44,21 @@ impl OrbitCamera {
     }
 
     #[inline]
+    pub fn yaw(&self) -> f32 {
+        self.yaw
+    }
+
+    #[inline]
+    pub fn pitch(&self) -> f32 {
+        self.pitch
+    }
+
+    #[inline]
+    pub fn fov_y(&self) -> f32 {
+        self.fov_y_radians
+    }
+
+    #[inline]
     pub fn set_distance(&mut self, distance: f32) {
         self.distance = distance.clamp(5.0, 5000.0);
     }
@@ -123,6 +138,34 @@ impl OrbitCamera {
         let half_fov = (self.fov_y_radians * 0.5).max(0.1);
         let required_dist = (radius.max(1.0) / half_fov.sin()) * 1.18;
         self.distance = required_dist.clamp(5.0, 5000.0);
+        self.z_far = (self.distance + radius * 3.0).max(2000.0);
+    }
+
+    /// Centers the camera on `center` and, keeping the view direction, sets the smallest distance at
+    /// which every point projects inside `margin` (1.0 = edge to edge) of the view on both axes:
+    /// each point is checked against the vertical and the horizontal FOV, so content fills wide
+    /// and tall viewports alike (a bounding-sphere fit leaves wide views mostly empty).
+    /// `radius` (bounding sphere) only sizes the far plane. No points: `fit_to_bounds`.
+    pub fn fit_to_points(&mut self, center: Vec3, points: impl IntoIterator<Item = Vec3>, radius: f32, margin: f32) {
+        self.target = center;
+        let (right, up) = self.billboard_axes();
+        let back = (self.eye_position() - center).normalize_or_zero();
+        let tan_y = (self.fov_y_radians * 0.5).tan().max(1e-3) * margin.max(0.05);
+        let tan_x = tan_y * self.aspect;
+        let mut dist = f32::NEG_INFINITY;
+        for p in points {
+            let v = p - center;
+            // Depth from the eye is `dist - z`: |x| <= (dist - z) * tan_x, |y| <= (dist - z) * tan_y
+            let z = v.dot(back);
+            let need = (v.dot(right).abs() / tan_x).max(v.dot(up).abs() / tan_y);
+            // Keep the point clear of the near plane too
+            dist = dist.max(z + need.max(self.z_near * 2.0));
+        }
+        if !dist.is_finite() {
+            self.fit_to_bounds(center, radius);
+            return;
+        }
+        self.distance = dist.clamp(5.0, 5000.0);
         self.z_far = (self.distance + radius * 3.0).max(2000.0);
     }
 
@@ -279,6 +322,47 @@ mod tests {
 
         assert!((ray.origin - cam.eye_position()).length() < 1e-3);
         assert!((ray.direction - expected_dir).length() < 1e-4);
+    }
+
+    #[test]
+    fn fit_to_points_fills_wide_and_tall_views() {
+        // A flat 200 x 20 strip facing the camera (yaw 0 / pitch 0: view along -z)
+        let pts = [Vec3::new(-100.0, -10.0, 0.0), Vec3::new(100.0, 10.0, 0.0)];
+        let mut wide = OrbitCamera::new(100.0, 3.0);
+        wide.rotate(-wide.yaw(), -wide.pitch());
+        wide.fit_to_points(Vec3::ZERO, pts, 100.5, 0.9);
+        for p in pts {
+            let ndc = wide.project_to_ndc(p).unwrap();
+            assert!(ndc.x.abs() <= 0.9 + 1e-3 && ndc.y.abs() <= 0.9 + 1e-3, "{ndc:?}");
+        }
+        // The horizontal extent is the binding one: x lands on the margin
+        let ndc = wide.project_to_ndc(pts[1]).unwrap();
+        assert!((ndc.x - 0.9).abs() < 1e-2, "{ndc:?}");
+        // Much closer than the bounding-sphere fit
+        let mut sphere = wide.clone();
+        sphere.fit_to_bounds(Vec3::ZERO, 100.5);
+        assert!(wide.distance() < sphere.distance() * 0.6);
+
+        // A tall viewport fits the same strip by its width (FOV x is the tighter one)
+        let mut tall = OrbitCamera::new(100.0, 0.5);
+        tall.rotate(-tall.yaw(), -tall.pitch());
+        tall.fit_to_points(Vec3::ZERO, pts, 100.5, 0.9);
+        let ndc = tall.project_to_ndc(pts[1]).unwrap();
+        assert!((ndc.x - 0.9).abs() < 1e-2, "{ndc:?}");
+        assert!(tall.distance() > wide.distance());
+
+        // Points toward the camera need extra distance (they project larger)
+        let mut deep = wide.clone();
+        deep.fit_to_points(Vec3::ZERO, [Vec3::new(100.0, 0.0, 50.0), Vec3::new(-100.0, 0.0, -50.0)], 120.0, 0.9);
+        assert!(deep.project_to_ndc(Vec3::new(100.0, 0.0, 50.0)).unwrap().x <= 0.9 + 1e-3);
+
+        // No points: bounding-sphere fit
+        let mut empty = OrbitCamera::new(100.0, 1.0);
+        empty.fit_to_points(Vec3::ONE, std::iter::empty(), 10.0, 0.9);
+        let mut sphere = OrbitCamera::new(100.0, 1.0);
+        sphere.fit_to_bounds(Vec3::ONE, 10.0);
+        assert_eq!(empty.distance(), sphere.distance());
+        assert_eq!(empty.target(), Vec3::ONE);
     }
 
     #[test]
