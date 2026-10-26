@@ -50,7 +50,7 @@ npm 패키지는 `web/`에서 만들어집니다 (`web/package.json`, 산출물 
 
 ### 패키지 확인
 - [ ] `npm run build:lib` 후 `npm pack --dry-run`: 포함 파일이 `dist-lib/**`, `README.md`, `CHANGELOG.md`,
-      `LICENSE`, `package.json`뿐인지, 크기가 이전 릴리스와 비슷한지(현재 압축 ~4.5 MB) 확인.
+      `LICENSE`, `package.json`뿐인지, 크기가 이전 릴리스와 비슷한지(현재 압축 ~4.1 MB) 확인.
 - [ ] `npm pack`으로 만든 tarball을 소비자 프로젝트에 `npm install ./viz-engine-sdk-x.y.z.tgz`로 설치해 확인:
   - Vite 앱(dev + build): `viz_core_bg.wasm`이 에셋으로 나오고 차트가 그려짐.
   - webpack 5 앱: `.wasm` 에셋 방출, 차트 렌더링.

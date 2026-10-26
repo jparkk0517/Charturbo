@@ -10,7 +10,7 @@ Renders **1,000,000+ points at 60 FPS**: decimation, hit-testing, stacking and t
 npm install viz-engine-sdk
 ```
 
-The engine is a WebAssembly module (`viz_core_bg.wasm`, ~2.9 MB raw / ~1.1 MB gzip / ~0.8 MB brotli). Pick the entry
+The engine is a WebAssembly module (`viz_core_bg.wasm`, ~2.6 MB raw / ~1.0 MB gzip / ~0.77 MB brotli). Pick the entry
 that matches your toolchain:
 
 | Entry | WASM | Use with |

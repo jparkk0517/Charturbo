@@ -6,3 +6,21 @@ resolver = "2"
 opt-level = 3
 lto = true
 codegen-units = 1
+
+# Size-optimize the WebGL2 fallback stack (WGSL -> GLSL translation, validation, GLES backend):
+# most of the wasm, but only on shader / pipeline creation and command encoding, not in the
+# engine's hot loops. viz-core and the small math / container crates stay at opt-level 3
+# (opt-level "s" / "z" for everything slows scatter / sankey / graph physics by 5-70%).
+# wasm-pack's default wasm-opt pass (-O) runs on top.
+[profile.release.package.naga]
+opt-level = "z"
+[profile.release.package.wgpu]
+opt-level = "z"
+[profile.release.package.wgpu-core]
+opt-level = "z"
+[profile.release.package.wgpu-hal]
+opt-level = "z"
+[profile.release.package.glow]
+opt-level = "z"
+[profile.release.package.codespan-reporting]
+opt-level = "z"

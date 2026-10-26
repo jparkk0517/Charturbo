@@ -29,7 +29,7 @@ export default defineConfig({
   build: {
     outDir: resolve(root, '../examples-dist'),
     emptyOutDir: true,
-    // The engine (.wasm, ~2.9 MB) is one asset; the demos are small chunks
+    // The engine (.wasm, ~2.6 MB) is one asset; the demos are small chunks
     chunkSizeWarningLimit: 1024,
     rolldownOptions: {
       input: Object.fromEntries(pages.map((p) => [p.replace(/\.html$/, ''), resolve(root, p)])),
