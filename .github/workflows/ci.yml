@@ -1,0 +1,74 @@
+# Rust unit tests + wasm build + web type check / unit tests / library build.
+# GPU visual tests (npm run test:visual) need a real GPU and are not run here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  WASM_PACK_VERSION: 0.13.1
+
+jobs:
+  rust:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p viz-core
+
+  web:
+    name: wasm + web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack ${{ env.WASM_PACK_VERSION }}
+        run: |
+          curl -sSfL "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar xz --strip-components=1 -C "$HOME/.cargo/bin" "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"
+          wasm-pack --version
+
+      - name: Build wasm (web/src/wasm-pkg)
+        run: wasm-pack build crates/viz-core --target web --out-dir ../../web/src/wasm-pkg --release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      - name: Type check
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        working-directory: web
+        run: npx vitest run
+
+      - name: Library build
+        working-directory: web
+        run: npm run build:lib

@@ -2,7 +2,7 @@
 
 이 문서는 `web/bench/` 하네스로 측정한 viz-engine-sdk(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly(scattergl)와의 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
 
-- 원본 결과: `web/bench/out/results.json`, `web/bench/out/results.md` (`out/`은 git 제외 — 실행하면 다시 생성)
+- 원본 결과: [`docs/bench/results.json`](bench/results.json), [`results.md`](bench/results.md) (이 문서의 수치). 다시 측정하면 `web/bench/out/`에 새로 생기고(git 제외), `npm run bench:charts -- bench/out/results.json`으로 README 차트를 다시 그릴 수 있습니다
 - 측정일: 2026-10-26
 
 ## 1. 재현 방법

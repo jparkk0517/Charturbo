@@ -1,0 +1,5959 @@
+{
+  "meta": {
+    "date": "2026-10-26T07:40:28.358Z",
+    "chrome": "Chrome/156.0.8078.48",
+    "machine": {
+      "cpu": "Apple M1",
+      "cores": 8,
+      "memBytes": 17179869184,
+      "os": "Darwin 24.1.0 (darwin arm64)",
+      "node": "v22.23.3"
+    },
+    "gpu": {
+      "webgpu": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "webgl2": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)",
+      "crossOriginIsolated": true,
+      "dpr": 1,
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+    },
+    "idle": {
+      "frames": 180,
+      "interval": {
+        "n": 181,
+        "median": 16.66,
+        "p95": 16.67,
+        "max": 16.67,
+        "mean": 16.67
+      },
+      "work": {
+        "n": 180,
+        "median": 0,
+        "p95": 0.01,
+        "max": 0.02,
+        "mean": 0
+      },
+      "dropped": 0,
+      "fps": 60,
+      "mainThread": {
+        "taskMs": 50.8,
+        "scriptMs": 1,
+        "layoutMs": 0,
+        "perFrameMs": 0.28
+      }
+    },
+    "reps": 5,
+    "warmup": 1,
+    "duration": 3000,
+    "quick": false,
+    "versions": {
+      "uplot": "1.6.32",
+      "echarts": "6.1.0",
+      "chartjs": "4.6.1",
+      "plotly": "4.1.2",
+      "viz": "0.1.0"
+    },
+    "ms": 641860
+  },
+  "ours": [
+    {
+      "scenario": "line-100k-1s",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-100k-1s",
+        "size": 100000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 2,
+        "initMs": 25,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 3.89,
+            "p95": 4.41,
+            "max": 4.41,
+            "mean": 3.91
+          },
+          "frame": {
+            "n": 5,
+            "median": 16.83,
+            "p95": 16.87,
+            "max": 16.87,
+            "mean": 16.81
+          },
+          "pixels": {
+            "n": 5,
+            "median": 6.41,
+            "p95": 40.78,
+            "max": 40.78,
+            "mean": 12.95
+          },
+          "samples": {
+            "call": [
+              3.65,
+              3.54,
+              3.89,
+              4.41,
+              4.07
+            ],
+            "frame": [
+              16.74,
+              16.83,
+              16.87,
+              16.86,
+              16.75
+            ],
+            "pixels": [
+              40.78,
+              4.46,
+              5.67,
+              7.41,
+              6.41
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 9109946,
+          "uaBytes": 16183753,
+          "wasmBytes": 3211264,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 158736,
+          "chartUploadTotal": 1746096,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3301,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 2752512
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.37,
+            "p95": 2.47,
+            "max": 3.83,
+            "mean": 1.5
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 154024,
+          "mainThread": {
+            "taskMs": 377.8,
+            "scriptMs": 220.3,
+            "layoutMs": 39.3,
+            "perFrameMs": 2.1
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.58,
+            "p95": 0.87,
+            "max": 3.23,
+            "mean": 0.69
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-100k-10s",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-100k-10s",
+        "size": 100000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 2,
+        "initMs": 24,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 5.75,
+            "p95": 6.52,
+            "max": 6.52,
+            "mean": 5.81
+          },
+          "frame": {
+            "n": 5,
+            "median": 16.67,
+            "p95": 16.86,
+            "max": 16.86,
+            "mean": 16.66
+          },
+          "pixels": {
+            "n": 5,
+            "median": 9.34,
+            "p95": 37.6,
+            "max": 37.6,
+            "mean": 14.59
+          },
+          "samples": {
+            "call": [
+              5.75,
+              5.86,
+              6.52,
+              5.43,
+              5.51
+            ],
+            "frame": [
+              16.5,
+              16.67,
+              16.56,
+              16.86,
+              16.74
+            ],
+            "pixels": [
+              37.6,
+              8.17,
+              8.49,
+              9.34,
+              9.37
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 9544514,
+          "uaBytes": 16624573,
+          "wasmBytes": 8781824,
+          "gpuBytes": 2460036
+        },
+        "stats": {
+          "gpuBytes": 2460036,
+          "chartUploadBytes": 1364304,
+          "chartUploadTotal": 15007344,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 28415,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 5570560
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.44,
+            "p95": 3.76,
+            "max": 6.14,
+            "mean": 1.81
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 647960,
+          "mainThread": {
+            "taskMs": 425.6,
+            "scriptMs": 280.6,
+            "layoutMs": 35.7,
+            "perFrameMs": 2.36
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.79,
+            "p95": 0.98,
+            "max": 2.88,
+            "mean": 0.87
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-1s",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-1m-1s",
+        "size": 1000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 16,
+        "initMs": 16,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 10.53,
+            "p95": 12.63,
+            "max": 12.63,
+            "mean": 10.94
+          },
+          "frame": {
+            "n": 5,
+            "median": 16.73,
+            "p95": 16.78,
+            "max": 16.78,
+            "mean": 16.53
+          },
+          "pixels": {
+            "n": 5,
+            "median": 15.44,
+            "p95": 41.96,
+            "max": 41.96,
+            "mean": 20.42
+          },
+          "samples": {
+            "call": [
+              10.82,
+              10.41,
+              10.31,
+              10.53,
+              12.63
+            ],
+            "frame": [
+              16.66,
+              16.74,
+              16.78,
+              16.73,
+              15.71
+            ],
+            "pixels": [
+              41.96,
+              14.38,
+              14.24,
+              15.44,
+              16.08
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 12710110,
+          "uaBytes": 19784449,
+          "wasmBytes": 6815744,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 165360,
+          "chartUploadTotal": 1818960,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3437,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 6356992
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.68,
+            "p95": 4.09,
+            "max": 7.63,
+            "mean": 2.05
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 271476,
+          "mainThread": {
+            "taskMs": 459.6,
+            "scriptMs": 325.5,
+            "layoutMs": 35.1,
+            "perFrameMs": 2.55
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.57,
+            "p95": 0.88,
+            "max": 2.77,
+            "mean": 0.65
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-10s",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-1m-10s",
+        "size": 1000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 14,
+        "initMs": 15,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 16.66,
+            "p95": 21.72,
+            "max": 21.72,
+            "mean": 17.8
+          },
+          "frame": {
+            "n": 5,
+            "median": 17.07,
+            "p95": 22.17,
+            "max": 22.17,
+            "mean": 18.24
+          },
+          "pixels": {
+            "n": 5,
+            "median": 17.52,
+            "p95": 50.85,
+            "max": 50.85,
+            "mean": 23.47
+          },
+          "samples": {
+            "call": [
+              16.66,
+              17.69,
+              16.39,
+              16.54,
+              21.72
+            ],
+            "frame": [
+              17.07,
+              18.18,
+              16.79,
+              16.96,
+              22.17
+            ],
+            "pixels": [
+              50.85,
+              15.3,
+              15.79,
+              17.52,
+              17.88
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 16750326,
+          "uaBytes": 23830017,
+          "wasmBytes": 10027008,
+          "gpuBytes": 2460036
+        },
+        "stats": {
+          "gpuBytes": 2460036,
+          "chartUploadBytes": 1583856,
+          "chartUploadTotal": 17422416,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 32991,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 10027008
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 3.17,
+            "p95": 5.61,
+            "max": 7.75,
+            "mean": 3.01
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 1543502,
+          "mainThread": {
+            "taskMs": 634.1,
+            "scriptMs": 502.4,
+            "layoutMs": 32.1,
+            "perFrameMs": 3.52
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.99,
+            "p95": 1.29,
+            "max": 2.8,
+            "mean": 1.05
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-1s",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-10m-1s",
+        "size": 10000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 161,
+        "initMs": 17,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 91.42,
+            "p95": 92.08,
+            "max": 92.08,
+            "mean": 91.26
+          },
+          "frame": {
+            "n": 5,
+            "median": 91.77,
+            "p95": 92.57,
+            "max": 92.57,
+            "mean": 91.65
+          },
+          "pixels": {
+            "n": 5,
+            "median": 92.63,
+            "p95": 118.42,
+            "max": 118.42,
+            "mean": 97.39
+          },
+          "samples": {
+            "call": [
+              90,
+              92.08,
+              92.04,
+              90.74,
+              91.42
+            ],
+            "frame": [
+              90.36,
+              92.57,
+              92.4,
+              91.14,
+              91.77
+            ],
+            "pixels": [
+              118.42,
+              92.42,
+              90.23,
+              92.63,
+              93.25
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 48710528,
+          "uaBytes": 55784211,
+          "wasmBytes": 42795008,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 167136,
+          "chartUploadTotal": 1838496,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3476,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 42336256
+        },
+        "steady": {
+          "frames": 176,
+          "interval": {
+            "n": 177,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.34,
+            "mean": 17.04
+          },
+          "work": {
+            "n": 176,
+            "median": 2.89,
+            "p95": 19.25,
+            "max": 35.18,
+            "mean": 5.98
+          },
+          "dropped": 4,
+          "fps": 58.7,
+          "uploadBytesPerFrame": 307561,
+          "mainThread": {
+            "taskMs": 1134.1,
+            "scriptMs": 1013.6,
+            "layoutMs": 32.8,
+            "perFrameMs": 6.44
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.53,
+            "p95": 0.96,
+            "max": 3.46,
+            "mean": 0.63
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-10s",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-10m-10s",
+        "size": 10000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 160,
+        "initMs": 20,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 72.46,
+            "p95": 91.53,
+            "max": 91.53,
+            "mean": 76.45
+          },
+          "frame": {
+            "n": 5,
+            "median": 72.85,
+            "p95": 92.01,
+            "max": 92.01,
+            "mean": 76.89
+          },
+          "pixels": {
+            "n": 5,
+            "median": 74.43,
+            "p95": 99.38,
+            "max": 99.38,
+            "mean": 78.09
+          },
+          "samples": {
+            "call": [
+              91.53,
+              71.27,
+              72.46,
+              74.58,
+              72.42
+            ],
+            "frame": [
+              92.01,
+              71.75,
+              72.85,
+              75.07,
+              72.8
+            ],
+            "pixels": [
+              99.38,
+              70.26,
+              74.43,
+              74.46,
+              71.94
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 88747540,
+          "uaBytes": 95827315,
+          "wasmBytes": 82509824,
+          "gpuBytes": 2460036
+        },
+        "stats": {
+          "gpuBytes": 2460036,
+          "chartUploadBytes": 1646448,
+          "chartUploadTotal": 18110928,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 34295,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 82509824
+        },
+        "steady": {
+          "frames": 175,
+          "interval": {
+            "n": 176,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.34,
+            "mean": 17.23
+          },
+          "work": {
+            "n": 175,
+            "median": 4.79,
+            "p95": 20.88,
+            "max": 25.42,
+            "mean": 7.75
+          },
+          "dropped": 6,
+          "fps": 58,
+          "uploadBytesPerFrame": 2763195,
+          "mainThread": {
+            "taskMs": 1435,
+            "scriptMs": 1321.4,
+            "layoutMs": 28.8,
+            "perFrameMs": 8.2
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.19,
+            "p95": 1.48,
+            "max": 2.99,
+            "mean": 1.22
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "scatter-1m",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "scatter-1m",
+        "size": 1000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 44,
+        "initMs": 21,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 45.43,
+            "p95": 55.67,
+            "max": 55.67,
+            "mean": 44.21
+          },
+          "frame": {
+            "n": 5,
+            "median": 46.07,
+            "p95": 56.12,
+            "max": 56.12,
+            "mean": 44.67
+          },
+          "pixels": {
+            "n": 5,
+            "median": 73.94,
+            "p95": 81.73,
+            "max": 81.73,
+            "mean": 74.87
+          },
+          "samples": {
+            "call": [
+              45.43,
+              45.94,
+              55.67,
+              36.54,
+              37.48
+            ],
+            "frame": [
+              46.07,
+              46.38,
+              56.12,
+              36.91,
+              37.86
+            ],
+            "pixels": [
+              68.47,
+              73.94,
+              71.65,
+              78.57,
+              81.73
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 16681098,
+          "uaBytes": 23754077,
+          "wasmBytes": 58392576,
+          "gpuBytes": 34290052
+        },
+        "stats": {
+          "gpuBytes": 34290052,
+          "chartUploadBytes": 20000720,
+          "chartUploadTotal": 220007920,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 1000000,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 58392576
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.2,
+            "p95": 1.87,
+            "max": 4.36,
+            "mean": 1.27
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 736,
+          "mainThread": {
+            "taskMs": 328.2,
+            "scriptMs": 174,
+            "layoutMs": 43.8,
+            "perFrameMs": 1.82
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.89,
+            "p95": 3.14,
+            "max": 5.88,
+            "mean": 1.22
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 33.34,
+            "max": 33.34,
+            "mean": 19.58
+          },
+          "dropped": 7
+        }
+      }
+    },
+    {
+      "scenario": "scatter-5m",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "scatter-5m",
+        "size": 5000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 184,
+        "initMs": 17,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 209.06,
+            "p95": 281.21,
+            "max": 281.21,
+            "mean": 212.65
+          },
+          "frame": {
+            "n": 5,
+            "median": 209.93,
+            "p95": 281.89,
+            "max": 281.89,
+            "mean": 213.32
+          },
+          "pixels": {
+            "n": 5,
+            "median": 311.44,
+            "p95": 357.21,
+            "max": 357.21,
+            "mean": 322.55
+          },
+          "samples": {
+            "call": [
+              209.06,
+              213.5,
+              281.21,
+              178.85,
+              180.63
+            ],
+            "frame": [
+              209.93,
+              214.47,
+              281.89,
+              179.25,
+              181.04
+            ],
+            "pixels": [
+              306.9,
+              307.66,
+              357.21,
+              329.54,
+              311.44
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 48681254,
+          "uaBytes": 55754209,
+          "wasmBytes": 282263552,
+          "gpuBytes": 134953348
+        },
+        "stats": {
+          "gpuBytes": 134953348,
+          "chartUploadBytes": 100000720,
+          "chartUploadTotal": 1100007920,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 5000000,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 282263552
+        },
+        "steady": {
+          "frames": 37,
+          "interval": {
+            "n": 38,
+            "median": 83.33,
+            "p95": 116.66,
+            "max": 116.66,
+            "mean": 79.82
+          },
+          "work": {
+            "n": 37,
+            "median": 1.6,
+            "p95": 2.31,
+            "max": 2.85,
+            "mean": 1.57
+          },
+          "dropped": 144,
+          "fps": 12.5,
+          "uploadBytesPerFrame": 702,
+          "mainThread": {
+            "taskMs": 86,
+            "scriptMs": 44.1,
+            "layoutMs": 10.8,
+            "perFrameMs": 2.32
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.28,
+            "p95": 16.59,
+            "max": 21.92,
+            "mean": 4.01
+          },
+          "interval": {
+            "n": 40,
+            "median": 100,
+            "p95": 199.99,
+            "max": 216.66,
+            "mean": 99.16
+          },
+          "dropped": 198
+        }
+      }
+    },
+    {
+      "scenario": "area-stacked-1m",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "area-stacked-1m",
+        "size": 1000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 26,
+        "initMs": 22,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 26.4,
+            "p95": 31.55,
+            "max": 31.55,
+            "mean": 27.52
+          },
+          "frame": {
+            "n": 5,
+            "median": 26.85,
+            "p95": 31.98,
+            "max": 31.98,
+            "mean": 27.96
+          },
+          "pixels": {
+            "n": 5,
+            "median": 28.23,
+            "p95": 53.81,
+            "max": 53.81,
+            "mean": 33.06
+          },
+          "samples": {
+            "call": [
+              28.56,
+              31.55,
+              25.29,
+              26.4,
+              25.82
+            ],
+            "frame": [
+              29.04,
+              31.98,
+              25.7,
+              26.85,
+              26.22
+            ],
+            "pixels": [
+              53.81,
+              28.3,
+              27.46,
+              28.23,
+              27.48
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 16740873,
+          "uaBytes": 23817540,
+          "wasmBytes": 41287680,
+          "gpuBytes": 5572996
+        },
+        "stats": {
+          "gpuBytes": 5572996,
+          "chartUploadBytes": 3959328,
+          "chartUploadTotal": 43552608,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 13477,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 103506,
+          "markers": 0,
+          "wasmMemoryBytes": 28639232
+        },
+        "steady": {
+          "frames": 179,
+          "interval": {
+            "n": 180,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.33,
+            "mean": 16.76
+          },
+          "work": {
+            "n": 179,
+            "median": 5.49,
+            "p95": 10.36,
+            "max": 13.08,
+            "mean": 5.79
+          },
+          "dropped": 1,
+          "fps": 59.7,
+          "uploadBytesPerFrame": 4557936,
+          "mainThread": {
+            "taskMs": 1136.3,
+            "scriptMs": 1000.1,
+            "layoutMs": 30.6,
+            "perFrameMs": 6.35
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.86,
+            "p95": 1.22,
+            "max": 2.7,
+            "mean": 0.94
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "bar-10k",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "bar-10k",
+        "size": 10000,
+        "backend": "webgpu",
+        "interaction": "hover-sweep",
+        "genMs": 2,
+        "initMs": 21,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 18.52,
+            "p95": 20.08,
+            "max": 20.08,
+            "mean": 18.55
+          },
+          "frame": {
+            "n": 5,
+            "median": 18.98,
+            "p95": 20.48,
+            "max": 20.48,
+            "mean": 19
+          },
+          "pixels": {
+            "n": 5,
+            "median": 19.97,
+            "p95": 47.78,
+            "max": 47.78,
+            "mean": 25.14
+          },
+          "samples": {
+            "call": [
+              17.82,
+              18.66,
+              17.65,
+              18.52,
+              20.08
+            ],
+            "frame": [
+              18.31,
+              19.2,
+              18.05,
+              18.98,
+              20.48
+            ],
+            "pixels": [
+              47.78,
+              18.76,
+              19.21,
+              19.97,
+              19.99
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 11971359,
+          "uaBytes": 19044558,
+          "wasmBytes": 3735552,
+          "gpuBytes": 1268100
+        },
+        "stats": {
+          "gpuBytes": 1268100,
+          "chartUploadBytes": 480288,
+          "chartUploadTotal": 5283168,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 10000,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 3735552
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.07,
+            "p95": 1.44,
+            "max": 4.79,
+            "mean": 1.12
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 480000,
+          "mainThread": {
+            "taskMs": 294.4,
+            "scriptMs": 147.3,
+            "layoutMs": 44.7,
+            "perFrameMs": 1.64
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.24,
+            "p95": 1.63,
+            "max": 1.73,
+            "mean": 1.26
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "heatmap-2048",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "heatmap-2048",
+        "size": 4194304,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 64,
+        "initMs": 19,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 26.66,
+            "p95": 34.25,
+            "max": 34.25,
+            "mean": 28.25
+          },
+          "frame": {
+            "n": 5,
+            "median": 27.31,
+            "p95": 34.97,
+            "max": 34.97,
+            "mean": 28.97
+          },
+          "pixels": {
+            "n": 5,
+            "median": 34.51,
+            "p95": 57.38,
+            "max": 57.38,
+            "mean": 37.75
+          },
+          "samples": {
+            "call": [
+              34.25,
+              28.64,
+              26.55,
+              26.66,
+              25.13
+            ],
+            "frame": [
+              34.97,
+              29.54,
+              27.18,
+              27.31,
+              25.87
+            ],
+            "pixels": [
+              57.38,
+              33.08,
+              34.51,
+              34.93,
+              28.85
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 25478316,
+          "uaBytes": 32565411,
+          "wasmBytes": 35520512,
+          "gpuBytes": 17533312
+        },
+        "stats": {
+          "gpuBytes": 17533312,
+          "chartUploadBytes": 16778240,
+          "chartUploadTotal": 184560640,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 35520512
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.23,
+            "p95": 1.71,
+            "max": 3.32,
+            "mean": 1.24
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 136,
+          "mainThread": {
+            "taskMs": 348.5,
+            "scriptMs": 177.3,
+            "layoutMs": 56.3,
+            "perFrameMs": 1.94
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.68,
+            "p95": 0.94,
+            "max": 3.1,
+            "mean": 0.75
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "heatmap-4096",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "heatmap-4096",
+        "size": 16777216,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 236,
+        "initMs": 18,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 92.1,
+            "p95": 112.25,
+            "max": 112.25,
+            "mean": 98.39
+          },
+          "frame": {
+            "n": 5,
+            "median": 92.89,
+            "p95": 112.99,
+            "max": 112.99,
+            "mean": 99.18
+          },
+          "pixels": {
+            "n": 5,
+            "median": 104.51,
+            "p95": 125.33,
+            "max": 125.33,
+            "mean": 109.59
+          },
+          "samples": {
+            "call": [
+              112.25,
+              105.99,
+              92.1,
+              91.63,
+              89.97
+            ],
+            "frame": [
+              112.99,
+              106.71,
+              92.89,
+              92.3,
+              90.98
+            ],
+            "pixels": [
+              125.33,
+              104.5,
+              110.13,
+              103.48,
+              104.51
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 75809712,
+          "uaBytes": 82895959,
+          "wasmBytes": 136183808,
+          "gpuBytes": 67864960
+        },
+        "stats": {
+          "gpuBytes": 67864960,
+          "chartUploadBytes": 67109888,
+          "chartUploadTotal": 738208768,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 136183808
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.32,
+            "p95": 1.82,
+            "max": 5,
+            "mean": 1.34
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 136,
+          "mainThread": {
+            "taskMs": 369.7,
+            "scriptMs": 189.9,
+            "layoutMs": 62.4,
+            "perFrameMs": 2.05
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.68,
+            "p95": 1.19,
+            "max": 5.45,
+            "mean": 0.84
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "candle-1m",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "candle-1m",
+        "size": 1000000,
+        "backend": "webgpu",
+        "interaction": "wheel+drag",
+        "genMs": 32,
+        "initMs": 20,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 32.75,
+            "p95": 39.48,
+            "max": 39.48,
+            "mean": 34.07
+          },
+          "frame": {
+            "n": 5,
+            "median": 33.2,
+            "p95": 39.86,
+            "max": 39.86,
+            "mean": 34.46
+          },
+          "pixels": {
+            "n": 5,
+            "median": 37.32,
+            "p95": 58.93,
+            "max": 58.93,
+            "mean": 41.44
+          },
+          "samples": {
+            "call": [
+              39.48,
+              32.83,
+              32.75,
+              32.55,
+              32.74
+            ],
+            "frame": [
+              39.86,
+              33.2,
+              33.21,
+              32.88,
+              33.16
+            ],
+            "pixels": [
+              58.93,
+              37.33,
+              37.32,
+              36.93,
+              36.67
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 24670896,
+          "uaBytes": 31744603,
+          "wasmBytes": 42401792,
+          "gpuBytes": 760196
+        },
+        "stats": {
+          "gpuBytes": 760196,
+          "chartUploadBytes": 42192,
+          "chartUploadTotal": 464112,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 582,
+          "points": 0,
+          "bars": 291,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 42401792
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.59,
+            "p95": 7,
+            "max": 17.26,
+            "mean": 2.47
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 81472,
+          "mainThread": {
+            "taskMs": 526.6,
+            "scriptMs": 403.2,
+            "layoutMs": 34,
+            "perFrameMs": 2.93
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.83,
+            "p95": 1.13,
+            "max": 3.35,
+            "mean": 0.93
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "stream-1m",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "stream-1m",
+        "size": 1000000,
+        "backend": "webgpu",
+        "interaction": "stream",
+        "genMs": 17,
+        "initMs": 13,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 13.41,
+            "p95": 14.46,
+            "max": 14.46,
+            "mean": 13.33
+          },
+          "frame": {
+            "n": 5,
+            "median": 15.88,
+            "p95": 17.16,
+            "max": 17.16,
+            "mean": 16.15
+          },
+          "pixels": {
+            "n": 5,
+            "median": 14.59,
+            "p95": 42.3,
+            "max": 42.3,
+            "mean": 19.95
+          },
+          "samples": {
+            "call": [
+              13.7,
+              14.46,
+              13.41,
+              12.38,
+              12.71
+            ],
+            "frame": [
+              17.11,
+              14.98,
+              17.16,
+              15.63,
+              15.88
+            ],
+            "pixels": [
+              42.3,
+              13.58,
+              13.92,
+              15.37,
+              14.59
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 12709916,
+          "uaBytes": 19784307,
+          "wasmBytes": 30474240,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 165360,
+          "chartUploadTotal": 1818960,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3437,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 6356992
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 3.15,
+            "p95": 7.06,
+            "max": 8.21,
+            "mean": 3.7
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 158255,
+          "mainThread": {
+            "taskMs": 783.8,
+            "scriptMs": 72.2,
+            "layoutMs": 2.4,
+            "perFrameMs": 4.35
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.68,
+            "p95": 0.86,
+            "max": 3.75,
+            "mean": 0.76
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "treemap-100k",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "treemap-100k",
+        "size": 100000,
+        "backend": "webgpu",
+        "interaction": "hover-sweep",
+        "genMs": 9,
+        "initMs": 15,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 26.09,
+            "p95": 26.62,
+            "max": 26.62,
+            "mean": 26.13
+          },
+          "frame": {
+            "n": 5,
+            "median": 26.58,
+            "p95": 27.1,
+            "max": 27.1,
+            "mean": 26.63
+          },
+          "pixels": {
+            "n": 5,
+            "median": 27.14,
+            "p95": 55.56,
+            "max": 55.56,
+            "mean": 32.23
+          },
+          "samples": {
+            "call": [
+              26.09,
+              25.36,
+              26.58,
+              26.02,
+              26.62
+            ],
+            "frame": [
+              26.58,
+              25.9,
+              27.07,
+              26.52,
+              27.1
+            ],
+            "pixels": [
+              55.56,
+              25.28,
+              25.34,
+              27.14,
+              27.81
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 20056030,
+          "uaBytes": 27142001,
+          "wasmBytes": 16318464,
+          "gpuBytes": 1247620
+        },
+        "stats": {
+          "gpuBytes": 1247620,
+          "chartUploadBytes": 415488,
+          "chartUploadTotal": 4570368,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 12984,
+          "markers": 0,
+          "wasmMemoryBytes": 16318464
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 0.89,
+            "p95": 1.2,
+            "max": 5.95,
+            "mean": 0.92
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 192,
+          "mainThread": {
+            "taskMs": 267.1,
+            "scriptMs": 107.2,
+            "layoutMs": 49,
+            "perFrameMs": 1.48
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.03,
+            "p95": 1.3,
+            "max": 1.38,
+            "mean": 1.03
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "sankey-10k",
+      "backend": "webgpu",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "sankey-10k",
+        "size": 10000,
+        "backend": "webgpu",
+        "interaction": "hover-sweep",
+        "genMs": 3,
+        "initMs": 21,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 80.24,
+            "p95": 84.22,
+            "max": 84.22,
+            "mean": 81.32
+          },
+          "frame": {
+            "n": 5,
+            "median": 80.63,
+            "p95": 85.09,
+            "max": 85.09,
+            "mean": 81.88
+          },
+          "pixels": {
+            "n": 5,
+            "median": 94.16,
+            "p95": 112.15,
+            "max": 112.15,
+            "mean": 98.01
+          },
+          "samples": {
+            "call": [
+              84.22,
+              82.65,
+              80.07,
+              80.24,
+              79.43
+            ],
+            "frame": [
+              85.09,
+              83.06,
+              80.62,
+              80.63,
+              79.99
+            ],
+            "pixels": [
+              112.15,
+              91.07,
+              94.16,
+              98.8,
+              93.84
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 11553815,
+          "uaBytes": 18620098,
+          "wasmBytes": 104792064,
+          "gpuBytes": 67832196
+        },
+        "stats": {
+          "gpuBytes": 67832196,
+          "chartUploadBytes": 41921472,
+          "chartUploadTotal": 461136192,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 1310046,
+          "markers": 0,
+          "wasmMemoryBytes": 104792064
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 14.54,
+            "p95": 16.65,
+            "max": 19.49,
+            "mean": 14.58
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 41921472,
+          "mainThread": {
+            "taskMs": 2844.3,
+            "scriptMs": 2539.6,
+            "layoutMs": 52.8,
+            "perFrameMs": 15.8
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 14.52,
+            "p95": 15.96,
+            "max": 16.27,
+            "mean": 14.42
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-100k-1s",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-100k-1s",
+        "size": 100000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 2,
+        "initMs": 86,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 4.07,
+            "p95": 4.88,
+            "max": 4.88,
+            "mean": 4.23
+          },
+          "frame": {
+            "n": 5,
+            "median": 16.61,
+            "p95": 18.6,
+            "max": 18.6,
+            "mean": 16.54
+          },
+          "pixels": {
+            "n": 5,
+            "median": 6.75,
+            "p95": 36.04,
+            "max": 36.04,
+            "mean": 12.22
+          },
+          "samples": {
+            "call": [
+              4.07,
+              3.76,
+              3.89,
+              4.88,
+              4.52
+            ],
+            "frame": [
+              18.6,
+              16.61,
+              14.89,
+              15.91,
+              16.7
+            ],
+            "pixels": [
+              36.04,
+              4.85,
+              6.21,
+              6.75,
+              7.25
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 9270787,
+          "uaBytes": 24638850,
+          "wasmBytes": 4325376,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 158736,
+          "chartUploadTotal": 1746096,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3301,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 3407872
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.35,
+            "p95": 1.94,
+            "max": 5.7,
+            "mean": 1.44
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 154024,
+          "mainThread": {
+            "taskMs": 347.6,
+            "scriptMs": 209.2,
+            "layoutMs": 41.1,
+            "perFrameMs": 1.93
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.77,
+            "p95": 1.18,
+            "max": 4.79,
+            "mean": 0.95
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-100k-10s",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-100k-10s",
+        "size": 100000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 2,
+        "initMs": 76,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 6.42,
+            "p95": 8.88,
+            "max": 8.88,
+            "mean": 7.09
+          },
+          "frame": {
+            "n": 5,
+            "median": 17.79,
+            "p95": 18.47,
+            "max": 18.47,
+            "mean": 17.74
+          },
+          "pixels": {
+            "n": 5,
+            "median": 9.94,
+            "p95": 41.49,
+            "max": 41.49,
+            "mean": 16.15
+          },
+          "samples": {
+            "call": [
+              5.56,
+              6.17,
+              6.42,
+              8.43,
+              8.88
+            ],
+            "frame": [
+              17.79,
+              16.63,
+              18.47,
+              17.72,
+              18.11
+            ],
+            "pixels": [
+              41.49,
+              8.4,
+              9.37,
+              9.94,
+              11.57
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 9708767,
+          "uaBytes": 25083210,
+          "wasmBytes": 13631488,
+          "gpuBytes": 2460036
+        },
+        "stats": {
+          "gpuBytes": 2460036,
+          "chartUploadBytes": 1364304,
+          "chartUploadTotal": 15007344,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 28415,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 8781824
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.38,
+            "p95": 3.04,
+            "max": 6.03,
+            "mean": 1.64
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 647960,
+          "mainThread": {
+            "taskMs": 380,
+            "scriptMs": 249.6,
+            "layoutMs": 37.2,
+            "perFrameMs": 2.11
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.31,
+            "p95": 1.96,
+            "max": 5.12,
+            "mean": 1.44
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-1s",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-1m-1s",
+        "size": 1000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 17,
+        "initMs": 72,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 12.99,
+            "p95": 14.56,
+            "max": 14.56,
+            "mean": 12.99
+          },
+          "frame": {
+            "n": 5,
+            "median": 16.58,
+            "p95": 17.2,
+            "max": 17.2,
+            "mean": 16.5
+          },
+          "pixels": {
+            "n": 5,
+            "median": 15.35,
+            "p95": 39.99,
+            "max": 39.99,
+            "mean": 20.23
+          },
+          "samples": {
+            "call": [
+              14.56,
+              13.32,
+              11.13,
+              12.99,
+              12.94
+            ],
+            "frame": [
+              17.2,
+              16.58,
+              16.7,
+              15.55,
+              16.46
+            ],
+            "pixels": [
+              39.99,
+              14.95,
+              15.35,
+              15.78,
+              15.11
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 12870951,
+          "uaBytes": 26166406,
+          "wasmBytes": 7995392,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 165360,
+          "chartUploadTotal": 1818960,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3437,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 7012352
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.83,
+            "p95": 4.54,
+            "max": 5.36,
+            "mean": 2.11
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 271476,
+          "mainThread": {
+            "taskMs": 467.9,
+            "scriptMs": 331.8,
+            "layoutMs": 40.1,
+            "perFrameMs": 2.6
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.73,
+            "p95": 1.08,
+            "max": 4.73,
+            "mean": 0.87
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-10s",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-1m-10s",
+        "size": 1000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 14,
+        "initMs": 74,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 16.61,
+            "p95": 18.21,
+            "max": 18.21,
+            "mean": 16.94
+          },
+          "frame": {
+            "n": 5,
+            "median": 17.15,
+            "p95": 18.67,
+            "max": 18.67,
+            "mean": 17.39
+          },
+          "pixels": {
+            "n": 5,
+            "median": 21.45,
+            "p95": 48.73,
+            "max": 48.73,
+            "mean": 26.07
+          },
+          "samples": {
+            "call": [
+              17.99,
+              15.76,
+              16.14,
+              16.61,
+              18.21
+            ],
+            "frame": [
+              18.44,
+              16.14,
+              16.57,
+              17.15,
+              18.67
+            ],
+            "pixels": [
+              48.73,
+              16.95,
+              20.43,
+              21.45,
+              22.77
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 16911163,
+          "uaBytes": 30211722,
+          "wasmBytes": 24051712,
+          "gpuBytes": 2460036
+        },
+        "stats": {
+          "gpuBytes": 2460036,
+          "chartUploadBytes": 1583856,
+          "chartUploadTotal": 17422416,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 32991,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 14221312
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 2.44,
+            "p95": 4.83,
+            "max": 8.79,
+            "mean": 2.82
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 1543502,
+          "mainThread": {
+            "taskMs": 589.3,
+            "scriptMs": 461.3,
+            "layoutMs": 36.8,
+            "perFrameMs": 3.27
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.1,
+            "p95": 1.39,
+            "max": 3.99,
+            "mean": 1.18
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-1s",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-10m-1s",
+        "size": 10000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 161,
+        "initMs": 81,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 91.97,
+            "p95": 92.99,
+            "max": 92.99,
+            "mean": 91.99
+          },
+          "frame": {
+            "n": 5,
+            "median": 92.3,
+            "p95": 93.39,
+            "max": 93.39,
+            "mean": 92.35
+          },
+          "pixels": {
+            "n": 5,
+            "median": 94.45,
+            "p95": 116.5,
+            "max": 116.5,
+            "mean": 100.61
+          },
+          "samples": {
+            "call": [
+              90.5,
+              92.99,
+              92.62,
+              91.86,
+              91.97
+            ],
+            "frame": [
+              90.86,
+              93.39,
+              92.93,
+              92.27,
+              92.3
+            ],
+            "pixels": [
+              116.5,
+              104.35,
+              93.67,
+              94.45,
+              94.07
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 48871753,
+          "uaBytes": 64239704,
+          "wasmBytes": 44367872,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 167136,
+          "chartUploadTotal": 1838496,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3476,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 42991616
+        },
+        "steady": {
+          "frames": 176,
+          "interval": {
+            "n": 177,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.34,
+            "mean": 17.04
+          },
+          "work": {
+            "n": 176,
+            "median": 2.58,
+            "p95": 19.51,
+            "max": 35.66,
+            "mean": 6.02
+          },
+          "dropped": 4,
+          "fps": 58.7,
+          "uploadBytesPerFrame": 307561,
+          "mainThread": {
+            "taskMs": 1123.7,
+            "scriptMs": 1019.1,
+            "layoutMs": 33.3,
+            "perFrameMs": 6.38
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.75,
+            "p95": 0.87,
+            "max": 3.59,
+            "mean": 0.82
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-10s",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-10m-10s",
+        "size": 10000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 157,
+        "initMs": 75,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 72.99,
+            "p95": 93.82,
+            "max": 93.82,
+            "mean": 77.23
+          },
+          "frame": {
+            "n": 5,
+            "median": 73.38,
+            "p95": 94.21,
+            "max": 94.21,
+            "mean": 77.67
+          },
+          "pixels": {
+            "n": 5,
+            "median": 75.11,
+            "p95": 98.81,
+            "max": 98.81,
+            "mean": 79.79
+          },
+          "samples": {
+            "call": [
+              93.82,
+              73.9,
+              72.99,
+              72.86,
+              72.57
+            ],
+            "frame": [
+              94.21,
+              74.45,
+              73.38,
+              73.35,
+              72.96
+            ],
+            "pixels": [
+              98.81,
+              73.56,
+              75.1,
+              76.38,
+              75.11
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 88909285,
+          "uaBytes": 104283360,
+          "wasmBytes": 91095040,
+          "gpuBytes": 2460036
+        },
+        "stats": {
+          "gpuBytes": 2460036,
+          "chartUploadBytes": 1646448,
+          "chartUploadTotal": 18110928,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 34295,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 91095040
+        },
+        "steady": {
+          "frames": 175,
+          "interval": {
+            "n": 176,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.34,
+            "mean": 17.14
+          },
+          "work": {
+            "n": 175,
+            "median": 4.46,
+            "p95": 20.6,
+            "max": 35.88,
+            "mean": 7.18
+          },
+          "dropped": 5,
+          "fps": 58.3,
+          "uploadBytesPerFrame": 2763195,
+          "mainThread": {
+            "taskMs": 1319.1,
+            "scriptMs": 1217.4,
+            "layoutMs": 32.7,
+            "perFrameMs": 7.54
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.24,
+            "p95": 1.9,
+            "max": 2.13,
+            "mean": 1.3
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "scatter-1m",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "scatter-1m",
+        "size": 1000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 46,
+        "initMs": 76,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 46.52,
+            "p95": 56.93,
+            "max": 56.93,
+            "mean": 45.46
+          },
+          "frame": {
+            "n": 5,
+            "median": 46.88,
+            "p95": 57.29,
+            "max": 57.29,
+            "mean": 45.82
+          },
+          "pixels": {
+            "n": 5,
+            "median": 70.39,
+            "p95": 101.63,
+            "max": 101.63,
+            "mean": 76.25
+          },
+          "samples": {
+            "call": [
+              48.25,
+              46.52,
+              56.93,
+              37.87,
+              37.72
+            ],
+            "frame": [
+              48.62,
+              46.88,
+              57.29,
+              38.21,
+              38.12
+            ],
+            "pixels": [
+              101.63,
+              68.11,
+              77.49,
+              70.39,
+              63.62
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 16844927,
+          "uaBytes": 32212098,
+          "wasmBytes": 119013376,
+          "gpuBytes": 34290052
+        },
+        "stats": {
+          "gpuBytes": 34290052,
+          "chartUploadBytes": 20000720,
+          "chartUploadTotal": 220007920,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 1000000,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 119013376
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.01,
+            "p95": 1.55,
+            "max": 2.13,
+            "mean": 1.08
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 736,
+          "mainThread": {
+            "taskMs": 265.7,
+            "scriptMs": 150.3,
+            "layoutMs": 36,
+            "perFrameMs": 1.48
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.98,
+            "p95": 3.69,
+            "max": 7.16,
+            "mean": 1.34
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.67,
+            "p95": 33.33,
+            "max": 33.34,
+            "mean": 20
+          },
+          "dropped": 8
+        }
+      }
+    },
+    {
+      "scenario": "scatter-5m",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "scatter-5m",
+        "size": 5000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 217,
+        "initMs": 75,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 243.38,
+            "p95": 273.82,
+            "max": 273.82,
+            "mean": 227.23
+          },
+          "frame": {
+            "n": 5,
+            "median": 243.88,
+            "p95": 274.22,
+            "max": 274.22,
+            "mean": 227.67
+          },
+          "pixels": {
+            "n": 5,
+            "median": 317.78,
+            "p95": 329.19,
+            "max": 329.19,
+            "mean": 318.24
+          },
+          "samples": {
+            "call": [
+              243.38,
+              253.2,
+              273.82,
+              181.92,
+              183.8
+            ],
+            "frame": [
+              243.88,
+              253.67,
+              274.22,
+              182.44,
+              184.15
+            ],
+            "pixels": [
+              329.19,
+              305.42,
+              327.02,
+              311.79,
+              317.78
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 48845083,
+          "uaBytes": 64212254,
+          "wasmBytes": 582746112,
+          "gpuBytes": 134953348
+        },
+        "stats": {
+          "gpuBytes": 134953348,
+          "chartUploadBytes": 100000720,
+          "chartUploadTotal": 1100007920,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 5000000,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 582746112
+        },
+        "steady": {
+          "frames": 40,
+          "interval": {
+            "n": 41,
+            "median": 66.66,
+            "p95": 116.66,
+            "max": 116.66,
+            "mean": 74.39
+          },
+          "work": {
+            "n": 40,
+            "median": 1.49,
+            "p95": 2.55,
+            "max": 3.03,
+            "mean": 1.6
+          },
+          "dropped": 142,
+          "fps": 13.4,
+          "uploadBytesPerFrame": 746,
+          "mainThread": {
+            "taskMs": 90.1,
+            "scriptMs": 50,
+            "layoutMs": 10.8,
+            "perFrameMs": 2.25
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.63,
+            "p95": 15.89,
+            "max": 21.29,
+            "mean": 3.94
+          },
+          "interval": {
+            "n": 40,
+            "median": 116.66,
+            "p95": 216.66,
+            "max": 216.66,
+            "mean": 104.16
+          },
+          "dropped": 210
+        }
+      }
+    },
+    {
+      "scenario": "area-stacked-1m",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "area-stacked-1m",
+        "size": 1000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 25,
+        "initMs": 76,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 25.21,
+            "p95": 28.44,
+            "max": 28.44,
+            "mean": 24.93
+          },
+          "frame": {
+            "n": 5,
+            "median": 25.57,
+            "p95": 28.81,
+            "max": 28.81,
+            "mean": 25.34
+          },
+          "pixels": {
+            "n": 5,
+            "median": 26.78,
+            "p95": 56.23,
+            "max": 56.23,
+            "mean": 31.81
+          },
+          "samples": {
+            "call": [
+              26.48,
+              28.44,
+              20.47,
+              24.02,
+              25.21
+            ],
+            "frame": [
+              26.99,
+              28.81,
+              20.91,
+              24.41,
+              25.57
+            ],
+            "pixels": [
+              56.23,
+              27.08,
+              26.78,
+              26.59,
+              22.34
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 16903946,
+          "uaBytes": 32274861,
+          "wasmBytes": 67764224,
+          "gpuBytes": 5572996
+        },
+        "stats": {
+          "gpuBytes": 5572996,
+          "chartUploadBytes": 3959328,
+          "chartUploadTotal": 43552608,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 13477,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 103506,
+          "markers": 0,
+          "wasmMemoryBytes": 39124992
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 5.01,
+            "p95": 10.61,
+            "max": 15.92,
+            "mean": 5.29
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 4484011,
+          "mainThread": {
+            "taskMs": 1020.6,
+            "scriptMs": 912.7,
+            "layoutMs": 33,
+            "perFrameMs": 5.67
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.19,
+            "p95": 1.57,
+            "max": 2.09,
+            "mean": 1.16
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "bar-10k",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "bar-10k",
+        "size": 10000,
+        "backend": "webgl2",
+        "interaction": "hover-sweep",
+        "genMs": 2,
+        "initMs": 75,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 18.64,
+            "p95": 19.2,
+            "max": 19.2,
+            "mean": 18.51
+          },
+          "frame": {
+            "n": 5,
+            "median": 19.06,
+            "p95": 19.59,
+            "max": 19.59,
+            "mean": 18.92
+          },
+          "pixels": {
+            "n": 5,
+            "median": 19.64,
+            "p95": 48.15,
+            "max": 48.15,
+            "mean": 25.4
+          },
+          "samples": {
+            "call": [
+              19.07,
+              18.08,
+              17.56,
+              18.64,
+              19.2
+            ],
+            "frame": [
+              19.59,
+              18.49,
+              17.9,
+              19.06,
+              19.58
+            ],
+            "pixels": [
+              48.15,
+              19.1,
+              21.55,
+              18.56,
+              19.64
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 12128576,
+          "uaBytes": 27496211,
+          "wasmBytes": 5242880,
+          "gpuBytes": 1268100
+        },
+        "stats": {
+          "gpuBytes": 1268100,
+          "chartUploadBytes": 480288,
+          "chartUploadTotal": 5283168,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 10000,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 5242880
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.23,
+            "p95": 1.59,
+            "max": 5.39,
+            "mean": 1.22
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 480000,
+          "mainThread": {
+            "taskMs": 309.5,
+            "scriptMs": 150.3,
+            "layoutMs": 57,
+            "perFrameMs": 1.72
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.47,
+            "p95": 1.71,
+            "max": 2.56,
+            "mean": 1.52
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "heatmap-2048",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "heatmap-2048",
+        "size": 4194304,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 65,
+        "initMs": 76,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 29.93,
+            "p95": 36.78,
+            "max": 36.78,
+            "mean": 30.6
+          },
+          "frame": {
+            "n": 5,
+            "median": 30.53,
+            "p95": 37.43,
+            "max": 37.43,
+            "mean": 31.21
+          },
+          "pixels": {
+            "n": 5,
+            "median": 31.98,
+            "p95": 56.13,
+            "max": 56.13,
+            "mean": 36.27
+          },
+          "samples": {
+            "call": [
+              36.78,
+              30.49,
+              29.23,
+              29.93,
+              26.58
+            ],
+            "frame": [
+              37.43,
+              31.06,
+              29.9,
+              30.53,
+              27.13
+            ],
+            "pixels": [
+              56.13,
+              31.88,
+              31.98,
+              28.41,
+              32.93
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 25638933,
+          "uaBytes": 41020672,
+          "wasmBytes": 69664768,
+          "gpuBytes": 17533312
+        },
+        "stats": {
+          "gpuBytes": 17533312,
+          "chartUploadBytes": 16778240,
+          "chartUploadTotal": 184560640,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 69664768
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.05,
+            "p95": 1.71,
+            "max": 4.29,
+            "mean": 1.18
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 136,
+          "mainThread": {
+            "taskMs": 314.9,
+            "scriptMs": 173.8,
+            "layoutMs": 45.5,
+            "perFrameMs": 1.75
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.85,
+            "p95": 1.28,
+            "max": 5.48,
+            "mean": 0.97
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "heatmap-4096",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "heatmap-4096",
+        "size": 16777216,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 259,
+        "initMs": 76,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 95.77,
+            "p95": 116.78,
+            "max": 116.78,
+            "mean": 102.84
+          },
+          "frame": {
+            "n": 5,
+            "median": 96.41,
+            "p95": 117.38,
+            "max": 117.38,
+            "mean": 103.45
+          },
+          "pixels": {
+            "n": 5,
+            "median": 105.21,
+            "p95": 126.23,
+            "max": 126.23,
+            "mean": 108.37
+          },
+          "samples": {
+            "call": [
+              116.78,
+              112.39,
+              94.18,
+              95.77,
+              95.05
+            ],
+            "frame": [
+              117.38,
+              113.06,
+              94.78,
+              96.41,
+              95.6
+            ],
+            "pixels": [
+              126.23,
+              101,
+              105.68,
+              105.21,
+              103.71
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 75970465,
+          "uaBytes": 91351076,
+          "wasmBytes": 270991360,
+          "gpuBytes": 67864960
+        },
+        "stats": {
+          "gpuBytes": 67864960,
+          "chartUploadBytes": 67109888,
+          "chartUploadTotal": 738208768,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 270991360
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.46,
+            "p95": 1.76,
+            "max": 5.07,
+            "mean": 1.44
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 136,
+          "mainThread": {
+            "taskMs": 377.8,
+            "scriptMs": 210.9,
+            "layoutMs": 55.6,
+            "perFrameMs": 2.1
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.75,
+            "p95": 1.2,
+            "max": 5.43,
+            "mean": 0.88
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "candle-1m",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "candle-1m",
+        "size": 1000000,
+        "backend": "webgl2",
+        "interaction": "wheel+drag",
+        "genMs": 32,
+        "initMs": 78,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 32.98,
+            "p95": 40.19,
+            "max": 40.19,
+            "mean": 33.92
+          },
+          "frame": {
+            "n": 5,
+            "median": 33.31,
+            "p95": 40.55,
+            "max": 40.55,
+            "mean": 34.26
+          },
+          "pixels": {
+            "n": 5,
+            "median": 37.33,
+            "p95": 58.98,
+            "max": 58.98,
+            "mean": 40.19
+          },
+          "samples": {
+            "call": [
+              40.19,
+              32.98,
+              31.66,
+              31.58,
+              33.17
+            ],
+            "frame": [
+              40.55,
+              33.31,
+              32,
+              31.96,
+              33.48
+            ],
+            "pixels": [
+              58.98,
+              35.28,
+              37.36,
+              37.33,
+              32.03
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 24833933,
+          "uaBytes": 40201856,
+          "wasmBytes": 42860544,
+          "gpuBytes": 760196
+        },
+        "stats": {
+          "gpuBytes": 760196,
+          "chartUploadBytes": 42192,
+          "chartUploadTotal": 464112,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 582,
+          "points": 0,
+          "bars": 291,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 42860544
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 2.02,
+            "p95": 7.69,
+            "max": 22.11,
+            "mean": 3.02
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 81472,
+          "mainThread": {
+            "taskMs": 624.5,
+            "scriptMs": 493.2,
+            "layoutMs": 40.8,
+            "perFrameMs": 3.47
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.78,
+            "p95": 1.1,
+            "max": 3.89,
+            "mean": 0.91
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "stream-1m",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "stream-1m",
+        "size": 1000000,
+        "backend": "webgl2",
+        "interaction": "stream",
+        "genMs": 16,
+        "initMs": 78,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 12.98,
+            "p95": 14.15,
+            "max": 14.15,
+            "mean": 13
+          },
+          "frame": {
+            "n": 5,
+            "median": 16.18,
+            "p95": 17.1,
+            "max": 17.1,
+            "mean": 16.12
+          },
+          "pixels": {
+            "n": 5,
+            "median": 15.1,
+            "p95": 41.14,
+            "max": 41.14,
+            "mean": 20.13
+          },
+          "samples": {
+            "call": [
+              13.2,
+              11.88,
+              12.79,
+              14.15,
+              12.98
+            ],
+            "frame": [
+              15.71,
+              15.37,
+              17.1,
+              16.23,
+              16.18
+            ],
+            "pixels": [
+              41.14,
+              15.21,
+              15.1,
+              14.5,
+              14.69
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 12870861,
+          "uaBytes": 28239808,
+          "wasmBytes": 31129600,
+          "gpuBytes": 756100
+        },
+        "stats": {
+          "gpuBytes": 756100,
+          "chartUploadBytes": 165360,
+          "chartUploadTotal": 1818960,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 3437,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 0,
+          "markers": 0,
+          "wasmMemoryBytes": 7012352
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 3.17,
+            "p95": 7.14,
+            "max": 8.28,
+            "mean": 3.71
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 158255,
+          "mainThread": {
+            "taskMs": 775.1,
+            "scriptMs": 66.3,
+            "layoutMs": 2.4,
+            "perFrameMs": 4.31
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.68,
+            "p95": 0.88,
+            "max": 6.63,
+            "mean": 0.84
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "treemap-100k",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "treemap-100k",
+        "size": 100000,
+        "backend": "webgl2",
+        "interaction": "hover-sweep",
+        "genMs": 9,
+        "initMs": 74,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 25.96,
+            "p95": 27.53,
+            "max": 27.53,
+            "mean": 26.34
+          },
+          "frame": {
+            "n": 5,
+            "median": 26.63,
+            "p95": 28.08,
+            "max": 28.08,
+            "mean": 26.86
+          },
+          "pixels": {
+            "n": 5,
+            "median": 28.24,
+            "p95": 53.38,
+            "max": 53.38,
+            "mean": 32.88
+          },
+          "samples": {
+            "call": [
+              25.96,
+              27.53,
+              27.5,
+              25.83,
+              24.88
+            ],
+            "frame": [
+              26.63,
+              27.93,
+              28.08,
+              26.28,
+              25.36
+            ],
+            "pixels": [
+              53.38,
+              28.24,
+              25.78,
+              28.74,
+              28.24
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 20219191,
+          "uaBytes": 35599678,
+          "wasmBytes": 18415616,
+          "gpuBytes": 1247620
+        },
+        "stats": {
+          "gpuBytes": 1247620,
+          "chartUploadBytes": 415488,
+          "chartUploadTotal": 4570368,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 12984,
+          "markers": 0,
+          "wasmMemoryBytes": 18415616
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.19,
+            "p95": 2.07,
+            "max": 6.79,
+            "mean": 1.24
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 192,
+          "mainThread": {
+            "taskMs": 327.4,
+            "scriptMs": 153.3,
+            "layoutMs": 57,
+            "perFrameMs": 1.82
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.03,
+            "p95": 1.14,
+            "max": 1.4,
+            "mean": 1
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "sankey-10k",
+      "backend": "webgl2",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "sankey-10k",
+        "size": 10000,
+        "backend": "webgl2",
+        "interaction": "hover-sweep",
+        "genMs": 3,
+        "initMs": 77,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 85.17,
+            "p95": 88.25,
+            "max": 88.25,
+            "mean": 84.59
+          },
+          "frame": {
+            "n": 5,
+            "median": 85.53,
+            "p95": 88.67,
+            "max": 88.67,
+            "mean": 84.95
+          },
+          "pixels": {
+            "n": 5,
+            "median": 89.86,
+            "p95": 114.4,
+            "max": 114.4,
+            "mean": 94.66
+          },
+          "samples": {
+            "call": [
+              88.25,
+              80.62,
+              86.98,
+              85.17,
+              81.91
+            ],
+            "frame": [
+              88.67,
+              80.97,
+              87.29,
+              85.53,
+              82.3
+            ],
+            "pixels": [
+              114.4,
+              87.04,
+              89.36,
+              92.64,
+              89.86
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 11972904,
+          "uaBytes": 27333843,
+          "wasmBytes": 147259392,
+          "gpuBytes": 67832196
+        },
+        "stats": {
+          "gpuBytes": 67832196,
+          "chartUploadBytes": 41921472,
+          "chartUploadTotal": 461136192,
+          "chartUploads": 11,
+          "frames": 11,
+          "seriesSegments": 0,
+          "points": 0,
+          "bars": 0,
+          "fillVertices": 1310046,
+          "markers": 0,
+          "wasmMemoryBytes": 147259392
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 11.56,
+            "p95": 13.48,
+            "max": 19.42,
+            "mean": 11.71
+          },
+          "dropped": 0,
+          "fps": 60,
+          "uploadBytesPerFrame": 41921472,
+          "mainThread": {
+            "taskMs": 2166.1,
+            "scriptMs": 2049.3,
+            "layoutMs": 48.6,
+            "perFrameMs": 12.03
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 11.49,
+            "p95": 12.44,
+            "max": 12.49,
+            "mean": 11.52
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    }
+  ],
+  "compare": [
+    {
+      "scenario": "line-1m-1s",
+      "lib": "viz",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-1m-1s",
+        "backend": "webgpu",
+        "interaction": "range-api",
+        "genMs": 20,
+        "initMs": 18,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 13.3,
+            "p95": 13.91,
+            "max": 13.91,
+            "mean": 13.41
+          },
+          "frame": {
+            "n": 5,
+            "median": 15.91,
+            "p95": 16.56,
+            "max": 16.56,
+            "mean": 15.75
+          },
+          "pixels": {
+            "n": 5,
+            "median": 14.25,
+            "p95": 41.81,
+            "max": 41.81,
+            "mean": 19.25
+          },
+          "samples": {
+            "call": [
+              13.91,
+              13.2,
+              13.18,
+              13.3,
+              13.46
+            ],
+            "frame": [
+              14.56,
+              15.91,
+              15.92,
+              15.81,
+              16.56
+            ],
+            "pixels": [
+              41.81,
+              12.29,
+              13.67,
+              14.25,
+              14.25
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 20716621,
+          "uaBytes": 27791064,
+          "wasmBytes": 6815744,
+          "gpuBytes": 756100
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.87,
+            "p95": 4.19,
+            "max": 7,
+            "mean": 2.16
+          },
+          "dropped": 0,
+          "fps": 60,
+          "mainThread": {
+            "taskMs": 484.5,
+            "scriptMs": 1.4,
+            "layoutMs": 37.5,
+            "perFrameMs": 2.69
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.62,
+            "p95": 0.81,
+            "max": 7.61,
+            "mean": 0.81
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-1s",
+      "lib": "uplot",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "uplot",
+        "scenario": "line-1m-1s",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 20,
+        "initMs": 25,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 13.34,
+            "p95": 14.83,
+            "max": 14.83,
+            "mean": 13.03
+          },
+          "frame": {
+            "n": 5,
+            "median": 15.46,
+            "p95": 15.99,
+            "max": 15.99,
+            "mean": 15.48
+          },
+          "pixels": {
+            "n": 5,
+            "median": 14.07,
+            "p95": 37.67,
+            "max": 37.67,
+            "mean": 18.79
+          },
+          "samples": {
+            "call": [
+              14.83,
+              11.48,
+              11.81,
+              13.7,
+              13.34
+            ],
+            "frame": [
+              15.27,
+              15.93,
+              15.46,
+              15.99,
+              14.76
+            ],
+            "pixels": [
+              37.67,
+              13.7,
+              13.97,
+              14.07,
+              14.54
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 21211955,
+          "uaBytes": 28748422,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.58,
+            "p95": 7.05,
+            "max": 11.98,
+            "mean": 2.64
+          },
+          "dropped": 0,
+          "fps": 60,
+          "mainThread": {
+            "taskMs": 542.8,
+            "scriptMs": 1.4,
+            "layoutMs": 0,
+            "perFrameMs": 3.02
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.11,
+            "p95": 0.29,
+            "max": 0.6,
+            "mean": 0.16
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-1s",
+      "lib": "echarts",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "echarts",
+        "scenario": "line-1m-1s",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 20,
+        "initMs": 212,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 22.44,
+            "p95": 31.5,
+            "max": 31.5,
+            "mean": 25.34
+          },
+          "frame": {
+            "n": 5,
+            "median": 22.75,
+            "p95": 31.77,
+            "max": 31.77,
+            "mean": 25.63
+          },
+          "pixels": {
+            "n": 5,
+            "median": 20.15,
+            "p95": 45.63,
+            "max": 45.63,
+            "mean": 24.58
+          },
+          "samples": {
+            "call": [
+              20.53,
+              22.38,
+              22.44,
+              31.5,
+              29.83
+            ],
+            "frame": [
+              20.84,
+              22.71,
+              22.75,
+              31.77,
+              30.09
+            ],
+            "pixels": [
+              45.63,
+              20.22,
+              17.01,
+              19.9,
+              20.15
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 83923243,
+          "uaBytes": 99976198,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 179,
+          "interval": {
+            "n": 180,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.34,
+            "mean": 16.76
+          },
+          "work": {
+            "n": 179,
+            "median": 4.13,
+            "p95": 13.88,
+            "max": 35.06,
+            "mean": 5.93
+          },
+          "dropped": 1,
+          "fps": 59.7,
+          "mainThread": {
+            "taskMs": 1169.9,
+            "scriptMs": 69.8,
+            "layoutMs": 0,
+            "perFrameMs": 6.54
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.89,
+            "p95": 1.38,
+            "max": 9.02,
+            "mean": 1.11
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-1s",
+      "lib": "chartjs",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "chartjs",
+        "scenario": "line-1m-1s",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 20,
+        "initMs": 73,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 17.13,
+            "p95": 20.04,
+            "max": 20.04,
+            "mean": 17.75
+          },
+          "frame": {
+            "n": 5,
+            "median": 17.37,
+            "p95": 20.25,
+            "max": 20.25,
+            "mean": 17.97
+          },
+          "pixels": {
+            "n": 5,
+            "median": 14.77,
+            "p95": 45.08,
+            "max": 45.08,
+            "mean": 20.55
+          },
+          "samples": {
+            "call": [
+              17.13,
+              16.87,
+              18.47,
+              20.04,
+              16.24
+            ],
+            "frame": [
+              17.37,
+              17.06,
+              18.7,
+              20.25,
+              16.48
+            ],
+            "pixels": [
+              45.08,
+              14.73,
+              14.77,
+              15.07,
+              13.11
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 60102898,
+          "uaBytes": 66591475,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 2.79,
+            "p95": 8,
+            "max": 22.66,
+            "mean": 3.7
+          },
+          "dropped": 0,
+          "fps": 60,
+          "mainThread": {
+            "taskMs": 721.1,
+            "scriptMs": 2.6,
+            "layoutMs": 0,
+            "perFrameMs": 4.01
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.05,
+            "p95": 0.09,
+            "max": 0.25,
+            "mean": 0.06
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-1m-1s",
+      "lib": "plotly",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "plotly",
+        "scenario": "line-1m-1s",
+        "backend": "webgl",
+        "interaction": "range-api",
+        "genMs": 26,
+        "initMs": 193,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 284.84,
+            "p95": 349.03,
+            "max": 349.03,
+            "mean": 291.61
+          },
+          "frame": {
+            "n": 5,
+            "median": 298.29,
+            "p95": 366.67,
+            "max": 366.67,
+            "mean": 306.04
+          },
+          "pixels": {
+            "n": 5,
+            "median": 284.97,
+            "p95": 311.54,
+            "max": 311.54,
+            "mean": 292.63
+          },
+          "samples": {
+            "call": [
+              299.54,
+              349.03,
+              270.43,
+              284.84,
+              254.2
+            ],
+            "frame": [
+              316.59,
+              366.67,
+              283.44,
+              298.29,
+              265.21
+            ],
+            "pixels": [
+              306.81,
+              284.97,
+              278.94,
+              311.54,
+              280.86
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 138808697,
+          "uaBytes": 330756069,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.95,
+            "p95": 3.38,
+            "max": 4.94,
+            "mean": 2.1
+          },
+          "dropped": 0,
+          "fps": 60,
+          "mainThread": {
+            "taskMs": 457.9,
+            "scriptMs": 2,
+            "layoutMs": 84,
+            "perFrameMs": 2.54
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 14,
+            "median": 0.06,
+            "p95": 4309.5,
+            "max": 4309.5,
+            "mean": 919.83
+          },
+          "interval": {
+            "n": 14,
+            "median": 16.67,
+            "p95": 4299.83,
+            "max": 4299.83,
+            "mean": 930.91
+          },
+          "dropped": 768
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-1s",
+      "lib": "viz",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "line-10m-1s",
+        "backend": "webgpu",
+        "interaction": "range-api",
+        "genMs": 191,
+        "initMs": 18,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 91.8,
+            "p95": 92.13,
+            "max": 92.13,
+            "mean": 91.14
+          },
+          "frame": {
+            "n": 5,
+            "median": 92.14,
+            "p95": 92.57,
+            "max": 92.57,
+            "mean": 91.53
+          },
+          "pixels": {
+            "n": 5,
+            "median": 93.38,
+            "p95": 118.42,
+            "max": 118.42,
+            "mean": 98.18
+          },
+          "samples": {
+            "call": [
+              89.88,
+              92.13,
+              91.8,
+              89.86,
+              92.05
+            ],
+            "frame": [
+              90.22,
+              92.57,
+              92.14,
+              90.35,
+              92.38
+            ],
+            "pixels": [
+              118.42,
+              93.55,
+              92.25,
+              93.38,
+              93.3
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 128717034,
+          "uaBytes": 135790429,
+          "wasmBytes": 42795008,
+          "gpuBytes": 756100
+        },
+        "steady": {
+          "frames": 176,
+          "interval": {
+            "n": 177,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.34,
+            "mean": 17.04
+          },
+          "work": {
+            "n": 176,
+            "median": 3.51,
+            "p95": 19.46,
+            "max": 34.81,
+            "mean": 6.53
+          },
+          "dropped": 4,
+          "fps": 58.7,
+          "mainThread": {
+            "taskMs": 1230.7,
+            "scriptMs": 1.2,
+            "layoutMs": 34.5,
+            "perFrameMs": 6.99
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.57,
+            "p95": 0.83,
+            "max": 4.23,
+            "mean": 0.71
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-1s",
+      "lib": "uplot",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "uplot",
+        "scenario": "line-10m-1s",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 190,
+        "initMs": 15,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 81.34,
+            "p95": 83.82,
+            "max": 83.82,
+            "mean": 81.04
+          },
+          "frame": {
+            "n": 5,
+            "median": 81.73,
+            "p95": 84.21,
+            "max": 84.21,
+            "mean": 81.46
+          },
+          "pixels": {
+            "n": 5,
+            "median": 85.27,
+            "p95": 107,
+            "max": 107,
+            "mean": 88.66
+          },
+          "samples": {
+            "call": [
+              83.82,
+              81.73,
+              79.89,
+              81.34,
+              78.41
+            ],
+            "frame": [
+              84.21,
+              82.17,
+              80.35,
+              81.73,
+              78.86
+            ],
+            "pixels": [
+              107,
+              82.68,
+              80.78,
+              85.27,
+              87.59
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 129218608,
+          "uaBytes": 136754891,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 160,
+          "interval": {
+            "n": 161,
+            "median": 16.66,
+            "p95": 33.34,
+            "max": 83.33,
+            "mean": 18.94
+          },
+          "work": {
+            "n": 160,
+            "median": 3.81,
+            "p95": 31.04,
+            "max": 95.34,
+            "mean": 9.13
+          },
+          "dropped": 22,
+          "fps": 52.8,
+          "mainThread": {
+            "taskMs": 1505.6,
+            "scriptMs": 0.7,
+            "layoutMs": 0,
+            "perFrameMs": 9.41
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.09,
+            "p95": 0.18,
+            "max": 0.49,
+            "mean": 0.1
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-1s",
+      "lib": "echarts",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "echarts",
+        "scenario": "line-10m-1s",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 191,
+        "initMs": 106,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 133.11,
+            "p95": 141.26,
+            "max": 141.26,
+            "mean": 133.43
+          },
+          "frame": {
+            "n": 5,
+            "median": 133.41,
+            "p95": 141.63,
+            "max": 141.63,
+            "mean": 133.92
+          },
+          "pixels": {
+            "n": 5,
+            "median": 120.98,
+            "p95": 150.72,
+            "max": 150.72,
+            "mean": 128.44
+          },
+          "samples": {
+            "call": [
+              134.94,
+              133.11,
+              128.97,
+              128.88,
+              141.26
+            ],
+            "frame": [
+              135.31,
+              133.41,
+              129.57,
+              129.69,
+              141.63
+            ],
+            "pixels": [
+              150.72,
+              119.43,
+              136.95,
+              120.98,
+              114.13
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 551900541,
+          "uaBytes": 567953604,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 92,
+          "interval": {
+            "n": 93,
+            "median": 33.33,
+            "p95": 83.33,
+            "max": 183.32,
+            "mean": 32.44
+          },
+          "work": {
+            "n": 92,
+            "median": 23.78,
+            "p95": 78,
+            "max": 196.99,
+            "mean": 32.02
+          },
+          "dropped": 88,
+          "fps": 30.8,
+          "mainThread": {
+            "taskMs": 3000.8,
+            "scriptMs": 35.1,
+            "layoutMs": 0,
+            "perFrameMs": 32.62
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.89,
+            "p95": 1.29,
+            "max": 8.1,
+            "mean": 1.11
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-1s",
+      "lib": "chartjs",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "chartjs",
+        "scenario": "line-10m-1s",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 192,
+        "initMs": 469,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 113.57,
+            "p95": 117.57,
+            "max": 117.57,
+            "mean": 109.11
+          },
+          "frame": {
+            "n": 5,
+            "median": 113.87,
+            "p95": 117.86,
+            "max": 117.86,
+            "mean": 109.38
+          },
+          "pixels": {
+            "n": 5,
+            "median": 85.7,
+            "p95": 110.11,
+            "max": 110.11,
+            "mean": 90.13
+          },
+          "samples": {
+            "call": [
+              116.59,
+              117.57,
+              113.25,
+              113.57,
+              84.6
+            ],
+            "frame": [
+              116.88,
+              117.86,
+              113.51,
+              113.87,
+              84.8
+            ],
+            "pixels": [
+              110.11,
+              84.48,
+              85.7,
+              81.89,
+              88.46
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 492202894,
+          "uaBytes": 498709115,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 157,
+          "interval": {
+            "n": 158,
+            "median": 16.66,
+            "p95": 33.34,
+            "max": 99.99,
+            "mean": 19.2
+          },
+          "work": {
+            "n": 157,
+            "median": 4.5,
+            "p95": 34.33,
+            "max": 107.82,
+            "mean": 9.75
+          },
+          "dropped": 24,
+          "fps": 52.1,
+          "mainThread": {
+            "taskMs": 1570.7,
+            "scriptMs": 1.6,
+            "layoutMs": 0,
+            "perFrameMs": 10
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.04,
+            "p95": 0.09,
+            "max": 0.17,
+            "mean": 0.05
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "line-10m-1s",
+      "lib": "plotly",
+      "ok": false,
+      "error": "timeout after 300 s (page was in phase \"steady\")"
+    },
+    {
+      "scenario": "scatter-1m",
+      "lib": "viz",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "scatter-1m",
+        "backend": "webgpu",
+        "interaction": "range-api",
+        "genMs": 51,
+        "initMs": 25,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 42.81,
+            "p95": 53.04,
+            "max": 53.04,
+            "mean": 42.76
+          },
+          "frame": {
+            "n": 5,
+            "median": 43.29,
+            "p95": 53.6,
+            "max": 53.6,
+            "mean": 43.58
+          },
+          "pixels": {
+            "n": 5,
+            "median": 69.43,
+            "p95": 81.04,
+            "max": 81.04,
+            "mean": 71.28
+          },
+          "samples": {
+            "call": [
+              42.81,
+              44.25,
+              53.04,
+              35.64,
+              38.05
+            ],
+            "frame": [
+              43.29,
+              46.41,
+              53.6,
+              36.2,
+              38.42
+            ],
+            "pixels": [
+              66.39,
+              69.27,
+              70.26,
+              81.04,
+              69.43
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 16685253,
+          "uaBytes": 23757928,
+          "wasmBytes": 58392576,
+          "gpuBytes": 34290308
+        },
+        "steady": {
+          "frames": 179,
+          "interval": {
+            "n": 180,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.33,
+            "mean": 16.76
+          },
+          "work": {
+            "n": 179,
+            "median": 1.25,
+            "p95": 1.9,
+            "max": 2.12,
+            "mean": 1.28
+          },
+          "dropped": 1,
+          "fps": 59.7,
+          "mainThread": {
+            "taskMs": 328.5,
+            "scriptMs": 1.3,
+            "layoutMs": 49.2,
+            "perFrameMs": 1.84
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.95,
+            "p95": 3.4,
+            "max": 7.66,
+            "mean": 1.36
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 33.34,
+            "max": 33.34,
+            "mean": 20.42
+          },
+          "dropped": 9
+        }
+      }
+    },
+    {
+      "scenario": "scatter-1m",
+      "lib": "uplot",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "uplot",
+        "scenario": "scatter-1m",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 49,
+        "initMs": 16,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 317.42,
+            "p95": 321.67,
+            "max": 321.67,
+            "mean": 314.68
+          },
+          "frame": {
+            "n": 5,
+            "median": 318.54,
+            "p95": 322.7,
+            "max": 322.7,
+            "mean": 315.78
+          },
+          "pixels": {
+            "n": 5,
+            "median": 343.44,
+            "p95": 371.44,
+            "max": 371.44,
+            "mean": 344.45
+          },
+          "samples": {
+            "call": [
+              309.9,
+              317.42,
+              321.67,
+              319.11,
+              305.31
+            ],
+            "frame": [
+              311.08,
+              318.54,
+              322.7,
+              320.17,
+              306.42
+            ],
+            "pixels": [
+              371.44,
+              319.85,
+              357.04,
+              330.45,
+              343.44
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 17167078,
+          "uaBytes": 24703361,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 141,
+          "interval": {
+            "n": 142,
+            "median": 16.66,
+            "p95": 33.34,
+            "max": 299.99,
+            "mean": 22.42
+          },
+          "work": {
+            "n": 141,
+            "median": 6.38,
+            "p95": 18.93,
+            "max": 313.57,
+            "mean": 12.93
+          },
+          "dropped": 49,
+          "fps": 44.6,
+          "mainThread": {
+            "taskMs": 1918.8,
+            "scriptMs": 0.5,
+            "layoutMs": 0,
+            "perFrameMs": 13.61
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.1,
+            "p95": 0.19,
+            "max": 0.43,
+            "mean": 0.11
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.67,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "scatter-1m",
+      "lib": "echarts",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "echarts",
+        "scenario": "scatter-1m",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 49,
+        "initMs": 82,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 1034.76,
+            "p95": 1103.78,
+            "max": 1103.78,
+            "mean": 1025.52
+          },
+          "frame": {
+            "n": 5,
+            "median": 1050.05,
+            "p95": 1117.41,
+            "max": 1117.41,
+            "mean": 1039.84
+          },
+          "pixels": {
+            "n": 5,
+            "median": 892.41,
+            "p95": 1048.89,
+            "max": 1048.89,
+            "mean": 913.14
+          },
+          "samples": {
+            "call": [
+              1034.76,
+              1103.78,
+              1067.81,
+              967.6,
+              953.64
+            ],
+            "frame": [
+              1050.05,
+              1117.41,
+              1081.66,
+              983.39,
+              966.71
+            ],
+            "pixels": [
+              878.13,
+              746.38,
+              892.41,
+              1048.89,
+              999.92
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 96239848,
+          "uaBytes": 114367363,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 23,
+          "interval": {
+            "n": 24,
+            "median": 133.33,
+            "p95": 150,
+            "max": 150,
+            "mean": 128.47
+          },
+          "work": {
+            "n": 23,
+            "median": 130.75,
+            "p95": 143.99,
+            "max": 145.19,
+            "mean": 132
+          },
+          "dropped": 161,
+          "fps": 7.8,
+          "mainThread": {
+            "taskMs": 3088.3,
+            "scriptMs": 41.3,
+            "layoutMs": 0,
+            "perFrameMs": 134.27
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.43,
+            "p95": 2.21,
+            "max": 3.3,
+            "mean": 0.66
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.67,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "scatter-1m",
+      "lib": "chartjs",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "chartjs",
+        "scenario": "scatter-1m",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 50,
+        "initMs": 73,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 662.03,
+            "p95": 664.94,
+            "max": 664.94,
+            "mean": 662.13
+          },
+          "frame": {
+            "n": 5,
+            "median": 665.02,
+            "p95": 669.91,
+            "max": 669.91,
+            "mean": 665.56
+          },
+          "pixels": {
+            "n": 5,
+            "median": 730.48,
+            "p95": 815.52,
+            "max": 815.52,
+            "mean": 745.88
+          },
+          "samples": {
+            "call": [
+              664.94,
+              661.01,
+              658.82,
+              663.88,
+              662.03
+            ],
+            "frame": [
+              669.91,
+              663.98,
+              661.99,
+              666.91,
+              665.02
+            ],
+            "pixels": [
+              751.4,
+              730.48,
+              815.52,
+              714.31,
+              717.69
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 211570823,
+          "uaBytes": 218076588,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 10,
+          "interval": {
+            "n": 11,
+            "median": 283.32,
+            "p95": 616.64,
+            "max": 616.64,
+            "mean": 309.08
+          },
+          "work": {
+            "n": 10,
+            "median": 278.42,
+            "p95": 626.27,
+            "max": 626.27,
+            "mean": 338.25
+          },
+          "dropped": 193,
+          "fps": 3.2,
+          "mainThread": {
+            "taskMs": 3393.3,
+            "scriptMs": 0,
+            "layoutMs": 0,
+            "perFrameMs": 339.33
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 32,
+            "median": 0.04,
+            "p95": 0.07,
+            "max": 0.17,
+            "mean": 0.04
+          },
+          "interval": {
+            "n": 32,
+            "median": 366.65,
+            "p95": 383.32,
+            "max": 383.32,
+            "mean": 316.65
+          },
+          "dropped": 576
+        }
+      }
+    },
+    {
+      "scenario": "scatter-1m",
+      "lib": "plotly",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "plotly",
+        "scenario": "scatter-1m",
+        "backend": "webgl",
+        "interaction": "range-api",
+        "genMs": 48,
+        "initMs": 117,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 303.16,
+            "p95": 316.26,
+            "max": 316.26,
+            "mean": 296.74
+          },
+          "frame": {
+            "n": 5,
+            "median": 315.79,
+            "p95": 331.82,
+            "max": 331.82,
+            "mean": 305.66
+          },
+          "pixels": {
+            "n": 5,
+            "median": 326.83,
+            "p95": 354.64,
+            "max": 354.64,
+            "mean": 335.99
+          },
+          "samples": {
+            "call": [
+              303.26,
+              303.16,
+              279.01,
+              282.02,
+              316.26
+            ],
+            "frame": [
+              316.6,
+              315.79,
+              281.63,
+              282.45,
+              331.82
+            ],
+            "pixels": [
+              319.07,
+              353.15,
+              326.83,
+              326.27,
+              354.64
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 130336530,
+          "uaBytes": 322279710,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 175,
+          "interval": {
+            "n": 176,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 33.34,
+            "mean": 17.14
+          },
+          "work": {
+            "n": 175,
+            "median": 14.66,
+            "p95": 21.36,
+            "max": 35.11,
+            "mean": 15.33
+          },
+          "dropped": 5,
+          "fps": 58.3,
+          "mainThread": {
+            "taskMs": 2828,
+            "scriptMs": 0.6,
+            "layoutMs": 111,
+            "perFrameMs": 16.16
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.08,
+            "p95": 7.14,
+            "max": 152.44,
+            "mean": 4.88
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 150,
+            "mean": 20
+          },
+          "dropped": 8
+        }
+      }
+    },
+    {
+      "scenario": "bar-10k",
+      "lib": "viz",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "viz",
+        "scenario": "bar-10k",
+        "backend": "webgpu",
+        "interaction": "hover-sweep",
+        "genMs": 1,
+        "initMs": 19,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 19.1,
+            "p95": 20.75,
+            "max": 20.75,
+            "mean": 19.52
+          },
+          "frame": {
+            "n": 5,
+            "median": 19.6,
+            "p95": 21.19,
+            "max": 21.19,
+            "mean": 19.99
+          },
+          "pixels": {
+            "n": 5,
+            "median": 18.06,
+            "p95": 47.55,
+            "max": 47.55,
+            "mean": 23.67
+          },
+          "samples": {
+            "call": [
+              19.1,
+              18.63,
+              20.75,
+              20.66,
+              18.43
+            ],
+            "frame": [
+              19.6,
+              19.16,
+              21.19,
+              21.19,
+              18.82
+            ],
+            "pixels": [
+              47.55,
+              16.59,
+              18.06,
+              20.1,
+              16.04
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 12008809,
+          "uaBytes": 19081904,
+          "wasmBytes": 3735552,
+          "gpuBytes": 1268100
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 1.38,
+            "p95": 1.82,
+            "max": 7.09,
+            "mean": 1.41
+          },
+          "dropped": 0,
+          "fps": 60,
+          "mainThread": {
+            "taskMs": 368.5,
+            "scriptMs": 188.1,
+            "layoutMs": 54.1,
+            "perFrameMs": 2.05
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.72,
+            "p95": 1.98,
+            "max": 2.15,
+            "mean": 1.73
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "bar-10k",
+      "lib": "uplot",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "uplot",
+        "scenario": "bar-10k",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 1,
+        "initMs": 16,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 3.16,
+            "p95": 4.22,
+            "max": 4.22,
+            "mean": 3.31
+          },
+          "frame": {
+            "n": 5,
+            "median": 16.84,
+            "p95": 18.62,
+            "max": 18.62,
+            "mean": 17.26
+          },
+          "pixels": {
+            "n": 5,
+            "median": 6.72,
+            "p95": 43.98,
+            "max": 43.98,
+            "mean": 13.87
+          },
+          "samples": {
+            "call": [
+              4.22,
+              3.29,
+              3.16,
+              2.82,
+              3.08
+            ],
+            "frame": [
+              16.81,
+              18.62,
+              17.27,
+              16.84,
+              16.77
+            ],
+            "pixels": [
+              43.98,
+              5.37,
+              5.88,
+              6.72,
+              7.42
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 9663343,
+          "uaBytes": 17199626,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 0.55,
+            "p95": 1.98,
+            "max": 5.08,
+            "mean": 0.78
+          },
+          "dropped": 0,
+          "fps": 60,
+          "mainThread": {
+            "taskMs": 218.2,
+            "scriptMs": 2.1,
+            "layoutMs": 0,
+            "perFrameMs": 1.21
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.09,
+            "p95": 0.29,
+            "max": 0.99,
+            "mean": 0.13
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "bar-10k",
+      "lib": "echarts",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "echarts",
+        "scenario": "bar-10k",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 1,
+        "initMs": 80,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 67.4,
+            "p95": 68.03,
+            "max": 68.03,
+            "mean": 64.31
+          },
+          "frame": {
+            "n": 5,
+            "median": 83.41,
+            "p95": 83.83,
+            "max": 83.83,
+            "mean": 80.13
+          },
+          "pixels": {
+            "n": 5,
+            "median": 53.29,
+            "p95": 81.9,
+            "max": 81.9,
+            "mean": 58.5
+          },
+          "samples": {
+            "call": [
+              67.46,
+              66.77,
+              67.4,
+              68.03,
+              51.88
+            ],
+            "frame": [
+              83.32,
+              83.43,
+              83.41,
+              83.83,
+              66.68
+            ],
+            "pixels": [
+              81.9,
+              51.68,
+              53.9,
+              51.73,
+              53.29
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 33463697,
+          "uaBytes": 51591032,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 180,
+          "interval": {
+            "n": 181,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "work": {
+            "n": 180,
+            "median": 2.06,
+            "p95": 3.2,
+            "max": 10.65,
+            "mean": 2.18
+          },
+          "dropped": 0,
+          "fps": 60,
+          "mainThread": {
+            "taskMs": 608.4,
+            "scriptMs": 132.4,
+            "layoutMs": 0,
+            "perFrameMs": 3.38
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 1.63,
+            "p95": 2.75,
+            "max": 13.1,
+            "mean": 2.01
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "bar-10k",
+      "lib": "chartjs",
+      "done": true,
+      "ok": true,
+      "result": {
+        "lib": "chartjs",
+        "scenario": "bar-10k",
+        "backend": "canvas2d",
+        "interaction": "range-api",
+        "genMs": 1,
+        "initMs": 13,
+        "ttff": {
+          "call": {
+            "n": 5,
+            "median": 49.07,
+            "p95": 52.85,
+            "max": 52.85,
+            "mean": 48.62
+          },
+          "frame": {
+            "n": 5,
+            "median": 50.47,
+            "p95": 54.69,
+            "max": 54.69,
+            "mean": 50.13
+          },
+          "pixels": {
+            "n": 5,
+            "median": 58.69,
+            "p95": 79.48,
+            "max": 79.48,
+            "mean": 61.83
+          },
+          "samples": {
+            "call": [
+              52.85,
+              49.07,
+              44.54,
+              50.64,
+              46.03
+            ],
+            "frame": [
+              54.69,
+              50.47,
+              45.89,
+              52.13,
+              47.46
+            ],
+            "pixels": [
+              79.48,
+              54.33,
+              57.58,
+              58.69,
+              59.08
+            ]
+          }
+        },
+        "memory": {
+          "jsHeapBytes": 14717406,
+          "uaBytes": 21223171,
+          "wasmBytes": null,
+          "gpuBytes": null
+        },
+        "steady": {
+          "frames": 113,
+          "interval": {
+            "n": 114,
+            "median": 33.33,
+            "p95": 33.34,
+            "max": 66.66,
+            "mean": 26.61
+          },
+          "work": {
+            "n": 113,
+            "median": 23.58,
+            "p95": 34.27,
+            "max": 60.11,
+            "mean": 25.67
+          },
+          "dropped": 68,
+          "fps": 37.6,
+          "mainThread": {
+            "taskMs": 3036.1,
+            "scriptMs": 0.3,
+            "layoutMs": 0,
+            "perFrameMs": 26.87
+          }
+        },
+        "hover": {
+          "sync": {
+            "n": 40,
+            "median": 0.04,
+            "p95": 0.06,
+            "max": 0.21,
+            "mean": 0.04
+          },
+          "interval": {
+            "n": 40,
+            "median": 16.66,
+            "p95": 16.67,
+            "max": 16.67,
+            "mean": 16.67
+          },
+          "dropped": 0
+        }
+      }
+    },
+    {
+      "scenario": "bar-10k",
+      "lib": "plotly",
+      "done": true,
+      "ok": false,
+      "error": "Error: unsupported: the plotly gl2d bundle has no bar trace",
+      "errors": []
+    }
+  ]
+}

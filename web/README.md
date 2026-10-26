@@ -166,8 +166,8 @@ sdk.render();
 
 ## Documentation
 
-- API reference: `npm run docs` (TypeDoc → `docs/api/`). TODO: hosted URL.
-- Examples (every chart family with its source): `npm run examples:dev`. TODO: hosted URL.
+- API reference: `npm run docs` (TypeDoc → `docs/api/`).
+- Examples (every chart family with its source): https://jparkk0517.github.io/VizEngineSDK/ (locally: `npm run examples:dev`).
 - Changes: [CHANGELOG.md](./CHANGELOG.md) (0.x: minor = new features or breaking changes, patch = fixes).
 
 ## License

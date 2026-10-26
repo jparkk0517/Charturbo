@@ -163,6 +163,13 @@ async function main() {
     }
   } catch (err) {
     console.error('[examples] shared device unavailable', err);
+    const notice = document.createElement('div');
+    notice.className = 'demo-error';
+    notice.setAttribute('role', 'alert');
+    notice.style.marginTop = '12px';
+    notice.textContent =
+      'Charts could not start: these examples need WebGPU or WebGL2. Use a recent Chrome, Edge, Safari or Firefox with hardware acceleration enabled (details in the browser console).';
+    intro.appendChild(notice);
   }
   window.__ready = true;
 }

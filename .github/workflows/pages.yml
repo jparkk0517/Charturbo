@@ -1,0 +1,72 @@
+# Builds the examples site (web/examples -> web/examples-dist) and deploys it to GitHub Pages:
+# https://jparkk0517.github.io/VizEngineSDK/
+# One-time setup: repo Settings > Pages > Build and deployment > Source = "GitHub Actions".
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a queued run is not cancelled mid-deploy
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  WASM_PACK_VERSION: 0.13.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack ${{ env.WASM_PACK_VERSION }}
+        run: |
+          curl -sSfL "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar xz --strip-components=1 -C "$HOME/.cargo/bin" "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"
+          wasm-pack --version
+
+      - name: Build wasm (web/src/wasm-pkg)
+        run: wasm-pack build crates/viz-core --target web --out-dir ../../web/src/wasm-pkg --release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build examples site
+        working-directory: web
+        run: |
+          npm ci
+          npm run examples:build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/examples-dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

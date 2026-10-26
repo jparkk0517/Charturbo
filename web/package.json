@@ -139,9 +139,11 @@
     "examples:dev": "vite --config examples/vite.config.ts",
     "examples:build": "tsc -p examples/tsconfig.json && vite build --config examples/vite.config.ts",
     "examples:preview": "vite preview --config examples/vite.config.ts",
+    "examples:shots": "npm run examples:build && node examples/scripts/capture-screens.mjs",
     "prepack": "npm run build:lib",
     "prepublishOnly": "node scripts/check-release-metadata.mjs",
-    "bench": "node bench/run-bench.mjs"
+    "bench": "node bench/run-bench.mjs",
+    "bench:charts": "node bench/readme-charts.mjs"
   },
   "peerDependencies": {
     "react": ">=18",
