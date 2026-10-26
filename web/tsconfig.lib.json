@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": false,
+    "outDir": "./dist-lib",
+    "rootDir": "./src"
+  },
+  "include": ["src/index.ts", "src/inline.ts", "src/wasm-inline.d.ts", "src/sdk/viz-engine-sdk.ts", "src/react/index.ts", "src/vue/index.ts", "src/wasm-pkg/viz_core.d.ts"]
+}

@@ -1,0 +1,180 @@
+{
+  "name": "viz-engine-sdk",
+  "version": "0.1.0",
+  "description": "GPU-accelerated charting for the web: Rust + WebGPU (WebAssembly, WebGL2 fallback) line, area, bar, scatter, candlestick, heatmap, box/violin, pie, combo, radar, gauge, funnel, waterfall, treemap, sunburst, sankey and sparkline charts with 1M+ points at 60 FPS, real-time streaming, accessibility, SVG/PNG/PDF export and React / Vue components",
+  "type": "module",
+  "license": "MIT",
+  "author": "TODO <author name and email>",
+  "homepage": "https://github.com/jparkk0517/VizEngineSDK#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jparkk0517/VizEngineSDK.git",
+    "directory": "web"
+  },
+  "bugs": {
+    "url": "https://github.com/jparkk0517/VizEngineSDK/issues"
+  },
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "sideEffects": [
+    "./dist-lib/inline.js",
+    "./dist-lib/viz-engine-sdk.umd.cjs"
+  ],
+  "main": "./dist-lib/viz-engine-sdk.umd.cjs",
+  "module": "./dist-lib/viz-engine-sdk.js",
+  "types": "./dist-lib/index.d.ts",
+  "unpkg": "./dist-lib/viz-engine-sdk.umd.cjs",
+  "jsdelivr": "./dist-lib/viz-engine-sdk.umd.cjs",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist-lib/index.d.ts",
+        "default": "./dist-lib/viz-engine-sdk.js"
+      },
+      "require": {
+        "types": "./dist-lib/index.d.cts",
+        "default": "./dist-lib/viz-engine-sdk.umd.cjs"
+      },
+      "default": {
+        "types": "./dist-lib/index.d.ts",
+        "default": "./dist-lib/viz-engine-sdk.js"
+      }
+    },
+    "./inline": {
+      "import": {
+        "types": "./dist-lib/inline.d.ts",
+        "default": "./dist-lib/inline.js"
+      },
+      "require": {
+        "types": "./dist-lib/inline.d.cts",
+        "default": "./dist-lib/viz-engine-sdk.umd.cjs"
+      },
+      "default": {
+        "types": "./dist-lib/inline.d.ts",
+        "default": "./dist-lib/inline.js"
+      }
+    },
+    "./react": {
+      "types": "./dist-lib/react/index.d.ts",
+      "import": "./dist-lib/react.js",
+      "default": "./dist-lib/react.js"
+    },
+    "./vue": {
+      "types": "./dist-lib/vue/index.d.ts",
+      "import": "./dist-lib/vue.js",
+      "default": "./dist-lib/vue.js"
+    },
+    "./umd": "./dist-lib/viz-engine-sdk.umd.cjs",
+    "./viz_core_bg.wasm": "./dist-lib/viz_core_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "inline": [
+        "./dist-lib/inline.d.ts"
+      ],
+      "react": [
+        "./dist-lib/react/index.d.ts"
+      ],
+      "vue": [
+        "./dist-lib/vue/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist-lib",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "chart",
+    "charts",
+    "charting",
+    "data-visualization",
+    "webgpu",
+    "wasm",
+    "rust",
+    "high-performance",
+    "large-dataset",
+    "million-points",
+    "real-time",
+    "streaming",
+    "line-chart",
+    "area-chart",
+    "bar-chart",
+    "scatter-plot",
+    "candlestick",
+    "histogram",
+    "heatmap",
+    "boxplot",
+    "pie-chart",
+    "sparkline",
+    "webgl",
+    "typescript",
+    "dashboard",
+    "combo-chart",
+    "radar-chart",
+    "gauge",
+    "funnel",
+    "waterfall",
+    "treemap",
+    "sunburst",
+    "sankey",
+    "violin-plot",
+    "accessibility",
+    "react",
+    "vue",
+    "graph-visualization",
+    "3d"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:lib": "vite build --config vite.lib.config.ts && vite build --config vite.lib.config.ts --mode umd && tsc -p tsconfig.lib.json && node scripts/finalize-dts.mjs",
+    "test": "vitest run",
+    "test:visual": "node e2e/run-visual.mjs",
+    "docs": "typedoc",
+    "examples:dev": "vite --config examples/vite.config.ts",
+    "examples:build": "tsc -p examples/tsconfig.json && vite build --config examples/vite.config.ts",
+    "examples:preview": "vite preview --config examples/vite.config.ts",
+    "prepack": "npm run build:lib",
+    "prepublishOnly": "node scripts/check-release-metadata.mjs",
+    "bench": "node bench/run-bench.mjs"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18",
+    "vue": ">=3.3"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.170.0",
+    "chart.js": "^4.6.1",
+    "echarts": "^6.1.0",
+    "jsdom": "^30.1.3",
+    "plotly.js-gl2d-dist-min": "^4.1.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.170.0",
+    "typedoc": "^0.28.20",
+    "typescript": "^5.6.3",
+    "uplot": "^1.6.32",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "vue": "^3.5.44"
+  }
+}

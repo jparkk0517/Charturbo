@@ -1,0 +1,33 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+
+# Node / Web
+node_modules/
+/web/node_modules/
+/web/dist/
+/web/dist-lib/
+*.tgz
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Generated API docs / examples site build
+/docs/api/
+/web/examples-dist/
+
+# Test / bench / tool outputs
+/web/e2e/out/
+/web/bench/out/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Local env / secrets
+.env
+.env.*
+*.pem
+*.key

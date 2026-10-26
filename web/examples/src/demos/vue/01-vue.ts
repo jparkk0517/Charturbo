@@ -1,0 +1,45 @@
+import { createApp, defineComponent, h, ref, shallowRef } from 'vue';
+import { VizChart, type VizChartInstance } from 'viz-engine-sdk/vue';
+
+export const meta = {
+  title: 'Vue <VizChart>',
+  description: 'Replace shallowRef data with a new array to re-render; theme changes only call setTheme.',
+};
+
+const regions = ['APAC', 'EMEA', 'US-East', 'US-West', 'LATAM'];
+const randomData = () => ({
+  categories: regions,
+  series: ['Q1', 'Q2'].map((name) => ({ name, values: regions.map(() => 50 + Math.round(Math.random() * 150)) })),
+});
+
+const Dashboard = defineComponent({
+  setup() {
+    const data = shallowRef(randomData());
+    const theme = ref<'dark' | 'light'>('dark');
+    const chart = ref<VizChartInstance | null>(null);
+    const options = { title: 'Revenue (Vue)', mode: 'stacked' as const };
+    return () => [
+      h('div', { class: 'toolbar' }, [
+        h('button', { onClick: () => (data.value = randomData()) }, 'New data'),
+        h('button', { onClick: () => (theme.value = theme.value === 'dark' ? 'light' : 'dark') }, `Theme: ${theme.value}`),
+        h('button', { onClick: () => chart.value?.sdk?.downloadChartSVG('vue-chart.svg') }, 'Download SVG'),
+      ]),
+      h(VizChart, {
+        ref: chart,
+        type: 'bar',
+        data: data.value,
+        options,
+        theme: theme.value,
+        createOptions: { locale: 'en-US' },
+        style: 'height: 290px',
+        onError: (e: unknown) => console.error(e),
+      }),
+    ];
+  },
+});
+
+export default function mount(host: HTMLElement) {
+  const app = createApp(Dashboard);
+  app.mount(host);
+  return { dispose: () => app.unmount() };
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "viz-engine-sdk",
+  "entryPoints": ["src/index.ts", "src/react/index.ts", "src/vue/index.ts"],
+  "entryPointStrategy": "resolve",
+  "tsconfig": "tsconfig.json",
+  "out": "../docs/api",
+  "readme": "README.md",
+  "includeVersion": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "sort": ["kind", "instance-first", "alphabetical-ignoring-documents"],
+  "validation": { "notExported": true, "invalidLink": true, "notDocumented": false },
+  "treatWarningsAsErrors": false
+}
