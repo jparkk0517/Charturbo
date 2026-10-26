@@ -9,7 +9,7 @@ WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
 **[▶ 라이브 데모](https://jparkk0517.github.io/VizEngineSDK/)** · [사용 가이드](docs/GUIDE.md) · [벤치마크](docs/BENCHMARKS.md) · [변경 기록](web/CHANGELOG.md)
 
 <p align="center">
-  <a href="https://jparkk0517.github.io/VizEngineSDK/"><img src="docs/assets/demo/hero.png" alt="선, 산점도, 캔들스틱, 히트맵, 생키, 비즈니스 차트 예제" width="880"></a>
+  <a href="https://jparkk0517.github.io/VizEngineSDK/"><img src="docs/assets/demo/hero.png" alt="선, 산점도, 캔들스틱, 3D 네트워크 그래프, 생키, 비즈니스 차트 예제" width="880"></a>
 </p>
 
 ## 왜 VizEngineSDK인가
@@ -19,7 +19,7 @@ WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
 - **실사용 기능**: 실시간 스트리밍, 시간 축, 로그 축, 휠·드래그·핀치 줌, 범위 내비게이터, 브러시 선택, 대시보드 동기화, PNG·SVG·PDF 내보내기
 - **접근성**: 모든 차트에 자동 요약, 데이터 표, 키보드 탐색
 - **React · Vue 컴포넌트** 제공, TypeScript 타입 포함
-- **3D 그래프 · 임베딩 뷰**: 네트워크 그래프 배치, 고차원 임베딩 3D 투영과 유사도 검색
+- **3D**: 대규모 네트워크 그래프(Barnes-Hut 물리 배치, 최단 경로, 검색), 고차원 임베딩 3D 투영과 유사도 검색, 강체 물리가 있는 3D 장면 ([예제](https://jparkk0517.github.io/VizEngineSDK/graph.html))
 
 ## 성능
 
@@ -33,6 +33,13 @@ WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/bench-fps-dark.svg">
   <img src="docs/assets/bench-fps-light.svg" alt="줌·팬 중 프레임 속도 비교. 선 10M에서 viz-engine-sdk 58.7fps, uPlot 52.8fps, ECharts 30.8fps. 산점도 1M에서 viz-engine-sdk 59.7fps, ECharts 7.8fps." width="880">
+</picture>
+
+3D 그래프는 three.js(InstancedMesh + LineSegments, 같은 Barnes-Hut 물리를 JS로)와 비교했습니다. 매 프레임 물리를 돌리며 회전할 때 10k 노드에서 41.9 fps 대 16.3 fps이고, 100k 노드에서는 둘 다 실시간이 아닙니다(3 fps 대 0.8 fps).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/bench-graph-dark.svg">
+  <img src="docs/assets/bench-graph-light.svg" alt="3D 그래프 물리 시뮬레이션과 카메라 회전 비교. 노드 10k에서 viz-engine-sdk 41.9fps, three.js 16.3fps, 프레임당 물리 22.3ms 대 56.4ms. 노드 100k에서 3fps 대 0.8fps, 물리 361ms 대 1,799ms, 첫 프레임 23.5ms 대 54.5ms." width="880">
 </picture>
 
 측정 방법, 각 라이브러리 설정, 전체 표와 한계는 [docs/BENCHMARKS.md](docs/BENCHMARKS.md)에 있습니다. 직접 돌려 보려면 `cd web && npm run bench`.

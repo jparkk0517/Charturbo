@@ -1,6 +1,6 @@
 /**
  * Benchmark page (`npm run bench`, bench/run-bench.mjs drives it over the DevTools Protocol):
- * `index.html?scenario=<id>&lib=<viz|uplot|echarts|chartjs|plotly>&backend=webgpu|webgl2
+ * `index.html?scenario=<id>&lib=<viz|uplot|echarts|chartjs|plotly|three>&backend=webgpu|webgl2
  * &reps=N&warmup=W&duration=ms` runs one scenario in a fresh page and publishes
  * `window.__bench` (`{ done, ok, result | error }`).
  *
@@ -8,6 +8,7 @@
  * (time to first frame) -> N GPU-synced renders (pixel read-back) -> memory snapshot after GC ->
  * steady phase (zoom / pan schedule, hover sweep or streaming over `duration` ms) -> hover
  * latency probe. `backend=webgl2` hides `navigator.gpu` so wgpu falls back to WebGL2.
+ * 3D graph scenarios (`graph-*`, viz vs three) run `runGraph` instead (physics + orbit).
  */
 
 import { VizEngineSDK } from '../src/index';
@@ -16,6 +17,8 @@ import { createAdapter, compareData } from './others';
 import type { Domain, LibAdapter, LibName } from './others';
 import { COMPARE_IDS, OUR_SCENARIOS } from './ours';
 import type { CompareId, Interaction, OurScenario } from './ours';
+import { GRAPH_IDS, createGraphAdapter, graphData, graphSpec } from './graph';
+import type { GraphId } from './graph';
 
 const q = new URLSearchParams(location.search);
 const scenarioId = q.get('scenario') ?? '';
@@ -45,7 +48,7 @@ declare global {
     gc?: () => void;
   }
 }
-window.__benchList = { ours: OUR_SCENARIOS.map((s) => s.id), compare: COMPARE_IDS };
+window.__benchList = { ours: OUR_SCENARIOS.map((s) => s.id), compare: [...COMPARE_IDS, ...GRAPH_IDS] };
 
 const card = document.getElementById('card') as HTMLElement;
 const raf = () => new Promise<number>((r) => requestAnimationFrame(r));
@@ -393,6 +396,63 @@ async function runCompare(id: CompareId) {
   };
 }
 
+/** Graph physics step per frame (fixed: every library simulates the same time per frame) */
+const GRAPH_DT = 0.016;
+/** Camera orbit over the steady phase: half a turn, driven by elapsed time (not frame count) */
+const GRAPH_ORBIT = Math.PI;
+
+/**
+ * 3D graph comparison (bench/graph.ts): cold = first dataset load + first presented frame on a
+ * fresh engine (three.js compiles its shaders here; viz builds its pipelines at engine creation,
+ * i.e. in initMs); TTFF = warm reload of the same buffers
+ * + first presented frame; steady = Barnes-Hut step + buffer sync + draw every frame while the
+ * camera orbits; memory after the steady phase (simulation state live) and a forced GC.
+ */
+async function runGraph(id: GraphId) {
+  if (lib !== 'viz' && (lib as string) !== 'three') throw new Error(`unsupported: ${lib} has no 3D graph renderer`);
+  const spec = graphSpec(id);
+  const tGen = performance.now();
+  const raw = graphData(spec);
+  const genMs = performance.now() - tGen;
+  phase('init');
+  const tInit = performance.now();
+  const g = await createGraphAdapter(lib as 'viz' | 'three', card, W, H);
+  const initMs = performance.now() - tInit;
+  const load = () => void g.adapter.loadRawDataset!(raw);
+  phase('cold');
+  const c0 = performance.now();
+  load();
+  await committed();
+  const coldMs = performance.now() - c0;
+  const ttff = await timeRenders(load);
+  const physics: number[] = [];
+  const render: number[] = [];
+  let lastP = 0;
+  const steady = await frameLoop((p) => {
+    g.adapter.rotateCamera((p - lastP) * GRAPH_ORBIT, 0);
+    lastP = p;
+    const t = g.adapter.tick(GRAPH_DT, true);
+    physics.push(t.physicsTimeMs);
+    render.push(t.renderTimeMs);
+  });
+  const mem = await memory();
+  return {
+    lib,
+    scenario: id,
+    nodes: g.adapter.nodeCount(),
+    edges: g.adapter.edgeCount(),
+    backend: g.backend(),
+    interaction: 'physics+orbit',
+    genMs: Math.round(genMs),
+    initMs: Math.round(initMs),
+    coldMs: Math.round(coldMs * 100) / 100,
+    ttff,
+    memory: { ...mem, wasmBytes: g.wasmBytes(), gpuBytes: g.gpuBytes() },
+    steady: { ...steady, physics: summarize(physics), render: summarize(render) },
+    hover: null,
+  };
+}
+
 /** Capability probe: WebGPU adapter info and the WebGL2 renderer string. */
 async function probeGpu() {
   const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<{ info?: Record<string, string> } | null> } }).gpu;
@@ -415,6 +475,7 @@ async function run() {
   if (scenarioId === 'idle') return { scenario: 'idle', steady: await frameLoop(() => {}) };
   if (!scenarioId) return null;
   if (COMPARE) {
+    if ((GRAPH_IDS as readonly string[]).includes(scenarioId)) return runGraph(scenarioId as GraphId);
     if (!(COMPARE_IDS as readonly string[]).includes(scenarioId)) throw new Error(`unknown compare scenario ${scenarioId}`);
     return runCompare(scenarioId as CompareId);
   }

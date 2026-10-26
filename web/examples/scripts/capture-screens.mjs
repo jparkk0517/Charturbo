@@ -43,15 +43,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * One shot = one family page; `demos` = card ids (file names) kept visible, laid out in `columns`;
  * `height` = CSS height of each chart host. `hero` = part of the 2x3 collage (in this order).
+ * `settle` = ms to wait after layout before the shot (default 1500).
  */
 const SHOTS = [
   { name: 'line', page: 'line', demos: ['01-million'], height: 600, hero: true },
   { name: 'scatter', page: 'scatter', demos: ['01-brush'], height: 600, hero: true },
   { name: 'candlestick', page: 'candlestick', demos: ['01-ohlc'], height: 600, hero: true },
-  { name: 'heatmap', page: 'heatmap', demos: ['01-heatmap'], height: 600, hero: true },
+  // 3D graph: give the force layout a few seconds to spread before the shot
+  { name: 'graph', page: 'graph', demos: ['01-force-network'], height: 600, hero: true, settle: 5000 },
   { name: 'sankey', page: 'hierarchy', demos: ['03-sankey'], height: 600, hero: true },
   { name: 'business', page: 'business', demos: ['01-radar', '02-gauge', '03-funnel', '04-waterfall'], columns: 2, height: 270, hero: true },
+  { name: 'heatmap', page: 'heatmap', demos: ['01-heatmap'], height: 600 },
   { name: 'bar', page: 'bar', demos: ['01-grouped-stacked'], height: 600 },
+  { name: 'embeddings', page: 'embeddings', demos: ['01-similarity'], height: 600 },
+  { name: 'scene', page: 'scene', demos: ['01-rigid-bodies'], height: 600, settle: 4000 },
 ].filter((s) => !ONLY || ONLY.includes(s.name));
 
 function findChrome() {
@@ -194,8 +199,8 @@ async function capture(cdp, url, shot) {
     document.head.appendChild(s);
     window.scrollTo(0, 0);
   })()`);
-  // autoResize re-renders at the new host size; let any enter animation finish
-  await sleep(1500);
+  // autoResize re-renders at the new host size; let any enter animation (or simulation) finish
+  await sleep(shot.settle ?? 1500);
   const rect = await cdp.evaluate(`(() => {
     const els = ${JSON.stringify(shot.demos)}.map((id) => document.getElementById(id));
     if (els.some((e) => !e)) return null;

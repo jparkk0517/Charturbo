@@ -858,10 +858,11 @@ const count = 1000;
 const flatVectors = new Float32Array(count * dim);
 
 // 고차원 임베딩 로드 (3D 자동 투영 + Cosine k-NN 생성)
-sdk.loadEmbeddings(flatVectors, dim, {
-  knnK: 4,
-  clusterK: 6,
-  minCosineSimilarity: 0.2,
+sdk.loadEmbeddings(flatVectors, {
+  dimensions: dim,
+  kNeighbors: 4,
+  similarityThreshold: 0.2,
+  projection: 'pca', // 'pca-umap'(기본) | 'pca' | 'random-projection'
 });
 
 // 코사인 유사도 Top 5 검색

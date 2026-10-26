@@ -121,6 +121,34 @@ const PREVIEWS: Record<string, (sdk: VizEngineSDK) => void> = {
       },
       { ...quiet, labels: false, padding: { top: 8, right: 8, bottom: 8, left: 8 } }
     ),
+  graph: (sdk) => {
+    sdk.reloadSeededDataset(42, 1_500, 3_000, 8);
+    sdk.applyLayout('cluster-sphere', 85);
+    sdk.fitToView();
+    sdk.zoomCamera(-20); // wide card: frame tighter than the bounding sphere
+  },
+  embeddings: (sdk) => {
+    // 600 x 256 vectors: 8 random topic directions + equal-variance noise (cosine ~0.5 within a topic)
+    const [n, dim] = [600, 256];
+    let seed = 1;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+    const topics = Array.from({ length: 8 }, () => Float32Array.from({ length: dim }, rnd));
+    const vectors = Float32Array.from({ length: n * dim }, (_, k) => topics[Math.floor(k / dim) % 8][k % dim] + rnd());
+    const clusters = Uint16Array.from({ length: n }, (_, i) => i % 8);
+    sdk.loadEmbeddings(vectors, { dimensions: dim, projection: 'pca', kNeighbors: 3, similarityThreshold: 0.3, clusters });
+    sdk.fitToView();
+    sdk.zoomCamera(-60);
+  },
+  scene: (sdk) => {
+    sdk.setGraphVisible(false);
+    sdk.addPlane({ position: [0, -1, 0], scale: [120, 2, 90], color: [0.11, 0.14, 0.2, 1] });
+    const colors: [number, number, number, number][] = [[0.22, 0.53, 0.9, 1], [0.95, 0.55, 0.2, 1], [0.3, 0.78, 0.55, 1], [0.86, 0.33, 0.45, 1]];
+    colors.forEach((color, i) => {
+      sdk.addSphere({ position: [-30 + i * 20, 7, -8], scale: [13, 13, 13], color, metallic: 0.5, roughness: 0.3 });
+      sdk.addBox({ position: [-20 + i * 14, 4, 18], scale: [8, 8, 8], rotation: [0, i * 0.4, 0], color: colors[(i + 2) % 4] });
+    });
+    sdk.setCameraPose([0, 48, 95], [0, 4, 0]);
+  },
   sparklines: (sdk) => sdk.renderSparkline(wave(80, 0.5, 100, 9), { type: 'area', showLast: true, showMinMax: true }),
   animation: (sdk) => sdk.renderGroupedBarChart(groupedBars, { ...quiet, mode: 'stacked', padding: pad }),
   export: (sdk) => sdk.renderAreaChart(lineSeries, { ...quiet, mode: 'stacked', padding: pad }),

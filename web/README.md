@@ -110,10 +110,11 @@ const count = 500;
 const flatVectors = new Float32Array(count * dim);
 
 // Ingest, auto-project to 3D coordinates, and connect cosine k-NN edges
-sdk.loadEmbeddings(flatVectors, dim, {
-  knnK: 4,
-  clusterK: 6,
-  minCosineSimilarity: 0.15,
+sdk.loadEmbeddings(flatVectors, {
+  dimensions: dim,
+  kNeighbors: 4,
+  similarityThreshold: 0.15,
+  projection: 'pca', // 'pca-umap' (default) | 'pca' | 'random-projection'
 });
 
 // Exact Cosine Similarity query

@@ -1,6 +1,6 @@
 # 성능 벤치마크 (viz-engine-sdk)
 
-이 문서는 `web/bench/` 하네스로 측정한 viz-engine-sdk(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly(scattergl)와의 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
+이 문서는 `web/bench/` 하네스로 측정한 viz-engine-sdk(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly(scattergl)와의 차트 비교, three.js와의 3D 그래프 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
 
 - 원본 결과: [`docs/bench/results.json`](bench/results.json), [`results.md`](bench/results.md) (이 문서의 수치). 다시 측정하면 `web/bench/out/`에 새로 생기고(git 제외), `npm run bench:charts -- bench/out/results.json`으로 README 차트를 다시 그릴 수 있습니다
 - 측정일: 2026-10-26
@@ -16,7 +16,11 @@ npm run bench -- --filter=line-1m,scatter --backend=webgpu --no-compare
 npm run bench -- --compare-only --libs=viz,uplot
 npm run bench -- --shots     # 각 페이지 스크린샷(web/bench/out/shots/) — 라이브러리가 실제로 그렸는지 확인용
 npm run bench -- --profile   # 페이지별 CPU 프로파일 + self time 상위 함수
+# 3D 그래프(viz vs three.js)만 다시 측정해 커밋된 결과에 병합 (~30초)
+npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && npm run bench:charts
 ```
+
+`--merge=<results.json>`은 이번 실행의 항목을 기존 파일에 합칩니다(같은 시나리오 + 라이브러리/백엔드는 교체, 나머지와 `meta`는 유지, 이번 실행 조건은 `meta.partialRuns`에 추가). `.md`도 합친 결과로 다시 씁니다.
 
 러너(`bench/run-bench.mjs`)는 빈 포트에 자체 Vite 서버(cross-origin isolated: `measureUserAgentSpecificMemory` 사용 가능)를 띄우고, 고유 프로필로 헤드리스 Chrome(`--headless=new --enable-unsafe-webgpu`, macOS `--use-angle=metal`, `--js-flags=--expose-gc`)을 실행해 시나리오마다 **새 탭**에서 페이지를 엽니다. Chrome이 없으면 `SKIPPED`. 한 페이지가 300초 안에 끝나지 않으면(메인 스레드가 막혀도) 마지막으로 보고된 단계와 함께 `FAILED: timeout`으로 기록하고 다음으로 넘어갑니다.
 
@@ -31,7 +35,7 @@ npm run bench -- --profile   # 페이지별 CPU 프로파일 + self time 상위 
 | 캔버스 | 960×540 CSS px, DPR 1 (`deviceScaleFactor: 1`) |
 | 프레임 주기 | 60 Hz (작업 없는 rAF 간격 중앙값 16.7 ms) |
 | Node | v22.23.3 |
-| 비교 대상 | uPlot 1.6.32, ECharts 6.1.0, Chart.js 4.6.1, plotly.js-gl2d-dist-min 4.1.2 |
+| 비교 대상 | uPlot 1.6.32, ECharts 6.1.0, Chart.js 4.6.1, plotly.js-gl2d-dist-min 4.1.2, three.js 0.170.0 (3D 그래프) |
 
 ## 3. 측정 방법
 
@@ -148,7 +152,52 @@ npm run bench -- --profile   # 페이지별 CPU 프로파일 + self time 상위 
 - **JS 힙**: 선 1M/10M에서 viz와 uPlot은 비슷합니다(입력 Float32Array 자체가 대부분). ECharts / Chart.js는 10M에서 470~530 MB.
 - viz의 GPU 메모리는 UA 메모리에 포함되지 않습니다(`GPU MB` 열 참고).
 
-## 6. 이번 작업의 병목 수정 (전 → 후)
+## 6. 결과: 3D 그래프 — viz vs three.js
+
+`graph-10k`, `graph-100k` 시나리오(`bench/graph.ts`, `main.ts`의 `runGraph`). 측정일 2026-10-26, 위와 같은 머신 · Chrome · 반복 횟수(5회 + 워밍업 1, 정상상태 3초).
+
+### 방법
+- **데이터**: 데모 앱의 시드 생성기(`GraphDatasetTS.generateSeeded`, xorshift, seed 42) — 노드 N, 엣지 2N(80%는 같은 군집 안), 군집 8개, 반경 100 공간. 생성은 측정 제외. 두 엔진 모두 같은 TypedArray 버퍼를 `loadRawDataset`으로 받습니다.
+- **엔진**: 데모 비교 화면이 쓰는 어댑터를 **그대로** 사용(`src/adapters/rust-wgpu-adapter.ts`, `src/adapters/three-js-adapter.ts`, 물리는 `src/three-engine/octree-physics.ts`). 벤치용 튜닝은 하지 않았습니다.
+  - viz: Rust Barnes-Hut(wasm, 단일 스레드) + WebGPU, 노드는 구 빌보드 임포스터(사각형 1개), 엣지는 선.
+  - three.js: 같은 알고리즘의 JS Barnes-Hut 옥트리 + `InstancedMesh`(8×6 분할 구, `MeshLambertMaterial`) 노드 + `LineSegments` 엣지, WebGL2(ANGLE Metal).
+- **같은 조건**: 힘 모델과 상수(반발 25, 스프링 0.08 / 휴지 길이 8, 중심 인력 0.03, 감쇠 0.88, θ 0.75, softening 1.5, 최대 속도 60, 옥트리 최대 깊이 10), 프레임당 dt 0.016 고정, 카메라(거리 220, yaw 0.4, pitch 0.3, fov 45), 960×540 캔버스 @ DPR 1, 자동 sleep 꺼짐.
+- **단계**:
+  1. `초기화` = 엔진 생성(viz는 여기서 GPU 파이프라인을 모두 만듭니다). `cold` = 새 엔진에서 첫 데이터 로드 + 첫 프레임 표시(1회 측정). three.js는 셰이더를 첫 렌더에서 컴파일하므로 그 비용이 `cold`에 들어가고, viz는 `초기화`에 들어갑니다. 그래서 cold만 따로 비교하면 viz에 유리하고, `초기화 + cold`로 보는 편이 공정합니다(10k: 47.6 vs 123.8 ms, 100k: 86.5 vs 124.3 ms; three.js 초기화에는 모듈 동적 import도 포함).
+  2. `TTFF` = 같은 버퍼 다시 로드(위치 초기화) + 첫 프레임 표시, 워밍업 1회 후 5회 중앙값. 60 Hz로 양자화됩니다.
+  3. 정상상태 3초: 매 프레임 `tick(0.016, true)`(Barnes-Hut 한 스텝 + 버퍼 동기화 + 그리기)와 경과 시간 기준 카메라 궤도 회전(3초에 반 바퀴). `물리` = 스텝 시간, `렌더` = 동기화 + 드로우 제출 시간(GPU 실행은 비동기라 포함되지 않음 — 프레임 간격에 반영). **fps가 기준 지표**입니다. 프레임 작업이 16.7 ms를 조금 넘으면 rAF 간격이 16.7 / 33.3 ms로 번갈아 나와 중앙값이 16.7 ms로 보일 수 있습니다(viz 10k).
+  4. 메모리: 정상상태 뒤 강제 GC 후 JS 힙, wasm 메모리(viz), UA 메모리.
+
+### graph-10k (노드 10,000 · 엣지 20,000)
+
+| 엔진 | 렌더러 | 초기화 ms | cold ms | TTFF ms (p95) | fps | 정상상태 프레임 med / p95 / max ms | 드롭 | 물리 med (p95) ms | 렌더 med (p95) ms | JS 힙 MB | wasm MB | UA 메모리 MB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| viz 0.1.0 | webgpu | 30 | 17.6 | 16.7 (17.4) | **41.9** | 16.7 / 33.3 / 50.0 | 55/126 | **22.3** (23.1) | 1.0 (1.2) | 8.7 | 7.1 | 15.4 |
+| three.js 0.170.0 | webgl2 | 87 | 36.8 | 16.8 (17.7) | 16.3 | 66.7 / 83.3 / 100 | 134/49 | 56.4 (81.4) | 0.9 (2.1) | 25.8 | - | 40.5 |
+
+### graph-100k (노드 100,000 · 엣지 200,000)
+
+| 엔진 | 렌더러 | 초기화 ms | cold ms | TTFF ms (p95) | fps | 정상상태 프레임 med / p95 / max ms | 드롭 | 물리 med (p95) ms | 렌더 med (p95) ms | JS 힙 MB | wasm MB | UA 메모리 MB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| viz 0.1.0 | webgpu | 23 | 63.5 | **23.5** (38.9) | **3.0** | 367 / 383 / 383 | 190/9 | **361** (381) | 5.9 (7.9) | 13.6 | 63.0 | 20.4 |
+| three.js 0.170.0 | webgl2 | 37 | 87.3 | 54.5 (60.4) | 0.8 | 1833 / 1833 / 1833 | 218/2 | 1799 (1818) | 30.0 (30.7) | 114.2 | - | 128.8 |
+
+### 해석
+- **물리 스텝**이 차이의 대부분입니다: 같은 Barnes-Hut를 Rust/wasm이 JS보다 10k에서 2.5배(22 vs 56 ms), 100k에서 5배(361 vs 1799 ms) 빠르게 돕니다. 그래서 시뮬레이션 + 회전 중 fps는 10k에서 41.9 vs 16.3입니다.
+- **100k에서는 둘 다 실시간이 아닙니다.** 매 프레임 물리를 돌리면 viz도 3 fps(three.js 0.8 fps)입니다. 100k 그래프는 `warmup()`으로 미리 배치하고 렌더만 하거나, 물리를 몇 프레임에 한 번 돌리는 식으로 써야 합니다(렌더만의 fps는 이 시나리오에서 측정하지 않았습니다. 프레임당 렌더 제출 시간은 5.9 vs 30 ms).
+- **첫 프레임**: 10k는 둘 다 한 프레임 안(16.7 vs 16.8 ms, vsync 양자화로 사실상 동률). 100k는 23.5 vs 54.5 ms, cold는 63.5 vs 87.3 ms.
+- **메모리**: three.js 쪽은 노드마다 JS 객체를 두는 데이터 구조(`GraphDatasetTS`) 때문에 100k에서 JS 힙 114 MB입니다. viz는 JS 힙 13.6 MB + wasm 메모리 63 MB(wasm 메모리는 줄어들지 않으므로 반복 로드를 포함한 피크). GPU 메모리는 양쪽 모두 위 표에 포함되지 않습니다(viz 엔진 집계 GPU 버퍼 3.1 / 20.6 MB, three.js는 바이트 카운터가 없음).
+
+### 공정성 메모 (three.js 쪽 구현의 알려진 핸디캡)
+three.js 쪽은 데모 비교 화면의 구현을 손대지 않고 썼습니다. 일반적인 three.js 대규모 그래프 구성(`InstancedMesh` 노드 + `LineSegments` 엣지, 같은 Barnes-Hut)은 따르지만, 더 최적화할 여지가 있는 부분이 있습니다.
+- 물리(`octree-physics.ts`): 노드를 객체 배열(AoS)로 두고, 노드마다 `computeRepulsion`이 `[fx, fy, fz]` 배열과 탐색 스택 배열을 새로 만들며, 옥트리 셀도 매 스텝 객체로 다시 만듭니다(GC 부담). 평탄한 TypedArray + 재사용 스택으로 바꾸면 JS 쪽 물리 시간이 줄어들 수 있습니다. 측정한 것은 "같은 알고리즘의 평범한 JS 구현"이지 최적화한 JS 구현이 아닙니다.
+- 렌더(`three-js-adapter.ts` `syncBuffers`): 색이 바뀌지 않아도 매 프레임 모든 노드의 `setColorAt`과 엣지 색 버퍼를 다시 씁니다(100k에서 렌더 30 ms의 일부).
+- 노드 지오메트리가 다릅니다: viz는 사각형 임포스터, three.js는 80 삼각형 구 메시(`SphereGeometry(1, 8, 6)`, Lambert 조명). 100k에서 three.js가 GPU에 더 많은 삼각형을 보냅니다. 여기서 프레임 시간은 물리가 지배하므로 영향은 작지만, 렌더만 비교할 때는 `THREE.Points` + 스프라이트 셰이더가 더 가까운 비교입니다.
+- 알고리즘의 세부 차이(성능 영향은 무시할 수준): Rust는 감쇠를 `damping^(dt·60)`(dt 0.016에서 0.88^0.96)으로, JS는 스텝마다 0.88을 그대로 곱합니다. Rust 옥트리는 최대 깊이에서 겹친 노드를 연결 리스트로 유지하고 JS는 버립니다. three.js 어댑터의 `tick`은 운동 에너지 O(N) 합산을 `물리` 시간에 포함합니다(100k에서 약 1 ms).
+- 화면 색이 다릅니다(three.js는 sRGB 출력 변환과 Lambert 조명, 배경색). 성능과는 무관합니다.
+- viz 물리는 wasm 단일 스레드(SIMD · 스레드 없음)입니다. GPU 컴퓨트 물리가 아닙니다.
+
+## 7. 이번 작업의 병목 수정 (전 → 후)
 
 전(before) = 이번 수정 전 소스 + 통계 카운터만 추가한 빌드, 후(after) = 현재 소스. 같은 머신에서 before/after를 3라운드 교대로 실행(WebGPU, 5회 반복, 정상상태 2초), 라운드를 합친 샘플의 중앙값입니다. 각 라운드 명령: `npm run bench -- --no-compare --backend=webgpu --filter=line-1m-1s,line-10m,area-stacked-1m,candle-1m,scatter-1m,stream-1m --reps=5 --duration=2000`.
 
@@ -172,12 +221,13 @@ npm run bench -- --profile   # 페이지별 CPU 프로파일 + self time 상위 
 
 개선되지 않은 것: line-10m-1s의 정상상태 작업 p95와 드롭 수는 차이가 없거나 노이즈 범위(9 → 11)입니다. 10M 첫 렌더의 남은 시간은 대부분 JS → wasm 복사와 첫 LOD입니다.
 
-## 7. 한계와 주의사항
+## 8. 한계와 주의사항
 - **한 대의 머신(Apple M1, 헤드리스 Chrome 156, 60 Hz)** 결과입니다. 헤드리스 Chrome은 실제 디스플레이 합성과 다르게 프레임을 낼 수 있고, 120 Hz 디스플레이 · 다른 GPU · Windows/Linux · Firefox/Safari에서는 수치가 달라집니다.
 - TTFF와 프레임 간격은 vsync(16.7 ms)로 양자화됩니다. 작은 데이터에서 "16.7 ms"는 "한 프레임 안"이라는 뜻이며 렌더 호출 열이 더 정밀합니다.
 - GPU 실행 시간은 직접 측정하지 않습니다(타임스탬프 쿼리 미사용). `pixels`(1 px 리드백)와 프레임 간격이 GPU 바운드 상황을 간접적으로 보여줍니다(예: scatter-5m).
 - 합성 입력(디스패치한 Pointer/Wheel 이벤트)과 시간 기반 스케줄을 사용합니다. 실제 사용자 입력 지연(입력 → 화면)은 측정하지 않습니다.
 - 라이브러리 비교의 `렌더 호출`은 범위가 다릅니다(위 3절). 각 라이브러리는 문서화된 대용량 설정을 썼지만 모든 튜닝을 다 해본 것은 아닙니다(예: uPlot 산점도의 quadtree, ECharts `progressive` 조정, Chart.js 산점도 decimation 없음). 개선 제안은 `bench/others.ts`에 반영하면 됩니다.
 - Plotly line-10m은 300초 타임아웃으로 실패, bar-10k는 gl2d 번들에 막대가 없어 제외했습니다.
+- 3D 그래프 비교는 엔진 전체(데이터 구조 + 물리 + 렌더)의 비교입니다. three.js 자체의 렌더 성능 비교가 아니며, three.js 쪽 구현의 핸디캡은 6절에 적었습니다. graph-100k의 three.js 정상상태는 3초 동안 2 프레임뿐이라 fps 0.8은 거친 값입니다.
 - 메모리: JS 힙은 GC 후 값, wasm 메모리는 줄어들지 않으므로 워밍업 포함 피크입니다. GPU 바이트는 viz 엔진이 할당한 용량이며 드라이버 오버헤드는 포함하지 않습니다.
 - 전/후 비교의 노이즈: 같은 시나리오 반복 간 렌더 호출 편차는 대략 ±5%, 드롭 프레임은 ±수 프레임입니다.

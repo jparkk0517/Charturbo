@@ -7,10 +7,16 @@
 //
 //   npm run bench                    full run (5 reps, 3 s steady phase)
 //   npm run bench -- --quick         smoke run (2 reps, 1 s, no 10M / 5M / 4096² scenarios)
-//   options: --filter=<substring>[,<substring>...]  --backend=webgpu,webgl2  --libs=viz,uplot,echarts,chartjs,plotly
+//   options: --filter=<substring>[,<substring>...]  --backend=webgpu,webgl2  --libs=viz,uplot,echarts,chartjs,plotly,three
 //            --reps=N  --warmup=N  --duration=ms  --no-compare  --compare-only  --no-ours
 //            --chrome=<path> (or CHROME_PATH)  --out=<file stem> (default bench/out/results)
 //            --shots (PNG of every finished page in bench/out/shots/)  --verbose (page console)
+//            --merge=<results.json>: merge this run's entries into an existing results file (same
+//              scenario + lib / backend replaced, the rest and its meta kept; this run's conditions
+//              are appended to meta.partialRuns) and rewrite its .json + .md
+//   3D graph scenarios (graph-10k, graph-100k) compare viz with three.js only (bench/graph.ts):
+//            npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json
+//            --rewrite-md=<results.json>: only regenerate the matching .md from that file
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -36,6 +42,9 @@ const WARMUP = Number(option('warmup') ?? 1);
 const DURATION = Number(option('duration') ?? (QUICK ? 1000 : 3000));
 const BACKENDS = (option('backend') ?? 'webgpu,webgl2').split(',').filter((b) => b === 'webgpu' || b === 'webgl2');
 const LIBS = (option('libs') ?? 'viz,uplot,echarts,chartjs,plotly').split(',');
+/** Libraries of the 3D graph scenarios (viz vs three.js): only when --libs is unset or names three */
+const GRAPH_LIBS = !option('libs') || LIBS.includes('three') ? ['viz', 'three'].filter((l) => !option('libs') || LIBS.includes(l)) : [];
+const isGraph = (id) => id.startsWith('graph-');
 const RUN_OURS = !flag('compare-only') && !flag('no-ours');
 const RUN_COMPARE = !flag('no-compare');
 /** Screenshot of every finished page (bench/out/shots/): checks each library really drew */
@@ -44,9 +53,16 @@ const SHOTS = flag('shots');
 const VERBOSE = flag('verbose');
 /** CPU profile of every page (bench/out/profiles/*.cpuprofile) + top self-time functions */
 const PROFILE = flag('profile');
-const OUT_STEM = option('out') ? path.resolve(option('out')) : path.join(OUT, 'results');
+const MERGE = option('merge') ? path.resolve(option('merge')) : null;
+if (MERGE && !MERGE.endsWith('.json')) {
+  console.error('[bench] --merge expects a results .json file');
+  process.exit(2);
+}
+/** Only rewrites <file>.md from an existing results .json (no browser run) */
+const REWRITE_MD = option('rewrite-md') ? path.resolve(option('rewrite-md')) : null;
+const OUT_STEM = MERGE ? MERGE.replace(/\.json$/, '') : option('out') ? path.resolve(option('out')) : path.join(OUT, 'results');
 /** Quick runs skip the multi-second scenarios */
-const HEAVY = ['line-10m', 'scatter-5m', 'heatmap-4096'];
+const HEAVY = ['line-10m', 'scatter-5m', 'heatmap-4096', 'graph-100k'];
 const PAGE_TIMEOUT = 300_000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -277,6 +293,10 @@ function markdown(meta, ours, compare) {
     for (const id of ids) {
       lines.push(`### ${id}`);
       lines.push('');
+      if (isGraph(id)) {
+        graphTable(lines, meta, compare.filter((c) => c.scenario === id));
+        continue;
+      }
       lines.push('| library | renderer | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | main-thread ms/frame | hover sync / interval med / p95 ms | JS heap MB | UA memory MB |');
       lines.push('|---|---|---|---|---|---|---|---|---|---|---|');
       for (const r of compare.filter((c) => c.scenario === id)) {
@@ -296,6 +316,53 @@ function markdown(meta, ours, compare) {
   return lines.join('\n');
 }
 
+/** 3D graph scenario table (viz vs three.js; see bench/graph.ts). */
+function graphTable(lines, meta, runs) {
+  const first = runs.find((r) => r.ok)?.result;
+  if (first) {
+    lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over ${meta.duration} ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC.`);
+    lines.push('');
+  }
+  lines.push('| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const r of runs) {
+    if (!r.ok) {
+      lines.push(`| ${r.lib} | - | FAILED: ${r.error} |  |  |  |  |  |  |  |  |  |  |  |  |`);
+      continue;
+    }
+    const x = r.result;
+    const s = x.steady;
+    lines.push(
+      `| ${r.lib}${meta.versions[r.lib] ? ` ${meta.versions[r.lib]}` : ''} | ${x.backend} | ${ms(x.initMs)} | ${ms(x.coldMs)} | ${ms(x.ttff.frame.median)} (${ms(x.ttff.frame.p95)}) | ${ms(x.ttff.pixels.median)} | ${ms(s.interval.median)} / ${ms(s.interval.p95)} / ${ms(s.interval.max)} | ${s.fps} | ${s.dropped}/${s.frames} | ${ms(s.physics.median)} (${ms(s.physics.p95)}) | ${ms(s.render.median)} (${ms(s.render.p95)}) | ${ms(s.mainThread?.perFrameMs)} | ${mb(x.memory.jsHeapBytes)} | ${mb(x.memory.wasmBytes)} | ${mb(x.memory.uaBytes)} |`
+    );
+  }
+  lines.push('');
+}
+
+/** Merges this run into an existing results file: same scenario + lib (compare) / backend (ours) replaced. */
+function mergeInto(file, meta, ours, compare) {
+  const prev = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const merge = (old, fresh, key) => {
+    const out = [...old];
+    for (const r of fresh) {
+      const i = out.findIndex((o) => o.scenario === r.scenario && o[key] === r[key]);
+      if (i >= 0) out[i] = r;
+      else out.push(r);
+    }
+    return out;
+  };
+  const partial = { filter: FILTER ?? null, date: meta.date, chrome: meta.chrome, reps: meta.reps, warmup: meta.warmup, duration: meta.duration, quick: meta.quick, idle: meta.idle, ms: meta.ms };
+  const touched = new Set(compare.map((r) => r.lib));
+  if (ours.length) touched.add('viz');
+  const partialRuns = [...(prev.meta.partialRuns ?? []).filter((p) => p.filter !== partial.filter), partial];
+  return {
+    // Versions of the libraries this run measured are current; the others stay as recorded
+    meta: { ...prev.meta, versions: { ...prev.meta.versions, ...Object.fromEntries([...touched].map((l) => [l, meta.versions[l]])) }, partialRuns },
+    ours: merge(prev.ours, ours, 'backend'),
+    compare: merge(prev.compare, compare, 'lib'),
+  };
+}
+
 function versionOf(pkg) {
   try {
     return JSON.parse(fs.readFileSync(path.join(WEB, 'node_modules', pkg, 'package.json'), 'utf8')).version;
@@ -307,6 +374,12 @@ function versionOf(pkg) {
 async function main() {
   const t0 = Date.now();
   const chromePath = findChrome();
+  if (REWRITE_MD) {
+    const r = JSON.parse(fs.readFileSync(REWRITE_MD, 'utf8'));
+    fs.writeFileSync(REWRITE_MD.replace(/\.json$/, '.md'), markdown(r.meta, r.ours, r.compare));
+    log(`rewrote ${path.relative(process.cwd(), REWRITE_MD.replace(/\.json$/, '.md'))}`);
+    return;
+  }
   if (!chromePath) {
     console.log('[bench] SKIPPED: Chrome not found (set CHROME_PATH or --chrome=<path>)');
     process.exit(0);
@@ -321,7 +394,7 @@ async function main() {
     logLevel: 'warn',
     clearScreen: false,
     // Comparison libraries pre-bundled up front: no optimizer reload mid-run
-    optimizeDeps: { entries: ['bench/index.html'], include: ['uplot', 'echarts', 'chart.js', 'plotly.js-gl2d-dist-min'] },
+    optimizeDeps: { entries: ['bench/index.html'], include: ['uplot', 'echarts', 'chart.js', 'plotly.js-gl2d-dist-min', 'three'] },
     server: {
       host: '127.0.0.1',
       port: vitePort,
@@ -431,14 +504,14 @@ async function main() {
     const compare = [];
     if (RUN_COMPARE) {
       for (const id of ids.compare.filter(pick)) {
-        for (const lib of LIBS) {
+        for (const lib of isGraph(id) ? GRAPH_LIBS : LIBS.filter((l) => l !== 'three')) {
           const tr = Date.now();
           const r = await runPage(cdpPort, `${base}?${q({ scenario: id, lib, compare: '1', backend: 'webgpu' })}`, `compare-${id}-${lib}`);
           compare.push({ scenario: id, lib, ...r });
           const x = r.result;
           log(
             r.ok
-              ? `compare ${id}/${lib}: ttff ${x.ttff.frame.median} ms, steady ${x.steady.interval.median}/${x.steady.interval.p95}/${x.steady.interval.max} ms, fps ${x.steady.fps}, dropped ${x.steady.dropped}/${x.steady.frames} [${Date.now() - tr} ms]`
+              ? `compare ${id}/${lib}: ttff ${x.ttff.frame.median} ms${x.coldMs != null ? ` (cold ${x.coldMs})` : ''}, steady ${x.steady.interval.median}/${x.steady.interval.p95}/${x.steady.interval.max} ms, fps ${x.steady.fps}, dropped ${x.steady.dropped}/${x.steady.frames}${x.steady.physics ? `, physics ${x.steady.physics.median} ms, render ${x.steady.render.median} ms` : ''} [${Date.now() - tr} ms]`
               : `compare ${id}/${lib}: FAILED ${r.error}${r.errors?.length ? ' | ' + r.errors.join(' | ') : ''}`
           );
         }
@@ -455,12 +528,13 @@ async function main() {
       warmup: WARMUP,
       duration: DURATION,
       quick: QUICK,
-      versions: { uplot: versionOf('uplot'), echarts: versionOf('echarts'), chartjs: versionOf('chart.js'), plotly: versionOf('plotly.js-gl2d-dist-min'), viz: JSON.parse(fs.readFileSync(path.join(WEB, 'package.json'), 'utf8')).version },
+      versions: { uplot: versionOf('uplot'), echarts: versionOf('echarts'), chartjs: versionOf('chart.js'), plotly: versionOf('plotly.js-gl2d-dist-min'), three: versionOf('three'), viz: JSON.parse(fs.readFileSync(path.join(WEB, 'package.json'), 'utf8')).version },
       ms: Date.now() - t0,
     };
     fs.mkdirSync(path.dirname(OUT_STEM), { recursive: true });
-    fs.writeFileSync(`${OUT_STEM}.json`, JSON.stringify({ meta, ours, compare }, null, 2));
-    fs.writeFileSync(`${OUT_STEM}.md`, markdown(meta, ours, compare));
+    const all = MERGE && fs.existsSync(MERGE) ? mergeInto(MERGE, meta, ours, compare) : { meta, ours, compare };
+    fs.writeFileSync(`${OUT_STEM}.json`, JSON.stringify(all, null, 2));
+    fs.writeFileSync(`${OUT_STEM}.md`, markdown(all.meta, all.ours, all.compare));
     log(`done in ${((Date.now() - t0) / 1000).toFixed(0)} s: ${path.relative(process.cwd(), OUT_STEM)}.json / .md`);
   } finally {
     await cleanup();

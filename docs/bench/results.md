@@ -86,3 +86,21 @@ Same seeded data for every library. Line / scatter steady phase: identical zoom-
 | echarts 6.1.0 | canvas2d | 83.4 (83.8) | 53.3 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 3.4 | 1.6 / 16.7 / 16.7 | 31.9 | 49.2 |
 | chartjs 4.6.1 | canvas2d | 50.5 (54.7) | 58.7 | 33.3 / 33.3 / 66.7 | 37.6 | 68/113 | 26.9 | 0.0 / 16.7 / 16.7 | 14.0 | 20.2 |
 | plotly | - | FAILED: Error: unsupported: the plotly gl2d bundle has no bar trace |  |  |  |  |  |  |  |  |
+
+### graph-10k
+
+10,000 nodes, 20,000 edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over 3000 ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC.
+
+| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| viz 0.1.0 | webgpu | 30.0 | 17.6 | 16.7 (17.4) | 8.9 | 16.7 / 33.3 / 50.0 | 41.9 | 55/126 | 22.3 (23.1) | 1.0 (1.2) | 24.0 | 8.7 | 7.1 | 15.4 |
+| three 0.170.0 | webgl2 | 87.0 | 36.8 | 16.8 (17.7) | 17.3 | 66.7 / 83.3 / 100 | 16.3 | 134/49 | 56.4 (81.4) | 0.9 (2.1) | 62.2 | 25.8 | - | 40.5 |
+
+### graph-100k
+
+100,000 nodes, 200,000 edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over 3000 ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC.
+
+| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| viz 0.1.0 | webgpu | 23.0 | 63.5 | 23.5 (38.9) | 46.2 | 367 / 383 / 383 | 3 | 190/9 | 361 (381) | 5.9 (7.9) | 368 | 13.6 | 63.0 | 20.4 |
+| three 0.170.0 | webgl2 | 37.0 | 87.3 | 54.5 (60.4) | 72.4 | 1833 / 1833 / 1833 | 0.8 | 218/2 | 1799 (1818) | 30.0 (30.7) | 1840 | 114.2 | - | 128.8 |

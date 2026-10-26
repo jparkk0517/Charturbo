@@ -1,6 +1,7 @@
 // README benchmark charts: `npm run bench:charts [-- results.json]` reads a bench results file
 // (default ../docs/bench/results.json) and writes light / dark SVG small multiples to
-// ../docs/assets/bench-{ttff,fps}-{light,dark}.svg. One panel per comparison scenario, one bar per
+// ../docs/assets/bench-{ttff,fps,graph}-{light,dark}.svg. Chart charts: one panel per comparison
+// scenario; graph chart: one panel per (metric, graph size), viz vs three.js. One bar per
 // library in a fixed order; viz-engine-sdk carries the accent hue, the other libraries share a
 // neutral so the eye lands on "ours vs the rest". Every bar is direct-labeled with its value
 // (a static SVG has no tooltip), failed runs are written out instead of drawn.
@@ -20,6 +21,10 @@ const LIBS = [
   { id: 'echarts', label: 'ECharts' },
   { id: 'chartjs', label: 'Chart.js' },
   { id: 'plotly', label: 'Plotly' },
+];
+const GRAPH_LIBS = [
+  { id: 'viz', label: 'viz-engine-sdk' },
+  { id: 'three', label: 'three.js' },
 ];
 const SCENARIOS = [
   { id: 'line-1m-1s', label: '선 1M 포인트' },
@@ -59,6 +64,30 @@ const METRICS = [
   },
 ];
 
+/** Graph chart: rows = metric, columns = graph size */
+const GRAPH_SIZES = [
+  { id: 'graph-10k', label: '노드 10k · 엣지 20k' },
+  { id: 'graph-100k', label: '노드 100k · 엣지 200k' },
+];
+const msFormat = (v) => (v >= 100 ? Math.round(v).toLocaleString('en-US') : v.toFixed(1));
+const GRAPH_METRICS = [
+  { label: '프레임 속도', hint: '높을수록 좋음', unit: 'fps', value: (r) => r.steady.fps, format: METRICS[1].format, shared: true, max: 60 },
+  { label: '프레임당 물리 연산', hint: '짧을수록 좋음', unit: 'ms', value: (r) => r.steady.physics.median, format: msFormat, shared: false },
+  { label: '데이터 로드 → 첫 프레임', hint: '짧을수록 좋음', unit: 'ms', value: (r) => r.ttff.frame.median, format: msFormat, shared: false },
+];
+const GRAPH = {
+  id: 'graph',
+  title: '3D 그래프: 물리 시뮬레이션 + 카메라 회전',
+  subtitle: '같은 시드 그래프, 같은 Barnes-Hut 힘 모델을 매 프레임 실행하며 3초간 궤도 회전 · 중앙값',
+  libs: GRAPH_LIBS,
+  panels: GRAPH_METRICS.flatMap((metric) => GRAPH_SIZES.map((g) => ({ scenario: g.id, label: metric.label, sub: `${g.label} · ${metric.hint}`, metric }))),
+  footer: (m) => {
+    // Latest run that measured the graph scenarios (a merged partial run, else the full run)
+    const run = (m.partialRuns ?? []).filter((p) => p.filter?.includes('graph')).at(-1) ?? m;
+    return `${m.machine.cpu} · ${run.chrome.replace('/', ' ')} headless · viz-engine-sdk ${m.versions.viz} WebGPU · three.js ${m.versions.three} WebGL2 · ${run.date.slice(0, 10)}`;
+  },
+};
+
 const FONT = 'system-ui, -apple-system, &quot;Segoe UI&quot;, &quot;Apple SD Gothic Neo&quot;, &quot;Malgun Gothic&quot;, sans-serif';
 const W = 880;
 const COLS = 2;
@@ -80,8 +109,8 @@ function failure(error) {
   return '실패';
 }
 
-function rowsFor(scenario, metric) {
-  return LIBS.map((lib) => {
+function rowsFor(scenario, metric, libs = LIBS) {
+  return libs.map((lib) => {
     const run = results.compare.find((x) => x.scenario === scenario && x.lib === lib.id);
     if (!run) return null;
     if (!run.ok) return { lib, note: failure(run.error ?? '') };
@@ -96,36 +125,52 @@ function bar(x, y, w, h, fill) {
   return `<path d="M${x} ${y}h${w - r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - r)}z" fill="${fill}"/>`;
 }
 
-function chart(metric, t) {
+/** Chart spec of a metric chart: one panel per comparison scenario. */
+function metricSpec(metric) {
+  return {
+    title: metric.title,
+    subtitle: metric.subtitle,
+    libs: LIBS,
+    panels: SCENARIOS.map((s) => ({ scenario: s.id, label: s.label, metric })),
+    footer: (m) => `${m.machine.cpu} · ${m.chrome.replace('/', ' ')} headless · viz-engine-sdk는 WebGPU · 같은 시드 데이터 · ${m.date.slice(0, 10)}`,
+  };
+}
+
+function chart(spec, t) {
   const panelW = (W - 2 * PAD - (COLS - 1) * GUTTER) / COLS;
-  const maxRows = Math.max(...SCENARIOS.map((s) => rowsFor(s.id, metric).length));
+  const maxRows = Math.max(...spec.panels.map((p) => rowsFor(p.scenario, p.metric, spec.libs).length));
   const panelH = PANEL_TITLE + maxRows * ROW + 8;
-  const rowsN = Math.ceil(SCENARIOS.length / COLS);
+  const rowsN = Math.ceil(spec.panels.length / COLS);
   const H = HEADER + rowsN * panelH + (rowsN - 1) * 20 + FOOTER;
   const out = [];
   out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}" role="img" aria-labelledby="t d">`);
-  out.push(`<title id="t">${esc(metric.title)}</title>`);
-  const desc = SCENARIOS.map((s) => `${s.label}: ${rowsFor(s.id, metric).map((r) => `${r.lib.label} ${r.note ?? `${metric.format(r.value)} ${metric.unit}`}`).join(', ')}`).join('. ');
+  out.push(`<title id="t">${esc(spec.title)}</title>`);
+  const desc = spec.panels
+    .map((p) => `${p.label}${p.sub ? ` (${p.sub})` : ''}: ${rowsFor(p.scenario, p.metric, spec.libs).map((r) => `${r.lib.label} ${r.note ?? `${p.metric.format(r.value)} ${p.metric.unit}`}`).join(', ')}`)
+    .join('. ');
   out.push(`<desc id="d">${esc(desc)}</desc>`);
   out.push(`<rect width="${W}" height="${H}" rx="8" fill="${t.surface}"/>`);
-  out.push(`<text x="${PAD}" y="34" font-size="18" font-weight="600" fill="${t.primary}">${esc(metric.title)}</text>`);
-  out.push(`<text x="${PAD}" y="56" font-size="13" fill="${t.secondary}">${esc(metric.subtitle)}</text>`);
+  out.push(`<text x="${PAD}" y="34" font-size="18" font-weight="600" fill="${t.primary}">${esc(spec.title)}</text>`);
+  out.push(`<text x="${PAD}" y="56" font-size="13" fill="${t.secondary}">${esc(spec.subtitle)}</text>`);
 
-  SCENARIOS.forEach((s, i) => {
+  spec.panels.forEach((s, i) => {
+    const metric = s.metric;
     const px = PAD + (i % COLS) * (panelW + GUTTER);
     const py = HEADER + Math.floor(i / COLS) * (panelH + 20);
-    const rows = rowsFor(s.id, metric);
+    const rows = rowsFor(s.scenario, metric, spec.libs);
     const max = metric.shared ? metric.max : Math.max(...rows.filter((r) => r.value != null).map((r) => r.value));
     const x0 = px + LABEL_W;
     const plotW = panelW - LABEL_W - VALUE_W;
-    out.push(`<text x="${px}" y="${py + 16}" font-size="14" font-weight="600" fill="${t.primary}">${esc(s.label)}</text>`);
+    const sub = s.sub ? `<tspan font-size="12" font-weight="400" fill="${t.muted}">  ${esc(s.sub)}</tspan>` : '';
+    out.push(`<text x="${px}" y="${py + 16}" font-size="14" font-weight="600" fill="${t.primary}">${esc(s.label)}${sub}</text>`);
     const top = py + PANEL_TITLE;
     const bottom = top + rows.length * ROW;
     if (metric.shared) {
       for (const v of [30, 60]) {
         const gx = x0 + (v / max) * plotW;
         out.push(`<line x1="${gx}" y1="${top - 4}" x2="${gx}" y2="${bottom - 4}" stroke="${t.grid}" stroke-width="1"/>`);
-        out.push(`<text x="${gx}" y="${top - 8}" font-size="10" text-anchor="middle" fill="${t.muted}">${v}</text>`);
+        // Panels with a subtitle: tick labels under the grid (the subtitle runs across the top)
+        out.push(`<text x="${gx}" y="${s.sub ? bottom + 8 : top - 8}" font-size="10" text-anchor="middle" fill="${t.muted}">${v}</text>`);
       }
     }
     out.push(`<line x1="${x0}" y1="${top - 4}" x2="${x0}" y2="${bottom - 4}" stroke="${t.axis}" stroke-width="1"/>`);
@@ -146,18 +191,20 @@ function chart(metric, t) {
     });
   });
 
-  const m = results.meta;
-  const foot = `${m.machine.cpu} · ${m.chrome.replace('/', ' ')} headless · viz-engine-sdk는 WebGPU · 같은 시드 데이터 · ${m.date.slice(0, 10)}`;
+  const foot = spec.footer(results.meta);
   out.push(`<text x="${PAD}" y="${H - 14}" font-size="11" fill="${t.muted}">${esc(foot)}</text>`);
   out.push('</svg>');
   return out.join('\n');
 }
 
 fs.mkdirSync(OUT, { recursive: true });
-for (const metric of METRICS) {
+const specs = METRICS.map((metric) => ({ id: metric.id, ...metricSpec(metric) }));
+// The graph chart only once the results hold the graph scenarios
+if (results.compare.some((r) => r.scenario.startsWith('graph-'))) specs.push(GRAPH);
+for (const spec of specs) {
   for (const [mode, theme] of Object.entries(THEMES)) {
-    const file = path.join(OUT, `bench-${metric.id}-${mode}.svg`);
-    fs.writeFileSync(file, `${chart(metric, theme)}\n`);
+    const file = path.join(OUT, `bench-${spec.id}-${mode}.svg`);
+    fs.writeFileSync(file, `${chart(spec, theme)}\n`);
     console.log(`[bench:charts] ${path.relative(ROOT, file)}`);
   }
 }
