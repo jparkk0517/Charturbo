@@ -235,13 +235,11 @@ impl TreemapChart {
         self.outlined = None;
     }
 
+    /// Legend emphasis: only the fill emphasis uniform changes (cells carry their group key).
     pub(crate) fn set_emphasis(&mut self, series: Option<usize>) -> bool {
         let series = series.filter(|&k| k < self.legend.len());
         let changed = self.emphasis != series;
-        if changed {
-            self.emphasis = series;
-            self.built = None;
-        }
+        self.emphasis = series;
         changed
     }
 
@@ -270,11 +268,31 @@ impl TreemapChart {
         (g != NO_PARENT && !self.legend.is_empty()).then(|| (g as usize).min(self.legend.len() - 1))
     }
 
-    fn display_color(&self, v: usize) -> [f32; 4] {
+    /// Displayed color of node `v` with the legend emphasis applied on the CPU (the pre-uniform
+    /// path, kept as the reference of the equivalence tests).
+    #[cfg(test)]
+    pub(crate) fn display_color(&self, v: usize) -> [f32; 4] {
         let c = self.colors[v];
         match self.emphasis {
             Some(e) if self.legend_slot(v) != Some(e) => mix(c, self.style.surface, EMPHASIS_FADE),
             _ => c,
+        }
+    }
+
+    /// Fill emphasis tag of node `v`: fades unless its legend group (key = slot + 1) is emphasized.
+    fn emphasis_tag(&self, v: usize) -> f32 {
+        fill_emphasis_tag(FILL_EMPH_FADE, false, self.legend_slot(v).map_or(0, |k| k as u32 + 1))
+    }
+
+    /// Fill emphasis uniform of the current legend emphasis.
+    pub(crate) fn fill_style(&self) -> ChartFillStyleRaw {
+        match self.emphasis {
+            Some(e) => ChartFillStyleRaw {
+                emphasis: [1.0, 0.0, 1.0, EMPHASIS_FADE],
+                surface: self.style.surface,
+                key: [(e + 1) as f32, 0.0, 0.0, 0.0],
+            },
+            None => ChartFillStyleRaw::default(),
         }
     }
 
@@ -425,14 +443,23 @@ impl TreemapChart {
         if relayout || force || self.built != Some(screen) {
             out.fills.clear();
             out.edges.clear();
+            // Base colors tagged with the legend group: emphasis fades on the GPU
             for c in &self.cells {
-                let base = self.display_color(c.node as usize);
+                let base = self.colors[c.node as usize];
                 let color = if c.kind == CellKind::Header { mix(base, self.style.surface, HEADER_FADE) } else { base };
+                let at = out.fills.len();
                 push_rect(&screen, c.rect, color, out.fills);
+                let tag = self.emphasis_tag(c.node as usize);
+                out.fills[at..].iter_mut().for_each(|f| f.position[3] = tag);
             }
             self.built = Some(screen);
             self.outlined = None;
             changed.fills = true;
+        }
+        let style = self.fill_style();
+        if *out.style != style {
+            *out.style = style;
+            changed.style = true;
         }
         if overlay_dirty || self.outlined != Some(hovered) {
             out.overlay.clear();

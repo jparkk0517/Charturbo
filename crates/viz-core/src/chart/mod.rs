@@ -8,6 +8,7 @@
 use crate::camera::OrbitCamera;
 use crate::renderer::{ChartBarRaw, ChartFillRaw, ChartLayers, ChartMarkerRaw, ChartPointRaw, ChartSegmentRaw};
 use crate::renderer::ChartHeatmapGrid;
+use crate::renderer::{ChartFillPatch, ChartFillStyleRaw};
 use crate::scene::{BodyType, Material, PrimitiveKind, SceneWorld};
 use crate::spatial::Ray;
 use glam::{Vec3, Vec4};
@@ -28,6 +29,8 @@ mod gauge;
 mod histogram;
 mod heatmap;
 mod hierarchy;
+#[cfg(test)]
+mod hierarchy_emphasis_tests;
 mod line;
 mod linestyle;
 mod navigator;
@@ -485,6 +488,8 @@ struct Dirty {
     heatmap: bool,
     heatmap_lut: bool,
     heatmap_style: bool,
+    /// Fill emphasis uniform (hierarchy hover / legend emphasis)
+    fill_style: bool,
 }
 
 impl Dirty {
@@ -500,6 +505,7 @@ impl Dirty {
             heatmap: true,
             heatmap_lut: true,
             heatmap_style: true,
+            fill_style: true,
         }
     }
 }
@@ -524,6 +530,10 @@ pub struct ChartState {
     markers: Vec<ChartMarkerRaw>,
     /// Filled areas (triangle list); empty until an area chart kind fills it
     fills: Vec<ChartFillRaw>,
+    /// Vertex ranges of `fills` re-written this frame (uploaded alone when `fills` is not dirty)
+    fill_patches: Vec<(u32, u32)>,
+    /// Emphasis uniform of tagged fill vertices (renderer/fill_style.rs)
+    fill_style: ChartFillStyleRaw,
     points: Vec<ChartPointRaw>,
     padding: ChartPadding,
     axes: AxisLayout,
@@ -567,6 +577,8 @@ impl ChartState {
             overlay: Vec::new(),
             markers: Vec::new(),
             fills: Vec::new(),
+            fill_patches: Vec::new(),
+            fill_style: ChartFillStyleRaw::default(),
             points: Vec::new(),
             padding: DEFAULT_CHART_PADDING,
             axes: AxisLayout::default(),
@@ -1388,6 +1400,7 @@ impl ChartState {
 
     /// Rebuilds stale CPU staging (LOD follows the camera) and returns the layers to upload.
     pub fn prepare_layers(&mut self, view: &ChartView) -> ChartLayers<'_> {
+        self.fill_patches.clear();
         let mut keep_series_dirty = self.prepare_candles(view);
         self.prepare_box();
         self.prepare_pie(view);
@@ -1595,6 +1608,9 @@ impl ChartState {
             underlay: d.underlay.then_some(self.underlay.as_slice()),
             bars: if anim.bars { Some(self.anim_bars()) } else { d.bars.then_some(self.bars.as_slice()) },
             fills: if anim.fills { Some(self.anim_fills()) } else { d.fills.then_some(self.fills.as_slice()) },
+            fill_patch: (!anim.fills && !d.fills && !self.fill_patches.is_empty())
+                .then_some(ChartFillPatch { fills: &self.fills, ranges: &self.fill_patches }),
+            fill_style: d.fill_style.then_some(self.fill_style),
             series: if anim.series {
                 Some(self.anim_series())
             } else {
@@ -1646,6 +1662,8 @@ pub fn empty_chart_layers() -> ChartLayers<'static> {
         underlay: Some(&[]),
         bars: Some(&[]),
         fills: Some(&[]),
+        fill_patch: None,
+        fill_style: Some(ChartFillStyleRaw::default()),
         series: Some(&[]),
         series_style: Some(Default::default()),
         points: Some(&[]),

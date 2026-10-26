@@ -482,7 +482,9 @@ impl ChartState {
         }
         let open = w.out.len();
         w.group("bars", |w| w.bars(&self.bars));
-        w.group("fills", |w| w.fills(&self.fills));
+        // Hover / legend emphasis of tagged fills is applied by the GPU: resolve it the same way
+        let fills = self.fill_style.resolved(&self.fills);
+        w.group("fills", |w| w.fills(&fills));
         w.group("series", |w| {
             w.segments(&self.series);
             w.dashed(&self.styled.dashed);

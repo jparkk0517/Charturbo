@@ -14,7 +14,9 @@
 //! tessellated into quad strips whose segment count follows the on-screen length, translucent,
 //! widest first so thin flows stay visible on top. Hover tests nodes (column, then rect), then
 //! links (solve x(t) = x, compare the band at t) from the top-most ribbon down; the hovered node
-//! / link and its connected flows stay bright while the rest fade. Cycles are rejected.
+//! / link and its connected flows stay bright while the rest fade. The fade is the fill emphasis
+//! uniform (renderer/fill_style.rs): a hover change re-writes only the vertices of the items
+//! entering / leaving the lit set, never the whole layer. Cycles are rejected.
 
 use super::*;
 use super::hierarchy::*;
@@ -260,9 +262,12 @@ pub struct SankeyChart {
     layout_key: Option<[f32; 4]>,
     plot: [f32; 4],
     screen: Option<FlatScreen>,
-    /// Screen the geometry was built for, and the hover it was colored for
+    /// Screen the geometry was built for, and the hover its lit tags were set for
     built: Option<FlatScreen>,
     lit_for: Option<Option<(u32, u32)>>,
+    /// Nodes / links tagged lit in the built fills (sorted)
+    lit_nodes: Vec<u32>,
+    lit_links: Vec<u32>,
     /// Vertex range per link and first node vertex in the built fills
     link_ranges: Vec<(u32, u32)>,
     node_start: u32,
@@ -302,6 +307,8 @@ impl SankeyChart {
             screen: None,
             built: None,
             lit_for: None,
+            lit_nodes: Vec::new(),
+            lit_links: Vec::new(),
             link_ranges: Vec::new(),
             node_start: 0,
             labels: Vec::new(),
@@ -767,7 +774,9 @@ impl SankeyChart {
         Some((series, index, value as f32, Vec3::new(wx, wy, 0.0)))
     }
 
-    /// Nodes and links lit by a hover (all when nothing is hovered).
+    /// Nodes and links lit by a hover (all when nothing is hovered). Reference of the
+    /// equivalence tests (with `recolor_reference`).
+    #[cfg(test)]
     fn lit(&self, hovered: Option<(u32, u32)>) -> Option<(Vec<bool>, Vec<bool>)> {
         let (series, index) = hovered?;
         let mut nodes = vec![false; self.graph.node_count];
@@ -790,18 +799,53 @@ impl SankeyChart {
         Some((nodes, links))
     }
 
-    /// Ribbon geometry (widest first) then node bars; vertex ranges are kept so a hover only
-    /// re-colors (`recolor`).
+    /// Nodes and links lit by a hover, sorted (empty when nothing is hovered): the hovered node,
+    /// its links and their ends, or the hovered link and its two ends.
+    fn lit_items(&self, hovered: Option<(u32, u32)>) -> (Vec<u32>, Vec<u32>) {
+        let (mut nodes, mut links) = (Vec::new(), Vec::new());
+        match hovered {
+            Some((0, v)) if (v as usize) < self.graph.node_count => {
+                nodes.push(v);
+                links.extend_from_slice(self.outs(v as usize));
+                links.extend_from_slice(self.ins(v as usize));
+            }
+            Some((s, l)) if s != 0 && (l as usize) < self.link_count() => links.push(l),
+            _ => {}
+        }
+        for &l in &links {
+            nodes.push(self.graph.sources[l as usize]);
+            nodes.push(self.graph.targets[l as usize]);
+        }
+        for v in [&mut nodes, &mut links] {
+            v.sort_unstable();
+            v.dedup();
+        }
+        (nodes, links)
+    }
+
+    /// Ribbon geometry (widest first) then node bars in their base colors, every vertex tagged
+    /// for the fill emphasis (links: alpha, nodes: fade) and unlit; vertex ranges are kept so a
+    /// hover only re-tags (`retag`).
     fn build_geometry(&mut self, screen: &FlatScreen, fills: &mut Vec<ChartFillRaw>) {
         fills.clear();
         self.link_ranges.clear();
         self.link_ranges.resize(self.link_count(), (0, 0));
-        let color = [0.0; 4];
-        let v = |p: (f32, f32)| ChartFillRaw { position: [p.0, p.1, 0.0, 0.0], color };
+        self.lit_nodes.clear();
+        self.lit_links.clear();
+        let base_alpha = self.opts.link_opacity;
+        let link_tag = fill_emphasis_tag(FILL_EMPH_ALPHA, false, 0);
         for &l in &self.order {
             let (x0, x1, top0, top1, w) = self.ribbon(l as usize);
             let start = fills.len() as u32;
             if w > 0.0 {
+                let link = &self.links[l as usize];
+                let mut color = match self.opts.link_color {
+                    SankeyLinkColor::Source => self.colors[link.source as usize],
+                    SankeyLinkColor::Target => self.colors[link.target as usize],
+                    SankeyLinkColor::Neutral => self.style.other_color,
+                };
+                color[3] = base_alpha;
+                let v = |p: (f32, f32)| ChartFillRaw { position: [p.0, p.1, 0.0, link_tag], color };
                 // Chords within ~0.25 px: the smoothstep's curvature peaks at 6 dy / dx^2, so
                 // sqrt(3 dy) uniform steps suffice
                 let n = ((3.0 * (top1 - top0).abs()).sqrt().ceil() as usize).clamp(2, 48);
@@ -818,19 +862,65 @@ impl SankeyChart {
             self.link_ranges[l as usize] = (start, fills.len() as u32);
         }
         self.node_start = fills.len() as u32;
-        for node in &self.nodes {
+        let node_tag = fill_emphasis_tag(FILL_EMPH_FADE, false, 0);
+        for (node, &c) in self.nodes.iter().zip(&self.colors) {
             // Snapped bars, at least one device pixel tall
             let (x0, x1) = (screen.snap(node.x0), screen.snap(node.x1));
             let (y0, mut y1) = (screen.snap(node.y0), screen.snap(node.y1));
             if y1 - y0 < 1.0 / screen.pixel_ratio {
                 y1 = y0 + 1.0 / screen.pixel_ratio;
             }
-            push_rect(screen, [x0, y0, x1 - x0, y1 - y0], color, fills);
+            let at = fills.len();
+            push_rect(screen, [x0, y0, x1 - x0, y1 - y0], [c[0], c[1], c[2], 1.0], fills);
+            fills[at..].iter_mut().for_each(|f| f.position[3] = node_tag);
         }
     }
 
-    /// Colors of the built geometry with the hovered flows highlighted.
-    fn recolor(&self, hovered: Option<(u32, u32)>, fills: &mut [ChartFillRaw]) {
+    /// Vertex range of node `v` in the built fills.
+    fn node_range(&self, v: u32) -> (u32, u32) {
+        let at = self.node_start + v * 6;
+        (at, at + 6)
+    }
+
+    /// Re-tags the items entering / leaving the lit set of `hovered` and records their vertex
+    /// ranges in `patches` (merged).
+    fn retag(&mut self, hovered: Option<(u32, u32)>, fills: &mut [ChartFillRaw], patches: &mut Vec<(u32, u32)>) {
+        let (nodes, links) = self.lit_items(hovered);
+        let node_flips: Vec<(u32, bool)> = sym_diff(&self.lit_nodes, &nodes).collect();
+        let link_flips: Vec<(u32, bool)> = sym_diff(&self.lit_links, &links).collect();
+        let mut ranges = Vec::with_capacity(node_flips.len() + link_flips.len());
+        for &(v, lit) in &node_flips {
+            let r = self.node_range(v);
+            set_lit(fills, r, lit);
+            ranges.push(r);
+        }
+        for &(l, lit) in &link_flips {
+            let r = self.link_ranges.get(l as usize).copied().unwrap_or((0, 0));
+            set_lit(fills, r, lit);
+            ranges.push(r);
+        }
+        merge_ranges(&mut ranges);
+        patches.extend_from_slice(&ranges);
+        self.lit_nodes = nodes;
+        self.lit_links = links;
+    }
+
+    /// Fill emphasis uniform: on while something is hovered.
+    fn fill_style(&self, hovered: Option<(u32, u32)>) -> ChartFillStyleRaw {
+        match hovered {
+            Some(_) => ChartFillStyleRaw {
+                emphasis: [1.0, LINK_HOVER_BOOST, LINK_HOVER_DIM, NODE_FADE],
+                surface: self.style.surface,
+                key: [0.0; 4],
+            },
+            None => ChartFillStyleRaw::default(),
+        }
+    }
+
+    /// Colors of the built geometry with the hovered flows highlighted, on the CPU (the
+    /// pre-uniform path, kept as the reference of the equivalence tests).
+    #[cfg(test)]
+    pub(crate) fn recolor_reference(&self, hovered: Option<(u32, u32)>, fills: &mut [ChartFillRaw]) {
         let lit = self.lit(hovered);
         let base_alpha = self.opts.link_opacity;
         for (l, &(a, b)) in self.link_ranges.iter().enumerate() {
@@ -923,17 +1013,55 @@ impl SankeyChart {
             self.build_geometry(&screen, out.fills);
             self.built = Some(screen);
             self.lit_for = None;
+            changed.fills = true;
+        }
+        // Hover: the emphasis uniform plus the re-tagged vertices (superseded by a full upload
+        // when the geometry was rebuilt above)
+        let style = self.fill_style(hovered);
+        if *out.style != style {
+            *out.style = style;
+            changed.style = true;
         }
         if self.lit_for != Some(hovered) {
-            self.recolor(hovered, out.fills);
+            self.retag(hovered, out.fills, out.patches);
             self.lit_for = Some(hovered);
-            changed.fills = true;
         }
         if !out.overlay.is_empty() {
             out.overlay.clear();
             changed.overlay = true;
         }
         changed
+    }
+}
+
+/// Items in exactly one of two sorted lists: `(item, in b)`.
+fn sym_diff<'a>(a: &'a [u32], b: &'a [u32]) -> impl Iterator<Item = (u32, bool)> + 'a {
+    let (mut i, mut j) = (0, 0);
+    std::iter::from_fn(move || loop {
+        match (a.get(i), b.get(j)) {
+            (Some(&x), Some(&y)) if x == y => (i, j) = (i + 1, j + 1),
+            (Some(&x), Some(&y)) if x < y => {
+                i += 1;
+                return Some((x, false));
+            }
+            (_, Some(&y)) => {
+                j += 1;
+                return Some((y, true));
+            }
+            (Some(&x), None) => {
+                i += 1;
+                return Some((x, false));
+            }
+            (None, None) => return None,
+        }
+    })
+}
+
+/// Sets / clears the lit flag of the tags in vertex range `r`.
+fn set_lit(fills: &mut [ChartFillRaw], r: (u32, u32), lit: bool) {
+    let (a, b) = (r.0 as usize, (r.1 as usize).min(fills.len()));
+    for f in fills.get_mut(a..b).into_iter().flatten() {
+        f.position[3] = with_lit(f.position[3], lit);
     }
 }
 
@@ -1092,7 +1220,9 @@ mod tests {
         let (_, _, _, p) = chart.sample(3).unwrap();
         let n = cam.project_to_ndc(p).unwrap();
         chart.hover_at(&v, &mut scene, (n.x, n.y));
-        let after = chart.prepare_layers(&v).fills.unwrap().to_vec();
+        // Geometry stays: the emphasis uniform dims on the GPU (resolved here as the shader does)
+        assert!(chart.prepare_layers(&v).fills.is_none());
+        let after = chart.fill_style.resolved(&chart.fills).to_vec();
         assert_eq!(after.len(), before.len());
         let alphas: Vec<f32> = after.iter().map(|f| f.color[3]).collect();
         let base = DEFAULT_SANKEY_LINK_OPACITY;

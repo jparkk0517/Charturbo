@@ -596,7 +596,8 @@ fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-/// Filled areas: world-space triangle list with per-vertex color (alpha blended).
+/// Filled areas: world-space triangle list with per-vertex color (alpha blended); vertices tagged
+/// in `position.w` follow the emphasis uniform (see renderer/fill_style.rs).
 pub fn chart_fill_wgsl() -> String {
     format!("{CHART_PRELUDE_WGSL}{CHART_FILL_BODY_WGSL}")
 }
@@ -612,11 +613,43 @@ struct FillOut {
     @location(0) color: vec4<f32>,
 };
 
+struct FillStyle {
+    // [on, lit alpha boost, unlit alpha factor, unlit fade toward the surface]
+    emphasis: vec4<f32>,
+    surface: vec4<f32>,
+    // [emphasized group key (0 = none), 0, 0, 0]
+    key: vec4<f32>,
+};
+
+@group(0) @binding(1)
+var<uniform> fill_style: FillStyle;
+
+// Emphasis of a tagged vertex: tag = kind (1 = alpha, 2 = fade) | lit << 2 | group key << 3
+fn fill_color(c: vec4<f32>, tag: f32) -> vec4<f32> {
+    let code = u32(max(tag, 0.0) + 0.5);
+    let e = fill_style.emphasis;
+    if (code == 0u || e.x < 0.5) {
+        return c;
+    }
+    let key = code >> 3u;
+    let lit = (code & 4u) != 0u || (key != 0u && f32(key) == fill_style.key.x);
+    if ((code & 1u) != 0u) {
+        if (lit) {
+            return vec4<f32>(c.rgb, min(c.a + e.y, 1.0));
+        }
+        return vec4<f32>(c.rgb, c.a * e.z);
+    }
+    if (lit) {
+        return c;
+    }
+    return vec4<f32>(c.rgb + (fill_style.surface.rgb - c.rgb) * e.w, c.a);
+}
+
 @vertex
 fn vs_fill(v: FillVertex) -> FillOut {
     var out: FillOut;
     out.clip_position = camera.view_proj * vec4<f32>(v.position.xyz, 1.0);
-    out.color = v.color;
+    out.color = fill_color(v.color, v.position.w);
     return out;
 }
 

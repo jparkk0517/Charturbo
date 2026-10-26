@@ -31,3 +31,6 @@ coverage/
 .env.*
 *.pem
 *.key
+
+# Claude Code agent worktrees
+/.claude/

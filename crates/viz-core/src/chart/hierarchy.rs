@@ -12,6 +12,7 @@ use super::*;
 use super::sankey::SankeyChart;
 use super::sunburst::SunburstChart;
 use super::treemap::TreemapChart;
+pub(crate) use crate::renderer::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillStyleRaw, FILL_EMPH_ALPHA, FILL_EMPH_FADE};
 
 /// Parent of the root.
 pub const NO_PARENT: u32 = u32::MAX;
@@ -487,10 +488,13 @@ impl HierChart {
     }
 
     /// Legend hover: fades every group but `series` (legend entry). Returns true when fills
-    /// must be rebuilt.
+    /// must be rebuilt (treemap: never, the emphasis uniform follows in `prepare`).
     pub(crate) fn set_emphasis(&mut self, series: Option<usize>) -> bool {
         match self {
-            HierChart::Treemap(t) => t.set_emphasis(series),
+            HierChart::Treemap(t) => {
+                t.set_emphasis(series);
+                false
+            }
             HierChart::Sunburst(s) => s.set_emphasis(series),
             HierChart::Sankey(_) => false,
         }
@@ -685,6 +689,8 @@ impl ChartState {
             edges: &mut self.series,
             overlay: &mut self.overlay,
             underlay: &mut self.underlay,
+            patches: &mut self.fill_patches,
+            style: &mut self.fill_style,
         };
         let changed = match h {
             HierChart::Treemap(t) => t.prepare(view, &self.padding, hovered, force, self.dirty.overlay, out),
@@ -694,6 +700,7 @@ impl ChartState {
         self.dirty.fills |= changed.fills;
         self.dirty.series |= changed.fills;
         self.dirty.overlay |= changed.overlay;
+        self.dirty.fill_style |= changed.style;
         if self.dirty.underlay {
             self.underlay.clear();
         }
@@ -712,6 +719,10 @@ pub(crate) struct HierFrame<'a> {
     pub overlay: &'a mut Vec<ChartSegmentRaw>,
     #[allow(dead_code)]
     pub underlay: &'a mut Vec<ChartSegmentRaw>,
+    /// Re-written vertex ranges of `fills` (uploaded alone unless the fills were rebuilt)
+    pub patches: &'a mut Vec<(u32, u32)>,
+    /// Fill emphasis uniform (set `HierChanged::style` when it changes)
+    pub style: &'a mut ChartFillStyleRaw,
 }
 
 /// What a hierarchy frame rebuilt.
@@ -719,6 +730,8 @@ pub(crate) struct HierFrame<'a> {
 pub(crate) struct HierChanged {
     pub fills: bool,
     pub overlay: bool,
+    /// Fill emphasis uniform
+    pub style: bool,
 }
 
 #[cfg(test)]

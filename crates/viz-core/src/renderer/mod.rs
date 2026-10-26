@@ -2,12 +2,14 @@ use crate::camera::OrbitCamera;
 use crate::domain::GraphDataset;
 use bytemuck::{Pod, Zeroable};
 
+mod fill_style;
 pub mod gpu_context;
 mod heatmap;
 pub mod shader;
 mod stats;
 pub mod wgpu_backend;
 
+pub use fill_style::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillPatch, ChartFillStyleRaw, FILL_EMPH_ALPHA, FILL_EMPH_FADE};
 pub use heatmap::{ChartHeatmapGrid, ChartHeatmapStyleRaw, HEATMAP_LUT_SIZE};
 pub use stats::{chart_layer_bytes, RenderStats};
 
@@ -165,6 +167,10 @@ pub struct ChartLayers<'a> {
     pub bars: Option<&'a [ChartBarRaw]>,
     /// Filled areas (triangle list) drawn beneath the series strokes
     pub fills: Option<&'a [ChartFillRaw]>,
+    /// Re-written vertex ranges of the uploaded fills (ignored when `fills` is set)
+    pub fill_patch: Option<ChartFillPatch<'a>>,
+    /// Hover / legend emphasis of tagged fill vertices (see fill_style.rs)
+    pub fill_style: Option<ChartFillStyleRaw>,
     pub series: Option<&'a [ChartSegmentRaw]>,
     /// Dashed series strokes and series point markers (uploaded with `series`)
     pub series_style: Option<ChartSeriesStyleLayer<'a>>,
@@ -509,6 +515,9 @@ pub struct MockRenderBackend {
     pub chart_overlay_count: usize,
     pub chart_marker_count: usize,
     pub chart_fill_count: usize,
+    /// Vertices re-written by fill patches since creation, and the last fill emphasis uniform
+    pub chart_fill_patched: usize,
+    pub chart_fill_style: Option<ChartFillStyleRaw>,
     pub chart_point_count: usize,
     /// `(dashed segments, series markers)` of the last series style upload
     pub chart_series_style: (usize, usize),
@@ -599,6 +608,13 @@ impl RenderBackend for MockRenderBackend {
         }
         if let Some(v) = layers.fills {
             self.chart_fill_count = v.len();
+            uploaded = true;
+        } else if let Some(p) = &layers.fill_patch {
+            self.chart_fill_patched += p.ranges.iter().map(|&(a, b)| (b - a) as usize).sum::<usize>();
+            uploaded |= !p.ranges.is_empty();
+        }
+        if let Some(s) = layers.fill_style {
+            self.chart_fill_style = Some(s);
             uploaded = true;
         }
         if let Some(v) = layers.points {

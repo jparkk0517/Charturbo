@@ -413,27 +413,8 @@ export const FIXTURES: Fixture[] = [
     theme: 'dark',
     render: (ctx) =>
       single(ctx, (sdk) => {
-        const node = (id: string) => ({ id });
         sdk.renderSankey(
-          {
-            nodes: ['Coal', 'Gas', 'Solar', 'Wind', 'Electricity', 'Heat', 'Homes', 'Industry', 'Transport', 'Losses'].map(node),
-            links: [
-              { source: 'Coal', target: 'Electricity', value: 30 },
-              { source: 'Coal', target: 'Heat', value: 12 },
-              { source: 'Gas', target: 'Electricity', value: 22 },
-              { source: 'Gas', target: 'Heat', value: 18 },
-              { source: 'Solar', target: 'Electricity', value: 14 },
-              { source: 'Wind', target: 'Electricity', value: 16 },
-              { source: 'Electricity', target: 'Homes', value: 28 },
-              { source: 'Electricity', target: 'Industry', value: 26 },
-              { source: 'Electricity', target: 'Transport', value: 8 },
-              { source: 'Electricity', target: 'Losses', value: 20 },
-              { source: 'Heat', target: 'Homes', value: 16 },
-              { source: 'Heat', target: 'Industry', value: 10 },
-              { source: 'Heat', target: 'Losses', value: 4 },
-              { source: 'Gas', target: 'Transport', value: 6 },
-            ],
-          },
+          energyFlows(),
           {
             title: 'Sankey',
             padding: { top: 36, right: 12, bottom: 12, left: 12 },
@@ -527,6 +508,27 @@ export const FIXTURES: Fixture[] = [
         sdk.selectChartRange([-1, 2], [-1.5, 1.5]);
       }),
   },
+  {
+    name: 'emphasis-sankey-hover',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderSankey(energyFlows(), { title: 'Sankey hover', padding: { top: 36, right: 12, bottom: 12, left: 12 } });
+        // Engine hover of node 4 (Electricity; the keyboard-focus path): its flows lit, the rest dim
+        const backend = (sdk as unknown as { backend: { chart_hover_hierarchy_item?(series: number, index: number): unknown } }).backend;
+        backend.chart_hover_hierarchy_item?.(0, Number(ctx.params.node ?? 4));
+      }),
+  },
+  {
+    name: 'emphasis-treemap-legend',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderTreemap(hierarchyData(), { title: 'Treemap emphasis', legend: false, padding: { top: 60, right: 12, bottom: 12, left: 12 } });
+        // Legend hover of group 1: the other groups fade
+        sdk.emphasizeSeries(Number(ctx.params.group ?? 1));
+      }),
+  },
 ];
 
 function scatterData(): { x: Float32Array; y: Float32Array; clusters: Uint16Array } {
@@ -577,6 +579,30 @@ function boxFixture(name: string, violin: boolean): Fixture {
           }
         );
       }),
+  };
+}
+
+/** Energy flows of the sankey fixtures. */
+function energyFlows() {
+  const node = (id: string) => ({ id });
+  return {
+    nodes: ['Coal', 'Gas', 'Solar', 'Wind', 'Electricity', 'Heat', 'Homes', 'Industry', 'Transport', 'Losses'].map(node),
+    links: [
+      { source: 'Coal', target: 'Electricity', value: 30 },
+      { source: 'Coal', target: 'Heat', value: 12 },
+      { source: 'Gas', target: 'Electricity', value: 22 },
+      { source: 'Gas', target: 'Heat', value: 18 },
+      { source: 'Solar', target: 'Electricity', value: 14 },
+      { source: 'Wind', target: 'Electricity', value: 16 },
+      { source: 'Electricity', target: 'Homes', value: 28 },
+      { source: 'Electricity', target: 'Industry', value: 26 },
+      { source: 'Electricity', target: 'Transport', value: 8 },
+      { source: 'Electricity', target: 'Losses', value: 20 },
+      { source: 'Heat', target: 'Homes', value: 16 },
+      { source: 'Heat', target: 'Industry', value: 10 },
+      { source: 'Heat', target: 'Losses', value: 4 },
+      { source: 'Gas', target: 'Transport', value: 6 },
+    ],
   };
 }
 

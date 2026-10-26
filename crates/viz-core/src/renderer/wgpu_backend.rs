@@ -5,7 +5,7 @@ use crate::renderer::shader::{
     EDGE_LINE_WGSL, MESH_LIT_WGSL, NODE_BILLBOARD_WGSL,
 };
 use crate::renderer::{
-    CameraUniformRaw, ChartAnnotationLayer, ChartBarRaw, ChartFillRaw, ChartLayers, ChartMarkerRaw, ChartPointRaw,
+    CameraUniformRaw, ChartAnnotationLayer, ChartBarRaw, ChartFillRaw, ChartFillStyleRaw, ChartLayers, ChartMarkerRaw, ChartPointRaw,
     ChartPointStyleRaw, ChartSegmentRaw, EdgeVertexRaw, MeshDraw, MeshInstanceRaw, MeshVertexRaw,
     NodeInstanceRaw, RenderBackend, SceneLightUniformRaw,
 };
@@ -76,6 +76,19 @@ impl GpuArray {
         self.len = data.len() as u32;
     }
 
+    /// Re-writes `data[a..b]` at its offset for every range (the uploaded length is unchanged;
+    /// ranges past it are skipped).
+    fn write_ranges<T: Pod>(&mut self, queue: &wgpu::Queue, data: &[T], ranges: &[(u32, u32)]) {
+        let elem = size_of::<T>() as u64;
+        let end = (self.len as usize).min(data.len());
+        for &(a, b) in ranges {
+            let (a, b) = (a as usize, (b as usize).min(end));
+            if a < b {
+                queue.write_buffer(&self.buffer, a as u64 * elem, bytemuck::cast_slice(&data[a..b]));
+            }
+        }
+    }
+
     fn slice(&self) -> wgpu::BufferSlice<'_> {
         self.buffer.slice(..)
     }
@@ -97,6 +110,9 @@ pub struct WgpuRenderBackend {
     point_style_buffer: wgpu::Buffer,
     /// Camera + point style uniforms (same layout as the mesh bind group)
     point_bind_group: wgpu::BindGroup,
+    fill_style_buffer: wgpu::Buffer,
+    /// Camera + fill emphasis uniforms (every fill layer; untagged vertices ignore the emphasis)
+    fill_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
     mesh_translucent_pipeline: wgpu::RenderPipeline,
@@ -593,6 +609,26 @@ impl WgpuRenderBackend {
             ],
         });
 
+        let fill_style_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("chart-fill-style-buffer"),
+            contents: bytemuck::bytes_of(&ChartFillStyleRaw::default()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let fill_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("chart-fill-bg"),
+            layout: &pipes.mesh_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: fill_style_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         let heatmap = HeatmapGpu::new(&device, pipes.heatmap_bgl.clone(), &camera_buffer);
 
         let vb = wgpu::BufferUsages::VERTEX;
@@ -633,6 +669,8 @@ impl WgpuRenderBackend {
             mesh_bind_group,
             point_style_buffer,
             point_bind_group,
+            fill_style_buffer,
+            fill_bind_group,
             mesh_pipeline: p.mesh_pipeline,
             mesh_translucent_pipeline: p.mesh_translucent_pipeline,
             node_pipeline: p.node_pipeline,
@@ -771,6 +809,15 @@ impl GpuPipelines {
 
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh-pipeline-layout"),
+            bind_group_layouts: &[&mesh_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        // Fills: camera + emphasis uniform. Same bind group layout as the meshes / points but its own
+        // pipeline layout: wgpu re-reads the shader's expected uniform sizes only when the layout
+        // object changes, so point (1072 B) -> fill (48 B) draws must not share one
+        let fill_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("chart-fill-pipeline-layout"),
             bind_group_layouts: &[&mesh_bind_group_layout],
             push_constant_ranges: &[],
         });
@@ -917,7 +964,7 @@ impl GpuPipelines {
             format,
             PipelineSpec {
                 label: "chart-fills",
-                layout: &pipeline_layout,
+                layout: &fill_pipeline_layout,
                 shader: &fill_shader,
                 vs: "vs_fill",
                 fs: "fs_fill",
@@ -932,7 +979,7 @@ impl GpuPipelines {
             format,
             PipelineSpec {
                 label: "chart-fills-overlay",
-                layout: &pipeline_layout,
+                layout: &fill_pipeline_layout,
                 shader: &fill_shader,
                 vs: "vs_fill",
                 fs: "fs_fill",
@@ -1128,6 +1175,11 @@ impl RenderBackend for WgpuRenderBackend {
         }
         if let Some(v) = layers.fills {
             self.chart_fills.upload(device, queue, v, max);
+        } else if let Some(p) = &layers.fill_patch {
+            self.chart_fills.write_ranges(queue, p.fills, p.ranges);
+        }
+        if let Some(style) = &layers.fill_style {
+            queue.write_buffer(&self.fill_style_buffer, 0, bytemuck::bytes_of(style));
         }
         if let Some(v) = layers.points {
             self.chart_points.upload(device, queue, v, max);
@@ -1207,6 +1259,7 @@ impl RenderBackend for WgpuRenderBackend {
             });
 
             let cam = &self.camera_bind_group;
+            let fill = &self.fill_bind_group;
 
             // 1. Opaque scene meshes (one instanced draw per mesh)
             self.draw_meshes(&mut rpass, false);
@@ -1221,7 +1274,7 @@ impl RenderBackend for WgpuRenderBackend {
             }
             // Annotations below the series: bands, reference lines, markers (clipped on the CPU)
             let below = &self.annotations_below;
-            draw_fills(&mut rpass, &self.fill_pipeline, cam, &below.fills);
+            draw_fills(&mut rpass, &self.fill_pipeline, fill, &below.fills);
             draw_quads(&mut rpass, &self.segment_pipeline, cam, &below.lines);
             draw_quads(&mut rpass, &self.marker_pipeline, cam, &below.markers);
             // Zoomed bars (candlesticks) / fills / series / points are clipped to the plot rectangle
@@ -1235,7 +1288,7 @@ impl RenderBackend for WgpuRenderBackend {
                 rpass.set_scissor_rect(x, y, w, h);
             }
             draw_quads(&mut rpass, &self.bar_pipeline, cam, &self.chart_bars);
-            draw_fills(&mut rpass, &self.fill_pipeline, cam, &self.chart_fills);
+            draw_fills(&mut rpass, &self.fill_pipeline, fill, &self.chart_fills);
             draw_quads(&mut rpass, &self.segment_pipeline, cam, &self.chart_series);
             // Dashed series strokes, then series point markers over the strokes
             draw_quads(&mut rpass, &self.dash_segment_pipeline, cam, &self.chart_series_dashed);
@@ -1247,18 +1300,18 @@ impl RenderBackend for WgpuRenderBackend {
             }
             // Annotations above the series (no depth test: always over bars / strokes / points)
             let above = &self.annotations_above;
-            draw_fills(&mut rpass, &self.fill_overlay_pipeline, cam, &above.fills);
+            draw_fills(&mut rpass, &self.fill_overlay_pipeline, fill, &above.fills);
             draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &above.lines);
             draw_quads(&mut rpass, &self.marker_pipeline, cam, &above.markers);
             // Brush / selection band over everything in the plot (no depth test)
-            draw_fills(&mut rpass, &self.fill_overlay_pipeline, cam, &self.brush.fills);
+            draw_fills(&mut rpass, &self.fill_overlay_pipeline, fill, &self.brush.fills);
             draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &self.brush.lines);
             if clip.is_some() {
                 rpass.set_scissor_rect(0, 0, vw, vh);
             }
             // Navigator below the plot (unclipped): strip, then the zoom window over it
             for nav in [&self.navigator, &self.navigator_window] {
-                draw_fills(&mut rpass, &self.fill_overlay_pipeline, cam, &nav.fills);
+                draw_fills(&mut rpass, &self.fill_overlay_pipeline, fill, &nav.fills);
                 draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &nav.lines);
             }
 
