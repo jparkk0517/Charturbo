@@ -6,10 +6,11 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 impl WasmCharturboEngine {
-    /// `[target_x, target_y, target_z, distance, yaw, pitch, fov_y, aspect]` (radians).
+    /// `[target_x, target_y, target_z, distance, yaw, pitch, fov_y, aspect, ortho_size]` (radians).
+    /// ortho_size is zero in perspective mode.
     pub fn camera_state(&self) -> Vec<f32> {
         let c = self.inner.camera();
         let t = c.target();
-        vec![t.x, t.y, t.z, c.distance(), c.yaw(), c.pitch(), c.fov_y(), c.aspect()]
+        vec![t.x, t.y, t.z, c.distance(), c.yaw(), c.pitch(), c.fov_y(), c.aspect(), c.orthographic_size().unwrap_or(0.)]
     }
 }

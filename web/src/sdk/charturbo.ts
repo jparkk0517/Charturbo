@@ -1,6 +1,6 @@
 import initWasm, { WasmCharturboEngine } from '../wasm-pkg/charturbo_core';
-import { encodePointCloud3D, encodeSurface3D, prepareCloudAppend, prepareSurfaceUpdate, validateScientific3DOptions, scientificSample, scientificTooltip, type Scientific3DMeta, type EncodedScientific3D, type Scientific3DChartOptions, type PointCloud3DSeries, type Surface3DSeries, type PointCloud3DData, type PointCloud3DAppendOptions, type Surface3DUpdate } from './chart-scientific3d';
-export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, Surface3DGridData, Surface3DSeries, Surface3DUpdate, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions } from './chart-scientific3d';
+import { encodePointCloud3D, encodeSurface3D, prepareCloudAppend, prepareSurfaceUpdate, validateScientific3DOptions, formatScientific3DTick, scientificSample, scientificTooltip, type Scientific3DMeta, type EncodedScientific3D, type Scientific3DChartOptions, type PointCloud3DSeries, type Surface3DSeries, type PointCloud3DData, type PointCloud3DAppendOptions, type Surface3DUpdate } from './chart-scientific3d';
+export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, Surface3DGridData, Surface3DSeries, Surface3DUpdate, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions, Scientific3DAxisOptions, Scientific3DCameraOptions } from './chart-scientific3d';
 import { createTouchGestures, isGesturePointer, type TouchInteractionOptions } from './chart-gestures';
 import { createCameraControls, resolveCameraControls, type CameraControlOptions } from './camera-controls';
 export type { CameraControlOptions } from './camera-controls';
@@ -948,6 +948,9 @@ export interface NodeMetadata {
 
 /** Orbit camera pose (`getCameraState`). */
 export interface CharturboCameraState {
+  projection: 'perspective' | 'orthographic';
+  /** Vertical half-extent in orthographic mode. */
+  orthoSize?: number;
   /** Point the camera orbits around and looks at */
   target: Vec3Tuple;
   /** Eye position */
@@ -1261,7 +1264,7 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_graph_visible?(visible: boolean): void;
   move_camera_local?(forwardDelta: number, rightDelta: number, upDelta: number): void;
   rotate_camera_look?(deltaYaw: number, deltaPitch: number): void;
-  set_chart_3d?(xyz: Float32Array, colors: Float32Array, offsets: Uint32Array, styles: Float32Array, shapes: Uint32Array): number;
+  set_chart_3d?(xyz: Float32Array, colors: Float32Array, offsets: Uint32Array, styles: Float32Array, shapes: Uint32Array, options: Float64Array): number;
   update_chart_3d_series?(series: number, xyz: Float32Array, colors: Float32Array, columns: number, rows: number): number;
   chart_3d_hit?(): Float32Array;
   set_camera_pose?(
@@ -2864,6 +2867,8 @@ export class Charturbo {
     const [tx, ty, tz, distance, yaw, pitch, fovY, aspect] = c;
     const cp = Math.cos(pitch);
     return {
+      projection: c[8] > 0 ? 'orthographic' : 'perspective',
+      ...(c[8] > 0 ? { orthoSize: c[8] } : {}),
       target: [tx, ty, tz],
       eye: [tx + distance * cp * Math.sin(yaw), ty + distance * Math.sin(pitch), tz + distance * cp * Math.cos(yaw)],
       distance,
@@ -3720,7 +3725,7 @@ export class Charturbo {
       unitsPerPixel: () => {
         const c = this.getCameraState();
         // View-plane height at the target depth / viewport height: the content tracks the pointer
-        return c ? (2 * c.distance * Math.tan(c.fovY / 2)) / Math.max(1, canvas.getBoundingClientRect().height) : null;
+        return c ? (2 * (c.orthoSize ?? c.distance * Math.tan(c.fovY / 2))) / Math.max(1, canvas.getBoundingClientRect().height) : null;
       },
       distance: () => this.getCameraState()?.distance ?? null,
       viewHeight: () => canvas.getBoundingClientRect().height,
@@ -5904,10 +5909,23 @@ export class Charturbo {
           ? p.formatX(value, granAt < 0 ? 0 : a[granAt + k])
           : (resolveFormat(opts.format, this.chartLocale()) ?? ((v: number) => formatTickValue(v, this.chartLocale())))(value);
       if (this.chartMeta?.kind === 'scientific3d') {
-        el.textContent = `${axis === 0 ? 'X' : axis === 1 ? 'Y' : 'Z'} ${Number(value.toPrecision(3)).toLocaleString(this.chartLocale(), { maximumSignificantDigits: 3 })}`;
+        const name = this.chartMeta.axisNames?.[axis === 3 ? 2 : axis] ?? (axis === 0 ? 'X' : axis === 1 ? 'Y' : 'Z');
+        el.textContent = `${name} ${formatScientific3DTick(value, this.chartLocale())}`;
         el.style.left = `${x + (axis === 1 || axis === 0 ? -8 : 8)}px`;
         el.style.top = `${y + (axis === 1 ? 0 : 8)}px`;
         el.style.transform = axis === 1 ? 'translate(-100%, -50%)' : axis === 0 ? 'translate(-100%, 0)' : 'translate(0, 0)';
+        // Orbit/resize can put an edge label outside a narrow canvas. Keep visible
+        // anchors readable without changing the camera or dragging offscreen ticks in.
+        const w = canvas.offsetWidth, h = canvas.offsetHeight;
+        if (x < 0 || x > w || y < 0 || y > h) { el.style.display = 'none'; continue; }
+        el.style.maxWidth = `${Math.max(0, w - 8)}px`;
+        el.style.overflow = 'hidden'; el.style.textOverflow = 'ellipsis';
+        const width = el.offsetWidth, height = el.offsetHeight;
+        const left = x + (axis === 3 ? 8 : -8 - width), top = y + (axis === 1 ? -height / 2 : 8);
+        const dx = Math.max(4, Math.min(w - width - 4, left)) - left;
+        const dy = Math.max(4, Math.min(h - height - 4, top)) - top;
+        if (dx) el.style.left = `${parseFloat(el.style.left) + dx}px`;
+        if (dy) el.style.top = `${parseFloat(el.style.top) + dy}px`;
       } else if (axis === 0) {
         el.style.left = `${x}px`;
         el.style.top = `${y + 6}px`;
@@ -6274,14 +6292,15 @@ export class Charturbo {
   }
 
   private renderScientific3D(e: EncodedScientific3D, options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {
-    validateScientific3DOptions(options);
+    const config = validateScientific3DOptions(options);
     if (!this.backend.set_chart_3d) throw new Error('3D chart: backend does not support scientific charts');
     this.clearScene();
     this.clearSelection();
     this.setRigidPhysics(false);
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
-    this.backend.set_chart_3d(e.xyz, e.colors, e.offsets, e.styles, e.shapes);
+    this.backend.set_chart_3d(e.xyz, e.colors, e.offsets, e.styles, e.shapes, config);
+    e.meta.axisNames = [options?.axes3d?.x?.name ?? 'X', options?.axes3d?.y?.name ?? 'Y', options?.axes3d?.z?.name ?? 'Z'];
     this.chartMode = e.meta.mode;
     this.chartMeta = e.meta;
     this.flatCameraView = false;
@@ -6295,7 +6314,7 @@ export class Charturbo {
     const legend = { show: opt?.show ?? e.meta.names.length > 1, toggle: opt?.toggle ?? true, emphasize: opt?.emphasize ?? true };
     this.chartPresentation = { title: options?.title, description: options?.description, xAxis: {}, yAxis: {}, legend,
       navigable: false, formatX: v => formatTickValue(v, this.chartLocale()) };
-    if (options?.camera) this.setCameraPose(options.camera.eye, options.camera.target ?? [0, 0, 0]);
+    if (options?.camera?.eye) this.setCameraPose(options.camera.eye, options.camera.target ?? [0, 0, 0]);
     this.rebuildChartOverlay();
     return { pointCount: e.xyz.length / 3, seriesCount: e.meta.names.length };
   }

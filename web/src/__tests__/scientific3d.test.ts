@@ -1,11 +1,43 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Charturbo } from '../sdk/charturbo';
-import { encodePointCloud3D, encodeSurface3D, scientificTooltip, type PointCloud3DData } from '../sdk/chart-scientific3d';
+import { encodePointCloud3D, encodeSurface3D, scientificTooltip, formatScientific3DTick, type PointCloud3DData, type Scientific3DChartOptions } from '../sdk/chart-scientific3d';
 import { buildA11yModel, buildDataTable, tableToCSV, buildChartSummary } from '../sdk/chart-a11y';
 import { graphBackend } from './graph-backend';
 
 const palette: [number, number, number, number][] = [[0.2, 0.6, 1, 1]];
 describe('scientific 3D charts', () => {
+  it('keeps tiny and large axis values compact without rounding meaningful values to zero', () => {
+    expect(formatScientific3DTick(0, 'en-US')).toBe('0');
+    expect(formatScientific3DTick(0.000000123, 'en-US')).toBe('1.23e-7');
+    expect(formatScientific3DTick(1e12, 'en-US')).toBe('1e+12');
+    expect(formatScientific3DTick(-0.00123, 'en-US')).toBe('-0.00123');
+  });
+  it('passes fixed axes, data aspect and orthographic framing without changing raw exports', () => {
+    const { backend } = graphBackend(); backend.set_chart_3d = vi.fn(() => 2);
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.renderPointCloud3D([{ name: 'Scan', data: [[0, 0, 0], [100, 10, 1]] }], {
+      axes3d: { x: { min: -100, max: 100, name: 'Distance', tickCount: 3 }, z: { visible: false } },
+      aspect: 'data', camera: { type: 'orthographic', orthoSize: 150 },
+    });
+    expect(vi.mocked(backend.set_chart_3d!).mock.lastCall?.[5]).toEqual(new Float64Array([-100, 100, NaN, NaN, NaN, NaN, 1, 1, 1, 1, 3, 5, 0, 1, 150]));
+    expect(sdk.exportChartCSV()).toContain('Scan,100,10,1');
+    sdk.dispose();
+  });
+  it('rejects invalid axes, aspect and projection before replacing live data', () => {
+    const { backend } = graphBackend(); backend.set_chart_3d = vi.fn(() => 1);
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.renderPointCloud3D([{ data: [[1, 2, 3]] }]);
+    const invalid: Scientific3DChartOptions[] = [
+      { axes3d: { x: { min: 1, max: 1 } } }, { axes3d: { y: { min: Infinity } } },
+      { axes3d: { z: { tickCount: 1 } } }, { aspect: [1, 0, 1] },
+      { camera: { type: 'orthographic', orthoSize: 0 } }, { camera: { target: [1, 2, 3] } },
+      { camera: { type: 'invalid' } } as unknown as Scientific3DChartOptions,
+    ];
+    for (const options of invalid) expect(() => sdk.renderPointCloud3D([{ data: [[9, 9, 9]] }], options)).toThrow(/3D chart/);
+    expect(backend.set_chart_3d).toHaveBeenCalledOnce();
+    expect(sdk.getNodeDetails(0)?.metadata.attributes?.x).toBe(1);
+    sdk.dispose();
+  });
   it('retains XYZ gaps and original point ids across series', () => {
     const a = new Float32Array([1, 2, 3, NaN, 0, 1]);
     const e = encodePointCloud3D([{ name: 'A', data: a }, { name: 'B', data: { x: [4], y: [5], z: [6] }, size: 8 }], palette);

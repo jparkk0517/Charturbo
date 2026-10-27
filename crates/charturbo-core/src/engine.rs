@@ -576,11 +576,19 @@ impl VisualizationEngine {
     // -------------------------------------------------------------------------
 
     pub fn set_scientific3d(&mut self, series: Vec<crate::chart::Scientific3DSeries>) -> Result<usize, String> {
-        let chart = ChartState::new_scientific3d(series)?;
+        self.set_scientific3d_with_options(series, crate::chart::Scientific3DOptions::default(), None)
+    }
+
+    /// Orthographic Some(0) auto-fits; a positive value fixes the initial half-height.
+    pub fn set_scientific3d_with_options(&mut self, series: Vec<crate::chart::Scientific3DSeries>, options: crate::chart::Scientific3DOptions, orthographic: Option<f32>) -> Result<usize, String> {
+        if orthographic.is_some_and(|v| !v.is_finite() || v < 0.) { return Err("invalid 3D orthographic size".into()); }
+        let chart = ChartState::new_scientific3d_with_options(series, options)?;
         let n = chart.point_count();
         self.begin_chart();
+        self.camera.set_orthographic(orthographic.map(|s| s.max(1.)));
         let css = self.css_size();
         chart.frame_camera(&mut self.camera, css);
+        if let Some(size) = orthographic.filter(|s| *s > 0.) { self.camera.set_orthographic(Some(size)); }
         self.chart = Some(chart);
         Ok(n)
     }
@@ -826,6 +834,7 @@ impl VisualizationEngine {
             self.chart_anim_prev = None;
         }
         if let Some(mut chart) = self.chart.take() {
+            if chart.is_scientific3d() { self.camera.set_orthographic(None); }
             if keep_snapshot {
                 // A chart replaced before its first frame keeps the older chart's snapshot
                 if let Some(s) = chart.anim_snapshot() {
@@ -1450,6 +1459,23 @@ mod tests {
         let eye = engine.camera.eye_position();
         engine.resize(390, 600);
         assert!((engine.camera.eye_position() - eye).length() < 1e-4);
+    }
+
+    #[test]
+    fn scientific3d_orthographic_survives_resize_and_resets_when_leaving_chart() {
+        let ds = GraphDataset::generate_seeded(&DatasetConfig { node_count: 0, edge_count: 0, ..Default::default() });
+        let (mut engine, _) = mock_engine(ds);
+        engine.set_scientific3d_with_options(vec![], Default::default(), Some(120.)).unwrap();
+        engine.rotate_camera(0.4, 0.2);
+        let eye = engine.camera.eye_position();
+        engine.resize(390, 600);
+        assert_eq!(engine.camera.orthographic_size(), Some(120.));
+        assert!((engine.camera.eye_position() - eye).length() < 1e-4);
+        let bad = crate::chart::Scientific3DOptions { ticks: [1; 3], ..Default::default() };
+        assert!(engine.set_scientific3d_with_options(vec![], bad, None).is_err());
+        assert_eq!(engine.camera.orthographic_size(), Some(120.));
+        engine.clear_chart();
+        assert_eq!(engine.camera.orthographic_size(), None);
     }
 
     #[test]

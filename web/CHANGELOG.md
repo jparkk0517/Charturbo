@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 3D 축 범위 · 비율 · 직교 투영
+
+- `axes3d.x/y/z`의 고정 범위·이름·눈금 수·표시 여부, `aspect: 'cube'|'data'|[x,y,z]`를 제공합니다. 데이터 단위·사용자 비율을 geometry·격자·라벨·피킹에 일관되게 적용하며 고정 범위는 스트리밍에도 유지됩니다.
+- `camera.type: 'orthographic'`·`orthoSize`, 평행 광선 피킹·줌·resize 상태 유지와 `getCameraState()`의 투영 정보를 추가했습니다. 다른 차트로 전환할 때 perspective로 복원합니다.
+- 0 눈금의 부동소수점 잔차와 작은/큰 수의 긴 라벨을 수정하고, React/Vue 옵션 전달·비교 데모·양 GPU 직교 fixture를 추가했습니다.
+- TypeScript 자체 패키지 참조를 소스에 연결해 빌드 산출물이 없는 CI의 타입 검사를 수정했습니다.
+
 ### 추가 — 3D 스트리밍 · 표면 갱신
 
 - `appendPointCloud3D`로 XYZ·scalar 색상 청크 추가와 `maxPoints` FIFO를 지원합니다.
@@ -17,7 +24,7 @@
 - `renderPointCloud3D`·`renderSurface3D`, React/Vue `type="pointCloud3d"`·`type="surface3d"`를 추가했습니다.
 - XYZ billboard와 Y-up row-major surface를 전용 깊이 처리로 렌더링합니다. scalar 색상, grid hole, wireframe, 조명, 시리즈 가시성·강조, orbit/pan/zoom을 지원합니다.
 - 원본 XYZ 툴팁·키보드·CSV, surface ray intersection, SVG raster fallback, 예제 3개와 WebGPU/WebGL2 fixture를 연결했습니다. 투명도 0 표면의 선택·렌더와 resize 시 카메라 초기화를 수정했습니다.
-- 전체 교체 API에 더해 위 스트리밍 API를 제공합니다. contours·orthographic·정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
+- 전체 교체 API에 더해 위 스트리밍·축·투영 API를 제공합니다. contours·정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
 
 ### 추가 — 독립 ErrorBar · Impulse
 

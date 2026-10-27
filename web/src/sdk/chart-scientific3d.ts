@@ -49,6 +49,24 @@ export type Surface3DUpdate =
   | { mode: 'replaceY'; y: ArrayLike<number>; yMin?: number; yMax?: number }
   | { mode: 'appendColumns'; columns: number; y: ArrayLike<number>; scrollX?: boolean }
   | { mode: 'appendRows'; rows: number; y: ArrayLike<number>; scrollZ?: boolean };
+export interface Scientific3DAxisOptions {
+  name?: string;
+  /** Fixed frame domain in data units; omitted endpoints follow all finite samples. */
+  min?: number;
+  max?: number;
+  /** Integer 2..50, default 5. */
+  tickCount?: number;
+  visible?: boolean;
+}
+export interface Scientific3DCameraOptions {
+  type?: 'perspective' | 'orthographic';
+  /** Render-space eye; omitting it fits the data box. */
+  eye?: Vec3Tuple;
+  /** Requires eye; default [0,0,0]. Y-up orbit. */
+  target?: Vec3Tuple;
+  /** Initial vertical half-extent in render units. Orthographic only; omitted = auto-fit. */
+  orthoSize?: number;
+}
 export interface Scientific3DChartOptions {
   title?: string;
   description?: string;
@@ -56,8 +74,10 @@ export interface Scientific3DChartOptions {
   grid?: ChartGridStyle;
   showGrid?: boolean;
   hover?: ChartHoverStyle;
-  /** Perspective camera in normalized render space, each data axis maps to [-60,60]. */
-  camera?: { eye: Vec3Tuple; target?: Vec3Tuple };
+  axes3d?: { x?: Scientific3DAxisOptions; y?: Scientific3DAxisOptions; z?: Scientific3DAxisOptions };
+  /** cube (default), equal data units, or relative XYZ box dimensions. Longest side = 120 render units. */
+  aspect?: 'cube' | 'data' | Vec3Tuple;
+  camera?: Scientific3DCameraOptions;
 }
 export interface Scientific3DMeta {
   kind: 'scientific3d';
@@ -69,6 +89,7 @@ export interface Scientific3DMeta {
   pointColors: Float32Array;
   offsets: Uint32Array;
   shapes: Uint32Array;
+  axisNames?: [string, string, string];
   /** Owned snapshots for incremental updates; never retain caller-owned arrays. */
   clouds?: PointCloud3DSeries[];
   surfaces?: Surface3DSeries[];
@@ -91,14 +112,49 @@ function count(n: number): number {
   if (!Number.isSafeInteger(n) || n < 0 || n > MAX_SAMPLES) throw new Error(`3D chart: length must be at most ${MAX_SAMPLES}`);
   return n;
 }
-export function validateScientific3DOptions(o?: Scientific3DChartOptions): void {
+/** Packed native options: bounds[6], aspect mode + ratios[3], ticks[3], projection + size. */
+export function validateScientific3DOptions(o?: Scientific3DChartOptions): Float64Array {
+  const axes = [o?.axes3d?.x, o?.axes3d?.y, o?.axes3d?.z];
+  for (const a of axes) {
+    if (a?.min !== undefined) finite(a.min, 'axis min');
+    if (a?.max !== undefined) finite(a.max, 'axis max');
+    if (a?.min !== undefined && a.max !== undefined && a.min >= a.max) throw new Error('3D chart: axis min must be below max');
+    if (a?.tickCount !== undefined && (!Number.isInteger(a.tickCount) || a.tickCount < 2 || a.tickCount > 50)) throw new Error('3D chart: invalid tickCount');
+  }
+  const aspect = o?.aspect ?? 'cube';
+  if (typeof aspect === 'string') {
+    if (aspect !== 'cube' && aspect !== 'data') throw new Error('3D chart: invalid aspect');
+  } else {
+    if (aspect.length !== 3) throw new Error('3D chart: aspect needs three ratios');
+    aspect.forEach(v => { finite(v, 'aspect'); if (Math.fround(v) <= 0) throw new Error('3D chart: aspect must be positive'); });
+  }
   if (o?.camera) {
-    for (const p of [o.camera.eye, o.camera.target ?? [0, 0, 0]]) {
+    const c = o.camera;
+    if (c.type !== undefined && c.type !== 'perspective' && c.type !== 'orthographic') throw new Error('3D chart: invalid camera type');
+    if (c.orthoSize !== undefined) {
+      finite(c.orthoSize, 'orthoSize');
+      if (Math.fround(c.orthoSize) <= 0 || c.type !== 'orthographic') throw new Error('3D chart: orthoSize requires orthographic and a positive size');
+    }
+    if (c.target && !c.eye) throw new Error('3D chart: camera target requires eye');
+    for (const p of [c.eye, c.target].filter((p): p is Vec3Tuple => p !== undefined)) {
       if (p.length !== 3) throw new Error('3D chart: camera needs three coordinates');
       p.forEach(v => finite(v, 'camera'));
     }
-    if (Math.hypot(...o.camera.eye.map((v, i) => v - (o.camera!.target?.[i] ?? 0))) < 5) throw new Error('3D chart: camera eye must be at least 5 units from target');
+    if (c.eye && Math.hypot(...c.eye.map((v, i) => v - (c.target?.[i] ?? 0))) < 5) throw new Error('3D chart: camera eye must be at least 5 units from target');
   }
+  return new Float64Array([
+    ...axes.flatMap(a => [a?.min ?? NaN, a?.max ?? NaN]),
+    aspect === 'cube' ? 0 : aspect === 'data' ? 1 : 2, ...(typeof aspect === 'string' ? [1, 1, 1] : aspect),
+    ...axes.map(a => a?.visible === false ? 0 : a?.tickCount ?? 5),
+    o?.camera?.type === 'orthographic' ? 1 : 0, o?.camera?.orthoSize ?? NaN,
+  ]);
+}
+
+export function formatScientific3DTick(value: number, locale?: string): string {
+  const v = Number(value.toPrecision(3));
+  return v !== 0 && (Math.abs(v) < 0.001 || Math.abs(v) >= 1e6)
+    ? v.toExponential(2).replace(/\.?(0+)e/, 'e')
+    : v.toLocaleString(locale, { maximumSignificantDigits: 3 });
 }
 function cloud(data: PointCloud3DData): Float32Array {
   if (data instanceof Float32Array || data instanceof Float64Array) {

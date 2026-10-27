@@ -128,6 +128,28 @@ const lineFixture = (name: string, theme: FixtureTheme): Fixture => ({
 });
 
 export const FIXTURES: Fixture[] = [
+  ...[false, true].map(surface => ({
+    name: `scientific3d-ortho-${surface ? 'surface' : 'cloud'}`, theme: 'dark' as const,
+    render: (ctx: FixtureContext) => single(ctx, sdk => {
+      const options = { title: 'Fixed axes · orthographic', aspect: surface ? [2, 1, 1] as [number, number, number] : 'data' as const,
+        axes3d: { x: { min: -4, max: 4, tickCount: 3 }, y: { min: -1, max: 1, tickCount: 3 }, z: { min: -2, max: 2, tickCount: 3 } },
+        camera: { type: 'orthographic' as const, orthoSize: 110 } };
+      const y = Float32Array.from({ length: 81 }, (_, i) => Math.sin((i % 9 - 4) / 2) * Math.cos((Math.floor(i / 9) - 4) / 2));
+      const xyz = Float32Array.from({ length: 243 }, (_, i) => i % 3 === 0 ? Math.floor(i / 3) % 9 - 4 : i % 3 === 1 ? y[Math.floor(i / 3)] : Math.floor(i / 27) / 2 - 2);
+      const streaming = ctx.params.streaming === 'true';
+      if (surface) {
+        sdk.renderSurface3D([{ data: { columns: 9, rows: 9, xStart: -4, xStep: 1, zStart: -2, zStep: 0.5, y: streaming ? new Float32Array(81) : y } }], options);
+        if (streaming) { sdk.render(); sdk.updateSurface3D(0, { mode: 'replaceY', y }); }
+      } else {
+        sdk.renderPointCloud3D([{ data: streaming ? xyz.subarray(0, 120) : xyz, size: 7 }], options);
+        if (streaming) { sdk.render(); sdk.appendPointCloud3D(0, xyz.subarray(120)); }
+      }
+      sdk.setTheme('light'); sdk.setTheme('dark');
+      if (sdk.getCameraState()?.orthoSize !== 110) throw new Error('Orthographic size was reset');
+      const p = sdk.projectNodeToScreen(40, FIXTURE_WIDTH, FIXTURE_HEIGHT);
+      if (!p || Math.abs(p.x - FIXTURE_WIDTH / 2) > 0.1 || Math.abs(p.y - FIXTURE_HEIGHT / 2) > 0.1) throw new Error('3D center projection changed');
+    }),
+  })),
   {
     name: 'scientific3d-cloud', theme: 'dark',
     render: ctx => single(ctx, sdk => {

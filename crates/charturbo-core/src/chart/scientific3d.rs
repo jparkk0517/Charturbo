@@ -3,6 +3,28 @@ use super::*;
 use std::cell::Cell;
 
 #[derive(Debug, Clone)]
+pub struct Scientific3DOptions {
+    pub bounds: [(Option<f64>, Option<f64>); 3],
+    /// None preserves data units; Some sets relative XYZ box dimensions.
+    pub aspect: Option<[f32; 3]>,
+    /// Zero hides that axis; otherwise 2..=50 ticks.
+    pub ticks: [u32; 3],
+}
+impl Default for Scientific3DOptions {
+    fn default() -> Self { Self { bounds: [(None, None); 3], aspect: Some([1.; 3]), ticks: [5; 3] } }
+}
+impl Scientific3DOptions {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.bounds.iter().any(|&(lo, hi)| lo.into_iter().chain(hi).any(|v| !(v as f32).is_finite()) || lo.zip(hi).is_some_and(|(a, b)| a >= b))
+            || self.aspect.is_some_and(|a| a.iter().any(|v| !v.is_finite() || *v <= 0.))
+            || self.ticks.iter().any(|&n| n != 0 && !(2..=50).contains(&n)) {
+            return Err("invalid 3D axes or aspect".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Scientific3DSeries {
     pub xyz: Vec<[f32; 3]>,
     pub colors: Vec<[f32; 4]>,
@@ -21,13 +43,16 @@ pub(crate) struct Scientific3D {
     pub visible: Vec<bool>,
     pub emphasis: Option<usize>,
     domain: [(f64, f64); 3],
+    options: Scientific3DOptions,
+    half: Vec3,
     offsets: Vec<usize>,
     // Raw XYZ and grid column/row of the most recent ray hit.
     hit: Cell<Option<[f32; 5]>>,
 }
 
 impl Scientific3D {
-    fn new(series: Vec<Scientific3DSeries>) -> Result<Self, String> {
+    fn new(series: Vec<Scientific3DSeries>, options: Scientific3DOptions) -> Result<Self, String> {
+        options.validate()?;
         let mut n = 0usize;
         for s in &series {
             if !s.size.is_finite() || s.size < 0.0 || !s.lighting.is_finite() || !(0.0..=1.0).contains(&s.lighting)
@@ -40,7 +65,7 @@ impl Scientific3D {
             }
             n = n.checked_add(s.xyz.len()).filter(|n| *n <= 4_000_000).ok_or("3D chart exceeds 4000000 samples")?;
         }
-        let mut chart = Self { visible: vec![true; series.len()], series, domain: [(0., 1.); 3], offsets: vec![], emphasis: None, hit: Cell::new(None) };
+        let mut chart = Self { visible: vec![true; series.len()], series, domain: [(0., 1.); 3], options, half: Vec3::splat(60.), offsets: vec![], emphasis: None, hit: Cell::new(None) };
         chart.reindex();
         Ok(chart)
     }
@@ -55,22 +80,32 @@ impl Scientific3D {
                 for a in 0..3 { domain[a].0 = domain[a].0.min(p[a] as f64); domain[a].1 = domain[a].1.max(p[a] as f64); }
             }
         }
-        for d in &mut domain {
+        for (a, d) in domain.iter_mut().enumerate() {
             if !d.0.is_finite() { *d = (-1.0, 1.0); }
             if d.0 == d.1 { let pad = d.0.abs().max(1.0) * 0.05; d.0 -= pad; d.1 += pad; }
+            let (lo, hi) = self.options.bounds[a];
+            d.0 = lo.unwrap_or(d.0); d.1 = hi.unwrap_or(d.1);
+            // A one-sided fixed bound can move past every sample while streaming.
+            if d.0 >= d.1 {
+                if lo.is_some() { d.1 = d.0 + d.0.abs().max(1.) * 0.05; }
+                else { d.0 = d.1 - d.1.abs().max(1.) * 0.05; }
+            }
         }
         self.domain = domain;
+        let spans = self.options.aspect.map(|a| a.map(f64::from)).unwrap_or_else(|| domain.map(|(lo, hi)| hi - lo));
+        let max = spans.into_iter().fold(0.0_f64, f64::max);
+        self.half = Vec3::from_array(spans.map(|s| (60. * s / max) as f32));
         self.hit.set(None);
     }
 
     fn world(&self, p: [f32; 3]) -> Vec3 {
-        Vec3::from_array(std::array::from_fn(|a| ((p[a] as f64 - self.domain[a].0) / (self.domain[a].1 - self.domain[a].0) * 120.0 - 60.0) as f32))
+        Vec3::from_array(std::array::from_fn(|a| (((p[a] as f64 - self.domain[a].0) / (self.domain[a].1 - self.domain[a].0) * 2.0 - 1.0) * self.half[a] as f64) as f32))
     }
 
     pub fn frame_camera(&self, camera: &mut OrbitCamera) {
         camera.set_pose(Vec3::new(220., 170., 300.), Vec3::ZERO);
-        let corners = (0..8).map(|i| Vec3::new(if i & 1 == 0 { -60. } else { 60. }, if i & 2 == 0 { -60. } else { 60. }, if i & 4 == 0 { -60. } else { 60. }));
-        camera.fit_to_points(Vec3::ZERO, corners, 104., 0.76);
+        let corners = (0..8).map(|i| Vec3::from_array(std::array::from_fn(|a| if i & (1 << a) == 0 { -self.half[a] } else { self.half[a] })));
+        camera.fit_to_points(Vec3::ZERO, corners, self.half.length(), 0.76);
     }
 
     pub fn len(&self) -> usize { self.series.iter().map(|s| s.xyz.len()).sum() }
@@ -130,26 +165,30 @@ impl Scientific3D {
         out.clear();
         if !style.show_grid { return; }
         let mut segment = |a: Vec3, b: Vec3| out.push(ChartSegmentRaw { p0_width: a.extend(style.stroke_px).to_array(), p1_pad: b.extend(0.).to_array(), color: style.grid_color });
-        for axis in 0..3 { for i in 0..=4 {
-            let mut a = Vec3::splat(-60.); a[axis] = -60. + i as f32 * 30.;
-            for cross in 0..3 { if cross != axis { let mut b = a; b[cross] = 60.; segment(a, b); } }
+        for axis in 0..3 { for i in 0..self.options.ticks[axis] {
+            let mut a = -self.half; a[axis] += i as f32 / (self.options.ticks[axis] - 1) as f32 * self.half[axis] * 2.;
+            for cross in 0..3 { if cross != axis { let mut b = a; b[cross] = self.half[cross]; segment(a, b); } }
         }}
     }
 
     pub fn axes(&self, view: &ChartView, out: &mut AxisLayout) {
         out.ticks.clear(); out.plot_css = [0., 0., view.viewport_px.0 as f32 / view.pixel_ratio, view.viewport_px.1 as f32 / view.pixel_ratio];
         let eye = view.camera.eye_position();
-        let front_x = if eye.x >= 0. { 60. } else { -60. };
-        let front_z = if eye.z >= 0. { 60. } else { -60. };
-        for a in 0..3 { for i in 0..=4 {
-            let t = i as f64 / 4.;
+        let front_x = if eye.x >= 0. { self.half.x } else { -self.half.x };
+        let front_z = if eye.z >= 0. { self.half.z } else { -self.half.z };
+        for a in 0..3 { for i in 0..self.options.ticks[a] {
+            let t = i as f64 / (self.options.ticks[a] - 1) as f64;
             let mut p = match a {
-                0 => Vec3::new(0., -60., front_z),
+                0 => Vec3::new(0., -self.half.y, front_z),
                 1 => Vec3::new(-front_x, 0., front_z),
-                _ => Vec3::new(front_x, -60., 0.),
+                _ => Vec3::new(front_x, -self.half.y, 0.),
             };
-            p[a] = -60. + t as f32 * 120.;
-            if let Some((x, y)) = view.project_css(p) { out.ticks.push(AxisTick { axis: if a == 2 { 3 } else { a as u8 }, value: self.domain[a].0 + t * (self.domain[a].1 - self.domain[a].0), x_css: x, y_css: y, granularity: 0 }); }
+            p[a] = (t as f32 * 2. - 1.) * self.half[a];
+            let span = self.domain[a].1 - self.domain[a].0;
+            let value = self.domain[a].0 + t * span;
+            // Snap only interior cancellation noise; preserve even tiny fixed endpoints.
+            let value = if i > 0 && i + 1 < self.options.ticks[a] && value.abs() < span * 1e-14 { 0. } else { value };
+            if let Some((x, y)) = view.project_css(p) { out.ticks.push(AxisTick { axis: if a == 2 { 3 } else { a as u8 }, value, x_css: x, y_css: y, granularity: 0 }); }
         }}
     }
 
@@ -207,7 +246,8 @@ fn intersect(ray: &Ray, p: [Vec3; 3]) -> Option<(f32, f32, f32)> {
 
 impl ChartState {
     pub fn is_scientific3d(&self) -> bool { matches!(self.kind, ChartKind::Scientific3D(_)) }
-    pub fn new_scientific3d(series: Vec<Scientific3DSeries>) -> Result<Self, String> { Ok(Self::with_kind(ChartKind::Scientific3D(Scientific3D::new(series)?))) }
+    pub fn new_scientific3d(series: Vec<Scientific3DSeries>) -> Result<Self, String> { Self::new_scientific3d_with_options(series, Scientific3DOptions::default()) }
+    pub fn new_scientific3d_with_options(series: Vec<Scientific3DSeries>, options: Scientific3DOptions) -> Result<Self, String> { Ok(Self::with_kind(ChartKind::Scientific3D(Scientific3D::new(series, options)?))) }
     pub fn scientific_hit(&self) -> Option<[f32; 5]> { if let ChartKind::Scientific3D(c) = &self.kind { c.hit.get() } else { None } }
 
     /// Atomically replaces one series' samples, preserving style, visibility and chart state.
@@ -220,7 +260,7 @@ impl ChartState {
         if (c.len() - old.xyz.len()).checked_add(n).is_none_or(|n| n > 4_000_000) { return Err("3D chart exceeds 4000000 samples".into()); }
         let next = Scientific3DSeries { xyz, colors, grid, color: old.color, size: old.size, wireframe: old.wireframe, lighting: old.lighting };
         // Validate off to the side before mutating any live data or hover state.
-        let mut checked = Scientific3D::new(vec![next])?;
+        let mut checked = Scientific3D::new(vec![next], Scientific3DOptions::default())?;
         c.series[series] = checked.series.pop().unwrap();
         c.reindex();
         self.hover = None;

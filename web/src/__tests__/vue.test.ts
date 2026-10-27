@@ -70,10 +70,11 @@ describe('Vue CharturboChart', () => {
   it.each(['pointCloud3d', 'surface3d'] as const)('dispatches %s props', async (type) => {
     const data = type === 'pointCloud3d' ? [{ data: new Float32Array([1, 2, 3]) }]
       : [{ data: { columns: 2, rows: 2, xStart: 0, xStep: 1, zStart: 0, zStep: 1, y: [1, 2, 3, 4] } }];
-    mountChart(() => ({ type, data }));
+    const options = { aspect: 'data' as const, axes3d: { x: { min: 0, max: 10 } }, camera: { type: 'orthographic' as const } };
+    mountChart(() => ({ type, data, options }));
     await flush();
     const sdk = await ready();
-    expect(type === 'pointCloud3d' ? sdk.renderPointCloud3D : sdk.renderSurface3D).toHaveBeenCalledWith(data, undefined);
+    expect(type === 'pointCloud3d' ? sdk.renderPointCloud3D : sdk.renderSurface3D).toHaveBeenCalledWith(data, options);
   });
   it.each(['errorBar', 'impulse'] as const)('dispatches independent %s props', async (type) => {
     const data = [{ name: 'S', values: [1, 2], error: 0.5 }];

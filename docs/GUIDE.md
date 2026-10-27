@@ -45,7 +45,7 @@
 
 ## PointCloud3D / Surface3D
 
-`renderPointCloud3D`·`renderSurface3D`는 `{ pointCount, seriesCount }`를 반환합니다. Y-up 좌표를 사용하며 원본 XYZ와 렌더 좌표를 분리합니다. 각 축의 전체 데이터 범위를 `[-60, 60]`으로 독립 정규화하므로 실제 단위의 종횡비를 보존하지 않습니다. 내부 좌표는 Float32 정밀도입니다.
+`renderPointCloud3D`·`renderSurface3D`는 `{ pointCount, seriesCount }`를 반환합니다. Y-up 좌표를 사용하며 원본 XYZ와 렌더 좌표를 분리합니다. 기본 `aspect: 'cube'`는 각 축을 `[-60, 60]`으로 독립 정규화합니다. `aspect: 'data'`는 XYZ의 같은 데이터 단위를 같은 길이로 표현합니다. 내부 좌표는 Float32 정밀도입니다.
 
 ```ts
 sdk.renderPointCloud3D([
@@ -64,10 +64,30 @@ sdk.enableNodeInteractions(canvas, { autoRender: true });
 
 - Cloud 입력: interleaved `Float32Array`·`Float64Array`, `[x,y,z][]`, `{x,y,z}[]`, 또는 같은 길이의 `{x: ArrayLike, y: ArrayLike, z: ArrayLike}`. `null`·비유한 좌표는 원본 ID를 유지하는 gap입니다. `size`는 CSS px 지름(기본 3), `colorBy: { values, colormap?, min?, max? }`로 scalar 색상을 지정합니다.
 - Surface 입력: `y[row * columns + column]`. 가로·세로 각각 2 이상, 유한한 시작점과 0이 아닌 step이 필요하며 음수 step도 지원합니다. 비유한 꼭짓점이 하나라도 있으면 해당 셀 전체가 hole입니다. `wireframe` 기본 false, `lighting`은 0..1, 기본 0.65입니다. `colormap`은 `'viridis'`·`'magma'`, `yMin/yMax`는 색상 범위입니다. 명시적 `color`만 지정하면 단색을 사용합니다.
-- 공통 시리즈 옵션: `name`, `visible`, `color`, `opacity`. 차트 옵션: `title`, `description`, `legend`, `grid`, `showGrid`, `hover`, `camera: { eye, target? }`. 카메라는 정규화된 렌더 공간의 perspective orbit이며 resize 후 회전·팬·거리를 보존합니다.
+- 공통 시리즈 옵션: `name`, `visible`, `color`, `opacity`. 차트 옵션: `title`, `description`, `legend`, `grid`, `showGrid`, `hover`, `axes3d`, `aspect`, `camera`. 카메라는 정규화된 렌더 공간의 Y-up orbit이며 resize 후 회전·팬·거리·투영 크기를 보존합니다.
 - 포인터 cloud 선택은 허용 반경 내 전면 샘플입니다. Surface는 삼각형 ray intersection으로 `point3d: {x,y,z,column,row}`를 반환합니다. Wireframe도 셀 내부를 선택합니다. 키보드·CSV는 보간하지 않은 원본 정점 XYZ를 제공합니다. SVG는 raster fallback, 이미지/PDF는 현재 3D 화면을 사용합니다.
 - React/Vue `type="pointCloud3d"`·`type="surface3d"`, 예제 `/scientific3d.html`. 전체 데이터를 해당 render API에 다시 전달하여 갱신합니다. 최대 400만 샘플이며 현재 hover는 전체 점/셀을 검사합니다.
-- contours, orthographic, 사용자 축 범위·aspect, 3D brush·sync, 정확한 다중 투명면 합성은 후속 범위입니다. 반투명 geometry는 depth-write하지만 깊이 정렬하지 않습니다. 전체 ChartGPU v0.4.0 기능 동등성 완료를 뜻하지 않습니다.
+- contours, 3D brush·sync, 정확한 다중 투명면 합성은 후속 범위입니다. 반투명 geometry는 depth-write하지만 깊이 정렬하지 않습니다. 전체 ChartGPU v0.4.0 기능 동등성 완료를 뜻하지 않습니다.
+
+### 3D 축 범위 · 비율 · 직교 투영
+
+```ts
+sdk.renderPointCloud3D([{ data: measuredXYZ, size: 4 }], {
+  axes3d: {
+    x: { name: 'X', min: 0, max: 120, tickCount: 4 },
+    y: { min: 0, max: 40, tickCount: 3 },
+    z: { min: 0, max: 20, tickCount: 3 },
+  },
+  aspect: 'data', // 'cube' (기본) 또는 [2, 1, 0.5] 같은 상대 XYZ 박스 비율
+  camera: { type: 'orthographic' }, // perspective가 기본, orthoSize 생략 시 자동 framing
+});
+```
+
+- `axes3d.x/y/z`: 원본 데이터 단위의 `min`·`max`, 눈금 이름 `name`, `tickCount`(정수 2..50, 기본 5), `visible`(기본 true). 눈금은 범위 내 균등 간격이며 `visible: false`는 해당 축 눈금과 그 방향 격자를 숨깁니다. 전체 격자는 `showGrid`로 제어합니다. 라벨은 DOM입니다.
+- 생략한 끝점은 숨긴 시리즈를 포함한 유한 샘플의 범위를 따릅니다. 양 끝을 지정하면 `min < max`여야 합니다. 한쪽 끝만 고정했는데 자동 끝점과 역전되면 자동 쪽을 고정 끝점의 5%(최소 기준 단위 1)만큼 넓힙니다. 고정 범위는 **축 프레임**이며 범위 밖 geometry를 잘라내지 않습니다.
+- `aspect: 'data'`는 축 범위 길이 비율, 숫자 튜플은 양의 상대 박스 길이입니다. 가장 긴 변을 120 렌더 단위로 맞추며 XYZ 툴팁·CSV·접근성 원본은 바꾸지 않습니다. 스트리밍 중 고정 끝점은 유지하고 자동 끝점만 재계산합니다.
+- `camera.type`: `'perspective'` 또는 `'orthographic'`. `eye`·`target`은 렌더 공간 좌표이며 target 지정에는 eye가 필요합니다. `orthoSize`는 직교 투영의 초기 세로 반높이(양수)이며 휠 줌에 따라 변합니다. 직교 피킹은 화면 위치별 평행 광선을 사용합니다. `getCameraState()`의 `projection`·`orthoSize`로 읽을 수 있습니다.
+- React/Vue의 `options`에도 동일하게 전달합니다. 비교 예제: `/scientific3d.html#06-axes-projection`. FOV·near/far·up 설정, nice ticks·GPU glyph·독립 box 토글은 아직 제공하지 않습니다.
 
 ### 3D 데이터 갱신 · 스트리밍
 
@@ -89,7 +109,7 @@ sdk.render();
 - `updateSurface3D(seriesIndex, update)`는 해당 시리즈의 `{ columns, rows, pointCount }`를 반환합니다. `replaceY`는 전체 **row-major** 높이 배열(`rows * columns`)을 교체합니다. 선택적 `yMin`/`yMax`는 이후 갱신에도 유지되며 생략하면 기존 설정을 유지합니다.
 - `appendColumns`의 `y`는 **column-major strip**(`y[newColumn * rows + row]`), `appendRows`는 **row-major block**(`y[newRow * columns + column]`)입니다. 기본 `scrollX: true` / `scrollZ: true`는 기존 크기를 유지하면서 오래된 열/행을 버리고 원점에 `추가 개수 × step`을 더합니다. 창보다 큰 청크는 마지막 창 크기만 남깁니다. `false`이면 원점은 고정하고 그리드 크기를 늘립니다. 음수 step도 지원합니다.
 - 갱신은 원자적입니다. 잘못된 길이·범위·종류·시리즈 인덱스 또는 미지원 backend는 기존 데이터 변경 없이 거부합니다. 입력은 복사하므로 이후 호출자의 배열 변경은 차트에 영향을 주지 않습니다. 전체 차트는 유지된 샘플 합계 최대 400만 개, 입력 청크도 최대 400만 개입니다. 빈 append는 허용합니다(cloud의 `maxPoints` 축소는 적용).
-- 카메라·스타일·가시성·강조를 유지하며 좌표 범위는 전체 유지 데이터로 재계산합니다. ID는 현재 시리즈 순서와 샘플 위치로 다시 매겨집니다. 이전 고정 툴팁/키보드 포커스는 해제하고, CSV·접근성·툴팁은 갱신된 XYZ를 사용합니다.
+- 카메라·스타일·가시성·강조·고정 축 끝점을 유지하며 자동 좌표 범위는 전체 유지 데이터로 재계산합니다. ID는 현재 시리즈 순서와 샘플 위치로 다시 매겨집니다. 이전 고정 툴팁/키보드 포커스는 해제하고, CSV·접근성·툴팁은 갱신된 XYZ를 사용합니다.
 - 현재 경로는 SDK 메타데이터를 복사하고 변경 시리즈를 WASM에 다시 전달하며, Rust가 전체 범위 및 geometry를 재계산합니다. GPU 부분 버퍼 업로드나 O(추가량) 성능을 보장하지 않습니다.
 - React/Vue에서는 `onReady(sdk)` 또는 컴포넌트 ref의 `whenReady()`로 얻은 SDK에서 위 메서드와 `render()`를 호출합니다. 스트리밍 중에는 `data`/`options` prop 참조를 유지하세요. 새 참조를 전달하면 전체 render API가 실행됩니다.
 - 실행 예제: `/scientific3d.html#04-streaming-cloud`, `/scientific3d.html#05-streaming-surface`. Play/Pause·reduced motion·숨겨진 탭/화면 밖 정지와 dispose 정리를 지원합니다.

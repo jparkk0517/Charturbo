@@ -44,7 +44,7 @@ mod shape;
 mod sparkline;
 mod sparse;
 mod scientific3d;
-pub use scientific3d::Scientific3DSeries;
+pub use scientific3d::{Scientific3DSeries, Scientific3DOptions};
 use scientific3d::Scientific3D;
 #[cfg(test)]
 mod scientific3d_tests;

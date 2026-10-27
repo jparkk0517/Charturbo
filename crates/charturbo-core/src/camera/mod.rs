@@ -12,6 +12,7 @@ pub struct OrbitCamera {
     aspect: f32,
     z_near: f32,
     z_far: f32,
+    ortho_size: Option<f32>,
 }
 
 impl OrbitCamera {
@@ -25,6 +26,7 @@ impl OrbitCamera {
             aspect: aspect.max(0.1),
             z_near: 0.5,
             z_far: 2000.0,
+            ortho_size: None,
         }
     }
 
@@ -84,8 +86,16 @@ impl OrbitCamera {
     }
 
     pub fn zoom(&mut self, delta: f32) {
-        self.distance = (self.distance + delta).clamp(5.0, 5000.0);
+        let next = (self.distance + delta).clamp(5.0, 5000.0);
+        if let Some(size) = &mut self.ortho_size { *size *= next / self.distance; }
+        self.distance = next;
     }
+
+    /// Orthographic vertical half-extent in world units; None restores perspective.
+    pub fn set_orthographic(&mut self, size: Option<f32>) {
+        self.ortho_size = size.filter(|s| s.is_finite() && *s > 0.);
+    }
+    pub fn orthographic_size(&self) -> Option<f32> { self.ortho_size }
 
     /// Translates `target` along the camera's local right and up axes.
     pub fn pan(&mut self, delta_right: f32, delta_up: f32) {
@@ -139,6 +149,7 @@ impl OrbitCamera {
         let required_dist = (radius.max(1.0) / half_fov.sin()) * 1.18;
         self.distance = required_dist.clamp(5.0, 5000.0);
         self.z_far = (self.distance + radius * 3.0).max(2000.0);
+        if self.ortho_size.is_some() { self.ortho_size = Some(radius.max(1.) * 1.18 / self.aspect.min(1.)); }
     }
 
     /// Centers the camera on `center` and, keeping the view direction, sets the smallest distance at
@@ -153,10 +164,12 @@ impl OrbitCamera {
         let tan_y = (self.fov_y_radians * 0.5).tan().max(1e-3) * margin.max(0.05);
         let tan_x = tan_y * self.aspect;
         let mut dist = f32::NEG_INFINITY;
+        let mut extent = 0.0_f32;
         for p in points {
             let v = p - center;
             // Depth from the eye is `dist - z`: |x| <= (dist - z) * tan_x, |y| <= (dist - z) * tan_y
             let z = v.dot(back);
+            extent = extent.max((v.dot(right).abs() / self.aspect).max(v.dot(up).abs()) / margin.max(0.05));
             let need = (v.dot(right).abs() / tan_x).max(v.dot(up).abs() / tan_y);
             // Keep the point clear of the near plane too
             dist = dist.max(z + need.max(self.z_near * 2.0));
@@ -167,6 +180,7 @@ impl OrbitCamera {
         }
         self.distance = dist.clamp(5.0, 5000.0);
         self.z_far = (self.distance + radius * 3.0).max(2000.0);
+        if self.ortho_size.is_some() { self.ortho_size = Some(extent.max(1e-3)); }
     }
 
     /// Camera distance at which a `width × height` rectangle facing the camera fills the view,
@@ -199,6 +213,9 @@ impl OrbitCamera {
     }
 
     pub fn projection_matrix(&self) -> Mat4 {
+        if let Some(h) = self.ortho_size {
+            return Mat4::orthographic_rh(-h * self.aspect, h * self.aspect, -h, h, self.z_far, self.z_near);
+        }
         // Reversed-Z (near -> 1, far -> 0): with a float depth buffer this spreads precision
         // evenly over distance and removes z-fighting on large scenes
         Mat4::perspective_rh(self.fov_y_radians, self.aspect, self.z_far, self.z_near)
@@ -249,7 +266,7 @@ impl OrbitCamera {
     /// Returns `None` if the point is behind the camera near plane.
     pub fn project_to_ndc(&self, world_pos: Vec3) -> Option<Vec3> {
         let clip = self.view_proj_matrix() * Vec4::new(world_pos.x, world_pos.y, world_pos.z, 1.0);
-        if clip.w <= self.z_near {
+        if clip.w <= 0.0 {
             return None;
         }
         let ndc = clip.truncate() / clip.w;
@@ -280,13 +297,32 @@ impl OrbitCamera {
         let near_world = near_world4.truncate() / near_world4.w;
         let far_world = far_world4.truncate() / far_world4.w;
 
-        Ray::new(self.eye_position(), far_world - near_world)
+        Ray::new(if self.ortho_size.is_some() { near_world } else { self.eye_position() }, far_world - near_world)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn orthographic_rays_are_parallel_and_zoom_changes_scale_not_depth() {
+        let mut cam = OrbitCamera::new(300., 2.);
+        cam.set_pose(Vec3::new(0., 0., 300.), Vec3::ZERO);
+        cam.set_orthographic(Some(100.));
+        let a = cam.project_to_ndc(Vec3::new(40., 20., 0.)).unwrap();
+        let b = cam.project_to_ndc(Vec3::new(40., 20., 100.)).unwrap();
+        assert!((a.x - b.x).abs() < 1e-5 && (a.y - b.y).abs() < 1e-5);
+        let r0 = cam.screen_to_ray(0., 0.); let r1 = cam.screen_to_ray(a.x, a.y);
+        assert!((r0.direction - r1.direction).length() < 1e-5);
+        assert!((r1.origin.x - 40.).abs() < 1e-3 && (r1.origin.y - 20.).abs() < 1e-3);
+        cam.zoom(-150.);
+        assert!((cam.project_to_ndc(Vec3::new(40., 20., 0.)).unwrap().x - a.x * 2.).abs() < 1e-4);
+        cam.set_aspect(300., 600.);
+        assert!(cam.project_to_ndc(Vec3::new(0., 20., 0.)).is_some());
+        cam.set_orthographic(None);
+        assert_ne!(cam.project_to_ndc(Vec3::new(40., 20., 0.)).unwrap().x, cam.project_to_ndc(Vec3::new(40., 20., 100.)).unwrap().x);
+    }
 
     #[test]
     fn camera_pitch_is_clamped_to_avoid_gimbal_lock() {

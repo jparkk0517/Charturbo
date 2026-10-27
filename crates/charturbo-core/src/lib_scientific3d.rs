@@ -1,11 +1,28 @@
-use crate::{WasmCharturboEngine, chart::Scientific3DSeries};
+use crate::{WasmCharturboEngine, chart::{Scientific3DSeries, Scientific3DOptions}};
 use wasm_bindgen::prelude::*;
+
+fn decode_options(v: &[f64]) -> Result<(Scientific3DOptions, Option<f32>), String> {
+    if v.is_empty() { return Ok((Scientific3DOptions::default(), None)); }
+    if v.len() != 15 || ![0., 1., 2.].contains(&v[6]) || ![0., 1.].contains(&v[13])
+        || v[10..13].iter().any(|&n| n != 0. && (!(2.0..=50.0).contains(&n) || n.fract() != 0.))
+        || (!v[14].is_nan() && (!(v[14] as f32).is_finite() || v[14] as f32 <= 0. || v[13] != 1.)) {
+        return Err("invalid packed 3D options".into());
+    }
+    let options = Scientific3DOptions {
+        bounds: std::array::from_fn(|a| ((!v[a * 2].is_nan()).then_some(v[a * 2]), (!v[a * 2 + 1].is_nan()).then_some(v[a * 2 + 1]))),
+        aspect: if v[6] == 1. { None } else if v[6] == 0. { Some([1.; 3]) } else { Some([v[7] as f32, v[8] as f32, v[9] as f32]) },
+        ticks: [v[10] as u32, v[11] as u32, v[12] as u32],
+    };
+    options.validate()?;
+    Ok((options, (v[13] == 1.).then_some(if v[14].is_nan() { 0. } else { v[14] as f32 })))
+}
 
 #[wasm_bindgen]
 impl WasmCharturboEngine {
     /// Packed XYZ/RGBA samples, series boundaries, per-series size/lighting/wireframe,
     /// and grid shapes (0,0 for clouds). Validation precedes replacement.
-    pub fn set_chart_3d(&mut self, xyz: &[f32], colors: &[f32], offsets: &[u32], styles: &[f32], shapes: &[u32]) -> Result<usize, JsValue> {
+    pub fn set_chart_3d(&mut self, xyz: &[f32], colors: &[f32], offsets: &[u32], styles: &[f32], shapes: &[u32], config: &[f64]) -> Result<usize, JsValue> {
+        let (options, orthographic) = decode_options(config).map_err(|e| JsValue::from_str(&e))?;
         let error = || JsValue::from_str("invalid packed 3D chart");
         if xyz.len() % 3 != 0 || colors.len() != xyz.len() / 3 * 4 || offsets.is_empty()
             || offsets[0] != 0 || offsets.last().copied() != Some((xyz.len() / 3) as u32)
@@ -21,7 +38,7 @@ impl WasmCharturboEngine {
                 grid: (shapes[s * 2] != 0 || shapes[s * 2 + 1] != 0).then_some((shapes[s * 2] as usize, shapes[s * 2 + 1] as usize)),
             }
         }).collect();
-        self.inner.set_scientific3d(series).map_err(|e| JsValue::from_str(&e))
+        self.inner.set_scientific3d_with_options(series, options, orthographic).map_err(|e| JsValue::from_str(&e))
     }
 
     /// Updates one existing series without reframing the camera or resetting its styles.
