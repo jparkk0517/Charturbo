@@ -56,6 +56,9 @@ Same seeded data for every library. Line / scatter steady phase: identical zoom-
 | echarts 6.1.0 | canvas2d | 22.8 (31.8) | 20.1 | 16.7 / 16.7 / 33.3 | 59.7 | 1/179 | 6.5 | 0.9 / 16.7 / 16.7 | 80.0 | 95.3 |
 | chartjs 4.6.1 | canvas2d | 17.4 (20.3) | 14.8 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 4.0 | 0.1 / 16.7 / 16.7 | 57.3 | 63.5 |
 | plotly 4.1.2 | webgl | 298 (367) | 285 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 2.5 | 0.1 / 16.7 / 4300 | 132.4 | 315.4 |
+| chartgpu 0.4.0 | webgpu | 123 (139) | 99.8 | 50.0 / 133 / 133 | 18.4 | 43/18 | 60.6 | 0.0 / 16.7 / 33.3 | 56.8 | 70.6 |
+| scichart 6.0.14 | webgl | 31.8 (33.5) | 24.1 | 16.7 / 16.7 / 16.7 | 60 | 0/60 | 4.2 | 0.1 / 16.7 / 16.7 | 45.8 | 65.4 |
+| highcharts 13.1.1 | webgl | 199 (216) | 179 | 66.7 / 117 / 117 | 14.5 | 47/14 | 75.3 | 0.3 / 16.7 / 16.7 | 95.4 | 124.3 |
 
 ### line-10m-1s
 
@@ -76,6 +79,9 @@ Same seeded data for every library. Line / scatter steady phase: identical zoom-
 | echarts 6.1.0 | canvas2d | 1050 (1117) | 892 | 133 / 150 / 150 | 7.8 | 161/23 | 134 | 0.4 / 16.7 / 16.7 | 91.8 | 109.1 |
 | chartjs 4.6.1 | canvas2d | 665 (670) | 730 | 283 / 617 / 617 | 3.2 | 193/10 | 339 | 0.0 / 367 / 383 | 201.8 | 208.0 |
 | plotly 4.1.2 | webgl | 316 (332) | 327 | 16.7 / 16.7 / 33.3 | 58.3 | 5/175 | 16.2 | 0.1 / 16.7 / 16.7 | 124.3 | 307.3 |
+| chartgpu 0.4.0 | webgpu | 123 (130) | 130 | 16.7 / 83.3 / 117 | 33.3 | 28/34 | 33.1 | 0.1 / 16.7 / 16.7 | 37.3 | 51.0 |
+| scichart 6.0.14 | webgl | 32.3 (33.5) | 52.7 | 16.7 / 16.7 / 16.7 | 60 | 0/60 | 4.2 | 0.1 / 16.7 / 16.7 | 42.0 | 61.6 |
+| highcharts 13.1.1 | webgl | 233 (249) | 215 | 33.3 / 167 / 183 | 21.7 | 44/24 | 48.9 | 0.8 / 16.7 / 16.7 | 92.6 | 121.9 |
 
 ### bar-10k
 
@@ -86,19 +92,25 @@ Same seeded data for every library. Line / scatter steady phase: identical zoom-
 | echarts 6.1.0 | canvas2d | 83.4 (83.8) | 53.3 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 3.4 | 1.6 / 16.7 / 16.7 | 31.9 | 49.2 |
 | chartjs 4.6.1 | canvas2d | 50.5 (54.7) | 58.7 | 33.3 / 33.3 / 66.7 | 37.6 | 68/113 | 26.9 | 0.0 / 16.7 / 16.7 | 14.0 | 20.2 |
 | plotly | - | FAILED: Error: unsupported: the plotly gl2d bundle has no bar trace |  |  |  |  |  |  |  |  |
+| chartgpu 0.4.0 | webgpu | 19.2 (21.7) | 7.4 | 16.7 / 16.7 / 16.7 | 60 | 0/60 | 3.1 | 0.1 / 16.7 / 16.7 | 270.9 | 284.5 |
+| scichart 6.0.14 | webgl | 33.4 (33.4) | 22.8 | 16.7 / 16.7 / 16.7 | 60 | 0/60 | 0.3 | 0.1 / 16.7 / 16.7 | 34.6 | 54.3 |
+| highcharts 13.1.1 | webgl | 50.7 (53.2) | 40.5 | 16.7 / 33.3 / 66.7 | 49.4 | 11/50 | 15.3 | 1.4 / 16.7 / 16.7 | 12.1 | 41.0 |
 
 ### graph-10k
 
-10,000 nodes, 20,000 edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over 3000 ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC.
+10,000 nodes, 20,000 edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over 3000 ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC. deck.gl has no layout engine (static positions, render only); cosmos.gl is 2D (GPU force layout, z dropped, no orbit); 3d-force-graph runs d3-force-3d, not Barnes-Hut.
 
 | library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| viz 0.1.0 | webgpu | 30.0 | 17.6 | 16.7 (17.4) | 8.9 | 16.7 / 33.3 / 50.0 | 41.9 | 55/126 | 22.3 (23.1) | 1.0 (1.2) | 24.0 | 8.7 | 7.1 | 15.4 |
+| viz 0.1.0 | webgpu | 37.0 | 13.4 | 16.6 (16.8) | 5.6 | 16.7 / 33.3 / 50.0 | 43.6 | 17/44 | 21.1 (22.6) | 0.9 (1.1) | 23.2 | 8.8 | 7.1 | 15.7 |
 | three 0.170.0 | webgl2 | 87.0 | 36.8 | 16.8 (17.7) | 17.3 | 66.7 / 83.3 / 100 | 16.3 | 134/49 | 56.4 (81.4) | 0.9 (2.1) | 62.2 | 25.8 | - | 40.5 |
+| deckgl 9.3.11 | webgl2 | 104 | 27.6 | 17.2 (18.2) | 1.6 | 16.7 / 16.7 / 16.7 | 60 | 0/60 | 0.0 (0.0) | 1.2 (1.7) | 2.3 | 21.8 | - | 51.1 |
+| cosmos 3.5.1 | webgl2 | 77.0 | 121 | 17.9 (18.1) | 26.4 | 16.7 / 16.7 / 16.7 | 60 | 0/60 | 2.6 (4.2) | 2.6 (4.2) | 6.0 | 23.1 | - | 40.0 |
+| forcegraph3d 1.80.1 | webgl2 | 215 | 8.5 | 1770 (1942) | 118 | 16.7 / 16.7 / 100.0 | 55.1 | 5/55 | 0.0 (0.0) | 11.1 (11.9) | 12.7 | 124.6 | - | 164.1 |
 
 ### graph-100k
 
-100,000 nodes, 200,000 edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over 3000 ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC.
+100,000 nodes, 200,000 edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over 3000 ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC. deck.gl has no layout engine (static positions, render only); cosmos.gl is 2D (GPU force layout, z dropped, no orbit); 3d-force-graph runs d3-force-3d, not Barnes-Hut.
 
 | library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
