@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="648" viewBox="0 0 880 648" font-family="system-ui, -apple-system, &quot;Segoe UI&quot;, &quot;Apple SD Gothic Neo&quot;, &quot;Malgun Gothic&quot;, sans-serif" role="img" aria-labelledby="t d">
 <title id="t">3D 그래프: 물리 시뮬레이션 + 카메라 회전</title>
-<desc id="d">프레임 속도 (노드 10k · 엣지 20k · 높을수록 좋음): viz-engine-sdk 43.6 fps, three.js 16.3 fps, deck.gl 60 fps, cosmos.gl 60 fps, 3d-force-graph 55.1 fps. 프레임 속도 (노드 100k · 엣지 200k · 높을수록 좋음): viz-engine-sdk 3 fps, three.js 0.8 fps. 프레임당 물리 연산 (노드 10k · 엣지 20k · 짧을수록 좋음): viz-engine-sdk 21.1 ms, three.js 56.4 ms, deck.gl 0.0 ms, cosmos.gl 2.6 ms, 3d-force-graph 0.0 ms. 프레임당 물리 연산 (노드 100k · 엣지 200k · 짧을수록 좋음): viz-engine-sdk 361 ms, three.js 1,799 ms. 데이터 로드 → 첫 프레임 (노드 10k · 엣지 20k · 짧을수록 좋음): viz-engine-sdk 16.6 ms, three.js 16.8 ms, deck.gl 17.2 ms, cosmos.gl 17.9 ms, 3d-force-graph 1,770 ms. 데이터 로드 → 첫 프레임 (노드 100k · 엣지 200k · 짧을수록 좋음): viz-engine-sdk 23.5 ms, three.js 54.5 ms</desc>
+<desc id="d">프레임 속도 (노드 10k · 엣지 20k · 높을수록 좋음): viz-engine-sdk 43.6 fps, three.js 16.3 fps, deck.gl 60 fps, cosmos.gl 60 fps, 3d-force-graph 55.1 fps. 프레임 속도 (노드 100k · 엣지 200k · 높을수록 좋음): viz-engine-sdk 3.4 fps, three.js 0.8 fps, deck.gl 60 fps, cosmos.gl 33.3 fps, 3d-force-graph 시간 초과 (300초). 프레임당 물리 연산 (노드 10k · 엣지 20k · 짧을수록 좋음): viz-engine-sdk 21.1 ms, three.js 56.4 ms, deck.gl 0.0 ms, cosmos.gl 2.6 ms, 3d-force-graph 0.0 ms. 프레임당 물리 연산 (노드 100k · 엣지 200k · 짧을수록 좋음): viz-engine-sdk 309 ms, three.js 1,799 ms, deck.gl 0.0 ms, cosmos.gl 2.5 ms, 3d-force-graph 시간 초과 (300초). 데이터 로드 → 첫 프레임 (노드 10k · 엣지 20k · 짧을수록 좋음): viz-engine-sdk 16.6 ms, three.js 16.8 ms, deck.gl 17.2 ms, cosmos.gl 17.9 ms, 3d-force-graph 1,770 ms. 데이터 로드 → 첫 프레임 (노드 100k · 엣지 200k · 짧을수록 좋음): viz-engine-sdk 23.0 ms, three.js 54.5 ms, deck.gl 17.5 ms, cosmos.gl 77.4 ms, 3d-force-graph 시간 초과 (300초)</desc>
 <rect width="880" height="648" rx="8" fill="#1a1a19"/>
 <text x="24" y="34" font-size="18" font-weight="600" fill="#f0efec">3D 그래프: 물리 시뮬레이션 + 카메라 회전</text>
 <text x="24" y="56" font-size="13" fill="#c3c2b7">같은 시드 그래프, 같은 Barnes-Hut 힘 모델을 매 프레임 실행하며 3초간 궤도 회전 · 중앙값</text>
@@ -26,17 +26,25 @@
 <path d="M133 208h205.38a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-205.38z" fill="#898781"/>
 <text x="348.38" y="219" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">55.1<tspan fill="#898781" font-weight="400"> fps</tspan></text>
 <text x="456" y="92" font-size="14" font-weight="600" fill="#f0efec">프레임 속도<tspan font-size="12" font-weight="400" fill="#898781">  노드 100k · 엣지 200k · 높을수록 좋음</tspan></text>
-<line x1="678" y1="100" x2="678" y2="152" stroke="#2c2c2a" stroke-width="1"/>
-<text x="678" y="164" font-size="10" text-anchor="middle" fill="#898781">30</text>
-<line x1="792" y1="100" x2="792" y2="152" stroke="#2c2c2a" stroke-width="1"/>
-<text x="792" y="164" font-size="10" text-anchor="middle" fill="#898781">60</text>
-<line x1="564" y1="100" x2="564" y2="152" stroke="#383835" stroke-width="1"/>
+<line x1="678" y1="100" x2="678" y2="230" stroke="#2c2c2a" stroke-width="1"/>
+<text x="678" y="242" font-size="10" text-anchor="middle" fill="#898781">30</text>
+<line x1="792" y1="100" x2="792" y2="230" stroke="#2c2c2a" stroke-width="1"/>
+<text x="792" y="242" font-size="10" text-anchor="middle" fill="#898781">60</text>
+<line x1="564" y1="100" x2="564" y2="230" stroke="#383835" stroke-width="1"/>
 <text x="554" y="115" font-size="12" text-anchor="end" fill="#f0efec" font-weight="600">viz-engine-sdk</text>
-<path d="M565 104h7.4a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-7.4z" fill="#3987e5"/>
-<text x="582.4" y="115" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">3<tspan fill="#898781" font-weight="400"> fps</tspan></text>
+<path d="M565 104h8.92a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-8.92z" fill="#3987e5"/>
+<text x="583.92" y="115" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">3.4<tspan fill="#898781" font-weight="400"> fps</tspan></text>
 <text x="554" y="141" font-size="12" text-anchor="end" fill="#c3c2b7">three.js</text>
 <path d="M565 130h1.52a1.52 1.52 0 0 1 1.52 1.52v10.96a1.52 1.52 0 0 1 -1.52 1.52h-1.52z" fill="#898781"/>
 <text x="574.04" y="141" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.8<tspan fill="#898781" font-weight="400"> fps</tspan></text>
+<text x="554" y="167" font-size="12" text-anchor="end" fill="#c3c2b7">deck.gl</text>
+<path d="M565 156h224a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-224z" fill="#898781"/>
+<text x="799" y="167" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">60<tspan fill="#898781" font-weight="400"> fps</tspan></text>
+<text x="554" y="193" font-size="12" text-anchor="end" fill="#c3c2b7">cosmos.gl</text>
+<path d="M565 182h122.53999999999999a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-122.53999999999999z" fill="#898781"/>
+<text x="697.54" y="193" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">33.3<tspan fill="#898781" font-weight="400"> fps</tspan></text>
+<text x="554" y="219" font-size="12" text-anchor="end" fill="#c3c2b7">3d-force-graph</text>
+<text x="572" y="219" font-size="12" font-style="italic" fill="#898781">시간 초과 (300초)</text>
 <text x="24" y="278" font-size="14" font-weight="600" fill="#f0efec">프레임당 물리 연산<tspan font-size="12" font-weight="400" fill="#898781">  노드 10k · 엣지 20k · 짧을수록 좋음</tspan></text>
 <line x1="132" y1="286" x2="132" y2="416" stroke="#383835" stroke-width="1"/>
 <text x="122" y="301" font-size="12" text-anchor="end" fill="#f0efec" font-weight="600">viz-engine-sdk</text>
@@ -55,13 +63,21 @@
 <path d="M133 394h1a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-1z" fill="#898781"/>
 <text x="141" y="405" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="456" y="278" font-size="14" font-weight="600" fill="#f0efec">프레임당 물리 연산<tspan font-size="12" font-weight="400" fill="#898781">  노드 100k · 엣지 200k · 짧을수록 좋음</tspan></text>
-<line x1="564" y1="286" x2="564" y2="338" stroke="#383835" stroke-width="1"/>
+<line x1="564" y1="286" x2="564" y2="416" stroke="#383835" stroke-width="1"/>
 <text x="554" y="301" font-size="12" text-anchor="end" fill="#f0efec" font-weight="600">viz-engine-sdk</text>
-<path d="M565 290h41.721149196573975a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-41.721149196573975z" fill="#3987e5"/>
-<text x="616.721149196574" y="301" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">361<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<path d="M565 290h35.11750418248414a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-35.11750418248414z" fill="#3987e5"/>
+<text x="610.1175041824841" y="301" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">309<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="554" y="327" font-size="12" text-anchor="end" fill="#c3c2b7">three.js</text>
 <path d="M565 316h224a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-224z" fill="#898781"/>
 <text x="799" y="327" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,799<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="353" font-size="12" text-anchor="end" fill="#c3c2b7">deck.gl</text>
+<path d="M565 342h1a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-1z" fill="#898781"/>
+<text x="573" y="353" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="379" font-size="12" text-anchor="end" fill="#c3c2b7">cosmos.gl</text>
+<path d="M565 368h1a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-1z" fill="#898781"/>
+<text x="573" y="379" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">2.5<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="405" font-size="12" text-anchor="end" fill="#c3c2b7">3d-force-graph</text>
+<text x="572" y="405" font-size="12" font-style="italic" fill="#898781">시간 초과 (300초)</text>
 <text x="24" y="464" font-size="14" font-weight="600" fill="#f0efec">데이터 로드 → 첫 프레임<tspan font-size="12" font-weight="400" fill="#898781">  노드 10k · 엣지 20k · 짧을수록 좋음</tspan></text>
 <line x1="132" y1="472" x2="132" y2="602" stroke="#383835" stroke-width="1"/>
 <text x="122" y="487" font-size="12" text-anchor="end" fill="#f0efec" font-weight="600">viz-engine-sdk</text>
@@ -80,12 +96,20 @@
 <path d="M133 580h224a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-224z" fill="#898781"/>
 <text x="367" y="591" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,770<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="456" y="464" font-size="14" font-weight="600" fill="#f0efec">데이터 로드 → 첫 프레임<tspan font-size="12" font-weight="400" fill="#898781">  노드 100k · 엣지 200k · 짧을수록 좋음</tspan></text>
-<line x1="564" y1="472" x2="564" y2="524" stroke="#383835" stroke-width="1"/>
+<line x1="564" y1="472" x2="564" y2="602" stroke="#383835" stroke-width="1"/>
 <text x="554" y="487" font-size="12" text-anchor="end" fill="#f0efec" font-weight="600">viz-engine-sdk</text>
-<path d="M565 476h94.31845730027548a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-94.31845730027548z" fill="#3987e5"/>
-<text x="669.3184573002754" y="487" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">23.5<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<path d="M565 476h63.65482495801575a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-63.65482495801575z" fill="#3987e5"/>
+<text x="638.6548249580158" y="487" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">23.0<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="554" y="513" font-size="12" text-anchor="end" fill="#c3c2b7">three.js</text>
-<path d="M565 502h224a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-224z" fill="#898781"/>
-<text x="799" y="513" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">54.5<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<path d="M565 502h156.37462860095596a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-156.37462860095596z" fill="#898781"/>
+<text x="731.3746286009559" y="513" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">54.5<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="539" font-size="12" text-anchor="end" fill="#c3c2b7">deck.gl</text>
+<path d="M565 528h47.425913964604064a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-47.425913964604064z" fill="#898781"/>
+<text x="622.4259139646041" y="539" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">17.5<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="565" font-size="12" text-anchor="end" fill="#c3c2b7">cosmos.gl</text>
+<path d="M565 554h224a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-224z" fill="#898781"/>
+<text x="799" y="565" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">77.4<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="591" font-size="12" text-anchor="end" fill="#c3c2b7">3d-force-graph</text>
+<text x="572" y="591" font-size="12" font-style="italic" fill="#898781">시간 초과 (300초)</text>
 <text x="24" y="634" font-size="11" fill="#898781">Apple M1 · Chrome 156.0.8078.48 headless · viz-engine-sdk 0.1.0 WebGPU · three.js 0.170.0 WebGL2 · 2026-10-27</text>
 </svg>

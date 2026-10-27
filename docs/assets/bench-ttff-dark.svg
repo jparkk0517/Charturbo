@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="618" viewBox="0 0 880 618" font-family="system-ui, -apple-system, &quot;Segoe UI&quot;, &quot;Apple SD Gothic Neo&quot;, &quot;Malgun Gothic&quot;, sans-serif" role="img" aria-labelledby="t d">
 <title id="t">첫 화면까지 걸린 시간</title>
-<desc id="d">선 1M 포인트: viz-engine-sdk 15.9 ms, uPlot 15.5 ms, ECharts 22.8 ms, Chart.js 17.4 ms, Plotly 298 ms, ChartGPU 123 ms, SciChart 31.8 ms, Highcharts 199 ms. 선 10M 포인트: viz-engine-sdk 92.1 ms, uPlot 81.7 ms, ECharts 133 ms, Chart.js 114 ms, Plotly 시간 초과 (300초). 산점도 1M 포인트: viz-engine-sdk 43.3 ms, uPlot 319 ms, ECharts 1,050 ms, Chart.js 665 ms, Plotly 316 ms, ChartGPU 123 ms, SciChart 32.3 ms, Highcharts 233 ms. 막대 10k 카테고리: viz-engine-sdk 19.6 ms, uPlot 16.8 ms, ECharts 83.4 ms, Chart.js 50.5 ms, Plotly 지원 안 함, ChartGPU 19.2 ms, SciChart 33.4 ms, Highcharts 50.7 ms</desc>
+<desc id="d">선 1M 포인트: viz-engine-sdk 15.9 ms, uPlot 15.5 ms, ECharts 22.8 ms, Chart.js 17.4 ms, Plotly 298 ms, ChartGPU 123 ms, SciChart 31.8 ms, Highcharts 199 ms. 선 10M 포인트: viz-engine-sdk 92.1 ms, uPlot 81.7 ms, ECharts 133 ms, Chart.js 114 ms, Plotly 시간 초과 (300초), ChartGPU 1,088 ms, SciChart 32.9 ms, Highcharts 1,749 ms. 산점도 1M 포인트: viz-engine-sdk 43.3 ms, uPlot 319 ms, ECharts 1,050 ms, Chart.js 665 ms, Plotly 316 ms, ChartGPU 123 ms, SciChart 32.3 ms, Highcharts 233 ms. 막대 10k 카테고리: viz-engine-sdk 19.6 ms, uPlot 16.8 ms, ECharts 83.4 ms, Chart.js 50.5 ms, Plotly 지원 안 함, ChartGPU 19.2 ms, SciChart 33.4 ms, Highcharts 50.7 ms</desc>
 <rect width="880" height="618" rx="8" fill="#1a1a19"/>
 <text x="24" y="34" font-size="18" font-weight="600" fill="#f0efec">첫 화면까지 걸린 시간</text>
 <text x="24" y="56" font-size="13" fill="#c3c2b7">render 호출 → 첫 프레임 표시, 5회 중앙값 · 짧을수록 좋음</text>
@@ -31,21 +31,30 @@
 <path d="M133 286h147.84712863320928a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-147.84712863320928z" fill="#898781"/>
 <text x="290.8471286332093" y="297" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">199<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="456" y="92" font-size="14" font-weight="600" fill="#f0efec">선 10M 포인트</text>
-<line x1="564" y1="100" x2="564" y2="230" stroke="#383835" stroke-width="1"/>
+<line x1="564" y1="100" x2="564" y2="308" stroke="#383835" stroke-width="1"/>
 <text x="554" y="115" font-size="12" text-anchor="end" fill="#f0efec" font-weight="600">viz-engine-sdk</text>
-<path d="M565 104h153.4688554081403a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-153.4688554081403z" fill="#3987e5"/>
-<text x="728.4688554081404" y="115" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">92.1<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<path d="M565 104h8.008711608046234a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-8.008711608046234z" fill="#3987e5"/>
+<text x="583.0087116080463" y="115" font-size="12" fill="#f0efec" font-weight="600" style="font-variant-numeric: tabular-nums">92.1<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="554" y="141" font-size="12" text-anchor="end" fill="#c3c2b7">uPlot</text>
-<path d="M565 130h135.67798515853386a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-135.67798515853386z" fill="#898781"/>
-<text x="710.6779851585338" y="141" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">81.7<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<path d="M565 130h6.651964399019086a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-6.651964399019086z" fill="#898781"/>
+<text x="581.6519643990191" y="141" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">81.7<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="554" y="167" font-size="12" text-anchor="end" fill="#c3c2b7">ECharts</text>
-<path d="M565 156h224a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-224z" fill="#898781"/>
-<text x="799" y="167" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">133<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<path d="M565 156h13.387477920875273a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-13.387477920875273z" fill="#898781"/>
+<text x="588.3874779208753" y="167" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">133<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="554" y="193" font-size="12" text-anchor="end" fill="#c3c2b7">Chart.js</text>
-<path d="M565 182h190.60580166404318a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-190.60580166404318z" fill="#898781"/>
-<text x="765.6058016640432" y="193" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">114<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<path d="M565 182h10.840807367139401a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-10.840807367139401z" fill="#898781"/>
+<text x="585.8408073671394" y="193" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">114<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="554" y="219" font-size="12" text-anchor="end" fill="#c3c2b7">Plotly</text>
 <text x="572" y="219" font-size="12" font-style="italic" fill="#898781">시간 초과 (300초)</text>
+<text x="554" y="245" font-size="12" text-anchor="end" fill="#c3c2b7">ChartGPU</text>
+<path d="M565 234h137.8120144736165a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-137.8120144736165z" fill="#898781"/>
+<text x="712.8120144736165" y="245" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,088<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="271" font-size="12" text-anchor="end" fill="#c3c2b7">SciChart</text>
+<path d="M565 260h2.144598974499682a2.144598974499682 2.144598974499682 0 0 1 2.144598974499682 2.144598974499682v9.710802051000636a2.144598974499682 2.144598974499682 0 0 1 -2.144598974499682 2.144598974499682h-2.144598974499682z" fill="#898781"/>
+<text x="575.2891979489993" y="271" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">32.9<tspan fill="#898781" font-weight="400"> ms</tspan></text>
+<text x="554" y="297" font-size="12" text-anchor="end" fill="#c3c2b7">Highcharts</text>
+<path d="M565 286h224a4 4 0 0 1 4 4v6a4 4 0 0 1 -4 4h-224z" fill="#898781"/>
+<text x="799" y="297" font-size="12" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1,749<tspan fill="#898781" font-weight="400"> ms</tspan></text>
 <text x="24" y="356" font-size="14" font-weight="600" fill="#f0efec">산점도 1M 포인트</text>
 <line x1="132" y1="364" x2="132" y2="572" stroke="#383835" stroke-width="1"/>
 <text x="122" y="379" font-size="12" text-anchor="end" fill="#f0efec" font-weight="600">viz-engine-sdk</text>

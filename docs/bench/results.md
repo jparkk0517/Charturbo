@@ -69,6 +69,9 @@ Same seeded data for every library. Line / scatter steady phase: identical zoom-
 | echarts 6.1.0 | canvas2d | 133 (142) | 121 | 33.3 / 83.3 / 183 | 30.8 | 88/92 | 32.6 | 0.9 / 16.7 / 16.7 | 526.3 | 541.6 |
 | chartjs 4.6.1 | canvas2d | 114 (118) | 85.7 | 16.7 / 33.3 / 100.0 | 52.1 | 24/157 | 10.0 | 0.0 / 16.7 / 16.7 | 469.4 | 475.6 |
 | plotly | - | FAILED: timeout after 300 s (page was in phase "steady") |  |  |  |  |  |  |  |  |
+| chartgpu 0.4.0 | webgpu | 1088 (1132) | 912 | 633 / 1100 / 1100 | 1.8 | 194/5 | 803 | 0.1 / 183 / 200 | 409.2 | 422.9 |
+| scichart 6.0.14 | webgl | 32.9 (33.5) | 22.4 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 5.1 | 0.1 / 16.7 / 16.7 | 148.8 | 168.4 |
+| highcharts 13.1.1 | webgl | 1749 (1900) | 1480 | 533 / 883 / 883 | 1.9 | 182/5 | 628 | 0.1 / 16.7 / 16.7 | 850.7 | 879.6 |
 
 ### scatter-1m
 
@@ -114,5 +117,8 @@ Same seeded data for every library. Line / scatter steady phase: identical zoom-
 
 | library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| viz 0.1.0 | webgpu | 23.0 | 63.5 | 23.5 (38.9) | 46.2 | 367 / 383 / 383 | 3 | 190/9 | 361 (381) | 5.9 (7.9) | 368 | 13.6 | 63.0 | 20.4 |
+| viz 0.1.0 | webgpu | 32.0 | 44.1 | 23.0 (25.3) | 37.0 | 317 / 383 / 383 | 3.4 | 184/10 | 309 (378) | 5.3 (6.2) | 325 | 13.8 | 63.0 | 20.7 |
 | three 0.170.0 | webgl2 | 37.0 | 87.3 | 54.5 (60.4) | 72.4 | 1833 / 1833 / 1833 | 0.8 | 218/2 | 1799 (1818) | 30.0 (30.7) | 1840 | 114.2 | - | 128.8 |
+| deckgl 9.3.11 | webgl2 | 106 | 29.9 | 17.5 (18.5) | 4.1 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 0.0 (0.0) | 1.3 (1.6) | 2.4 | 35.1 | - | 64.5 |
+| cosmos 3.5.1 | webgl2 | 73.0 | 327 | 77.4 (97.8) | 108 | 33.3 / 33.3 / 66.7 | 33.3 | 81/100 | 2.5 (3.9) | 2.5 (3.5) | 5.2 | 61.1 | - | 78.0 |
+| forcegraph3d | - | FAILED: timeout after 300 s (page was in phase "pixels") |  |  |  |  |  |  |  |  |  |  |  |  |
