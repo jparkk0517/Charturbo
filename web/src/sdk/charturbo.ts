@@ -1,6 +1,6 @@
 import initWasm, { WasmCharturboEngine } from '../wasm-pkg/charturbo_core';
-import { encodePointCloud3D, encodeSurface3D, validateScientific3DOptions, scientificSample, scientificTooltip, type Scientific3DMeta, type EncodedScientific3D, type Scientific3DChartOptions, type PointCloud3DSeries, type Surface3DSeries } from './chart-scientific3d';
-export type { PointCloud3DData, PointCloud3DSeries, Surface3DGridData, Surface3DSeries, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions } from './chart-scientific3d';
+import { encodePointCloud3D, encodeSurface3D, prepareCloudAppend, prepareSurfaceUpdate, validateScientific3DOptions, scientificSample, scientificTooltip, type Scientific3DMeta, type EncodedScientific3D, type Scientific3DChartOptions, type PointCloud3DSeries, type Surface3DSeries, type PointCloud3DData, type PointCloud3DAppendOptions, type Surface3DUpdate } from './chart-scientific3d';
+export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, Surface3DGridData, Surface3DSeries, Surface3DUpdate, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions } from './chart-scientific3d';
 import { createTouchGestures, isGesturePointer, type TouchInteractionOptions } from './chart-gestures';
 import { createCameraControls, resolveCameraControls, type CameraControlOptions } from './camera-controls';
 export type { CameraControlOptions } from './camera-controls';
@@ -1262,6 +1262,7 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   move_camera_local?(forwardDelta: number, rightDelta: number, upDelta: number): void;
   rotate_camera_look?(deltaYaw: number, deltaPitch: number): void;
   set_chart_3d?(xyz: Float32Array, colors: Float32Array, offsets: Uint32Array, styles: Float32Array, shapes: Uint32Array): number;
+  update_chart_3d_series?(series: number, xyz: Float32Array, colors: Float32Array, columns: number, rows: number): number;
   chart_3d_hit?(): Float32Array;
   set_camera_pose?(
     eyeX: number,
@@ -2281,6 +2282,7 @@ export class Charturbo {
   private chartMeta: ChartMeta | null = null;
   /** Hide stale tooltips when the chart / scene is replaced. */
   private hoverResetHooks = new Set<() => void>();
+  private chartDataHooks = new Set<() => void>();
   /** Restyle live DOM (tooltips) when the theme changes. */
   private themeHooks = new Set<() => void>();
   /** Detach functions of every `enableNodeInteractions` call (run by `dispose`). */
@@ -3610,6 +3612,7 @@ export class Charturbo {
     this.themeHooks.add(restyleTooltip);
     // Scene / chart replaced: drop the stale tooltip
     this.hoverResetHooks.add(hideTooltip);
+    this.chartDataHooks.add(hideTooltip);
 
     let downPos: { x: number; y: number } | null = null;
     let lastHoveredId: number | null = null;
@@ -3619,6 +3622,7 @@ export class Charturbo {
     // Scene / chart replaced: the hovered target is gone
     const resetHoverEvent = () => emitHover(null, null, null);
     this.hoverResetHooks.add(resetHoverEvent);
+    this.chartDataHooks.add(resetHoverEvent);
     const emitHover = (
       id: number | null,
       chart: ChartTooltipContext | null,
@@ -4448,6 +4452,8 @@ export class Charturbo {
       zoom.reset();
       this.hoverResetHooks.delete(hideTooltip);
       this.hoverResetHooks.delete(resetHoverEvent);
+      this.chartDataHooks.delete(hideTooltip);
+      this.chartDataHooks.delete(resetHoverEvent);
       this.hoverResetHooks.delete(resetNav);
       nav.reset();
       this.themeHooks.delete(restyleTooltip);
@@ -6233,6 +6239,38 @@ export class Charturbo {
   /** Y-up row-major height grids; nonfinite vertices make cell holes. */
   renderSurface3D(series: Surface3DSeries[], options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {
     return this.renderScientific3D(encodeSurface3D(series, this.theme.palette), options);
+  }
+
+  /** Append XYZ samples to a cloud, optionally retaining only the newest maxPoints.
+   * Preserves orbit and visibility; returns the retained series length. IDs are rebased.
+   * Currently copies retained metadata and rebuilds native geometry (not an O(chunk) GPU upload).
+   */
+  appendPointCloud3D(seriesIndex: number, data: PointCloud3DData, options?: PointCloud3DAppendOptions): number {
+    if (this.chartMeta?.kind !== 'scientific3d') throw new Error('appendPointCloud3D: no point cloud is rendered');
+    const e = prepareCloudAppend(this.chartMeta, seriesIndex, data, options);
+    this.commitScientific3DUpdate(seriesIndex, e);
+    return e.xyz.length / 3;
+  }
+
+  /** Replace heights or append column-major columns / row-major rows. Scroll defaults to true.
+   * Preserves orbit and visibility. Recomputes domains and colors from retained samples.
+   */
+  updateSurface3D(seriesIndex: number, update: Surface3DUpdate): { columns: number; rows: number; pointCount: number } {
+    if (this.chartMeta?.kind !== 'scientific3d') throw new Error('updateSurface3D: no surface is rendered');
+    const e = prepareSurfaceUpdate(this.chartMeta, seriesIndex, update);
+    this.commitScientific3DUpdate(seriesIndex, e);
+    return { columns: e.shapes[0], rows: e.shapes[1], pointCount: e.xyz.length / 3 };
+  }
+
+  private commitScientific3DUpdate(s: number, e: EncodedScientific3D): void {
+    const update = this.backend.update_chart_3d_series;
+    if (!update) throw new Error('3D chart: backend does not support scientific updates');
+    update.call(this.backend, s, e.xyz, e.colors, e.shapes[0], e.shapes[1]);
+    this.chartMeta = e.meta;
+    // FIFO/grid growth can rebase every id: release stale pinned/keyboard tooltips,
+    // without cancelling an orbit drag or resetting the camera.
+    for (const hook of this.chartDataHooks) hook();
+    this.a11y.refresh();
   }
 
   private renderScientific3D(e: EncodedScientific3D, options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {

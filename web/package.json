@@ -5,14 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "TODO <author name and email>",
-  "homepage": "https://github.com/jparkk0517/VizEngineSDK#readme",
+  "homepage": "https://github.com/jparkk0517/Charturbo#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jparkk0517/VizEngineSDK.git",
+    "url": "git+https://github.com/jparkk0517/Charturbo.git",
     "directory": "web"
   },
   "bugs": {
-    "url": "https://github.com/jparkk0517/VizEngineSDK/issues"
+    "url": "https://github.com/jparkk0517/Charturbo/issues"
   },
   "engines": {
     "node": "^22.12.0 || ^24.0.0 || >=26.0.0"

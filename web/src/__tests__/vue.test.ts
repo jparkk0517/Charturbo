@@ -49,6 +49,24 @@ async function ready(): Promise<FakeSDK> {
 }
 
 describe('Vue CharturboChart', () => {
+  it.each(['pointCloud3d', 'surface3d'] as const)('keeps imperative %s streaming across a theme-only render', async type => {
+    const data = type === 'pointCloud3d' ? [{ data: new Float32Array([1, 2, 3]) }]
+      : [{ data: { columns: 2, rows: 2, xStart: 0, xStep: 1, zStart: 0, zStep: 1, y: [1, 2, 3, 4] } }];
+    const theme = shallowRef('dark');
+    const { chartRef } = mountChart(() => ({ type, data, theme: theme.value }));
+    await flush();
+    const sdk = await ready();
+    const live = await chartRef.value!.whenReady();
+    if (!live) throw new Error('chart did not become ready');
+    if (type === 'pointCloud3d') live.appendPointCloud3D(0, [[4, 5, 6]], { maxPoints: 2 });
+    else live.updateSurface3D(0, { mode: 'appendRows', rows: 1, y: [5, 6] });
+    live.render();
+    theme.value = 'light';
+    await nextTick();
+    expect(type === 'pointCloud3d' ? sdk.appendPointCloud3D : sdk.updateSurface3D).toHaveBeenCalledOnce();
+    expect(type === 'pointCloud3d' ? sdk.renderPointCloud3D : sdk.renderSurface3D).toHaveBeenCalledOnce();
+    expect(chartRef.value!.sdk).toBe(sdk);
+  });
   it.each(['pointCloud3d', 'surface3d'] as const)('dispatches %s props', async (type) => {
     const data = type === 'pointCloud3d' ? [{ data: new Float32Array([1, 2, 3]) }]
       : [{ data: { columns: 2, rows: 2, xStart: 0, xStep: 1, zStart: 0, zStep: 1, y: [1, 2, 3, 4] } }];

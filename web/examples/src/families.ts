@@ -8,7 +8,7 @@ export interface Family {
 }
 
 export const FAMILIES: Family[] = [
-  { id: 'scientific3d', title: 'PointCloud3D · Surface3D', description: 'Depth-tested XYZ point clouds and Y-up height grids with orbit navigation, scalar colors, holes and raw-coordinate tooltips.' },
+  { id: 'scientific3d', title: 'PointCloud3D · Surface3D', description: 'Depth-tested XYZ clouds and Y-up height grids with orbit navigation, scalar colors, holes, FIFO streaming and rolling surface updates.' },
   { id: 'line', title: 'Line · Area · Band · ErrorBar · Impulse', description: '1M-point lines, stacked areas, standalone bands, scientific error bars, event stems and live streaming.' },
   { id: 'bar', title: 'Bar · Horizontal · Labels', description: 'Grouped / stacked / percent bars, horizontal bars with data labels and error bars, histograms.' },
   { id: 'scatter', title: 'Scatter · Brush', description: '60k-point scatter with rectangle brush selection, bubble chart with per-point sizes.' },

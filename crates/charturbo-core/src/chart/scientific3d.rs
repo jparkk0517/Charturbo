@@ -28,8 +28,6 @@ pub(crate) struct Scientific3D {
 
 impl Scientific3D {
     fn new(series: Vec<Scientific3DSeries>) -> Result<Self, String> {
-        let mut domain = [(f64::INFINITY, f64::NEG_INFINITY); 3];
-        let mut offsets = vec![];
         let mut n = 0usize;
         for s in &series {
             if !s.size.is_finite() || s.size < 0.0 || !s.lighting.is_finite() || !(0.0..=1.0).contains(&s.lighting)
@@ -40,8 +38,19 @@ impl Scientific3D {
             if let Some((cols, rows)) = s.grid {
                 if cols < 2 || rows < 2 || cols.checked_mul(rows) != Some(s.xyz.len()) { return Err("invalid surface grid shape".into()); }
             }
-            offsets.push(n);
             n = n.checked_add(s.xyz.len()).filter(|n| *n <= 4_000_000).ok_or("3D chart exceeds 4000000 samples")?;
+        }
+        let mut chart = Self { visible: vec![true; series.len()], series, domain: [(0., 1.); 3], offsets: vec![], emphasis: None, hit: Cell::new(None) };
+        chart.reindex();
+        Ok(chart)
+    }
+
+    fn reindex(&mut self) {
+        let mut domain = [(f64::INFINITY, f64::NEG_INFINITY); 3];
+        self.offsets.clear();
+        let mut n = 0;
+        for s in &self.series {
+            self.offsets.push(n); n += s.xyz.len();
             for p in s.xyz.iter().filter(|p| p.iter().all(|v| v.is_finite())) {
                 for a in 0..3 { domain[a].0 = domain[a].0.min(p[a] as f64); domain[a].1 = domain[a].1.max(p[a] as f64); }
             }
@@ -50,7 +59,8 @@ impl Scientific3D {
             if !d.0.is_finite() { *d = (-1.0, 1.0); }
             if d.0 == d.1 { let pad = d.0.abs().max(1.0) * 0.05; d.0 -= pad; d.1 += pad; }
         }
-        Ok(Self { visible: vec![true; series.len()], series, domain, offsets, emphasis: None, hit: Cell::new(None) })
+        self.domain = domain;
+        self.hit.set(None);
     }
 
     fn world(&self, p: [f32; 3]) -> Vec3 {
@@ -199,4 +209,23 @@ impl ChartState {
     pub fn is_scientific3d(&self) -> bool { matches!(self.kind, ChartKind::Scientific3D(_)) }
     pub fn new_scientific3d(series: Vec<Scientific3DSeries>) -> Result<Self, String> { Ok(Self::with_kind(ChartKind::Scientific3D(Scientific3D::new(series)?))) }
     pub fn scientific_hit(&self) -> Option<[f32; 5]> { if let ChartKind::Scientific3D(c) = &self.kind { c.hit.get() } else { None } }
+
+    /// Atomically replaces one series' samples, preserving style, visibility and chart state.
+    /// Domain/ids are recomputed globally; the next frame rebuilds staged geometry.
+    pub fn update_scientific3d_series(&mut self, series: usize, xyz: Vec<[f32; 3]>, colors: Vec<[f32; 4]>, grid: Option<(usize, usize)>) -> Result<usize, String> {
+        let ChartKind::Scientific3D(c) = &mut self.kind else { return Err("no scientific 3D chart".into()); };
+        let old = c.series.get(series).ok_or("3D series index out of range")?;
+        if old.grid.is_some() != grid.is_some() { return Err("cannot change 3D series kind during update".into()); }
+        let n = xyz.len();
+        if (c.len() - old.xyz.len()).checked_add(n).is_none_or(|n| n > 4_000_000) { return Err("3D chart exceeds 4000000 samples".into()); }
+        let next = Scientific3DSeries { xyz, colors, grid, color: old.color, size: old.size, wireframe: old.wireframe, lighting: old.lighting };
+        // Validate off to the side before mutating any live data or hover state.
+        let mut checked = Scientific3D::new(vec![next])?;
+        c.series[series] = checked.series.pop().unwrap();
+        c.reindex();
+        self.hover = None;
+        self.dirty = Dirty::all();
+        self.axes_key = None;
+        Ok(n)
+    }
 }

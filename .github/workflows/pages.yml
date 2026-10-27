@@ -1,5 +1,5 @@
 # Builds the examples site (web/examples -> web/examples-dist) and deploys it to GitHub Pages:
-# https://jparkk0517.github.io/VizEngineSDK/
+# https://jparkk0517.github.io/Charturbo/
 # One-time setup: repo Settings > Pages > Build and deployment > Source = "GitHub Actions".
 name: Pages
 

@@ -3,13 +3,13 @@
 **Rust + WebGPU로 만든 대용량 웹 차트 라이브러리.** 100만~1000만 포인트를 60 FPS로 줌·팬합니다.
 WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
 
-[![CI](https://github.com/jparkk0517/VizEngineSDK/actions/workflows/ci.yml/badge.svg)](https://github.com/jparkk0517/VizEngineSDK/actions/workflows/ci.yml)
+[![CI](https://github.com/jparkk0517/Charturbo/actions/workflows/ci.yml/badge.svg)](https://github.com/jparkk0517/Charturbo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**[▶ 라이브 데모](https://jparkk0517.github.io/VizEngineSDK/)** · [사용 가이드](docs/GUIDE.md) · [벤치마크](docs/BENCHMARKS.md) · [변경 기록](web/CHANGELOG.md)
+**[▶ 라이브 데모](https://jparkk0517.github.io/Charturbo/)** · [사용 가이드](docs/GUIDE.md) · [벤치마크](docs/BENCHMARKS.md) · [변경 기록](web/CHANGELOG.md)
 
 <p align="center">
-  <a href="https://jparkk0517.github.io/VizEngineSDK/"><img src="docs/assets/demo/hero.png" alt="선, 산점도, 캔들스틱, 3D 네트워크 그래프, 생키, 비즈니스 차트 예제" width="880"></a>
+  <a href="https://jparkk0517.github.io/Charturbo/"><img src="docs/assets/demo/hero.png" alt="선, 산점도, 캔들스틱, 3D 네트워크 그래프, 생키, 비즈니스 차트 예제" width="880"></a>
 </p>
 
 ## 왜 Charturbo인가
@@ -19,12 +19,12 @@ WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
 - **실사용 기능**: 실시간 스트리밍, 시간 축, 로그 축, 휠·드래그·핀치 줌, 범위 내비게이터, 브러시 선택, 대시보드 동기화, PNG·SVG·PDF 내보내기
 - **접근성**: 모든 차트에 자동 요약, 데이터 표, 키보드 탐색
 - **React · Vue 컴포넌트** 제공, TypeScript 타입 포함
-- **디자인 설정**: 라이트/다크·커스텀 테마, 시리즈 색상·팔레트, 글꼴, 격자·툴팁, 막대 모서리·데이터 라벨 ([직접 바꿔 보기](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html))
-- **3D**: 대규모 네트워크 그래프(Barnes-Hut 물리 배치, 최단 경로, 검색), 고차원 임베딩 3D 투영과 유사도 검색, 강체 물리가 있는 3D 장면 ([예제](https://jparkk0517.github.io/VizEngineSDK/graph.html))
+- **디자인 설정**: 라이트/다크·커스텀 테마, 시리즈 색상·팔레트, 글꼴, 격자·툴팁, 막대 모서리·데이터 라벨 ([직접 바꿔 보기](https://jparkk0517.github.io/Charturbo/benchmarks.html))
+- **3D**: 대규모 네트워크 그래프(Barnes-Hut 물리 배치, 최단 경로, 검색), 고차원 임베딩 3D 투영과 유사도 검색, 강체 물리가 있는 3D 장면 ([예제](https://jparkk0517.github.io/Charturbo/graph.html))
 
 ## 성능
 
-**[▶ 인터랙티브 성능 비교 · 테마/색상 바꾸기](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html)**
+**[▶ 인터랙티브 성능 비교 · 테마/색상 바꾸기](https://jparkk0517.github.io/Charturbo/benchmarks.html)**
 
 아래 그래프는 **Charturbo로 렌더링하고 `exportChartSVG()`로 내보낸 이미지**입니다. 비교 페이지에서는 시나리오 선택, 툴팁, 4개 테마, 강조 색상·팔레트·글꼴·모서리·수치 표시 변경과 SVG 다운로드를 지원합니다.
 
@@ -88,7 +88,7 @@ import { CharturboChart } from 'charturbo/react';
 <CharturboChart type="line" data={series} options={{ title: '사용률' }} style={{ height: 300 }} />;
 ```
 
-차트 종류별 예제와 소스는 [라이브 데모](https://jparkk0517.github.io/VizEngineSDK/)에서 볼 수 있습니다.
+차트 종류별 예제와 소스는 [라이브 데모](https://jparkk0517.github.io/Charturbo/)에서 볼 수 있습니다.
 
 ## 브라우저 지원
 

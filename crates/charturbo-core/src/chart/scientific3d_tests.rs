@@ -90,3 +90,45 @@ fn axes_follow_the_front_floor_edges_instead_of_crossing_the_surface() {
     assert!((x.x_css - expected.0).abs() < 1e-3 && (x.y_css - expected.1).abs() < 1e-3);
     assert_eq!(axes.ticks.iter().filter(|t| t.axis == 3).count(), 5);
 }
+
+#[test]
+fn scientific_update_rebases_ids_preserves_visibility_and_rebuilds_cached_geometry() {
+    let mut c = ChartState::new_scientific3d(vec![points(vec![[0.; 3]]), points(vec![[1.; 3]])]).unwrap();
+    let mut scene = SceneWorld::new();
+    c.set_series_visible(1, false, &mut scene);
+    c.set_emphasis(Some(0));
+    let cam = OrbitCamera::new(300., 1.);
+    let view = ChartView { camera: &cam, viewport_px: (600, 600), pixel_ratio: 1. };
+    c.prepare_layers(&view);
+    let axes_revision = c.axes_revision();
+    c.update_scientific3d_series(0, vec![[0.; 3], [2.; 3]], vec![[1., 0., 0., 1.]; 2], None).unwrap();
+    assert_eq!(c.point_count(), 3);
+    assert_eq!(c.sample(2).unwrap().0, 1);
+    let marks = c.prepare_layers(&view).series_style.unwrap().markers;
+    assert_eq!(marks.len(), 2);
+    assert_eq!(marks[1].fill, [1., 0., 0., 1.]);
+    assert_eq!(marks[1].center_radius[3], 3.);
+    assert_ne!(c.axes_revision(), axes_revision);
+    assert_eq!(c.axes().ticks.iter().filter(|t| t.axis == 0).last().unwrap().value, 2.);
+    assert!(c.update_scientific3d_series(0, vec![[9.; 3]], vec![[f32::NAN; 4]], None).is_err());
+    assert!(c.update_scientific3d_series(0, vec![[9.; 3]; 4], vec![], Some((2, 2))).is_err());
+    assert_eq!(c.point_count(), 3);
+}
+
+#[test]
+fn scientific_surface_updates_invalidate_holes_and_hit_coordinates_atomically() {
+    let xyz = vec![[-1., 0., -1.], [1., 0., -1.], [-1., 0., 1.], [1., 0., 1.]];
+    let mut s = points(xyz.clone()); s.grid = Some((2, 2));
+    let mut c = ChartState::new_scientific3d(vec![s]).unwrap();
+    let mut cam = OrbitCamera::new(300., 1.); cam.set_pose(Vec3::new(0., 250., 150.), Vec3::ZERO);
+    let view = ChartView { camera: &cam, viewport_px: (600, 600), pixel_ratio: 1. };
+    assert_eq!(c.prepare_layers(&view).fills.unwrap().len(), 6);
+    c.hover_at(&view, &mut SceneWorld::new(), (0., 0.));
+    assert!(c.scientific_hit().is_some());
+    assert!(c.update_scientific3d_series(0, xyz.clone(), vec![], Some((3, 2))).is_err());
+    assert!(c.scientific_hit().is_some());
+    let mut hole = xyz; hole[0][1] = f32::NAN;
+    c.update_scientific3d_series(0, hole, vec![], Some((2, 2))).unwrap();
+    assert!(c.scientific_hit().is_none());
+    assert!(c.prepare_layers(&view).fills.unwrap().is_empty());
+}

@@ -38,6 +38,17 @@ export interface Surface3DSeries extends Scientific3DStyle {
   /** Flat diffuse lighting, 0..1 (default 0.65). */
   lighting?: number;
 }
+export interface PointCloud3DAppendOptions {
+  /** Keep the newest samples. Zero / omitted means unbounded (up to the chart limit). */
+  maxPoints?: number;
+  /** Required iff the rendered series uses colorBy; one scalar per appended point. */
+  colorValues?: ArrayLike<number>;
+}
+/** Height updates preserve camera, style and visibility. Scroll defaults to true. */
+export type Surface3DUpdate =
+  | { mode: 'replaceY'; y: ArrayLike<number>; yMin?: number; yMax?: number }
+  | { mode: 'appendColumns'; columns: number; y: ArrayLike<number>; scrollX?: boolean }
+  | { mode: 'appendRows'; rows: number; y: ArrayLike<number>; scrollZ?: boolean };
 export interface Scientific3DChartOptions {
   title?: string;
   description?: string;
@@ -58,6 +69,9 @@ export interface Scientific3DMeta {
   pointColors: Float32Array;
   offsets: Uint32Array;
   shapes: Uint32Array;
+  /** Owned snapshots for incremental updates; never retain caller-owned arrays. */
+  clouds?: PointCloud3DSeries[];
+  surfaces?: Surface3DSeries[];
 }
 export interface EncodedScientific3D {
   xyz: Float32Array;
@@ -139,10 +153,11 @@ function rampColors(values: ArrayLike<number>, map: Scientific3DColormap, alpha:
 function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaTuple[], surface: boolean): EncodedScientific3D {
   const chunks: Float32Array[] = [], colors: Float32Array[] = [], shapes: number[] = [], offsets = [0], styles: number[] = [];
   const names: string[] = [], swatches: RgbaTuple[] = [];
+  const clouds: PointCloud3DSeries[] = [], surfaces: Surface3DSeries[] = [];
   series.forEach((s, i) => {
     const xyz = surface ? grid((s as Surface3DSeries).data) : cloud((s as PointCloud3DSeries).data);
     const n = xyz.length / 3; count(offsets[i] + n); offsets.push(offsets[i] + n); chunks.push(xyz);
-    const color = parseOptionalColor(s.color) ?? palette[i % palette.length] ?? [0.2, 0.6, 1, 1];
+    const color: RgbaTuple = [...(parseOptionalColor(s.color) ?? palette[i % palette.length] ?? [0.2, 0.6, 1, 1])];
     names.push(s.name ?? `Series ${i + 1}`); swatches.push(color);
     const alpha = finite(s.opacity ?? 1, 'opacity', 0, 1) * color[3];
     const solid = () => { const c = new Float32Array(n * 4); for (let j = 0; j < n; j++) c.set([color[0], color[1], color[2], alpha], j * 4); return c; };
@@ -150,6 +165,7 @@ function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaT
       const v = s as Surface3DSeries;
       shapes.push(v.data.columns, v.data.rows); styles.push(0, finite(v.lighting ?? 0.65, 'lighting', 0, 1), v.wireframe ? 1 : 0);
       colors.push(s.color !== undefined && !v.colormap ? solid() : rampColors(v.data.y, v.colormap ?? 'viridis', alpha, v.yMin, v.yMax));
+      surfaces.push({ ...v, color: s.color === undefined ? undefined : color, data: { ...v.data, y: Float32Array.from(v.data.y) } });
     } else {
       const v = s as PointCloud3DSeries;
       shapes.push(0, 0); styles.push(finite(v.size ?? 3, 'size', 0, 1024), 0, 0);
@@ -157,16 +173,93 @@ function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaT
         if (v.colorBy.values.length !== n) throw new Error('3D chart: color values length mismatch');
         colors.push(rampColors(v.colorBy.values, v.colorBy.colormap ?? 'viridis', alpha, v.colorBy.min, v.colorBy.max));
       } else colors.push(solid());
+      clouds.push({ ...v, color, data: xyz, colorBy: v.colorBy ? { ...v.colorBy, values: Float64Array.from(v.colorBy.values) } : undefined });
     }
   });
   const concat = (chunks: Float32Array[], n: number) => { const out = new Float32Array(n); let at = 0; for (const a of chunks) { out.set(a, at); at += a.length; } return out; };
   const xyz = concat(chunks, offsets.at(-1)! * 3), rgba = concat(colors, offsets.at(-1)! * 4);
   const boundaries = Uint32Array.from(offsets), shape = Uint32Array.from(shapes);
   return { xyz, colors: rgba, offsets: boundaries, shapes: shape, styles: Float32Array.from(styles),
-    meta: { kind: 'scientific3d', mode: surface ? 'surface3d' : 'pointCloud3d', names, colors: swatches, visible: series.map(s => s.visible !== false), xyz, pointColors: rgba, offsets: boundaries, shapes: shape } };
+    meta: { kind: 'scientific3d', mode: surface ? 'surface3d' : 'pointCloud3d', names, colors: swatches, visible: series.map(s => s.visible !== false), xyz, pointColors: rgba, offsets: boundaries, shapes: shape,
+      ...(surface ? { surfaces } : { clouds }) } };
 }
 export const encodePointCloud3D = (s: PointCloud3DSeries[], palette: RgbaTuple[]): EncodedScientific3D => encode(s, palette, false);
 export const encodeSurface3D = (s: Surface3DSeries[], palette: RgbaTuple[]): EncodedScientific3D => encode(s, palette, true);
+
+/** Prepare a single-series upload and a complete metadata commit, without mutating live state. */
+function replacement(m: Scientific3DMeta, s: number, e: EncodedScientific3D): EncodedScientific3D {
+  const before = m.offsets[s], after = m.offsets[s + 1], n = e.xyz.length / 3;
+  const total = count(m.xyz.length / 3 - (after - before) + n);
+  const splice = (old: Float32Array, chunk: Float32Array, stride: number) => {
+    const out = new Float32Array(total * stride);
+    out.set(old.subarray(0, before * stride)); out.set(chunk, before * stride);
+    out.set(old.subarray(after * stride), (before + n) * stride);
+    return out;
+  };
+  const offsets = m.offsets.slice(), shapes = m.shapes.slice();
+  for (let i = s + 1; i < offsets.length; i++) offsets[i] += n - (after - before);
+  shapes.set(e.shapes, s * 2);
+  const clouds = m.clouds?.slice(), surfaces = m.surfaces?.slice();
+  if (clouds) clouds[s] = e.meta.clouds![0];
+  if (surfaces) surfaces[s] = e.meta.surfaces![0];
+  return { ...e, meta: { ...m, xyz: splice(m.xyz, e.xyz, 3), pointColors: splice(m.pointColors, e.colors, 4), offsets, shapes, clouds, surfaces } };
+}
+function seriesIndex(m: Scientific3DMeta, s: number, mode: Scientific3DMeta['mode']): void {
+  if (m.mode !== mode) throw new Error(`3D chart: ${mode} is not rendered`);
+  if (!Number.isInteger(s) || s < 0 || s >= m.names.length) throw new Error('3D chart: series index out of range');
+}
+export function prepareCloudAppend(m: Scientific3DMeta, s: number, data: PointCloud3DData, options?: PointCloud3DAppendOptions): EncodedScientific3D {
+  seriesIndex(m, s, 'pointCloud3d');
+  const max = options?.maxPoints ?? 0;
+  if (!Number.isSafeInteger(max) || max < 0 || max > MAX_SAMPLES) throw new Error('3D chart: invalid maxPoints');
+  const source = m.clouds![s], incoming = cloud(data), old = source.data as Float32Array;
+  const added = incoming.length / 3, len = count(Math.min(old.length / 3 + added, max || Infinity));
+  if (source.colorBy ? options?.colorValues?.length !== added : options?.colorValues !== undefined) throw new Error('3D chart: color values must match appended points and the original colorBy mode');
+  count(m.xyz.length / 3 - old.length / 3 + len);
+  const xyz = new Float32Array(len * 3), oldKept = Math.max(0, len - added);
+  xyz.set(old.subarray(old.length - oldKept * 3));
+  xyz.set(incoming.subarray(Math.max(0, added - len) * 3), oldKept * 3);
+  let colorBy = source.colorBy;
+  if (colorBy) {
+    const values = new Float64Array(len), previous = colorBy.values as Float64Array;
+    values.set(previous.subarray(previous.length - oldKept));
+    for (let i = oldKept; i < len; i++) values[i] = options!.colorValues![added - (len - i)];
+    colorBy = { ...colorBy, values };
+  }
+  return replacement(m, s, encodePointCloud3D([{ ...source, data: xyz, colorBy }], [m.colors[s]]));
+}
+export function prepareSurfaceUpdate(m: Scientific3DMeta, s: number, update: Surface3DUpdate): EncodedScientific3D {
+  seriesIndex(m, s, 'surface3d');
+  const source = m.surfaces![s], d = source.data;
+  let next: Surface3DSeries;
+  if (update.mode === 'replaceY') {
+    if (update.y.length !== d.columns * d.rows) throw new Error('3D chart: surface length mismatch');
+    next = { ...source, yMin: update.yMin ?? source.yMin, yMax: update.yMax ?? source.yMax, data: { ...d, y: update.y } };
+  } else if (update.mode === 'appendColumns' || update.mode === 'appendRows') {
+    const column = update.mode === 'appendColumns';
+    const added = count(column ? update.columns : update.rows);
+    const oldSize = column ? d.columns : d.rows, cross = column ? d.rows : d.columns;
+    if (count(added * cross) !== update.y.length) throw new Error('3D chart: surface append length mismatch');
+    const scroll = column ? update.scrollX !== false : update.scrollZ !== false;
+    const size = scroll ? oldSize : oldSize + added;
+    const length = count(size * cross);
+    count(m.xyz.length / 3 - d.columns * d.rows + length);
+    const columns = column ? size : d.columns, rows = column ? d.rows : size;
+    const dropped = scroll ? added : 0;
+    const xStart = d.xStart + (column ? dropped * d.xStep : 0), zStart = d.zStart + (column ? 0 : dropped * d.zStep);
+    finite(xStart, 'xStart'); finite(zStart, 'zStart');
+    finite(xStart + (columns - 1) * d.xStep, 'x extent'); finite(zStart + (rows - 1) * d.zStep, 'z extent');
+    const y = new Float32Array(length);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < columns; c++) {
+      const at = (column ? c : r) + dropped;
+      y[r * columns + c] = at < oldSize
+        ? d.y[column ? r * d.columns + at : at * d.columns + c]
+        : update.y[column ? (at - oldSize) * d.rows + r : (at - oldSize) * d.columns + c];
+    }
+    next = { ...source, data: { ...d, columns, rows, xStart, zStart, y } };
+  } else throw new Error('3D chart: invalid surface update mode');
+  return replacement(m, s, encodeSurface3D([next], [m.colors[s]]));
+}
 export function scientificSample(m: Scientific3DMeta, id: number): { series: number; index: number; point: Vec3Tuple; color: RgbaTuple } | null {
   if (!Number.isInteger(id) || id < 0 || id >= m.xyz.length / 3) return null;
   let s = 0; while (s + 1 < m.names.length && m.offsets[s + 1] <= id) s++;

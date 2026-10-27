@@ -192,7 +192,7 @@ const camera = sdk.getCameraState(); // { target, eye, distance, yaw, pitch, fov
 ## Documentation
 
 - API reference: `npm run docs` (TypeDoc → `docs/api/`).
-- Examples (every chart family with its source): https://jparkk0517.github.io/VizEngineSDK/ (locally: `npm run examples:dev`).
+- Examples (every chart family with its source): https://jparkk0517.github.io/Charturbo/ (locally: `npm run examples:dev`).
 - Changes: [CHANGELOG.md](./CHANGELOG.md) (0.x: minor = new features or breaking changes, patch = fixes).
 
 ## License

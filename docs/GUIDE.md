@@ -67,7 +67,32 @@ sdk.enableNodeInteractions(canvas, { autoRender: true });
 - 공통 시리즈 옵션: `name`, `visible`, `color`, `opacity`. 차트 옵션: `title`, `description`, `legend`, `grid`, `showGrid`, `hover`, `camera: { eye, target? }`. 카메라는 정규화된 렌더 공간의 perspective orbit이며 resize 후 회전·팬·거리를 보존합니다.
 - 포인터 cloud 선택은 허용 반경 내 전면 샘플입니다. Surface는 삼각형 ray intersection으로 `point3d: {x,y,z,column,row}`를 반환합니다. Wireframe도 셀 내부를 선택합니다. 키보드·CSV는 보간하지 않은 원본 정점 XYZ를 제공합니다. SVG는 raster fallback, 이미지/PDF는 현재 3D 화면을 사용합니다.
 - React/Vue `type="pointCloud3d"`·`type="surface3d"`, 예제 `/scientific3d.html`. 전체 데이터를 해당 render API에 다시 전달하여 갱신합니다. 최대 400만 샘플이며 현재 hover는 전체 점/셀을 검사합니다.
-- 이 단계는 기본 3D 차트 경로입니다. 부분 갱신/streaming, contours, orthographic, 사용자 축 범위·aspect, 3D brush·sync, 정확한 다중 투명면 합성은 후속 범위입니다. 반투명 geometry는 depth-write하지만 깊이 정렬하지 않습니다. 전체 ChartGPU v0.4.0 기능 동등성 완료를 뜻하지 않습니다.
+- contours, orthographic, 사용자 축 범위·aspect, 3D brush·sync, 정확한 다중 투명면 합성은 후속 범위입니다. 반투명 geometry는 depth-write하지만 깊이 정렬하지 않습니다. 전체 ChartGPU v0.4.0 기능 동등성 완료를 뜻하지 않습니다.
+
+### 3D 데이터 갱신 · 스트리밍
+
+```ts
+// 이미 렌더한 cloud 시리즈 0에 추가. 반환값은 해당 시리즈의 유지된 샘플 수.
+sdk.appendPointCloud3D(0, new Float32Array([1, 2, 3, 4, 5, 6]), { maxPoints: 2400 });
+// colorBy 시리즈에는 추가한 포인트마다 colorValues 하나가 필요합니다.
+// sdk.appendPointCloud3D(0, xyz, { maxPoints: 2400, colorValues: scalars });
+sdk.render();
+
+// 이미 렌더한 surface에 적용 (cloud와는 별도 차트 인스턴스).
+sdk.updateSurface3D(0, { mode: 'replaceY', y: heights, yMin: -1, yMax: 1 });
+sdk.updateSurface3D(0, { mode: 'appendColumns', columns: 1, y: nextColumn });
+sdk.updateSurface3D(0, { mode: 'appendRows', rows: 1, y: nextRow, scrollZ: false });
+sdk.render();
+```
+
+- `appendPointCloud3D(seriesIndex, data, options?)`: render API와 같은 XYZ 입력 형식을 받습니다. `maxPoints`는 0/생략 시 무제한, 양의 정수이면 가장 최근 N개만 유지합니다. 기존 `colorBy`가 있으면 `colorValues`가 필수이고, 없으면 전달할 수 없습니다. 기존 colormap과 고정 min/max를 유지하며 자동 색상 범위는 유지된 scalar로 재계산합니다.
+- `updateSurface3D(seriesIndex, update)`는 해당 시리즈의 `{ columns, rows, pointCount }`를 반환합니다. `replaceY`는 전체 **row-major** 높이 배열(`rows * columns`)을 교체합니다. 선택적 `yMin`/`yMax`는 이후 갱신에도 유지되며 생략하면 기존 설정을 유지합니다.
+- `appendColumns`의 `y`는 **column-major strip**(`y[newColumn * rows + row]`), `appendRows`는 **row-major block**(`y[newRow * columns + column]`)입니다. 기본 `scrollX: true` / `scrollZ: true`는 기존 크기를 유지하면서 오래된 열/행을 버리고 원점에 `추가 개수 × step`을 더합니다. 창보다 큰 청크는 마지막 창 크기만 남깁니다. `false`이면 원점은 고정하고 그리드 크기를 늘립니다. 음수 step도 지원합니다.
+- 갱신은 원자적입니다. 잘못된 길이·범위·종류·시리즈 인덱스 또는 미지원 backend는 기존 데이터 변경 없이 거부합니다. 입력은 복사하므로 이후 호출자의 배열 변경은 차트에 영향을 주지 않습니다. 전체 차트는 유지된 샘플 합계 최대 400만 개, 입력 청크도 최대 400만 개입니다. 빈 append는 허용합니다(cloud의 `maxPoints` 축소는 적용).
+- 카메라·스타일·가시성·강조를 유지하며 좌표 범위는 전체 유지 데이터로 재계산합니다. ID는 현재 시리즈 순서와 샘플 위치로 다시 매겨집니다. 이전 고정 툴팁/키보드 포커스는 해제하고, CSV·접근성·툴팁은 갱신된 XYZ를 사용합니다.
+- 현재 경로는 SDK 메타데이터를 복사하고 변경 시리즈를 WASM에 다시 전달하며, Rust가 전체 범위 및 geometry를 재계산합니다. GPU 부분 버퍼 업로드나 O(추가량) 성능을 보장하지 않습니다.
+- React/Vue에서는 `onReady(sdk)` 또는 컴포넌트 ref의 `whenReady()`로 얻은 SDK에서 위 메서드와 `render()`를 호출합니다. 스트리밍 중에는 `data`/`options` prop 참조를 유지하세요. 새 참조를 전달하면 전체 render API가 실행됩니다.
+- 실행 예제: `/scientific3d.html#04-streaming-cloud`, `/scientific3d.html#05-streaming-surface`. Play/Pause·reduced motion·숨겨진 탭/화면 밖 정지와 dispose 정리를 지원합니다.
 
 ## 독립 ErrorBar / Impulse 차트
 
@@ -451,7 +476,7 @@ sdk.renderBarChart([
 sdk.render();
 ```
 
-`setTheme`은 배경·텍스트·격자·툴팁과 차트별 테마 스타일을 갱신합니다. 선·막대 등에서 이미 전달한 시리즈/항목 색이나 스타일도 바꾸려면 새 옵션으로 `render*Chart()`를 호출하고 `render()`합니다. [벤치마크 페이지](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html)는 이 방식으로 4개 테마·강조색·팔레트·글꼴·모서리·라벨 설정과 SVG 내보내기를 제공합니다. 미드나이트·페이퍼는 예제의 커스텀 테마이며 SDK의 내장 문자열 테마는 `'light'`와 `'dark'`입니다.
+`setTheme`은 배경·텍스트·격자·툴팁과 차트별 테마 스타일을 갱신합니다. 선·막대 등에서 이미 전달한 시리즈/항목 색이나 스타일도 바꾸려면 새 옵션으로 `render*Chart()`를 호출하고 `render()`합니다. [벤치마크 페이지](https://jparkk0517.github.io/Charturbo/benchmarks.html)는 이 방식으로 4개 테마·강조색·팔레트·글꼴·모서리·라벨 설정과 SVG 내보내기를 제공합니다. 미드나이트·페이퍼는 예제의 커스텀 테마이며 SDK의 내장 문자열 테마는 `'light'`와 `'dark'`입니다.
 
 #### 초기화 · 이벤트 · 범위 · 색 · 로캘
 ```ts

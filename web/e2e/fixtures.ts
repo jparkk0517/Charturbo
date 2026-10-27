@@ -133,8 +133,14 @@ export const FIXTURES: Fixture[] = [
     render: ctx => single(ctx, sdk => {
       const rand = mulberry32(23), data = new Float32Array(1800);
       for (let i = 0; i < 600; i++) data.set([rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1], i * 3);
-      sdk.renderPointCloud3D([{ name: 'Scan', data, size: 5, color: firstColor(ctx) },
+      const streaming = ctx.params.streaming === 'true';
+      sdk.renderPointCloud3D([{ name: 'Scan', data: streaming ? new Float32Array([99, 99, 99, ...data.subarray(0, 900)]) : data, size: 5, color: firstColor(ctx) },
         { name: 'Reference', data: [[0, 0, -1], [0, 0, 1]], size: 16, color: '#ff9933' }], { title: 'XYZ cloud', legend: false });
+      if (streaming) {
+        sdk.render();
+        sdk.appendPointCloud3D(0, data.subarray(900), { maxPoints: 600 });
+        if (sdk.getNodeDetails(601)?.metadata.attributes?.z !== 1) throw new Error('streamed cloud ids were not rebased');
+      }
     }),
   },
   ...[false, true].map(wireframe => ({
@@ -144,8 +150,21 @@ export const FIXTURES: Fixture[] = [
         const x = i % 17 - 8, z = Math.floor(i / 17) - 8;
         return x * x + z * z < 5 ? NaN : Math.sin(x / 3) * Math.cos(z / 3);
       });
-      sdk.renderSurface3D([{ name: 'Height', data: { columns: 17, rows: 17, xStart: -8, xStep: 1, zStart: -8, zStep: 1, y }, wireframe }],
+      const streaming = ctx.params.streaming === 'true';
+      const size = streaming && wireframe ? 16 : 17;
+      const start = streaming && !wireframe ? -9 : -8;
+      sdk.renderSurface3D([{ name: 'Height', data: { columns: size, rows: size, xStart: start, xStep: 1, zStart: start, zStep: 1, y: streaming ? new Float32Array(size * size) : y }, wireframe }],
         { title: wireframe ? 'Wireframe' : 'Surface with hole' });
+      if (streaming) {
+        const height = (x: number, z: number) => x * x + z * z < 5 ? NaN : Math.sin(x / 3) * Math.cos(z / 3);
+        sdk.render();
+        sdk.updateSurface3D(0, { mode: 'replaceY', y: Float32Array.from({ length: size * size }, (_, i) => height(start + i % size, start + Math.floor(i / size))) });
+        sdk.render();
+        sdk.updateSurface3D(0, { mode: 'appendColumns', columns: 1, y: Float32Array.from({ length: size }, (_, r) => height(8, start + r)), scrollX: !wireframe });
+        sdk.render();
+        sdk.updateSurface3D(0, { mode: 'appendRows', rows: 1, y: Float32Array.from({ length: 17 }, (_, c) => height(-8 + c, 8)), scrollZ: !wireframe });
+        if (!sdk.exportChartCSV().includes('Height,8,')) throw new Error('streamed surface CSV lost coordinates');
+      }
     }),
   })),
   {

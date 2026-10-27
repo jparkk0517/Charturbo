@@ -5,12 +5,19 @@
 
 ## [Unreleased]
 
+### 추가 — 3D 스트리밍 · 표면 갱신
+
+- `appendPointCloud3D`로 XYZ·scalar 색상 청크 추가와 `maxPoints` FIFO를 지원합니다.
+- `updateSurface3D`로 높이 전체 교체, column-major 열·row-major 행 추가, 고정 창 스크롤 또는 그리드 확장을 지원합니다.
+- 검증 후 원자적으로 반영하며 카메라·스타일·범례 상태를 유지합니다. ID·축 범위·색상·피킹·접근성·CSV를 갱신하고 오래된 툴팁을 해제합니다.
+- React/Vue SDK ref 사용 검증과 재생 제어가 있는 예제 2개, 기존 이미지와 스트리밍 결과의 WebGPU/WebGL2 동등성 fixture를 추가했습니다. 현재는 유지 데이터 복사·geometry 재생성 경로이며 부분 GPU 업로드 최적화는 후속 범위입니다.
+
 ### 추가 — PointCloud3D · Surface3D 기본 경로
 
 - `renderPointCloud3D`·`renderSurface3D`, React/Vue `type="pointCloud3d"`·`type="surface3d"`를 추가했습니다.
 - XYZ billboard와 Y-up row-major surface를 전용 깊이 처리로 렌더링합니다. scalar 색상, grid hole, wireframe, 조명, 시리즈 가시성·강조, orbit/pan/zoom을 지원합니다.
 - 원본 XYZ 툴팁·키보드·CSV, surface ray intersection, SVG raster fallback, 예제 3개와 WebGPU/WebGL2 fixture를 연결했습니다. 투명도 0 표면의 선택·렌더와 resize 시 카메라 초기화를 수정했습니다.
-- 전체 교체 API를 제공하며 streaming·contours·orthographic·정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
+- 전체 교체 API에 더해 위 스트리밍 API를 제공합니다. contours·orthographic·정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
 
 ### 추가 — 독립 ErrorBar · Impulse
 

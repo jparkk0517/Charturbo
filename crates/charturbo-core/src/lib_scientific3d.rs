@@ -24,6 +24,17 @@ impl WasmCharturboEngine {
         self.inner.set_scientific3d(series).map_err(|e| JsValue::from_str(&e))
     }
 
+    /// Updates one existing series without reframing the camera or resetting its styles.
+    pub fn update_chart_3d_series(&mut self, series: usize, xyz: &[f32], colors: &[f32], columns: usize, rows: usize) -> Result<usize, JsValue> {
+        if xyz.len() % 3 != 0 || xyz.len() / 3 > 4_000_000 || colors.len() != xyz.len() / 3 * 4 {
+            return Err(JsValue::from_str("invalid packed 3D update"));
+        }
+        let points = xyz.chunks_exact(3).map(|p| [p[0], p[1], p[2]]).collect();
+        let rgba = colors.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect();
+        let grid = (columns != 0 || rows != 0).then_some((columns, rows));
+        self.inner.update_scientific3d_series(series, points, rgba, grid).map_err(|e| JsValue::from_str(&e))
+    }
+
     /// Raw XYZ, cell column and row of the current pointer intersection.
     pub fn chart_3d_hit(&self) -> Vec<f32> {
         self.inner.chart().and_then(|c| c.scientific_hit()).map_or_else(Vec::new, |p| p.to_vec())

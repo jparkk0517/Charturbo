@@ -2,7 +2,7 @@
 
 이 문서는 `web/bench/` 하네스로 측정한 charturbo(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly · ChartGPU · SciChart · Highcharts와의 차트 비교, three.js · deck.gl · cosmos.gl · 3d-force-graph와의 3D 그래프 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
 
-- 최신 원본 결과: [`docs/bench/results.json`](bench/results.json), [`results.md`](bench/results.md). 아래 4~6절의 수치 표는 **2026-10-26 초기 측정 기록**이며, 이후 추가 라이브러리·수정 측정은 원본과 [라이브 비교 페이지](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html)를 기준으로 읽으세요.
+- 최신 원본 결과: [`docs/bench/results.json`](bench/results.json), [`results.md`](bench/results.md). 아래 4~6절의 수치 표는 **2026-10-26 초기 측정 기록**이며, 이후 추가 라이브러리·수정 측정은 원본과 [라이브 비교 페이지](https://jparkk0517.github.io/Charturbo/benchmarks.html)를 기준으로 읽으세요.
 - 기존 자체 엔진 시나리오는 2026-10-26 기록을 유지합니다. 교차 라이브러리 비교는 어댑터 수정 후 5회(+워밍업 1), 정상상태 3초로 재측정합니다. 개별 실행 일시·버전·설정은 각 항목의 `measurement`, 실제 샘플 수는 `result.ttff.frame.n`에 기록합니다.
 - 제품명은 **Charturbo**입니다. 원본 측정과 벤치마크 CLI의 `viz`·`vizgpu`는 각각 Charturbo CPU·hybrid GPU 경로의 기존 식별자로, 측정 기록 연결을 위해 유지합니다.
 
@@ -130,7 +130,7 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
 
 ## 5. 초기 측정 기록: 라이브러리 비교 (2026-10-26, viz = WebGPU)
 
-아래 표와 해석은 최초 5개 라이브러리 비교 기록입니다. 8개 라이브러리의 **최신 전체 비교**는 [자동 생성 표](bench/results.md#cross-library-comparison)와 [SDK 비교 페이지](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html)를 참고하세요.
+아래 표와 해석은 최초 5개 라이브러리 비교 기록입니다. 8개 라이브러리의 **최신 전체 비교**는 [자동 생성 표](bench/results.md#cross-library-comparison)와 [SDK 비교 페이지](https://jparkk0517.github.io/Charturbo/benchmarks.html)를 참고하세요.
 
 ### line-1m-1s
 

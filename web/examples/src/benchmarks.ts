@@ -25,7 +25,7 @@ let device: CharturboDevice | undefined;
 let rendering = false;
 const main = document.querySelector('main')!;
 main.innerHTML = `
-  <header><a href="./index.html" class="brand">CHARTURBO</a><nav><a href="https://github.com/jparkk0517/VizEngineSDK/blob/main/docs/BENCHMARKS.md">측정 방법 ↗</a><a href="https://github.com/jparkk0517/VizEngineSDK">GitHub ↗</a></nav></header>
+  <header><a href="./index.html" class="brand">CHARTURBO</a><nav><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/BENCHMARKS.md">측정 방법 ↗</a><a href="https://github.com/jparkk0517/Charturbo">GitHub ↗</a></nav></header>
   <section class="intro"><p class="eyebrow">BUILT WITH OUR OWN ENGINE</p><h1>측정 결과를,<br>우리 차트로.</h1><p>같은 데이터에서 관측한 성능을 살펴보세요. 차트의 색상과 디자인도 직접 바꿀 수 있습니다.</p></section>
   <section class="controls" aria-label="비교 및 디자인 설정">
     <label>시나리오<select id="scenario"></select></label>
@@ -46,7 +46,7 @@ main.innerHTML = `
     <li>Charturbo·three.js는 같은 3D 힘 모델입니다. SDK의 hybrid GPU 모드는 GPU 반발력 + CPU 적분·공간 인덱스 방식입니다. deck.gl은 렌더만, cosmos.gl은 2D, 3d-force-graph는 다른 d3 힘 모델입니다.</li>
     <li>SDK GPU 물리 시간은 업로드·GPU 완료·리드백·CPU 적분을 포함한 경과 시간이며, 나머지는 CPU 실행/제출 시간입니다. cosmos v3는 프레임당 한 스텝을 검증합니다. 시간 초과·미지원·미측정은 0점으로 표시하지 않습니다.</li>
   </ul></section>
-  <section class="data-section"><h2>비교 수치</h2><p><a href="https://github.com/jparkk0517/VizEngineSDK/blob/main/docs/bench/results.json">CPU·GPU 전체 측정 원본 ↗</a></p><div class="table-wrap"><table><caption>라이브러리별 수치, 조건 및 실패 사유</caption><thead><tr><th>라이브러리</th><th>TTFF (ms)</th><th>FPS</th><th>물리 (ms)</th><th>작업 / 렌더러</th><th>측정 조건</th><th>상태</th></tr></thead><tbody></tbody></table></div></section>
+  <section class="data-section"><h2>비교 수치</h2><p><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/bench/results.json">CPU·GPU 전체 측정 원본 ↗</a></p><div class="table-wrap"><table><caption>라이브러리별 수치, 조건 및 실패 사유</caption><thead><tr><th>라이브러리</th><th>TTFF (ms)</th><th>FPS</th><th>물리 (ms)</th><th>작업 / 렌더러</th><th>측정 조건</th><th>상태</th></tr></thead><tbody></tbody></table></div></section>
   <footer><span id="environment"></span><span>차트: Charturbo · WebGPU / WebGL2 · SVG export</span></footer>`;
 
 const select = document.querySelector<HTMLSelectElement>('#scenario')!;
