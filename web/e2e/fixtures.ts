@@ -8,8 +8,8 @@
  * purpose (e.g. `color:#ff0000` proves a changed color fails the comparison).
  */
 
-import { VizDevice, VizEngineSDK } from '../src/index';
-import type { VizDeviceBackend } from '../src/index';
+import { CharturboDevice, Charturbo } from '../src/index';
+import type { CharturboDeviceBackend } from '../src/index';
 
 export type FixtureTheme = 'dark' | 'light';
 
@@ -17,13 +17,13 @@ export interface FixtureContext {
   /** Card the fixture mounts its canvases into (`position: relative`) */
   card: HTMLElement;
   theme: FixtureTheme;
-  backend: VizDeviceBackend;
+  backend: CharturboDeviceBackend;
   params: Record<string, string>;
 }
 
 export interface FixtureResult {
   /** Backend the engine actually rendered with (detected from the canvas context) */
-  backend: VizDeviceBackend;
+  backend: CharturboDeviceBackend;
 }
 
 export interface Fixture {
@@ -87,17 +87,17 @@ function makeCanvas(parent: HTMLElement, width: number, height: number): HTMLCan
 }
 
 /** Backend of a standalone engine: a WebGL2 canvas returns its context, a WebGPU one null. */
-function detectBackend(canvas: HTMLCanvasElement): VizDeviceBackend {
+function detectBackend(canvas: HTMLCanvasElement): CharturboDeviceBackend {
   return canvas.getContext('webgl2') ? 'webgl2' : 'webgpu';
 }
 
 /** One full-card chart: create, theme, draw via `draw`, render once. */
 async function single(
   ctx: FixtureContext,
-  draw: (sdk: VizEngineSDK) => void
+  draw: (sdk: Charturbo) => void
 ): Promise<FixtureResult> {
   const canvas = makeCanvas(ctx.card, FIXTURE_WIDTH, FIXTURE_HEIGHT);
-  const sdk = await VizEngineSDK.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
+  const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
   sdk.setTheme(ctx.theme);
   draw(sdk);
   sdk.render();
@@ -129,6 +129,32 @@ const lineFixture = (name: string, theme: FixtureTheme): Fixture => ({
 
 export const FIXTURES: Fixture[] = [
   {
+    name: 'sparse-error-bar', theme: 'dark',
+    render: ctx => single(ctx, sdk => {
+      sdk.renderErrorBarChart([
+        { name: 'Measured', values: [10, 25, NaN, 15, -5, 22], errorLow: [3, 6, 3, 4, 5, 8], errorHigh: 5, capWidth: 14, showCenter: true, color: firstColor(ctx) },
+        { name: 'Upper', values: [35, 44, 38, 40, 35, 48], error: 4, errorMode: 'high', drawConnector: false, capWidth: '40%' },
+      ], { title: 'Error bars', padding: PADDING, legend: false });
+      sdk.setTheme('light'); sdk.setTheme('dark');
+    }),
+  },
+  {
+    name: 'sparse-error-horizontal', theme: 'light',
+    render: ctx => single(ctx, sdk => {
+      sdk.renderErrorBarChart([{ name: 'Interval', x: [10, 20, 30, 40], values: [1, 2, 3, 4], low: [-20, 5, 15, 30], high: [30, 50, 60, 70], direction: 'horizontal', capWidth: 16, showCenter: true }],
+        { title: 'Horizontal intervals', padding: PADDING, lineWidth: 2 });
+    }),
+  },
+  {
+    name: 'sparse-impulse', theme: 'dark',
+    render: ctx => single(ctx, sdk => {
+      sdk.renderImpulseChart([
+        { name: 'Events', values: [0, 10, -6, NaN, 20, -12, 4, 0, 15], baseline: 0, symbolSize: 7, color: firstColor(ctx) },
+        { name: 'Stems', values: [-24, -18, -30, -25, -35, -20, -24, -30, -15], baseline: -25, showMarker: false },
+      ], { title: 'Impulse stems', padding: PADDING, legend: false });
+    }),
+  },
+  {
     name: 'line-1m',
     theme: 'dark',
     render: (ctx) =>
@@ -147,6 +173,22 @@ export const FIXTURES: Fixture[] = [
   lineFixture('line-dark', 'dark'),
   lineFixture('line-light', 'light'),
   {
+    name: 'band',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => {
+      const x = Float64Array.from({ length: 121 }, (_, i) => i / 10);
+      const lower = Float32Array.from(x, (v) => Math.sin(v) * 20);
+      const upper = Float32Array.from(x, (v) => Math.cos(v) * 20);
+      lower[60] = NaN;
+      sdk.renderBandChart([
+        { name: 'Crossing', x, lower, upper, color: firstColor(ctx), lowerLineWidth: 2, upperLineWidth: 3 },
+        { name: 'Fill only', x, lower: lower.map((v) => v - 35), upper: upper.map((v) => v - 35) },
+      ], { title: 'Independent bands', padding: PADDING, fillOpacity: 0.3, legend: false });
+      sdk.setTheme('light');
+      sdk.setTheme('dark');
+    }),
+  },
+  {
     name: 'area-stacked',
     theme: 'dark',
     render: (ctx) =>
@@ -157,7 +199,11 @@ export const FIXTURES: Fixture[] = [
           values: Float32Array.from(walk(rand, 400, 0.6, 20 + s * 5), (v) => Math.max(0, v)),
           color: s === 0 ? firstColor(ctx) : undefined,
         }));
-        sdk.renderAreaChart(series, { mode: 'stacked', title: 'Stacked area', padding: PADDING, legend: false });
+        const streaming = ctx.params.streaming === '1';
+        sdk.renderAreaChart(streaming ? series.map((s) => ({ ...s, values: s.values.slice(0, 200) })) : series,
+          { mode: 'stacked', title: 'Stacked area', padding: PADDING, legend: false });
+        // The streamed result must match the existing static baseline on both GPU backends.
+        if (streaming) sdk.appendAreaData(series.map((s) => ({ values: s.values.slice(200) })), { maxPoints: 400 });
       }),
   },
   {
@@ -226,6 +272,26 @@ export const FIXTURES: Fixture[] = [
           { title: 'OHLC', padding: PADDING, upColor: firstColor(ctx), hollowUp: true }
         );
       }),
+  },
+  {
+    name: 'ohlc',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => {
+      const n = ctx.params.dense === '1' ? 50_000 : 32;
+      const t = Float64Array.from({ length: n }, (_, i) => Date.UTC(2026, 0, 1) + i * 60_000);
+      const open = Float32Array.from({ length: n }, (_, i) => 100 + Math.sin(i / 5) * 8);
+      const close = open.map((v, i) => v + (i % 3 - 1) * 3); // down / doji / up
+      const high = open.map((v, i) => Math.max(v, close[i]) + 2);
+      const low = open.map((v, i) => Math.min(v, close[i]) - 2);
+      const volume = open.map((_, i) => 1000 + i % 7 * 300);
+      open[7] = NaN;
+      sdk.renderOhlcChart({ t, open, high, low, close, volume }, {
+        title: 'OHLC bars', padding: PADDING, lineWidth: 2, tickWidth: 0.8,
+        upColor: firstColor(ctx),
+      });
+      sdk.setTheme('light'); // mode must survive theme restyling in the actual engine
+      sdk.setTheme('dark');
+    }),
   },
   {
     name: 'histogram',
@@ -428,16 +494,16 @@ export const FIXTURES: Fixture[] = [
     theme: 'light',
     render: async (ctx) => {
       // 4 x 6 grid of 140 x 32 sparklines on one shared device (the dashboard path)
-      const device = await VizDevice.create({ backend: ctx.backend });
+      const device = await CharturboDevice.create({ backend: ctx.backend });
       const grid = document.createElement('div');
       grid.className = 'spark-grid';
       ctx.card.appendChild(grid);
       const types = ['line', 'area', 'bar', 'winloss'] as const;
       const rand = mulberry32(51);
-      const engines: VizEngineSDK[] = [];
+      const engines: Charturbo[] = [];
       for (let i = 0; i < 24; i++) {
         const canvas = makeCanvas(grid, 140, 32);
-        const sdk = await VizEngineSDK.create(canvas, { device, autoResize: false, locale: 'en-US', timeZone: 'UTC' });
+        const sdk = await Charturbo.create(canvas, { device, autoResize: false, locale: 'en-US', timeZone: 'UTC' });
         sdk.setTheme(ctx.theme);
         const type = types[i % 4];
         const values =

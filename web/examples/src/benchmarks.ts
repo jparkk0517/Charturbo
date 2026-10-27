@@ -1,6 +1,6 @@
 import './benchmarks.css';
 import rawResults from '../../../docs/bench/results.json?raw';
-import { VizDevice } from 'viz-engine-sdk';
+import { CharturboDevice } from 'charturbo';
 import { createReportChart, defaultDesign, exportReport, reportTheme, type Design, type ThemeName } from '../../bench/report-charts';
 import { conditions, formatValue, METRICS, rowsFor, SCENARIOS, workload, type Group, type Metric, type Results } from '../../bench/report-model';
 
@@ -21,11 +21,11 @@ const initialTheme = params.get('theme') as ThemeName;
 let design = defaultDesign(themes.includes(initialTheme) ? initialTheme : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 let selected = SCENARIOS.find((s) => s.id === params.get('scenario'))?.id ?? SCENARIOS[0].id;
 let charts: Awaited<ReturnType<typeof createReportChart>>[] = [];
-let device: VizDevice | undefined;
+let device: CharturboDevice | undefined;
 let rendering = false;
 const main = document.querySelector('main')!;
 main.innerHTML = `
-  <header><a href="./index.html" class="brand">VIZ ENGINE SDK</a><nav><a href="https://github.com/jparkk0517/VizEngineSDK/blob/main/docs/BENCHMARKS.md">측정 방법 ↗</a><a href="https://github.com/jparkk0517/VizEngineSDK">GitHub ↗</a></nav></header>
+  <header><a href="./index.html" class="brand">CHARTURBO</a><nav><a href="https://github.com/jparkk0517/VizEngineSDK/blob/main/docs/BENCHMARKS.md">측정 방법 ↗</a><a href="https://github.com/jparkk0517/VizEngineSDK">GitHub ↗</a></nav></header>
   <section class="intro"><p class="eyebrow">BUILT WITH OUR OWN ENGINE</p><h1>측정 결과를,<br>우리 차트로.</h1><p>같은 데이터에서 관측한 성능을 살펴보세요. 차트의 색상과 디자인도 직접 바꿀 수 있습니다.</p></section>
   <section class="controls" aria-label="비교 및 디자인 설정">
     <label>시나리오<select id="scenario"></select></label>
@@ -42,11 +42,12 @@ main.innerHTML = `
   <section class="notes"><h2>비교 조건을 함께 읽어주세요</h2><ul>
     <li>TTFF는 엔진 초기화 이후 데이터 전달부터 첫 프레임까지입니다. 라이브러리별 재생성·재사용 방식이 다릅니다.</li>
     <li>ChartGPU 산점도는 x축만 이동합니다. SciChart는 데이터 복사를 포함한 수정 측정만 TTFF에 표시합니다.</li>
-    <li>viz·VizEngine GPU·three.js는 같은 3D 힘 모델입니다. VizEngine GPU는 GPU 반발력 + CPU 적분·공간 인덱스의 하이브리드 방식입니다. deck.gl은 렌더만, cosmos.gl은 2D, 3d-force-graph는 다른 d3 힘 모델입니다.</li>
-    <li>VizEngine GPU의 물리 시간은 업로드·GPU 완료·리드백·CPU 적분을 포함한 경과 시간이며, 나머지는 CPU 실행/제출 시간입니다. cosmos v3는 프레임당 한 스텝을 검증합니다. 시간 초과·미지원·미측정은 0점으로 표시하지 않습니다.</li>
+    <li>Charturbo는 시나리오별 CPU·GPU 유효 측정 중 FPS가 높은 모드 하나를 표시합니다(동률이면 물리 시간이 짧은 모드). 모든 지표는 선택된 동일 측정에서 가져오며, 사용 모드는 표와 툴팁에 표시합니다.</li>
+    <li>Charturbo·three.js는 같은 3D 힘 모델입니다. SDK의 hybrid GPU 모드는 GPU 반발력 + CPU 적분·공간 인덱스 방식입니다. deck.gl은 렌더만, cosmos.gl은 2D, 3d-force-graph는 다른 d3 힘 모델입니다.</li>
+    <li>SDK GPU 물리 시간은 업로드·GPU 완료·리드백·CPU 적분을 포함한 경과 시간이며, 나머지는 CPU 실행/제출 시간입니다. cosmos v3는 프레임당 한 스텝을 검증합니다. 시간 초과·미지원·미측정은 0점으로 표시하지 않습니다.</li>
   </ul></section>
-  <section class="data-section"><h2>측정 원본</h2><div class="table-wrap"><table><caption>라이브러리별 수치, 조건 및 실패 사유</caption><thead><tr><th>라이브러리</th><th>TTFF (ms)</th><th>FPS</th><th>물리 (ms)</th><th>작업 / 렌더러</th><th>측정 조건</th><th>상태</th></tr></thead><tbody></tbody></table></div></section>
-  <footer><span id="environment"></span><span>차트: VizEngineSDK · WebGPU / WebGL2 · SVG export</span></footer>`;
+  <section class="data-section"><h2>비교 수치</h2><p><a href="https://github.com/jparkk0517/VizEngineSDK/blob/main/docs/bench/results.json">CPU·GPU 전체 측정 원본 ↗</a></p><div class="table-wrap"><table><caption>라이브러리별 수치, 조건 및 실패 사유</caption><thead><tr><th>라이브러리</th><th>TTFF (ms)</th><th>FPS</th><th>물리 (ms)</th><th>작업 / 렌더러</th><th>측정 조건</th><th>상태</th></tr></thead><tbody></tbody></table></div></section>
+  <footer><span id="environment"></span><span>차트: Charturbo · WebGPU / WebGL2 · SVG export</span></footer>`;
 
 const select = document.querySelector<HTMLSelectElement>('#scenario')!;
 for (const s of SCENARIOS) select.add(new Option(s.label, s.id));
@@ -79,7 +80,7 @@ function renderTable() {
     const cells = [
       `${row.label} ${version}`,
       ...values.map((r) => r.value === null ? '—' : formatValue(r.value)),
-      `${workload(row.lib, selected)} / ${row.entry?.result?.backend ?? '—'}`,
+      `${workload(row.entry?.lib ?? row.lib, selected)} / ${row.entry?.result?.backend ?? '—'}`,
       conditions(row.entry), row.entry?.error ?? [
         ...values.slice(0, selected.startsWith('graph') ? 3 : 2).map((r) => r.status).filter((s, i, all) => all.indexOf(s) === i),
         ...(row.entry?.errors ?? []),
@@ -103,7 +104,7 @@ async function renderScenario() {
   renderTable();
   applyDesign();
   try {
-    if (!device) device = await VizDevice.create();
+    if (!device) device = await CharturboDevice.create();
     const metrics: Metric[] = selected.startsWith('graph') ? ['ttff', 'fps', 'physics'] : ['ttff', 'fps'];
     for (const metric of metrics) {
       const article = document.createElement('article');
@@ -151,7 +152,7 @@ document.querySelector('#environment')!.textContent = `${data.meta.machine.cpu} 
 window.__benchmark = {
   ready: false,
   async export(input, group, theme) {
-    if (!device) device = await VizDevice.create();
+    if (!device) device = await CharturboDevice.create();
     return exportReport(input, group, defaultDesign(theme), device);
   },
 };

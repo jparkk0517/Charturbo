@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Every plotted mark / axis / label is rendered by VizEngineSDK and exportChartSVG().
+// Every plotted mark / axis / label is rendered by Charturbo and exportChartSVG().
 // npm run bench:charts -- [results.json] [--out=directory]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +17,7 @@ try {
   for (const group of ['ttff', 'fps', 'graph']) {
     for (const theme of ['light', 'dark']) {
       const svg = await browser.evaluate(`window.__benchmark.export(window.__reportData, '${group}', '${theme}')`);
-      if (!svg?.includes('Rendered with VizEngineSDK') || /(?:NaN|Infinity)/.test(svg)) throw new Error(`Invalid SVG: ${group}/${theme}`);
+      if (!svg?.includes('Rendered with Charturbo') || /(?:NaN|Infinity)/.test(svg)) throw new Error(`Invalid SVG: ${group}/${theme}`);
       exports.push({ file: path.join(out, `bench-${group}-${theme}.svg`), svg });
     }
   }

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  VIZ_THEMES,
-  VizEngineSDK,
+  CHARTURBO_THEMES,
+  Charturbo,
   type ChartTooltipContext,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 import { decodeColorbar, heatmapAxisLabel, heatmapMeta, heatmapRowLabel } from '../sdk/chart-heatmap';
 
 // The a11y layer needs a full DOM and has its own tests (chart-a11y.test.ts, incl. heatmaps)
@@ -100,7 +100,7 @@ type Calls = Record<string, unknown[][]>;
 /** 4-entry ramp: black -> red -> green -> white (RGBA8). */
 const LUT = new Uint8Array([0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255, 255, 255, 255, 255]);
 
-function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -195,7 +195,7 @@ describe('Native heatmap (SDK binding)', () => {
 
   it('sends the grid as one typed array plus colormap / domain codes', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     const res = sdk.renderHeatmap({ cols: 4, rows: 3, values: grid(), ...LABELS }, { title: 'Load' });
     expect(res.cellCount).toBe(12);
     const [cols, rows, values, w, h, rowTop, xExt, yExt] = calls.set_heatmap_chart[0] as [
@@ -213,7 +213,7 @@ describe('Native heatmap (SDK binding)', () => {
       number, Float32Array, boolean, Float32Array, Float32Array,
     ];
     expect([kind, hue.length, reverse, empty.length]).toEqual([0, 0, false, 0]);
-    expect(Array.from(surface)).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.surface)));
+    expect(Array.from(surface)).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.surface)));
     expect((calls.set_chart_heatmap_domain[0] as number[]).every(Number.isNaN)).toBe(true);
     // Title on top, colorbar reserve on the right, no legend
     expect(calls.set_chart_padding.at(-1)).toEqual([36, 84, 30, 56]);
@@ -242,7 +242,7 @@ describe('Native heatmap (SDK binding)', () => {
     const calls: Calls = {};
     // Engine hit: row 2 (series), col 1 (index), value 21, id 9
     let hit = new Float64Array([0, 0, 1, 2, 1, 21, 9]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderHeatmap({ cols: 4, rows: 3, values: grid(), ...LABELS }, { valueLabel: 'Load' });
     const seen: (ChartTooltipContext | null)[] = [];
@@ -254,7 +254,7 @@ describe('Native heatmap (SDK binding)', () => {
     expect(ctx.cell).toEqual({ row: 2, col: 1, xLabel: 'Tue', yLabel: 'C' });
     expect(ctx.items[0]).toMatchObject({ seriesName: 'Load', value: 21, color: 'rgb(10, 20, 30)', nodeId: 9 });
     expect(ctx.details?.metadata.attributes).toEqual({ row: 2, col: 1, x: 'Tue', y: 'C', value: 21 });
-    const tooltip = body.children.find((c) => c.className.includes('viz-sdk-node-tooltip'))!;
+    const tooltip = body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
     expect(tooltip.innerHTML).toContain('C · Tue');
     expect(tooltip.innerHTML).toContain('21');
 
@@ -281,32 +281,32 @@ describe('Native heatmap (SDK binding)', () => {
   it('builds a solid-slice colorbar from the engine LUT and ticks beside the plot', () => {
     const calls: Calls = {};
     const axes = new Float64Array([56, 36, 600, 300, 0]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderHeatmap({ cols: 4, rows: 3, values: grid() }, { colorbar: { title: 'ms' } });
     sdk.render();
 
-    const [bar] = container.querySelectorAll('.viz-sdk-heatmap-colorbar');
+    const [bar] = container.querySelectorAll('.charturbo-sdk-heatmap-colorbar');
     expect(bar.style.left).toBe(`${56 + 600 + 14}px`);
     expect(bar.attrs['aria-label']).toBe('ms color scale from 0 to 10');
-    const slices = container.querySelectorAll('.viz-sdk-heatmap-colorbar-bar')[0].children;
+    const slices = container.querySelectorAll('.charturbo-sdk-heatmap-colorbar-bar')[0].children;
     expect(slices.length).toBe(64);
     // High values on top: first slice = last LUT entry, last slice = first
     expect(slices[0].style.backgroundColor).toBe('rgb(255, 255, 255)');
     expect(slices[63].style.backgroundColor).toBe('rgb(0, 0, 0)');
-    const ticks = container.querySelectorAll('.viz-sdk-heatmap-colorbar-tick');
+    const ticks = container.querySelectorAll('.charturbo-sdk-heatmap-colorbar-tick');
     expect(ticks.map((t) => [t.textContent, t.style.top])).toEqual([
       ['0', '300px'],
       ['5', '150px'],
       ['10', '0px'],
     ]);
-    expect(container.querySelectorAll('.viz-sdk-heatmap-colorbar-title')[0].textContent).toBe('ms');
+    expect(container.querySelectorAll('.charturbo-sdk-heatmap-colorbar-title')[0].textContent).toBe('ms');
 
     // Theme switch re-sends the colormap with the new surface and rebuilds the bar
     sdk.setTheme('light');
     const last = calls.set_chart_heatmap_colormap.at(-1)!;
-    expect(Array.from(last[3] as Float32Array)).toEqual(Array.from(new Float32Array(VIZ_THEMES.light.surface)));
-    expect(container.querySelectorAll('.viz-sdk-heatmap-colorbar').length).toBe(1);
+    expect(Array.from(last[3] as Float32Array)).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.light.surface)));
+    expect(container.querySelectorAll('.charturbo-sdk-heatmap-colorbar').length).toBe(1);
 
     // Colormap / domain changes are thin engine calls
     sdk.setHeatmapColorScale('magma');

@@ -1,25 +1,26 @@
 /**
- * Main entry of the `viz-engine-sdk` package: `VizEngineSDK` (one chart or 3D graph per canvas),
- * `VizDevice` (shared GPU device for many charts), themes, formatters and every public type.
- * The WebAssembly module loads from `viz_core_bg.wasm` next to this module (see `setWasmSource`;
- * `viz-engine-sdk/inline` embeds it). Excludes all demo UI / Studio / Game / Benchmark screens.
+ * Main entry of the `charturbo` package: `Charturbo` (one chart or 3D graph per canvas),
+ * `CharturboDevice` (shared GPU device for many charts), themes, formatters and every public type.
+ * The WebAssembly module loads from `charturbo_core_bg.wasm` next to this module (see `setWasmSource`;
+ * `charturbo/inline` embeds it). Excludes all demo UI / Studio / Game / Benchmark screens.
  *
  * @packageDocumentation
- * @module viz-engine-sdk
+ * @module charturbo
  */
+export type { ScientificSamples, ScientificSeriesDescriptor, SparseChartOptions, ErrorBarStyleOptions, ImpulseStyleOptions } from './sdk/chart-sparse';
 export {
-  VizEngineSDK,
+  Charturbo,
   DEFAULT_SDK_FORCE_OPTIONS,
-  VIZ_THEMES,
+  CHARTURBO_THEMES,
   formatChartTime,
   parseColor,
-  VizInitError,
-  type VizInitErrorReason,
+  CharturboInitError,
+  type CharturboInitErrorReason,
   setWasmSource,
-  type VizWasmSource,
-  VizDevice,
-  type VizDeviceBackend,
-  type VizDeviceOptions,
+  type CharturboWasmSource,
+  CharturboDevice,
+  type CharturboDeviceBackend,
+  type CharturboDeviceOptions,
   type SparklineData,
   type SparklineOptions,
   type SparklineType,
@@ -32,12 +33,12 @@ export {
   type ChartBoxStats,
   type ChartBoxTooltip,
   type ColorInput,
-  type VizThemeInput,
-  type VizEventMap,
-  type VizEventName,
-  type VizHoverEvent,
-  type VizClickEvent,
-  type VizRange,
+  type CharturboThemeInput,
+  type CharturboEventMap,
+  type CharturboEventName,
+  type CharturboHoverEvent,
+  type CharturboClickEvent,
+  type CharturboRange,
   type ChartAnimationInput,
   type ChartAnimationOptions,
   type ChartEasing,
@@ -46,11 +47,11 @@ export {
   type ChartZoomMode,
   type ZoomHistoryState,
   type ChartSvgOptions,
-  type VizRenderStats,
+  type CharturboRenderStats,
   type RenderStatsBackend,
   type AnimationBackend,
   type ZoomBackend,
-  type VizTimeZone,
+  type CharturboTimeZone,
   type RawGraphData,
   type ForceOptions,
   type PrimitiveShape,
@@ -63,7 +64,16 @@ export {
   type CosineSimilarityMatch,
   type LineSeriesDescriptor,
   type LineChartOptions,
+  type BandChartOptions,
+  type BandSeriesDescriptor,
+  type ErrorBarSeriesDescriptor,
+  type ErrorBarChartOptions,
+  type ErrorBarMode,
+  type ErrorBarDirection,
+  type ImpulseSeriesDescriptor,
+  type ImpulseChartOptions,
   type AreaChartOptions,
+  type SeriesDataChunk,
   type BarChartItemDescriptor,
   type BarChartOptions,
   type BarSeriesDescriptor,
@@ -85,7 +95,7 @@ export {
   type ChartTimeGranularity,
   type ChartLegendOptions,
   type ChartPaddingOptions,
-  type VizTheme,
+  type CharturboTheme,
   type NodeHoverStyle,
   type ChartTooltipItem,
   type ChartTooltipContext,
@@ -96,7 +106,7 @@ export {
   type NodeInteractionOptions,
   type TouchInteractionOptions,
   type CameraControlOptions,
-  type VizCameraState,
+  type CharturboCameraState,
   type FocusNodeOptions,
   escapeHtml,
   type ObjectTransformDescriptor,
@@ -108,8 +118,8 @@ export {
   type SceneHelpersDescriptor,
   type SceneObjectRecord,
   type SceneDescriptor,
-  type WasmVizEngineBackend,
-} from './sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from './sdk/charturbo';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';
@@ -151,7 +161,7 @@ export {
   type SankeyNodeInput,
   type SunburstChartOptions,
   type TreemapChartOptions,
-  type VizDrillEvent,
+  type CharturboDrillEvent,
 } from './sdk/chart-hierarchy';
 // Types reachable from public signatures (guarded by __tests__/public-types.test.ts)
 export {
@@ -166,13 +176,15 @@ export {
   type LineYDomainOptions,
   type CandlestickChartData,
   type CandlestickChartOptions,
+  type OhlcChartData,
+  type OhlcChartOptions,
   type ChartOhlc,
   type HistogramChartOptions,
   type HistogramResult,
   type BrushMode,
   type BrushStyleOptions,
-  type VizSelection,
-  type VizSelectionRange,
+  type CharturboSelection,
+  type CharturboSelectionRange,
   type ChartSyncOptions,
   type ChartSyncMemberOptions,
   type HeatmapChartData,
@@ -180,11 +192,11 @@ export {
   type HeatmapColorScale,
   type HeatmapColorbarOptions,
   type WasmGpuDeviceBackend,
-} from './sdk/viz-engine-sdk';
+} from './sdk/charturbo';
 export { type ChartAnnotationBase } from './sdk/chart-annotations';
 export { type NavigatorOption } from './sdk/chart-navigator';
-export { type VizDeviceEngineFactory } from './sdk/viz-device';
-export { type VizCreateOptions } from './sdk/chart-binding';
+export { type CharturboDeviceEngineFactory } from './sdk/charturbo-device';
+export { type CharturboCreateOptions } from './sdk/chart-binding';
 export {
   type LineBandOptions,
   type LineCurve,

@@ -6,7 +6,7 @@
  * strings follow the chart / SDK locale (Korean for `ko*`, English otherwise). DOM-free.
  */
 import { esc, rgbCss, tooltipRow } from './chart-business-util';
-import type { NodeDetails, VizTheme } from './viz-engine-sdk';
+import type { NodeDetails, CharturboTheme } from './charturbo';
 
 /** Fixed strings of the default node tooltip. */
 export interface GraphTooltipStrings {
@@ -43,7 +43,7 @@ export function graphTooltipStrings(locale?: string): GraphTooltipStrings {
 }
 
 /** Tooltip HTML of a hovered node; `clickHint`: append the click-to-highlight line. */
-export function graphTooltipHtml(d: NodeDetails, theme: VizTheme, locale?: string, clickHint = false): string {
+export function graphTooltipHtml(d: NodeDetails, theme: CharturboTheme, locale?: string, clickHint = false): string {
   const s = graphTooltipStrings(locale);
   const int = (v: number) => v.toLocaleString(locale);
   const coord = (v: number) => v.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });

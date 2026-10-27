@@ -9,8 +9,8 @@ import {
   defaultFrameScheduler,
   frameThrottle,
   type FrameScheduler,
-  type VizHoverEvent,
-  type VizRange,
+  type CharturboHoverEvent,
+  type CharturboRange,
 } from './chart-events';
 
 export interface ChartSyncOptions {
@@ -24,16 +24,16 @@ export interface ChartSyncOptions {
   tooltip?: boolean;
 }
 
-/** Per-instance membership (`VizEngineSDK.create({ sync })` / `setSync`). */
+/** Per-instance membership (`Charturbo.create({ sync })` / `setSync`). */
 export interface ChartSyncMemberOptions extends ChartSyncOptions {
   /** Group name: instances with the same key are synced */
   key: string;
 }
 
-/** What a group needs from a chart (`VizEngineSDK` implements it). */
+/** What a group needs from a chart (`Charturbo` implements it). */
 export interface ChartSyncMember {
-  on(event: 'hover', handler: (e: VizHoverEvent) => void): () => void;
-  on(event: 'rangechange', handler: (r: VizRange) => void): () => void;
+  on(event: 'hover', handler: (e: CharturboHoverEvent) => void): () => void;
+  on(event: 'rangechange', handler: (r: CharturboRange) => void): () => void;
   /** Data x of the current hover (`null` = none) */
   getHoverX(): number | null;
   /** Hovers at a data x without emitting `'hover'` (`null` clears); true when something is hovered */
@@ -104,13 +104,13 @@ class SyncGroup {
     if (this.members.size === 0) this.frame.cancel();
   }
 
-  private onHover(origin: ChartSyncMember, e: VizHoverEvent): void {
+  private onHover(origin: ChartSyncMember, e: CharturboHoverEvent): void {
     if (!this.flag(origin, 'cursor')) return;
     this.cursor = { origin, x: e.chart ? origin.getHoverX() : null };
     this.frame.request();
   }
 
-  private onRange(origin: ChartSyncMember, r: VizRange): void {
+  private onRange(origin: ChartSyncMember, r: CharturboRange): void {
     const m = this.members.get(origin);
     if (!m || !this.flag(origin, 'x')) return;
     const echo = m.echo;

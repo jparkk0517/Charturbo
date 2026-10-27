@@ -1,10 +1,10 @@
 /**
- * Render statistics of an engine (`VizEngineSDK.getRenderStats`): GPU buffer / texture bytes,
+ * Render statistics of an engine (`Charturbo.getRenderStats`): GPU buffer / texture bytes,
  * chart upload traffic, staged instance counts and the WebAssembly memory size, decoded from the
  * engine's flat `render_stats` array (lib_stats.rs). Meant for benchmarks and diagnostics.
  */
 
-export interface VizRenderStats {
+export interface CharturboRenderStats {
   /** Bytes allocated in GPU vertex / instance buffers and chart textures (capacity) */
   gpuBytes: number;
   /** Bytes the last frame uploaded for the chart (0 = nothing changed) */
@@ -30,7 +30,7 @@ export interface RenderStatsBackend {
 }
 
 /** Decodes `render_stats()`; null when the backend does not provide it. */
-export function readRenderStats(backend: RenderStatsBackend): VizRenderStats | null {
+export function readRenderStats(backend: RenderStatsBackend): CharturboRenderStats | null {
   const s = backend.render_stats?.();
   if (!s || s.length < 11) return null;
   return {

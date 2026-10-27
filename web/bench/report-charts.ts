@@ -1,14 +1,14 @@
-import { VizDevice, VizEngineSDK, VIZ_THEMES, type VizThemeInput } from '../src/index';
+import { CharturboDevice, Charturbo, CHARTURBO_THEMES, type CharturboThemeInput } from '../src/index';
 import { conditions, formatValue, METRICS, panelsFor, rowsFor, workload, type Group, type Metric, type Results } from './report-model';
 
 export type ThemeName = 'light' | 'dark' | 'midnight' | 'paper';
 export interface Design { theme: ThemeName; accent: string; colorful: boolean; radius: number; labels: boolean; font: string }
 export const defaultDesign = (theme: ThemeName = 'light'): Design => ({ theme, accent: '#3182f6', colorful: false, radius: 5, labels: true, font: 'system-ui, -apple-system, sans-serif' });
 const COLORS = ['#3182f6', '#14b8a6', '#f59e0b', '#a78bfa', '#f472b6', '#22c55e', '#fb7185', '#38bdf8'];
-export function reportTheme(d: Design): VizThemeInput {
+export function reportTheme(d: Design): CharturboThemeInput {
   const dark = d.theme === 'dark' || d.theme === 'midnight';
   return {
-    ...VIZ_THEMES[dark ? 'dark' : 'light'], name: d.theme,
+    ...CHARTURBO_THEMES[dark ? 'dark' : 'light'], name: d.theme,
     surface: d.theme === 'midnight' ? '#101b35' : d.theme === 'paper' ? '#faf6ed' : dark ? '#171c27' : '#ffffff',
     textPrimary: dark ? '#edf2ff' : '#14213d', textSecondary: dark ? '#b6c3da' : '#475569',
     textMuted: dark ? '#93a4bd' : '#64748b', grid: dark ? '#2c3851' : '#e5eaf2',
@@ -16,10 +16,10 @@ export function reportTheme(d: Design): VizThemeInput {
   };
 }
 
-export async function createReportChart(host: HTMLElement, device: VizDevice, data: Results, scenario: string, metric: Metric, design: Design) {
+export async function createReportChart(host: HTMLElement, device: CharturboDevice, data: Results, scenario: string, metric: Metric, design: Design) {
   const canvas = host.appendChild(document.createElement('canvas'));
   Object.assign(canvas.style, { display: 'block', width: '100%', height: '100%' });
-  const sdk = await VizEngineSDK.create(canvas, { device, locale: 'en-US', animation: false });
+  const sdk = await Charturbo.create(canvas, { device, locale: 'en-US', animation: false });
   sdk.enableNodeInteractions(canvas, { autoRender: true, chartNavigation: false });
   let currentDesign = design;
   let lastWidth = 0, lastHeight = 0;
@@ -32,8 +32,8 @@ export async function createReportChart(host: HTMLElement, device: VizDevice, da
     const rows = rowsFor(data, scenario, metric).filter((r) => r.value !== null);
     sdk.renderBarChart(rows.map((r, i) => ({
       label: r.label, value: r.value!,
-      color: r.lib === 'viz' || r.lib === 'vizgpu' ? next.accent : next.colorful ? COLORS[(i + 1) % COLORS.length] : next.theme === 'light' || next.theme === 'paper' ? '#94a3b8' : '#7d8da8',
-      attributes: { unit: METRICS[metric].unit, workload: workload(r.lib, scenario), measurement: conditions(r.entry) },
+      color: r.lib === 'viz' ? next.accent : next.colorful ? COLORS[(i + 1) % COLORS.length] : next.theme === 'light' || next.theme === 'paper' ? '#94a3b8' : '#7d8da8',
+      attributes: { unit: METRICS[metric].unit, workload: workload(r.entry?.lib ?? r.lib, scenario), measurement: conditions(r.entry) },
     })), {
       orientation: 'horizontal', cornerRadius: next.radius, legend: false,
       // Match the physical chart rectangle to the padded viewport, including on mobile.
@@ -59,7 +59,7 @@ const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<':
 const settle = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
 /** Only the report frame / notes are composed here. All bars, axes and labels come from SDK SVG export. */
-export async function exportReport(data: Results, group: Group, design: Design, device: VizDevice): Promise<string> {
+export async function exportReport(data: Results, group: Group, design: Design, device: CharturboDevice): Promise<string> {
   const panels = panelsFor(group);
   const width = 880, panelWidth = 416, chartHeight = group === 'graph' ? 235 : 305;
   const maxUnavailable = Math.max(...panels.map((p) => rowsFor(data, p.id, p.metric).filter((r) => r.value === null).length));
@@ -69,12 +69,12 @@ export async function exportReport(data: Results, group: Group, design: Design, 
   const title = group === 'graph' ? '그래프 엔진 · 작업 조건별 비교' : METRICS[group].title;
   const parts = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="report-title report-desc">`,
-    `<title id="report-title">${escape(title)}</title><desc id="report-desc">VizEngineSDK로 렌더링한 벤치마크 결과. 실패는 막대로 그리지 않습니다. 작업 조건과 측정일은 원본 표를 참고하세요.</desc>`,
+    `<title id="report-title">${escape(title)}</title><desc id="report-desc">Charturbo로 렌더링한 벤치마크 결과. 실패는 막대로 그리지 않습니다. 작업 조건과 측정일은 원본 표를 참고하세요.</desc>`,
     `<rect width="100%" height="100%" rx="16" fill="${theme.surface}"/>`,
   ];
   const text = (x: number, y: number, label: string, size = 12, color = theme.textSecondary) => `<text x="${x}" y="${y}" font-family="${escape(design.font)}" font-size="${size}" fill="${color}">${escape(label)}</text>`;
-  parts.push(text(24, 35, 'VIZ ENGINE SDK / BENCHMARK', 11, design.accent), text(24, 65, title, 23, theme.textPrimary));
-  parts.push(text(24, 90, group === 'graph' ? 'viz: CPU / VizEngine GPU: 3D hybrid / three: 3D / deck.gl: 렌더만 / cosmos: 2D / force-graph: d3' : '같은 시드 데이터 · 초기화 제외 · 산점도 ChartGPU는 x축만 이동'));
+  parts.push(text(24, 35, 'CHARTURBO / BENCHMARK', 11, design.accent), text(24, 65, title, 23, theme.textPrimary));
+  parts.push(text(24, 90, group === 'graph' ? 'SDK: 시나리오별 최고 FPS 모드 · three: 3D / deck.gl: 렌더만 / cosmos: 2D / force-graph: d3' : '같은 시드 데이터 · 초기화 제외 · 산점도 ChartGPU는 x축만 이동'));
   const host = document.createElement('div');
   Object.assign(host.style, { position: 'fixed', left: '-10000px', top: '0', width: `${panelWidth}px`, height: `${chartHeight}px` });
   document.body.append(host);
@@ -82,8 +82,10 @@ export async function exportReport(data: Results, group: Group, design: Design, 
     for (const [index, panel] of panels.entries()) {
       const x = 24 + index % 2 * 432, y = top + Math.floor(index / 2) * rowHeight;
       parts.push(text(x, y, panel.label, 15, theme.textPrimary));
-      parts.push(text(x, y + 21, `${group === 'graph' ? METRICS[panel.metric].title + ' · ' : ''}${METRICS[panel.metric].unit}`, 11));
       const rows = rowsFor(data, panel.id, panel.metric);
+      const sdkEntry = rows.find((r) => r.lib === 'viz')?.entry;
+      const mode = sdkEntry ? sdkEntry.lib === 'vizgpu' ? 'hybrid GPU' : 'CPU' : '미측정';
+      parts.push(text(x, y + 21, `${group === 'graph' ? METRICS[panel.metric].title + ' · ' : ''}${METRICS[panel.metric].unit}${group === 'graph' ? ` · SDK: ${mode}` : ''}`, 11));
       const chart = rows.some((r) => r.value !== null) ? await createReportChart(host, device, data, panel.id, panel.metric, design) : null;
       if (chart) try {
         await settle();
@@ -110,6 +112,6 @@ export async function exportReport(data: Results, group: Group, design: Design, 
   const legacy = data.compare.some((r) => !r.measurement) ? ' · 이전 조건 기록 포함' : '';
   parts.push(text(24, height - 62, `${data.meta.machine.cpu} · ${dates.join(', ') || data.meta.date.slice(0, 10)} · ${configs.join(' · ') || '개별 조건은 원본 참조'}${legacy}`));
   parts.push(text(24, height - 41, '단일 머신 관측값 · 실제 반복 수는 원본 표 참조 · 작업이 다른 FPS는 직접 비교할 수 없습니다.', 11));
-  parts.push(text(24, height - 20, 'Rendered with VizEngineSDK · exportChartSVG() · 인터랙티브 비교와 전체 표는 README 링크', 10));
+  parts.push(text(24, height - 20, 'Rendered with Charturbo · exportChartSVG() · 인터랙티브 비교와 전체 표는 README 링크', 10));
   return parts.join('\n') + '</svg>';
 }

@@ -14,8 +14,8 @@ import type {
   ChartLegendOptions,
   ChartPaddingOptions,
   ChartTooltipContext,
-  VizTheme,
-} from './viz-engine-sdk';
+  CharturboTheme,
+} from './charturbo';
 import type { ChartAnimationInput } from './chart-animation';
 
 /** One series: one sample array per category (empty / missing = no box). */
@@ -269,7 +269,7 @@ export function whiskerLabel(w: BoxChartMeta['whiskers'], iqrFactor = 1.5): stri
 }
 
 /** Default tooltip HTML of a box / outlier hit. */
-export function boxTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, format: (v: number) => string, count: (v: number) => string): string {
+export function boxTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, format: (v: number) => string, count: (v: number) => string): string {
   const b = ctx.box;
   const it = ctx.items[0];
   if (!b || !it) return '';

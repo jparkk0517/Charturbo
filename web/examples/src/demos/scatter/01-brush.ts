@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: '60k-point scatter with brush selection',
@@ -12,7 +12,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
 
   const n = 60_000;
   const centers = [[-2, -1], [1.5, 1], [0, 2.5]];

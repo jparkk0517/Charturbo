@@ -13,9 +13,9 @@ import type {
   ChartPaddingOptions,
   ChartTooltipContext,
   NodeMetadata,
-  VizTheme,
-  WasmVizEngineBackend,
-} from './viz-engine-sdk';
+  CharturboTheme,
+  WasmCharturboEngineBackend,
+} from './charturbo';
 import {
   esc,
   overlayDiv,
@@ -134,7 +134,7 @@ export function radarMeta(data: RadarChartData, options: RadarChartOptions | und
 }
 
 /** Series colors: own color, else the palette slot (fixed order, never cycled). */
-function radarColors(meta: RadarChartMeta, theme: VizTheme): RgbaTuple[] {
+function radarColors(meta: RadarChartMeta, theme: CharturboTheme): RgbaTuple[] {
   return meta.colorInputs.map((c, s) => parseOptionalColor(c) ?? theme.palette[s] ?? theme.palette[theme.palette.length - 1]);
 }
 
@@ -145,7 +145,7 @@ export function radarLabelSpace(axes: string[]): [number, number] {
 }
 
 /** Uploads the radar (`set_radar_chart`) and reads the radial scale back; returns the point count. */
-export function sendRadar(backend: WasmVizEngineBackend, meta: RadarChartMeta, options: RadarChartOptions | undefined, theme: VizTheme): number {
+export function sendRadar(backend: WasmCharturboEngineBackend, meta: RadarChartMeta, options: RadarChartOptions | undefined, theme: CharturboTheme): number {
   const n = meta.axes.length;
   const flat = new Float64Array(meta.values.length * n);
   meta.values.forEach((v, s) => flat.set(v, s * n));
@@ -180,7 +180,7 @@ export function sendRadar(backend: WasmVizEngineBackend, meta: RadarChartMeta, o
 }
 
 /** Re-sends the series colors under `theme` (palette slots follow the theme). */
-export function sendRadarColors(backend: WasmVizEngineBackend, meta: RadarChartMeta, theme: VizTheme): void {
+export function sendRadarColors(backend: WasmCharturboEngineBackend, meta: RadarChartMeta, theme: CharturboTheme): void {
   meta.colors = radarColors(meta, theme);
   const colors = new Float32Array(meta.colors.length * 4);
   meta.colors.forEach((c, s) => colors.set(c, s * 4));
@@ -188,7 +188,7 @@ export function sendRadarColors(backend: WasmVizEngineBackend, meta: RadarChartM
 }
 
 /** Reads `[max, step, ring count, rings..., axis max...]` from the engine. */
-export function syncRadarScale(backend: WasmVizEngineBackend, meta: RadarChartMeta): void {
+export function syncRadarScale(backend: WasmCharturboEngineBackend, meta: RadarChartMeta): void {
   const a = backend.chart_radar_scale?.();
   if (!a || a.length < 3) return;
   const rings = a[2];
@@ -223,7 +223,7 @@ export function radarTooltipContext(
   };
 }
 
-export function radarTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, formatValue: (v: number) => string): string {
+export function radarTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string): string {
   const rows = ctx.items.map((it) => tooltipRow(theme, it.seriesName, esc(formatValue(it.value)), it.color)).join('');
   return `${tooltipHeader(theme, ctx.xLabel)}${rows}`;
 }
@@ -314,7 +314,7 @@ export class RadarLabelLayer implements BusinessLabelLayer {
     parent: HTMLElement,
     private readonly meta: RadarChartMeta
   ) {
-    this.root = overlayDiv('viz-sdk-radar-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
+    this.root = overlayDiv('charturbo-sdk-radar-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
     parent.appendChild(this.root);
   }
 
@@ -322,7 +322,7 @@ export class RadarLabelLayer implements BusinessLabelLayer {
     this.key = '';
   }
 
-  update(backend: WasmVizEngineBackend, theme: VizTheme): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme): void {
     const a = backend.chart_radar_labels?.();
     if (!a || a.length < 2) return;
     const hovered = backend.chart_radar_layout?.()?.[3] ?? -1;
@@ -335,7 +335,7 @@ export class RadarLabelLayer implements BusinessLabelLayer {
       const [kind, index, value, x, y, ha, va] = [a[at], a[at + 1], a[at + 2], a[at + 3], a[at + 4], a[at + 5], a[at + 6]];
       let el = this.labels[k];
       if (!el) {
-        el = overlayDiv('viz-sdk-radar-label', { fontVariantNumeric: 'tabular-nums' });
+        el = overlayDiv('charturbo-sdk-radar-label', { fontVariantNumeric: 'tabular-nums' });
         this.root.appendChild(el);
         this.labels.push(el);
       }

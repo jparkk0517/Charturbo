@@ -1,20 +1,20 @@
 /**
- * Typed event emitter of `VizEngineSDK` (`sdk.on(...)`) and the rAF throttle behind
+ * Typed event emitter of `Charturbo` (`sdk.on(...)`) and the rAF throttle behind
  * `'rangechange'`. DOM-free so it runs under the test runner as-is.
  */
-import type { ChartTooltipContext, NodeDetails, VizTheme } from './viz-engine-sdk';
-import type { VizSelection } from './chart-brush';
-import type { VizDrillEvent } from './chart-hierarchy';
+import type { ChartTooltipContext, NodeDetails, CharturboTheme } from './charturbo';
+import type { CharturboSelection } from './chart-brush';
+import type { CharturboDrillEvent } from './chart-hierarchy';
 
 /** Visible chart range in data units (line x: series `x` or sample index; y: scatter only). */
-export interface VizRange {
+export interface CharturboRange {
   xMin: number;
   xMax: number;
   yMin?: number;
   yMax?: number;
 }
 
-export interface VizHoverEvent {
+export interface CharturboHoverEvent {
   /** Hovered chart sample / bar / point (`null` = none); only set while a chart is shown */
   chart: ChartTooltipContext | null;
   /** Hovered graph node, or the primary hovered chart point's details (`null` = none) */
@@ -23,37 +23,37 @@ export interface VizHoverEvent {
   clientY: number;
 }
 
-export interface VizClickEvent {
+export interface CharturboClickEvent {
   chart: ChartTooltipContext | null;
   node: NodeDetails | null;
   event: PointerEvent;
 }
 
-export interface VizEventMap {
+export interface CharturboEventMap {
   /** Hover target changed (needs `enableNodeInteractions`); `null`s when the pointer leaves */
-  hover: VizHoverEvent;
+  hover: CharturboHoverEvent;
   /** Click / tap without dragging (needs `enableNodeInteractions`) */
-  click: VizClickEvent;
+  click: CharturboClickEvent;
   /** Visible range changed (zoom / pan / reset / `setXRange`), at most once per animation frame */
-  rangechange: VizRange;
+  rangechange: CharturboRange;
   /** A series was shown / hidden (legend click or `setSeriesVisible`) */
   legendtoggle: { series: number; visible: boolean };
-  themechange: VizTheme;
+  themechange: CharturboTheme;
   /** Render target resized (physical px), by `resize()` or auto-resize */
   resize: { width: number; height: number };
   /**
    * Brush selection committed (drag release with `brush` enabled, or `selectChartRange`), or
    * cleared (Escape, click, `clearSelection`): then `xRange` is `null` and nothing is selected
    */
-  select: VizSelection;
+  select: CharturboSelection;
   /** Treemap / sunburst drilled into a node or back up (click, breadcrumb, Enter / Escape, `drillTo`) */
-  drill: VizDrillEvent;
+  drill: CharturboDrillEvent;
 }
 
-export type VizEventName = keyof VizEventMap;
-export type VizEventHandler<K extends VizEventName> = (payload: VizEventMap[K]) => void;
+export type CharturboEventName = keyof CharturboEventMap;
+export type CharturboEventHandler<K extends CharturboEventName> = (payload: CharturboEventMap[K]) => void;
 
-export class VizEventEmitter<M extends object = VizEventMap> {
+export class CharturboEventEmitter<M extends object = CharturboEventMap> {
   private readonly handlers = new Map<keyof M, Set<(payload: never) => void>>();
 
   /** Subscribes `handler`; returns the unsubscribe function. */
@@ -132,7 +132,7 @@ export function frameThrottle(fn: () => void, scheduler: FrameScheduler = defaul
 }
 
 /** Same range (exact; the engine reports identical numbers for an unchanged window). */
-export function sameRange(a: VizRange | null, b: VizRange | null): boolean {
+export function sameRange(a: CharturboRange | null, b: CharturboRange | null): boolean {
   if (!a || !b) return a === b;
   return a.xMin === b.xMin && a.xMax === b.xMax && a.yMin === b.yMin && a.yMax === b.yMax;
 }

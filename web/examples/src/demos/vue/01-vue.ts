@@ -1,9 +1,9 @@
 import { createApp, defineComponent, h, ref, shallowRef, onUnmounted } from 'vue';
-import { VizChart, type VizChartInstance } from 'viz-engine-sdk/vue';
+import { CharturboChart, type CharturboChartInstance } from 'charturbo/vue';
 import { chartTheme, getThemeName, setThemeName, subscribeTheme } from '../../theme';
 
 export const meta = {
-  title: 'Vue <VizChart>',
+  title: 'Vue <CharturboChart>',
   description: 'Replace shallowRef data with a new array to re-render; theme changes only call setTheme.',
 };
 
@@ -18,7 +18,7 @@ const Dashboard = defineComponent({
     const data = shallowRef(randomData());
     const theme = shallowRef(chartTheme());
     onUnmounted(subscribeTheme(() => { theme.value = chartTheme(); }));
-    const chart = ref<VizChartInstance | null>(null);
+    const chart = ref<CharturboChartInstance | null>(null);
     const options = { title: 'Revenue (Vue)', mode: 'stacked' as const };
     return () => [
       h('div', { class: 'toolbar' }, [
@@ -26,7 +26,7 @@ const Dashboard = defineComponent({
         h('button', { onClick: () => setThemeName(getThemeName() === 'dark' ? 'light' : 'dark') }, `Theme: ${theme.value.name}`),
         h('button', { onClick: () => chart.value?.sdk?.downloadChartSVG('vue-chart.svg') }, 'Download SVG'),
       ]),
-      h(VizChart, {
+      h(CharturboChart, {
         ref: chart,
         type: 'bar',
         data: data.value,

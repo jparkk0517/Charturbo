@@ -4,13 +4,13 @@ import {
   SpatialQueryTiming,
   WarmupTiming,
 } from './engine-adapter';
-import { RawGraphData, VizEngineSDK } from '../sdk/viz-engine-sdk';
+import { RawGraphData, Charturbo } from '../sdk/charturbo';
 
 export class RustWgpuAdapter implements EngineAdapter {
-  readonly name = 'VizEngineSDK (Rust + wgpu WASM)';
-  readonly sdk: VizEngineSDK;
+  readonly name = 'Charturbo (Rust + wgpu WASM)';
+  readonly sdk: Charturbo;
 
-  private constructor(sdk: VizEngineSDK) {
+  private constructor(sdk: Charturbo) {
     this.sdk = sdk;
   }
 
@@ -21,7 +21,7 @@ export class RustWgpuAdapter implements EngineAdapter {
     edgeCount: number,
     clusterCount: number
   ): Promise<RustWgpuAdapter> {
-    const sdk = await VizEngineSDK.create(canvas, {
+    const sdk = await Charturbo.create(canvas, {
       seed,
       nodeCount,
       edgeCount,

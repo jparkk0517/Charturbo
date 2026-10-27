@@ -4,7 +4,7 @@
  * presentation only. Events (`'hover'`, `'click'`) keep the unfiltered context.
  */
 import { createFormatter, type ChartValueFormat } from './chart-format';
-import type { ChartTooltipContext } from './viz-engine-sdk';
+import type { ChartTooltipContext } from './charturbo';
 
 export interface ChartTooltipOptions {
   /** Row order by value: `'asc'`, `'desc'` (NaN last), or `'none'` = series order (default) */

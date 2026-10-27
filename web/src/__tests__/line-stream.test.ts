@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { VizEngineSDK, WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { Charturbo, WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 /**
  * Mock backend with a tiny line-data model standing in for the engine: per-series values / x,
@@ -29,7 +29,11 @@ function mockSdk(opts: { readBack?: boolean } = {}) {
     }
     return null;
   };
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
+    set_area_chart: (v: Float32Array, lengths: Uint32Array, x: Float64Array) => {
+      split(v, lengths, x.length ? x : undefined);
+      return v.length;
+    },
     set_line_chart: (v: Float32Array, lengths: Uint32Array) => {
       split(v, lengths);
       return v.length;
@@ -53,6 +57,16 @@ function mockSdk(opts: { readBack?: boolean } = {}) {
       values[s].splice(0, drop);
       xs?.[s].splice(0, drop);
       return values[s].length;
+    },
+    append_area_data: (v: Float32Array, lengths: Uint32Array, x: Float64Array, maxPoints: number) => {
+      record('append_area_data', [v, lengths, x, maxPoints]);
+      if (x.includes(-1)) throw new Error('invalid x');
+      let at = 0;
+      return Uint32Array.from(lengths, (len, s) => {
+        backend.append_chart_series_data!(s, v.subarray(at, at + len), x.subarray(at, at + len), maxPoints);
+        at += len;
+        return values[s].length;
+      });
     },
     set_chart_y_domain: (...args: unknown[]) => record('set_chart_y_domain', args),
     chart_y_domain: () => new Float64Array([0, 50, 10]),
@@ -109,18 +123,18 @@ function mockSdk(opts: { readBack?: boolean } = {}) {
     set_graph_visible: () => {},
     clear_scene_objects: () => {},
   };
-  const sdk = VizEngineSDK.fromBackend(backend);
+  const sdk = Charturbo.fromBackend(backend);
   live.push(sdk);
   return { sdk, calls };
 }
 
-const live: VizEngineSDK[] = [];
+const live: Charturbo[] = [];
 afterEach(() => {
   // Clears pending throttled a11y refreshes
   live.splice(0).forEach((sdk) => sdk.dispose());
 });
 
-const attrs = (sdk: VizEngineSDK, id: number) => sdk.getNodeDetails(id)?.metadata.attributes;
+const attrs = (sdk: Charturbo, id: number) => sdk.getNodeDetails(id)?.metadata.attributes;
 
 describe('line chart data updates', () => {
   it('replaces one series in place and re-bases ids', () => {
@@ -211,5 +225,84 @@ describe('line chart data updates', () => {
     sdk.setYDomain({ min: undefined, autoscale: 'none', max: 9 });
     expect(calls.set_chart_y_domain[2]).toEqual([NaN, 9, 2, false]);
     expect(sdk.getYDomain()).toEqual([0, 50]);
+  });
+});
+
+describe('area chart data updates', () => {
+  it('streams overlap areas with FIFO and keeps details, CSV and summaries current', () => {
+    const { sdk } = mockSdk();
+    sdk.renderAreaChart([{ name: 'A', values: [10, 20] }, { name: 'B', values: [7, 8] }]);
+    expect(sdk.appendSeriesData(0, [30, 40], undefined, { maxPoints: 3 })).toBe(3);
+    expect(attrs(sdk, 0)?.value).toBe(20);
+    expect(attrs(sdk, 3)?.series).toBe('B');
+    expect(sdk.exportChartCSV()).toContain('40');
+    expect(sdk.getChartSummary()).toContain('5 points');
+    expect(sdk.setSeriesData(0, [5, 6])).toBe(2);
+    expect(attrs(sdk, 2)?.series).toBe('B');
+  });
+
+  it.each(['stacked', 'percent'] as const)('replaces aligned %s values without recreating the chart', (mode) => {
+    const { sdk, calls } = mockSdk();
+    sdk.renderAreaChart([{ name: 'A', values: [1, 2] }, { name: 'B', values: [3, 4] }], { mode });
+    sdk.setSeriesVisible(1, false);
+    expect(sdk.setSeriesData(0, [10, 20])).toBe(2);
+    expect(calls.set_chart_series_data).toHaveLength(1);
+    expect(sdk.isSeriesVisible(1)).toBe(false);
+    expect(attrs(sdk, 0)?.value).toBe(10);
+  });
+
+  it.each(['overlap', 'stacked', 'percent'] as const)('appends a %s batch and reads raw data back for CSV', (mode) => {
+    const { sdk, calls } = mockSdk();
+    const x = [new Date(1000), new Date(2000)];
+    sdk.renderAreaChart([{ name: 'A', values: [1, 2], x }, { name: 'B', values: [3, 6], x }], { mode });
+    const next = [new Date(3000), new Date(4000)];
+    expect(sdk.appendAreaData([{ values: [3, 4], x: next }, { values: [9, 12], x: next }], { maxPoints: 3 })).toEqual([3, 3]);
+    const [values, lengths, xs, max] = calls.append_area_data[0] as [Float32Array, Uint32Array, Float64Array, number];
+    expect(Array.from(values)).toEqual([3, 4, 9, 12]);
+    expect(Array.from(lengths)).toEqual([2, 2]);
+    expect(Array.from(xs)).toEqual([3000, 4000, 3000, 4000]);
+    expect(max).toBe(3);
+    expect(attrs(sdk, 0)?.value).toBe(2);
+    expect(attrs(sdk, 3)?.value).toBe(6);
+    expect(sdk.exportChartCSV()).toContain('12');
+    expect(sdk.getChartSummary()).toContain('6 points');
+    expect(calls.chart_series_values).toHaveLength(2);
+  });
+
+  it('rejects a misaligned stack or invalid capacity before touching the backend', () => {
+    const { sdk, calls } = mockSdk();
+    sdk.renderAreaChart([{ name: 'A', values: [1, 2], x: [1, 2] }, { name: 'B', values: [3, 4], x: [1, 2] }], { mode: 'stacked' });
+    expect(() => sdk.setSeriesData(0, [5], [1])).toThrow(/aligned/);
+    expect(() => sdk.setSeriesData(0, [5, 6], [1, 3])).toThrow(/shared x/);
+    expect(() => sdk.appendSeriesData(0, [5], [3])).toThrow(/appendAreaData/);
+    expect(() => sdk.appendAreaData([{ values: [5], x: [3] }])).toThrow(/every series/);
+    expect(() => sdk.appendAreaData([{ values: [5], x: [3] }, { values: [6, 7], x: [3, 4] }])).toThrow(/aligned/);
+    expect(() => sdk.appendAreaData([{ values: [5], x: [3] }, { values: [6], x: [4] }])).toThrow(/shared x/);
+    for (const maxPoints of [-1, 1.5, NaN, Infinity, 2 ** 32]) {
+      expect(() => sdk.appendAreaData([{ values: [], x: [] }, { values: [], x: [] }], { maxPoints })).toThrow(/maxPoints/);
+    }
+    expect(calls.append_area_data).toBeUndefined();
+    expect(calls.set_chart_series_data).toBeUndefined();
+    expect(attrs(sdk, 0)?.value).toBe(1);
+  });
+
+  it('preserves SDK metadata when the engine rejects a batch', () => {
+    const { sdk } = mockSdk();
+    sdk.renderAreaChart([{ name: 'A', values: [1], x: [1] }, { name: 'B', values: [3], x: [1] }], { mode: 'stacked' });
+    expect(() => sdk.appendAreaData([{ values: [2], x: [-1] }, { values: [6], x: [-1] }])).toThrow(/invalid x/);
+    expect(attrs(sdk, 0)?.value).toBe(1);
+    expect(attrs(sdk, 1)?.series).toBe('B');
+    expect(sdk.getChartSummary()).toContain('2 points');
+  });
+
+  it('mirrors batch data for backends without readback but never fakes a missing batch binding', () => {
+    const { sdk } = mockSdk({ readBack: false });
+    sdk.renderAreaChart([{ name: 'A', values: [1] }, { name: 'B', values: [3] }], { mode: 'stacked' });
+    sdk.appendAreaData([{ values: [2, 3] }, { values: [6, 9] }], { maxPoints: 2 });
+    expect(attrs(sdk, 0)?.value).toBe(2);
+    expect(attrs(sdk, 2)?.value).toBe(6);
+    (sdk as unknown as { backend: WasmCharturboEngineBackend }).backend.append_area_data = undefined;
+    expect(() => sdk.appendAreaData([{ values: [4] }, { values: [12] }])).toThrow(/backend/);
+    expect(attrs(sdk, 0)?.value).toBe(2);
   });
 });

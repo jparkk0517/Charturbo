@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GraphDatasetTS } from '../domain/dataset';
-import { RawGraphData } from '../sdk/viz-engine-sdk';
+import { RawGraphData } from '../sdk/charturbo';
 import { ForceDirectedSimulatorTS, OctreeSpatialIndexTS } from '../three-engine/octree-physics';
 import {
   EngineAdapter,

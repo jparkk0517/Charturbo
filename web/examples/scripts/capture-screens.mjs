@@ -7,7 +7,7 @@
 //   npm run examples:shots                    build the site, then capture
 //   node examples/scripts/capture-screens.mjs [options]   capture an existing examples-dist
 //   options: --out=<dir> (default ../docs/assets/demo)  --dpr=2  --only=line,scatter
-//            --base=/VizEngineSDK/ (serve under a subpath, e.g. to check the Pages layout)
+//            --base=/Charturbo/ (serve under a subpath, e.g. to check the Pages layout)
 //            --chrome=<path> (or CHROME_PATH)  --no-hero
 //
 // PNG size optimization (palette quantization) and the collage use `sharp`. It is not a
@@ -231,7 +231,7 @@ async function main() {
   const pageUrl = (page) => `${new URL(origin).origin}${BASE.replace(/\/?$/, '/')}${page}.html`;
 
   const cdpPort = await freePort();
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'viz-shots-'));
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'charturbo-shots-'));
   const chrome = spawn(
     chromePath,
     [

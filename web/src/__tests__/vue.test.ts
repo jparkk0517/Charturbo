@@ -4,11 +4,11 @@ import { createApp, defineComponent, h, nextTick, reactive, shallowRef, type App
 import { renderToString } from 'vue/server-renderer';
 import { createSSRApp } from 'vue';
 
-vi.mock('../sdk/viz-engine-sdk', async () => (await import('./fake-viz-sdk')).fakeSdkModule);
+vi.mock('../sdk/charturbo', async () => (await import('./fake-charturbo-sdk')).fakeSdkModule);
 
-import { FakeSDK, flush } from './fake-viz-sdk';
-import { VizChart, useVizChart, type VizChartInstance } from '../vue';
-import type { LineSeriesDescriptor } from '../sdk/viz-engine-sdk';
+import { FakeSDK, flush } from './fake-charturbo-sdk';
+import { CharturboChart, useCharturboChart, type CharturboChartInstance } from '../vue';
+import type { LineSeriesDescriptor } from '../sdk/charturbo';
 
 const series: LineSeriesDescriptor[] = [{ name: 'cpu', values: [1, 2, 3] }];
 const lineOptions = { title: 'CPU' };
@@ -28,13 +28,13 @@ afterEach(() => {
   host.remove();
 });
 
-/** Mounts `<VizChart v-bind="props()" />` (props read reactively) with a template ref. */
+/** Mounts `<CharturboChart v-bind="props()" />` (props read reactively) with a template ref. */
 function mountChart(props: () => Record<string, unknown>) {
-  const chartRef = shallowRef<VizChartInstance | null>(null);
+  const chartRef = shallowRef<CharturboChartInstance | null>(null);
   const show = shallowRef(true);
   app = createApp(
     defineComponent({
-      setup: () => () => (show.value ? h(VizChart, { ref: chartRef, ...props() } as never) : null),
+      setup: () => () => (show.value ? h(CharturboChart, { ref: chartRef, ...props() } as never) : null),
     })
   );
   app.mount(host);
@@ -48,7 +48,32 @@ async function ready(): Promise<FakeSDK> {
   return sdk;
 }
 
-describe('Vue VizChart', () => {
+describe('Vue CharturboChart', () => {
+  it.each(['errorBar', 'impulse'] as const)('dispatches independent %s props', async (type) => {
+    const data = [{ name: 'S', values: [1, 2], error: 0.5 }];
+    mountChart(() => ({ type, data }));
+    await flush();
+    const sdk = await ready();
+    expect(type === 'errorBar' ? sdk.renderErrorBarChart : sdk.renderImpulseChart).toHaveBeenCalledWith(data, undefined);
+  });
+
+  it('dispatches independent band props', async () => {
+    const data = [{ name: 'Range', lower: [1, 2], upper: [3, 4] }];
+    const options = { fillOpacity: 0.3 };
+    mountChart(() => ({ type: 'band', data, options }));
+    await flush();
+    const sdk = await ready();
+    expect(sdk.renderBandChart).toHaveBeenCalledWith(data, options);
+  });
+  it('dispatches OHLC props to the independent financial renderer', async () => {
+    const data = { open: [10], high: [12], low: [9], close: [11] };
+    const options = { tickWidth: 0.8 };
+    mountChart(() => ({ type: 'ohlc', data, options }));
+    await flush();
+    const sdk = await ready();
+    expect(sdk.renderOhlcChart).toHaveBeenCalledWith(data, options);
+    expect(sdk.renderCandlestickChart).not.toHaveBeenCalled();
+  });
   it('creates the engine on mount and applies theme, sync, chart, interactions once ready', async () => {
     const onReady = vi.fn();
     const { chartRef } = mountChart(() => ({
@@ -194,14 +219,14 @@ describe('Vue VizChart', () => {
     expect(sdk.renderHistogram).toHaveBeenCalledTimes(1);
   });
 
-  it('useVizChart composable with getters, plus create failure', async () => {
+  it('useCharturboChart composable with getters, plus create failure', async () => {
     const onError = vi.fn();
-    let result: ReturnType<typeof useVizChart> | null = null;
+    let result: ReturnType<typeof useCharturboChart> | null = null;
     app = createApp(
       defineComponent({
         setup() {
           const canvas = shallowRef<HTMLCanvasElement | null>(null);
-          result = useVizChart(canvas, { type: 'scatter', data: { x: [1], y: [2] }, onError });
+          result = useCharturboChart(canvas, { type: 'scatter', data: { x: [1], y: [2] }, onError });
           return () => h('div', [h('canvas', { ref: canvas })]);
         },
       })
@@ -217,7 +242,7 @@ describe('Vue VizChart', () => {
   });
 
   it('SSR: renders markup without creating an engine', async () => {
-    const html = await renderToString(createSSRApp({ render: () => h(VizChart, { type: 'line', data: series, class: 'ssr' }) }));
+    const html = await renderToString(createSSRApp({ render: () => h(CharturboChart, { type: 'line', data: series, class: 'ssr' }) }));
     expect(html).toContain('<canvas');
     expect(html).toContain('ssr');
     expect(FakeSDK.create).not.toHaveBeenCalled();

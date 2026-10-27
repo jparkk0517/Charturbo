@@ -7,7 +7,7 @@
  * falls back to its GL backend exactly like a browser without WebGPU.
  */
 
-import { VIZ_THEMES } from '../src/index';
+import { CHARTURBO_THEMES } from '../src/index';
 import { FIXTURES } from './fixtures';
 import type { FixtureContext } from './fixtures';
 
@@ -87,7 +87,7 @@ async function run(): Promise<VisualState> {
   const fixture = FIXTURES.find((f) => f.name === name);
   if (!fixture) return { ...state, error: name ? `unknown fixture ${name}` : 'no fixture' };
   // Card = theme surface, so the full shot has no seam around the canvas
-  const [r, g, b] = VIZ_THEMES[fixture.theme].surface.map((c) => Math.round(c * 255));
+  const [r, g, b] = CHARTURBO_THEMES[fixture.theme].surface.map((c) => Math.round(c * 255));
   card.style.background = `rgb(${r}, ${g}, ${b})`;
   const ctx: FixtureContext = { card, theme: fixture.theme, backend: requested, params };
   const t0 = performance.now();

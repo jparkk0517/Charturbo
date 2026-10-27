@@ -2,14 +2,14 @@
 
 ## 1. Rust WASM 패키지 컴파일
 ```bash
-wasm-pack build crates/viz-core --target web --out-dir ../../web/src/wasm-pkg
+wasm-pack build crates/charturbo-core --target web --out-dir ../../web/src/wasm-pkg
 ```
 
 ## 2. 순수 NPM 라이브러리 빌드 (`dist-lib/`)
 예시 쇼케이스 및 벤치마크 UI를 완전히 제외한 순수 SDK 번들과 `.d.ts` 타입 정의만 `web/dist-lib/`에 패키징합니다.
 출력:
-- `viz-engine-sdk.js`(ES) + `viz_core_bg.wasm`(별도 파일, `new URL('./viz_core_bg.wasm', import.meta.url)`로 로드 → Vite · webpack 5(검증됨), Rollup / Parcel 에셋 플러그인이 에셋으로 처리)
-- `inline.js`(`viz-engine-sdk/inline`, WASM base64 내장 — esbuild처럼 에셋 처리가 없는 환경), `viz-engine-sdk.umd.cjs`(UMD, WASM 내장: `<script>` 태그 · CommonJS `require`)
+- `charturbo.js`(ES) + `charturbo_core_bg.wasm`(별도 파일, `new URL('./charturbo_core_bg.wasm', import.meta.url)`로 로드 → Vite · webpack 5(검증됨), Rollup / Parcel 에셋 플러그인이 에셋으로 처리)
+- `inline.js`(`charturbo/inline`, WASM base64 내장 — esbuild처럼 에셋 처리가 없는 환경), `charturbo.umd.cjs`(UMD, WASM 내장: `<script>` 태그 · CommonJS `require`)
 - 프레임워크 엔트리 `react.js` · `vue.js`(코어 청크를 import, `react` / `vue`는 external)
 - 타입: `index.d.ts`(+ CJS용 `index.d.cts` / `inline.d.cts`), `react/` · `vue/` · `sdk/` 선언. `scripts/finalize-dts.mjs`가 상대 경로에 `.js` 확장자를 붙여 `moduleResolution: node16 / nodenext`에서도 타입이 풀립니다.
 - WASM 위치를 바꾸려면 첫 `create()` 전에 `setWasmSource(url | Response | bytes | WebAssembly.Module)`.
@@ -47,7 +47,7 @@ npm run test:visual -- --param=color:#ff00ff  # 픽스처 파라미터 (일부�
 ```
 - 구성: `web/e2e/index.html` + `main.ts` + `fixtures.ts`(픽스처 페이지, Vite가 서빙), `run-visual.mjs`(러너), `lib/image.mjs`(의존성 없는 PNG 디코드/인코드 `node:zlib` + 픽셀 diff). 러너가 빈 포트에 자체 Vite 서버를 띄우고, 고유 `--user-data-dir` · `--remote-debugging-port`로 Chrome(`--headless=new --enable-unsafe-webgpu`, macOS는 `--use-angle=metal`)을 실행해 DevTools Protocol로 픽스처마다 페이지를 새로 엽니다.
 - 백엔드: `webgpu` 패스와 `webgl2` 강제 패스(페이지가 엔진 시작 전에 `navigator.gpu`를 숨겨 wgpu가 GL 백엔드로 폴백 — WebGPU가 없는 브라우저와 같은 경로). 실제 백엔드는 캔버스 컨텍스트로 확인하고 다르면 오류입니다.
-- 픽스처(27): 1M 포인트 선(M4 LOD), 선 다크/라이트 테마, 누적 영역, 그룹 막대, 산점도, 캔들스틱, 히스토그램(20만 샘플), 히트맵, 박스 · 바이올린, 파이 · 도넛, 콤보, 레이더 · 게이지 · 퍼널 · 워터폴, 트리맵 · 선버스트 · 생키, 세로축 줌(`line-yzoom`) · 박스 줌(`box-zoom`), 공유 `VizDevice` 위 스파크라인 24개 그리드, hover(`hoverAtX` → crosshair + 마커), 네비게이터(줌 창), 브러시 사각형(`selectChartRange` xy).
+- 픽스처(27): 1M 포인트 선(M4 LOD), 선 다크/라이트 테마, 누적 영역, 그룹 막대, 산점도, 캔들스틱, 히스토그램(20만 샘플), 히트맵, 박스 · 바이올린, 파이 · 도넛, 콤보, 레이더 · 게이지 · 퍼널 · 워터폴, 트리맵 · 선버스트 · 생키, 세로축 줌(`line-yzoom`) · 박스 줌(`box-zoom`), 공유 `CharturboDevice` 위 스파크라인 24개 그리드, hover(`hoverAtX` → crosshair + 마커), 네비게이터(줌 창), 브러시 사각형(`selectChartRange` xy).
 - 샷 2종: `canvas` = DOM 오버레이(제목 · 눈금 · 범례 · 컬러바 · 파이 라벨)를 `visibility: hidden`으로 숨기고 캔버스 영역만 잘라낸 것 (글꼴과 무관, 주 검증 대상), `full` = 라벨 포함 카드 전체 (같은 머신 · 같은 글꼴에서만 안정 — 다른 OS / CI에서는 `--canvas-only`).
 - 기준 이미지: `web/e2e/baselines/<webgpu|webgl2>/<fixture>.<canvas|full>.png` (108개). 결과: `web/e2e/out/report.html`(기준 / 실제 / diff 나란히), `report.json`, `*.actual.png`, `*.diff.png` (`e2e/out/`은 git 제외).
 - 비교: 픽셀마다 RGBA 채널 최대 차이가 임계값(canvas 24, full 32 / 255)을 넘으면 다른 픽셀, 다른 픽셀 비율이 0.2%를 넘거나 크기가 바뀌면 실패. diff 이미지: 빨강 = 임계값 초과, 노랑 = 임계값 이하 차이, 회색 = 동일.

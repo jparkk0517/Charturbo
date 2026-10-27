@@ -22,7 +22,7 @@ vi.mock('../sdk/chart-a11y', () => ({
     }
   },
 }));
-import { VizEngineSDK } from '../sdk/viz-engine-sdk';
+import { Charturbo } from '../sdk/charturbo';
 import { fakeCanvas, graphBackend } from './graph-backend';
 
 function host(options: CameraControlOptions | false = {}, over: Partial<CameraControlsHost> = {}) {
@@ -151,9 +151,9 @@ describe('enableNodeInteractions camera controls', () => {
     document.body.replaceChildren();
   });
 
-  function setup(options: Parameters<VizEngineSDK['enableNodeInteractions']>[1] = {}, withCameraState = true) {
+  function setup(options: Parameters<Charturbo['enableNodeInteractions']>[1] = {}, withCameraState = true) {
     const mock = graphBackend(withCameraState);
-    const sdk = VizEngineSDK.fromBackend(mock.backend);
+    const sdk = Charturbo.fromBackend(mock.backend);
     const c = fakeCanvas();
     const detach = sdk.enableNodeInteractions(c.canvas, { builtInTooltip: false, ...options });
     return { sdk, detach, ...mock, ...c };
@@ -277,7 +277,7 @@ describe('enableNodeInteractions camera controls', () => {
 describe('camera state / framing', () => {
   it('getCameraState maps the engine pose (eye from yaw / pitch); null without the binding', () => {
     const { backend } = graphBackend();
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     const s = sdk.getCameraState()!;
     expect(s.target).toEqual([0, 0, 0]);
     expect(s.distance).toBe(220);
@@ -285,12 +285,12 @@ describe('camera state / framing', () => {
     expect(s.aspect).toBe(2);
     expect(Math.hypot(...s.eye)).toBeCloseTo(220, 3);
     expect(s.eye[1]).toBeCloseTo(220 * Math.sin(Math.fround(0.3)), 3);
-    expect(VizEngineSDK.fromBackend(graphBackend(false).backend).getCameraState()).toBeNull();
+    expect(Charturbo.fromBackend(graphBackend(false).backend).getCameraState()).toBeNull();
   });
 
   it('focusNode moves closer relative to the fitToView distance, never farther; options override', () => {
     const { backend, cam } = graphBackend();
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.fitToView();
     expect(sdk.focusNode(1)).toBe(true);
     expect(cam.target).toEqual([1, 2, 0]);
@@ -311,7 +311,7 @@ describe('camera state / framing', () => {
 
   it('new data drops the overview: the next first focus measures it again', () => {
     const { backend, cam } = graphBackend();
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.fitToView(); // overview 300
     sdk.reloadSeededDataset(1, 10, 10, 2);
     cam.distance = 1000;
@@ -322,7 +322,7 @@ describe('camera state / framing', () => {
   it('double-click focuses and zooms; without camera_state only the target moves', () => {
     for (const withState of [true, false]) {
       const { backend, calls, cam, pick } = graphBackend(withState);
-      const sdk = VizEngineSDK.fromBackend(backend);
+      const sdk = Charturbo.fromBackend(backend);
       const { canvas, handlers } = fakeCanvas();
       sdk.enableNodeInteractions(canvas, { builtInTooltip: false });
       pick(1);

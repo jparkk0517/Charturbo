@@ -28,9 +28,9 @@ export interface Results {
   compare: Entry[];
 }
 export const CHART_LIBS = ['viz', 'uplot', 'echarts', 'chartjs', 'plotly', 'chartgpu', 'scichart', 'highcharts'];
-export const GRAPH_LIBS = ['viz', 'vizgpu', 'three', 'deckgl', 'cosmos', 'forcegraph3d'];
+export const GRAPH_LIBS = ['viz', 'three', 'deckgl', 'cosmos', 'forcegraph3d'];
 export const LIB_NAMES: Record<string, string> = {
-  viz: 'VizEngineSDK', vizgpu: 'VizEngine GPU', uplot: 'uPlot', echarts: 'ECharts', chartjs: 'Chart.js', plotly: 'Plotly',
+  viz: 'Charturbo', vizgpu: 'Charturbo', uplot: 'uPlot', echarts: 'ECharts', chartjs: 'Chart.js', plotly: 'Plotly',
   chartgpu: 'ChartGPU', scichart: 'SciChart', highcharts: 'Highcharts', three: 'three.js',
   deckgl: 'deck.gl', cosmos: 'cosmos.gl', forcegraph3d: '3d-force-graph',
 };
@@ -45,13 +45,13 @@ export const SCENARIOS = [
 export const METRICS: Record<Metric, { title: string; unit: string; hint: string }> = {
   ttff: { title: '데이터 전달 → 첫 프레임', unit: 'ms', hint: '짧을수록 좋음 · 초기화 제외' },
   fps: { title: '상호작용 중 프레임 속도', unit: 'fps', hint: '높을수록 좋음 · 60 Hz 환경' },
-  physics: { title: '프레임당 물리 / 제출 시간', unit: 'ms', hint: 'CPU/제출 시간 · VizEngine GPU는 GPU 왕복 포함' },
+  physics: { title: '프레임당 물리 / 제출 시간', unit: 'ms', hint: 'CPU/제출 시간 · SDK GPU 물리는 GPU 왕복 포함' },
 };
 export const formatValue = (n: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(n);
 
 export function workload(lib: string, scenario: string): string {
   if (!scenario.startsWith('graph')) return lib === 'chartgpu' && scenario === 'scatter-1m' ? 'x축만 줌·팬' : scenario === 'bar-10k' ? 'hover' : '줌·팬';
-  return ({ viz: '3D 물리 + 회전', vizgpu: '3D hybrid GPU 물리 + 회전', three: '3D 물리 + 회전', deckgl: '렌더만 + 회전', cosmos: '2D GPU 레이아웃', forcegraph3d: '3D d3 물리 + 회전' } as Record<string, string>)[lib] ?? '';
+  return ({ viz: '3D CPU 물리 + 회전', vizgpu: '3D hybrid GPU 물리 + 회전', three: '3D 물리 + 회전', deckgl: '렌더만 + 회전', cosmos: '2D GPU 레이아웃', forcegraph3d: '3D d3 물리 + 회전' } as Record<string, string>)[lib] ?? '';
 }
 
 /** Failed / missing / invalid measurements are not converted to zero-length bars. */
@@ -70,9 +70,27 @@ export function metricValue(entry: Entry | undefined, metric: Metric): { value: 
     : { value: null, status: '측정값 없음' };
 }
 
+/** Pick one complete run per scenario, keeping all displayed metrics and provenance together. */
+function fastestSdkEntry(data: Results, scenario: string): Entry | undefined {
+  const cpu = data.compare.find((r) => r.scenario === scenario && r.lib === 'viz');
+  const gpu = data.compare.find((r) => r.scenario === scenario && r.lib === 'vizgpu');
+  const cpuFps = metricValue(cpu, 'fps').value;
+  const gpuFps = metricValue(gpu, 'fps').value;
+  if (gpuFps === null) return cpu ?? gpu;
+  if (cpuFps === null || gpuFps > cpuFps) return gpu;
+  if (gpuFps === cpuFps) {
+    const cpuPhysics = metricValue(cpu, 'physics').value;
+    const gpuPhysics = metricValue(gpu, 'physics').value;
+    if (gpuPhysics !== null && (cpuPhysics === null || gpuPhysics < cpuPhysics)) return gpu;
+  }
+  return cpu;
+}
+
 export function rowsFor(data: Results, scenario: string, metric: Metric) {
   return (scenario.startsWith('graph') ? GRAPH_LIBS : CHART_LIBS).map((lib) => {
-    const entry = data.compare.find((r) => r.scenario === scenario && r.lib === lib);
+    const entry = lib === 'viz' && scenario.startsWith('graph')
+      ? fastestSdkEntry(data, scenario)
+      : data.compare.find((r) => r.scenario === scenario && r.lib === lib);
     return { lib, label: LIB_NAMES[lib], entry, ...metricValue(entry, metric) };
   });
 }

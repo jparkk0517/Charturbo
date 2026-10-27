@@ -1,4 +1,4 @@
-import { VizEngineSDK, type LayoutPresetMode } from 'viz-engine-sdk';
+import { Charturbo, type LayoutPresetMode } from 'charturbo';
 
 export const meta = {
   title: 'Layout presets',
@@ -14,7 +14,7 @@ export default async function mount(host: HTMLElement) {
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
   // Seeded synthetic graph: 3,000 nodes, 6,000 edges in 8 clusters
-  const sdk = await VizEngineSDK.create(canvas, { seed: 42, nodeCount: 3_000, edgeCount: 6_000, clusterCount: 8, locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { seed: 42, nodeCount: 3_000, edgeCount: 6_000, clusterCount: 8, locale: 'en-US' });
   sdk.generateDefaultMetadata('svc');
   // Default tooltip (label, category, cluster, degree, position) + built-in orbit / pan / zoom
   sdk.enableNodeInteractions(canvas, { autoRender: true });

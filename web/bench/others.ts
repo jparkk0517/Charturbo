@@ -9,10 +9,10 @@
  *    (`min-max`) for lines, `pointRadius: 0`
  *  - Plotly: `scattergl` (WebGL) traces (the gl2d bundle has no bar trace)
  *  - viz: the same SDK calls as ours.ts, with the window set through `setXRange` / `setYRange`
- * Libraries are loaded with dynamic imports, so the viz-only scenario pages never load them.
+ * Libraries are loaded with dynamic imports, so the charturbo-only scenario pages never load them.
  */
 
-import { VizEngineSDK } from '../src/index';
+import { Charturbo } from '../src/index';
 import type { CompareId } from './ours';
 import * as gen from './data';
 
@@ -81,10 +81,10 @@ function extent2(x: Float32Array, y: Float32Array): Domain {
 const COLOR = '#2a6fdb';
 const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-export async function createAdapter(lib: LibName, card: HTMLElement, data: CompareData, w: number, h: number, backendHook?: (sdk: VizEngineSDK) => void): Promise<LibAdapter> {
+export async function createAdapter(lib: LibName, card: HTMLElement, data: CompareData, w: number, h: number, backendHook?: (sdk: Charturbo) => void): Promise<LibAdapter> {
   switch (lib) {
     case 'viz':
-      return vizAdapter(card, data, w, h, backendHook);
+      return charturboAdapter(card, data, w, h, backendHook);
     case 'uplot':
       return uplotAdapter(card, data, w, h);
     case 'echarts':
@@ -102,13 +102,13 @@ export async function createAdapter(lib: LibName, card: HTMLElement, data: Compa
   }
 }
 
-async function vizAdapter(card: HTMLElement, d: CompareData, w: number, h: number, hook?: (sdk: VizEngineSDK) => void): Promise<LibAdapter> {
+async function charturboAdapter(card: HTMLElement, d: CompareData, w: number, h: number, hook?: (sdk: Charturbo) => void): Promise<LibAdapter> {
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   Object.assign(canvas.style, { width: `${w}px`, height: `${h}px`, display: 'block' });
   card.appendChild(canvas);
-  const sdk = await VizEngineSDK.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
+  const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
   sdk.setTheme('light');
   sdk.enableNodeInteractions(canvas, { autoRender: true });
   hook?.(sdk);

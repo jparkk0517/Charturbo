@@ -12,7 +12,7 @@ vi.mock('../sdk/chart-a11y', () => ({
   },
 }));
 
-import { VizEngineSDK, type VizSelection, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { Charturbo, type CharturboSelection, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 /** Engine selection encoding: `[kind, mode, x0, x1, y0, y1, count, n, (series, start, end) * n]`. */
 const LINE_SEL = [0, 0, 10, 20, NaN, NaN, 15, 2, 0, 10, 21, 1, 5, 9];
@@ -30,7 +30,7 @@ function brushBackend(kind: 'line' | 'scatter' = 'line') {
   let selection = new Float64Array(0);
   let live = false;
   const committed = new Float64Array(kind === 'line' ? LINE_SEL : SCATTER_SEL);
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_line_chart: record('set_line_chart', 0),
     set_scatter_chart: record('set_scatter_chart', 0),
     chart_series_count: () => 2,
@@ -114,7 +114,7 @@ function brushBackend(kind: 'line' | 'scatter' = 'line') {
 
 function chartSdk(kind: 'line' | 'scatter' = 'line') {
   const mock = brushBackend(kind);
-  const sdk = VizEngineSDK.fromBackend(mock.backend);
+  const sdk = Charturbo.fromBackend(mock.backend);
   if (kind === 'line') {
     sdk.renderLineChart([
       { name: 'A', values: [1, 2, 3] },
@@ -123,7 +123,7 @@ function chartSdk(kind: 'line' | 'scatter' = 'line') {
   } else {
     sdk.renderScatterChart({ x: [0, 1, 2], y: [0, 1, 2] });
   }
-  const selects: VizSelection[] = [];
+  const selects: CharturboSelection[] = [];
   sdk.on('select', (s) => selects.push(s));
   return { sdk, selects, ...mock };
 }

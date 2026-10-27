@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { seriesStats, withPassMemo } from '../sdk/chart-a11y';
 import { readRenderStats } from '../sdk/chart-stats';
-import { VizEngineSDK, WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { Charturbo, WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 /** Mock backend recording line chart calls (same pattern as line-x.test.ts). */
-function mockSdk(extra: Partial<WasmVizEngineBackend> = {}) {
+function mockSdk(extra: Partial<WasmCharturboEngineBackend> = {}) {
   const calls: Record<string, unknown[][]> = {};
   const record =
     (name: string, ret?: unknown) =>
@@ -12,7 +12,7 @@ function mockSdk(extra: Partial<WasmVizEngineBackend> = {}) {
       (calls[name] ??= []).push(args);
       return ret as never;
     };
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_line_chart: record('set_line_chart', 0),
     set_line_chart_xy: record('set_line_chart_xy', 0),
     set_chart_hover_style: record('set_chart_hover_style'),
@@ -55,7 +55,7 @@ function mockSdk(extra: Partial<WasmVizEngineBackend> = {}) {
     clear_scene_objects: () => {},
     ...extra,
   };
-  return { sdk: VizEngineSDK.fromBackend(backend), calls };
+  return { sdk: Charturbo.fromBackend(backend), calls };
 }
 
 describe('large-data render paths', () => {

@@ -1,9 +1,9 @@
 /**
- * Gallery (index.html): one card per family with a live preview. All previews share one GPU
- * device (`VizDevice`): one adapter / device and one pipeline set for the whole page.
+ * Gallery (gallery.html): one card per family with a live preview. All previews share one GPU
+ * device (`CharturboDevice`): one adapter / device and one pipeline set for the whole page.
  */
 import './style.css';
-import { VizDevice, VizEngineSDK } from 'viz-engine-sdk';
+import { CharturboDevice, Charturbo } from 'charturbo';
 import { FAMILIES, renderHeader } from './families';
 import { bindTheme } from './theme';
 
@@ -31,7 +31,7 @@ const groupedBars = {
 };
 
 /** Preview of each family (static: no interactions). */
-const PREVIEWS: Record<string, (sdk: VizEngineSDK) => void> = {
+const PREVIEWS: Record<string, (sdk: Charturbo) => void> = {
   line: (sdk) => sdk.renderLineChart(lineSeries, { ...quiet, padding: pad }),
   bar: (sdk) => sdk.renderGroupedBarChart(groupedBars, { ...quiet, padding: pad }),
   scatter: (sdk) => {
@@ -158,12 +158,12 @@ const PREVIEWS: Record<string, (sdk: VizEngineSDK) => void> = {
 };
 
 async function main() {
-  document.body.prepend(renderHeader(''));
+  document.body.prepend(renderHeader('gallery'));
   const mainEl = document.querySelector('main')!;
   const intro = document.createElement('section');
   intro.className = 'intro';
   intro.innerHTML =
-    '<h1>viz-engine-sdk examples</h1><p>Rust + WebGPU charts (WebGL2 fallback). Every page shows live charts next to their source.</p>';
+    '<h1>charturbo examples</h1><p>Rust + WebGPU charts (WebGL2 fallback). Every page shows live charts next to their source.</p>';
   const grid = document.createElement('div');
   grid.className = 'gallery';
   mainEl.append(intro, grid);
@@ -180,10 +180,10 @@ async function main() {
   });
 
   try {
-    const device = await VizDevice.create();
+    const device = await CharturboDevice.create();
     for (const { id, canvas } of canvases) {
       try {
-        const sdk = await VizEngineSDK.create(canvas, { device, locale: 'en-US' });
+        const sdk = await Charturbo.create(canvas, { device, locale: 'en-US' });
         PREVIEWS[id]?.(sdk);
         bindTheme(sdk);
       } catch (err) {

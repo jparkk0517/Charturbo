@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VIZ_THEMES, VizEngineSDK, type ChartTooltipContext, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { encodeHierarchy, fitText, hierarchyTooltipHtml, nameEngineError } from '../sdk/chart-hierarchy';
 import { buildA11yModel, buildChartDescription, buildChartSummary, buildDataTable, pointAnnouncement, stepFocus } from '../sdk/chart-a11y';
-import type { VizDrillEvent } from '../sdk/chart-hierarchy';
+import type { CharturboDrillEvent } from '../sdk/chart-hierarchy';
 
 /** Minimal DOM element: enough for the chart overlay, legend, labels, breadcrumb and tooltip. */
 class FakeEl {
@@ -117,7 +117,7 @@ interface MockState {
   error?: string;
 }
 
-function mockBackend(calls: Calls, st: MockState): WasmVizEngineBackend {
+function mockBackend(calls: Calls, st: MockState): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -294,7 +294,7 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
 
   it('renderTreemap sends the tree, options and theme palette; no axes, brush or navigation', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, state()));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, state()));
     const res = sdk.renderTreemap(TREE, { maxDepth: 2, innerPadding: 3, headerHeight: 18, colorBy: 'group', labels: false, title: 'Sales', colors: ['#ff0000'] });
     expect(res.nodeCount).toBe(6);
     const [parents, values, opts] = calls.set_treemap_chart[0] as [Int32Array, Float64Array, Float64Array];
@@ -306,8 +306,8 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     expect(Array.from(palette)).toEqual([1, 0, 0, 1]);
     expect(colors.length).toBe(24);
     expect(Number.isNaN(colors[0])).toBe(true);
-    expect(Array.from(other)).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.baseline)));
-    expect(Array.from(surface)).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.surface)));
+    expect(Array.from(other)).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.baseline)));
+    expect(Array.from(surface)).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.surface)));
     // Title + legend (2 groups) + breadcrumb row on top; no axis margins
     expect(calls.set_chart_padding.at(-1)).toEqual([12 + 24 + 28 + 24, 16, 12, 12]);
     expect(sdk.handlesChartNavigation()).toBe(false);
@@ -320,24 +320,24 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     expect(Number.isNaN(sun[0]) && sun[1] === 0 && sun[2] === 1).toBe(true);
     sdk.setTheme('light');
     const last = calls.set_chart_hierarchy_style.at(-1) as Float32Array[];
-    expect(Array.from(last[0].slice(0, 4))).toEqual(Array.from(new Float32Array(VIZ_THEMES.light.palette[0])));
+    expect(Array.from(last[0].slice(0, 4))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.light.palette[0])));
 
     // Engine validation errors are rethrown with node names
     const st = state();
     st.error = 'hierarchy has a cycle: node 0 -> node 1 -> node 0';
-    const bad = VizEngineSDK.fromBackend(mockBackend({}, st));
+    const bad = Charturbo.fromBackend(mockBackend({}, st));
     expect(() => bad.renderTreemap([{ id: 'p', parent: 'q' }, { id: 'q', parent: 'p' }])).toThrow('Hierarchy has a cycle: "p" -> "q" -> "p"');
   });
 
   it('hover tooltip shows path, value and shares; a click drills, the breadcrumb goes back up', () => {
     const calls: Calls = {};
     const st = state();
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, st));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderTreemap(TREE, { format: '$,.0f' });
     sdk.render();
     const seen: (ChartTooltipContext | null)[] = [];
-    const drills: VizDrillEvent[] = [];
+    const drills: CharturboDrillEvent[] = [];
     sdk.on('hover', (e) => seen.push(e.chart));
     sdk.on('drill', (e) => drills.push(e));
 
@@ -349,21 +349,21 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     expect(ctx.hierarchy).toMatchObject({ node: 2, name: 'a1', path: ['Root', 'A', 'a1'], value: 6, percentOfParent: 60, depth: 2, children: 0 });
     expect(ctx.hierarchy!.percentOfTotal).toBeCloseTo((6 / 22) * 100);
     expect(ctx.details?.metadata.label).toBe('Root › A › a1');
-    const tooltip = body.children.find((c) => c.className.includes('viz-sdk-node-tooltip'))!;
+    const tooltip = body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
     expect(tooltip.innerHTML).toContain('Root › A ›');
     expect(tooltip.innerHTML).toContain('$6');
     expect(tooltip.innerHTML).toContain('60.0% of parent');
     expect(tooltip.innerHTML).toContain('27.3% of total');
 
     // Labels at the engine anchors: header (name only), cell with a value line
-    const labels = container.querySelectorAll('.viz-sdk-hierarchy-label');
+    const labels = container.querySelectorAll('.charturbo-sdk-hierarchy-label');
     expect(labels.length).toBe(2);
     expect([labels[0].style.left, labels[0].style.top, labels[0].style.width]).toEqual(['20px', '70px', '300px']);
     expect(labels[0].textContent).toBe('A');
     expect(labels[1].textContent).toBe('a1$6');
 
     // Breadcrumb: the current root only
-    const [crumbs] = container.querySelectorAll('.viz-sdk-breadcrumb');
+    const [crumbs] = container.querySelectorAll('.charturbo-sdk-breadcrumb');
     expect(crumbs.textContent).toBe('Root');
 
     // Click on a1: the engine's drill target is A
@@ -373,7 +373,7 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     expect(drills).toEqual([{ kind: 'treemap', node: 1, id: undefined, name: 'A', path: ['Root', 'A'] }]);
     sdk.render();
     expect(crumbs.textContent).toBe('Root›A');
-    const up = container.querySelectorAll('.viz-sdk-breadcrumb-item');
+    const up = container.querySelectorAll('.charturbo-sdk-breadcrumb-item');
     expect(up.map((b) => b.textContent)).toEqual(['Root']);
     up[0].fire('click');
     expect(st.root).toBe(0);
@@ -385,7 +385,7 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     expect(sdk.drillTo('b1')).toBe(false);
 
     // Legend lists the top-level groups (engine order); hover emphasizes, no toggling
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.textContent)).toEqual(['B', 'A']);
     items[1].fire('pointerenter');
     expect(calls.set_chart_emphasis.at(-1)).toEqual([1]);
@@ -397,24 +397,24 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     const calls: Calls = {};
     const st = state();
     st.labels = [1, 300, 180, 80, 14, 0];
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, st));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderSunburst(TREE);
     sdk.render();
-    const [center] = container.querySelectorAll('.viz-sdk-sunburst-center');
+    const [center] = container.querySelectorAll('.charturbo-sdk-sunburst-center');
     expect([center.style.left, center.style.top, center.style.display]).toEqual(['400px', '220px', 'block']);
     expect(center.textContent).toBe('22Root');
     st.hovered = [0, 4];
     sdk.render();
     expect(center.textContent).toBe('12B · 54.5%');
-    const [label] = container.querySelectorAll('.viz-sdk-hierarchy-label');
+    const [label] = container.querySelectorAll('.charturbo-sdk-hierarchy-label');
     expect([label.textContent, label.style.transform]).toEqual(['A', 'translate(-50%, -50%)']);
   });
 
   it('treemap a11y: summary, node table, sibling keys, Enter drills and Escape goes up', () => {
     const calls: Calls = {};
     const st = state();
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, st));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
     sdk.renderTreemap(TREE, { title: 'Sales', valueLabel: 'Revenue' });
     const a11y = (sdk as unknown as { a11y: { model(): ReturnType<typeof buildA11yModel> } }).a11y;
     const model = a11y.model()!;
@@ -457,7 +457,7 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
   it('renderSankey encodes flows by node index; tooltip reads A → B (x% of A); a11y rows are links', () => {
     const calls: Calls = {};
     const st = state();
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, st));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     const res = sdk.renderSankey(
       { ...SANKEY, nodes: SANKEY.nodes.map((n, i) => (i === 2 ? { ...n, column: 1, group: 'hub' } : n)) },
@@ -484,7 +484,7 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     expect(ctx.chartType).toBe('sankey');
     expect(ctx.flow).toEqual({ kind: 'link', source: 'Power', target: 'Homes', value: 35, percentOfSource: 70 });
     expect(ctx.details?.metadata.attributes).toMatchObject({ source: 'Power', target: 'Homes', value: 35 });
-    const tooltip = body.children.find((c) => c.className.includes('viz-sdk-node-tooltip'))!;
+    const tooltip = body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
     expect(tooltip.innerHTML).toContain('Power → Homes');
     expect(tooltip.innerHTML).toContain('(70.0% of Power)');
     // Node hover: inflow / outflow
@@ -512,7 +512,7 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     expect(() => sdk.renderSankey({ nodes: [{ id: 'a' }], links: [{ source: 'a', target: 'zz', value: 1 }] })).toThrow('unknown target "zz"');
     const bad = state();
     bad.error = 'sankey links form a cycle: node 0 -> node 1 -> node 0';
-    const sdk2 = VizEngineSDK.fromBackend(mockBackend({}, bad));
+    const sdk2 = Charturbo.fromBackend(mockBackend({}, bad));
     expect(() =>
       sdk2.renderSankey({
         nodes: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }],
@@ -533,7 +533,7 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
       flow: { kind: 'link', source: '<b>', target: 'x', value: 1, percentOfSource: 50 },
       details: null,
     };
-    const html = hierarchyTooltipHtml(ctx, VIZ_THEMES.dark, (v) => String(v), 'en-US');
+    const html = hierarchyTooltipHtml(ctx, CHARTURBO_THEMES.dark, (v) => String(v), 'en-US');
     expect(html).not.toContain('<b>');
     expect(html).toContain('&#60;b&#62; → x');
   });

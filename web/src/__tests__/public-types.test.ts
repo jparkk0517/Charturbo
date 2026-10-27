@@ -149,7 +149,7 @@ describe('public type exports (src/index.ts)', () => {
     const { missing, reached } = auditPublicTypes();
     // The walk really covered the surface (a path mismatch would silently skip every declaration)
     expect(reached.size).toBeGreaterThan(100);
-    for (const name of ['VizEngineSDK', 'ChartTooltipContext', 'VizSelection', 'ChartTooltipOptions', 'ChartFormatSpec']) {
+    for (const name of ['Charturbo', 'ChartTooltipContext', 'CharturboSelection', 'ChartTooltipOptions', 'ChartFormatSpec']) {
       expect(reached.has(name), name).toBe(true);
     }
     const report = [...missing].map(([name, from]) => `${name} (referenced by ${from})`).sort();

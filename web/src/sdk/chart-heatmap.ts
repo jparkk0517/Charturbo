@@ -6,7 +6,7 @@
  * formats cell labels / tooltips.
  */
 import { parseColor, type ColorInput, type RgbaTuple } from './color';
-import type { ChartAxisOptions, ChartHoverStyle, ChartPaddingOptions, ChartTooltipContext, VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { ChartAxisOptions, ChartHoverStyle, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
 /** `'sequential'`: one hue light -> dark (flips on dark themes); `'diverging'`: two hues around a neutral `center`. */
 export type HeatmapColorScale = 'sequential' | 'viridis' | 'magma' | 'diverging';
@@ -122,7 +122,7 @@ export function heatmapMeta(data: HeatmapChartData, options?: HeatmapChartOption
 }
 
 /** Uploads the grid (`set_heatmap_chart`); the engine validates the shape. */
-export function sendHeatmap(backend: WasmVizEngineBackend, meta: HeatmapChartMeta, options?: HeatmapChartOptions): number {
+export function sendHeatmap(backend: WasmCharturboEngineBackend, meta: HeatmapChartMeta, options?: HeatmapChartOptions): number {
   return (
     backend.set_heatmap_chart?.(
       meta.cols,
@@ -138,7 +138,7 @@ export function sendHeatmap(backend: WasmVizEngineBackend, meta: HeatmapChartMet
 }
 
 /** Applies the colormap under `theme` (the surface decides the sequential / diverging anchors). */
-export function sendHeatmapColormap(backend: WasmVizEngineBackend, meta: HeatmapChartMeta, theme: VizTheme): void {
+export function sendHeatmapColormap(backend: WasmCharturboEngineBackend, meta: HeatmapChartMeta, theme: CharturboTheme): void {
   const c = meta.colormap;
   backend.set_chart_heatmap_colormap?.(
     HEATMAP_SCALE_CODES[c.scale] ?? 0,
@@ -220,17 +220,17 @@ export class HeatmapColorbarLayer {
       Object.assign(el.style, { position: 'absolute', pointerEvents: 'none', ...style });
       return el;
     };
-    this.root = div('viz-sdk-heatmap-colorbar', { left: '0px', top: '0px', width: '0px', height: '0px' });
+    this.root = div('charturbo-sdk-heatmap-colorbar', { left: '0px', top: '0px', width: '0px', height: '0px' });
     this.root.setAttribute('role', 'img');
-    this.title = div('viz-sdk-heatmap-colorbar-title', { fontSize: '11px', whiteSpace: 'nowrap', transform: 'translate(0, -100%)' });
-    this.bar = div('viz-sdk-heatmap-colorbar-bar', { left: '0px', top: '0px', width: `${BAR_WIDTH}px`, overflow: 'hidden', borderRadius: '2px' });
-    this.labels = div('viz-sdk-heatmap-colorbar-labels', { left: `${BAR_WIDTH + 4}px`, top: '0px' });
+    this.title = div('charturbo-sdk-heatmap-colorbar-title', { fontSize: '11px', whiteSpace: 'nowrap', transform: 'translate(0, -100%)' });
+    this.bar = div('charturbo-sdk-heatmap-colorbar-bar', { left: '0px', top: '0px', width: `${BAR_WIDTH}px`, overflow: 'hidden', borderRadius: '2px' });
+    this.labels = div('charturbo-sdk-heatmap-colorbar-labels', { left: `${BAR_WIDTH + 4}px`, top: '0px' });
     this.root.append(this.title, this.bar, this.labels);
     parent.appendChild(this.root);
   }
 
   /** Re-reads the LUT / ticks from the engine (after a colormap / domain / theme change). */
-  refresh(backend: WasmVizEngineBackend, theme: VizTheme, locale?: string): void {
+  refresh(backend: WasmCharturboEngineBackend, theme: CharturboTheme, locale?: string): void {
     this.data = decodeColorbar(backend.chart_heatmap_colorbar?.());
     const lut = backend.chart_heatmap_lut?.();
     this.bar.replaceChildren();
@@ -302,7 +302,7 @@ export class HeatmapColorbarLayer {
     marks.sort((a, b) => b.y - a.y);
     for (const m of marks) {
       const el = document.createElement('div');
-      el.className = 'viz-sdk-heatmap-colorbar-tick';
+      el.className = 'charturbo-sdk-heatmap-colorbar-tick';
       Object.assign(el.style, {
         position: 'absolute',
         left: '0px',
@@ -323,7 +323,7 @@ export class HeatmapColorbarLayer {
 }
 
 /** Default heatmap tooltip: column / row labels and the cell value with its displayed color. */
-export function heatmapTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, formatValue: (v: number) => string): string {
+export function heatmapTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string): string {
   const it = ctx.items[0];
   const cell = ctx.cell;
   if (!it || !cell) return '';

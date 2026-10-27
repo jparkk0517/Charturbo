@@ -1,4 +1,4 @@
-import { VizEngineSDK, type HierarchyNode } from 'viz-engine-sdk';
+import { Charturbo, type HierarchyNode } from 'charturbo';
 
 export const meta = {
   title: 'Treemap with drill-down',
@@ -7,7 +7,7 @@ export const meta = {
 
 export default async function mount(host: HTMLElement) {
   const canvas = host.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
 
   const regions = { Americas: 5, Europe: 4, Asia: 3.5, Africa: 1.2, Oceania: 0.8 };
   const tree: HierarchyNode = {

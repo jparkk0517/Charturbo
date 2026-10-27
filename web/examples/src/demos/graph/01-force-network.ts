@@ -1,4 +1,4 @@
-import { VizEngineSDK, escapeHtml, type NodeMetadata, type RawGraphData } from 'viz-engine-sdk';
+import { Charturbo, escapeHtml, type NodeMetadata, type RawGraphData } from 'charturbo';
 
 export const meta = {
   title: 'Force-directed service network',
@@ -48,7 +48,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { nodeCount: 0, edgeCount: 0, locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { nodeCount: 0, edgeCount: 0, locale: 'en-US' });
 
   const load = (n: number) => {
     const { graph, metadata } = serviceNetwork(n);

@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Vector SVG, PDF and PNG export',
@@ -21,7 +21,7 @@ export default async function mount(host: HTMLElement) {
   const preview = exported.appendChild(document.createElement('img'));
   preview.alt = 'Exported SVG';
 
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
   sdk.renderGroupedBarChart(
     {
       categories: ['Q1', 'Q2', 'Q3', 'Q4'],

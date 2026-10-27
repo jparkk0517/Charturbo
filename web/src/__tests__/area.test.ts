@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  VizEngineSDK,
+  Charturbo,
   type ChartTooltipContext,
   type LineSeriesDescriptor,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 
 // The a11y layer has its own tests and needs a full DOM; replaced by an inert stand-in here.
 vi.mock('../sdk/chart-a11y', () => ({
@@ -99,7 +99,7 @@ class FakeEl {
 
 type Calls = Record<string, unknown[][]>;
 
-function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -209,7 +209,7 @@ describe('Area charts (overlap / stacked / percent)', () => {
 
   it('sends concatenated series, mode, and fill opacity to the engine (2D, navigable)', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
 
     const res = sdk.renderAreaChart(SERIES, { mode: 'stacked', fillOpacity: 0.6, lineWidth: 1.5 });
@@ -241,7 +241,7 @@ describe('Area charts (overlap / stacked / percent)', () => {
 
   it('time x is sent as epoch ms with the time tick kind; mismatched x is rejected', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     const days = [0, 1, 2].map((d) => new Date(Date.UTC(2026, 0, 1 + d)));
     sdk.renderAreaChart(
       SERIES.map((s) => ({ ...s, x: days })),
@@ -263,7 +263,7 @@ describe('Area charts (overlap / stacked / percent)', () => {
       [1, 1, 15, 4],
       [2, 1, 5, 7],
     ]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     let ctx: ChartTooltipContext | null = null;
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {
       formatChartTooltip: (c) => {
@@ -301,13 +301,13 @@ describe('Area charts (overlap / stacked / percent)', () => {
       [2, 0, -2, 6],
     ]);
     let axes = new Float64Array(0);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hitNow, () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hitNow, () => axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     // Column at index 0 of PERCENT: 10 + 30 + (-2 -> 0)
     sdk.renderAreaChart(PERCENT, { mode: 'percent' });
 
     canvas.fire('pointermove', { clientX: 100, clientY: 200, buttons: 0 });
-    const tooltip = body.querySelectorAll('.viz-sdk-node-tooltip')[0];
+    const tooltip = body.querySelectorAll('.charturbo-sdk-node-tooltip')[0];
     expect(tooltip.innerHTML).toContain('25.0%');
     expect(tooltip.innerHTML).toContain('75.0%');
     expect(tooltip.innerHTML).toContain('0.0%');
@@ -324,15 +324,15 @@ describe('Area charts (overlap / stacked / percent)', () => {
 
     axes = new Float64Array([56, 40, 700, 300, 1, 1, 60, 56, 100, 0]);
     sdk.render();
-    expect(container.querySelectorAll('.viz-sdk-axis-tick')[0].textContent).toBe('60%');
+    expect(container.querySelectorAll('.charturbo-sdk-axis-tick')[0].textContent).toBe('60%');
   });
 
   it('legend toggles (engine re-stacks) and emphasizes area series', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderAreaChart(SERIES, { mode: 'stacked' });
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.children[1].textContent)).toEqual(['Search', 'Social', 'Direct']);
     items[0].fire('click');
     expect(calls.set_chart_series_visible).toEqual([[0, false]]);
@@ -340,5 +340,21 @@ describe('Area charts (overlap / stacked / percent)', () => {
     items[2].fire('pointerenter');
     items[2].fire('pointerleave');
     expect(calls.set_chart_emphasis).toEqual([[2], [-1]]);
+  });
+
+  it('streamed percent tooltips use retained raw values without copying the whole window', () => {
+    const calls: Calls = {};
+    const backend = mockBackend(calls, () => hitOf(0, [[1, 1, 30, 3]]), () => new Float64Array(0));
+    backend.append_area_data = () => new Uint32Array([2, 2]);
+    backend.chart_series_values = vi.fn(() => new Float32Array(0));
+    backend.chart_sample = (id) => new Float64Array([Math.floor(id / 2), id % 2, [1, 90, 3, 30][id], 0, 0, 0]);
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    sdk.renderAreaChart([{ name: 'A', values: [1, 1] }, { name: 'B', values: [3, 3] }], { mode: 'percent', hover: { mode: 'nearest' } });
+    sdk.appendAreaData([{ values: [90] }, { values: [30] }], { maxPoints: 2 });
+    canvas.fire('pointermove', { clientX: 120, clientY: 200, buttons: 0 });
+    expect(body.querySelectorAll('.charturbo-sdk-node-tooltip')[0].innerHTML).toContain('25.0%');
+    expect(backend.chart_series_values).not.toHaveBeenCalled();
+    sdk.dispose();
   });
 });

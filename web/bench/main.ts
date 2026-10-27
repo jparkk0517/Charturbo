@@ -11,8 +11,8 @@
  * 3D graph scenarios (`graph-*`) run `runGraph` instead (physics + orbit).
  */
 
-import { VizEngineSDK } from '../src/index';
-import type { VizRenderStats } from '../src/index';
+import { Charturbo } from '../src/index';
+import type { CharturboRenderStats } from '../src/index';
 import { createAdapter, compareData } from './others';
 import type { Domain, LibAdapter, LibName } from './others';
 import { COMPARE_IDS, OUR_SCENARIOS } from './ours';
@@ -295,7 +295,7 @@ function hoverSweepStep(target: Element) {
   };
 }
 
-function statsOf(sdk: VizEngineSDK): VizRenderStats | null {
+function statsOf(sdk: Charturbo): CharturboRenderStats | null {
   return sdk.getRenderStats();
 }
 
@@ -309,7 +309,7 @@ async function runOurs(s: OurScenario) {
   Object.assign(canvas.style, { width: `${W}px`, height: `${H}px`, display: 'block' });
   card.appendChild(canvas);
   const tInit = performance.now();
-  const sdk = await VizEngineSDK.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
+  const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
   const initMs = performance.now() - tInit;
   const gl = !!canvas.getContext('webgl2');
   sdk.setTheme('light');
@@ -364,10 +364,10 @@ async function runCompare(id: CompareId) {
   const tGen = performance.now();
   const data = compareData(id);
   const genMs = performance.now() - tGen;
-  let vizSdk: VizEngineSDK | null = null;
+  let charturboSdk: Charturbo | null = null;
   phase('init');
   const tInit = performance.now();
-  const adapter: LibAdapter = await createAdapter(lib, card, data, W, H, (sdk) => (vizSdk = sdk));
+  const adapter: LibAdapter = await createAdapter(lib, card, data, W, H, (sdk) => (charturboSdk = sdk));
   const initMs = performance.now() - tInit;
   const ttff = await timeRenders(() => adapter.render());
   const mem = await memory();
@@ -381,7 +381,7 @@ async function runCompare(id: CompareId) {
     await raf();
   }
   const hover = await hoverProbe(adapter.hoverTarget());
-  const stats = vizSdk ? (vizSdk as VizEngineSDK).getRenderStats() : null;
+  const stats = charturboSdk ? (charturboSdk as Charturbo).getRenderStats() : null;
   const gl = card.querySelector('canvas')?.getContext('webgl2') ? 'webgl2' : 'webgpu';
   return {
     lib,

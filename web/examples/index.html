@@ -3,10 +3,58 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>viz-engine-sdk examples</title>
+    <meta name="description" content="Charturbo brings your data to life with GPU-accelerated charts, real-time streaming and interactive 3D. Built with Rust, WebAssembly and TypeScript." />
+    <meta name="theme-color" content="#080b12" />
+    <title>Charturbo — Data in motion</title>
+    <link rel="stylesheet" href="./src/landing.css" />
   </head>
   <body>
-    <main></main>
-    <script type="module" src="./src/gallery.ts"></script>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="nav wrap">
+      <a class="brand" href="./index.html" aria-label="Charturbo home"><span class="brand-icon" aria-hidden="true">▥</span> Charturbo</a>
+      <nav aria-label="Main navigation"><a href="./gallery.html">Examples</a><a href="./benchmarks.html">Benchmarks</a><a href="https://github.com/jparkk0517/VizEngineSDK">GitHub ↗</a></nav>
+    </header>
+    <main id="main">
+      <section class="hero wrap">
+        <p class="eyebrow"><span class="dot"></span> RUST POWERED. WEB NATIVE.</p>
+        <h1>Your data.<br /><span>In full motion.</span></h1>
+        <p class="intro">From a live signal to the bigger picture.<br />GPU-accelerated charts built for the way your data moves.</p>
+        <div class="actions"><a class="button primary" href="./line.html">Explore live charts <span>↗</span></a><a class="button secondary" href="./gallery.html">Browse examples →</a></div>
+        <p class="platforms">TypeScript <span>·</span> React <span>·</span> Vue <span>·</span> WebGPU + WebGL2</p>
+      </section>
+      <section class="demo wrap" aria-label="Live streaming chart demo" data-live-demo>
+        <div class="demo-top"><div><span class="dot"></span><strong>Signal / live</strong><span class="demo-subtitle">Synthetic traffic · stacked area</span></div><button type="button" data-demo-motion disabled>Play demo</button></div>
+        <div class="chart-stage">
+          <svg data-demo-poster role="img" aria-label="Preview of three stacked traffic signals over time" viewBox="0 0 1000 340" preserveAspectRatio="none">
+            <defs><linearGradient id="fill" x2="0" y2="1"><stop stop-color="#5ee9c4" stop-opacity=".42"/><stop offset="1" stop-color="#5ee9c4" stop-opacity=".05"/></linearGradient></defs>
+            <g stroke="#222d3c" stroke-width="1"><path d="M40 60H980M40 130H980M40 200H980M40 270H980"/></g>
+            <path d="M40 200Q100 180 160 205T280 150T400 150T520 110T640 130T760 80T880 100T980 60V300H40Z" fill="url(#fill)" stroke="#64dfc1" stroke-width="2"/>
+            <path d="M40 235Q100 200 160 240T280 205T400 195T520 190T640 200T760 155T880 160T980 140V300H40Z" fill="#3e7797" fill-opacity=".5" stroke="#6fb9ed" stroke-width="2"/>
+            <path d="M40 270Q100 250 160 275T280 250T400 245T520 255T640 250T760 225T880 240T980 210V300H40Z" fill="#8a78d3" fill-opacity=".5" stroke="#b8a4f5" stroke-width="2"/>
+          </svg>
+          <canvas data-demo-canvas aria-label="Streaming area chart of synthetic traffic across three regions" hidden></canvas>
+        </div>
+        <div class="demo-bottom"><span data-demo-status role="status">Static preview · live demo loads when visible</span><a href="./line.html">See the code →</a></div>
+        <noscript><p class="no-script">Enable JavaScript for the interactive demo. Explore the source on <a href="https://github.com/jparkk0517/VizEngineSDK">GitHub</a>.</p></noscript>
+      </section>
+      <section class="principles wrap" aria-label="Core capabilities"><div><strong>GPU accelerated</strong><p>Rust + WebAssembly at the core.</p></div><div><strong>Continuously connected</strong><p>Streaming data. Bounded memory.</p></div><div><strong>Made for the web</strong><p>Typed APIs. Framework components.</p></div></section>
+      <section class="explore wrap">
+        <div class="section-heading"><div><p class="eyebrow">A DIFFERENT VIEW, EVERY TIME</p><h2>Find the shape of your data.</h2></div><a href="./gallery.html">All examples ↗</a></div>
+        <div class="cards">
+          <a class="card" href="./line.html"><div class="mini waves" aria-hidden="true">∿∿∿</div><span class="tag">01 / TIME SERIES</span><h3>Keep up with every signal.</h3><p>Lines, stacked areas and live streams. Zoom into the details without losing the story.</p><span class="card-link">Explore time series ↗</span></a>
+          <a class="card" href="./scatter.html"><div class="mini scatter" aria-hidden="true">⠿ ⠞ ⠿<br /> ⠿ ⠿ ⠞</div><span class="tag">02 / EXPLORATION</span><h3>See patterns emerge.</h3><p>Scatter plots, bubble charts and brush selection turn individual points into insight.</p><span class="card-link">Explore scatter ↗</span></a>
+          <a class="card" href="./graph.html"><div class="mini network" aria-hidden="true">◇─◇<br />╱ ◇ ╲</div><span class="tag">03 / CONNECTIONS</span><h3>Go beyond the axes.</h3><p>Navigate force-directed 3D networks, follow connections and explore neighborhoods.</p><span class="card-link">Explore networks ↗</span></a>
+        </div>
+      </section>
+      <section class="code-section wrap"><div><p class="eyebrow">SMALL API. BIG PICTURE.</p><h2>Keep the data flowing.</h2><p>Append a synchronized batch to every area series.<br />Keep the latest samples, the view and the interaction.</p><a href="./line.html">Read the runnable examples →</a></div><pre aria-label="TypeScript streaming area example"><code><span class="code-comment">// One atomic update. Three live signals.</span>
+chart.appendAreaData([
+  { values: europe, x: timestamps },
+  { values: americas, x: timestamps },
+  { values: asia, x: timestamps },
+], { maxPoints: <span class="code-number">4_000</span> });</code></pre></section>
+      <section class="closing wrap"><p class="eyebrow">LESS WAITING. MORE EXPLORING.</p><h2>Give your data room to move.</h2><a class="button primary" href="./gallery.html">Find your first chart ↗</a></section>
+    </main>
+    <footer class="wrap"><a class="brand" href="./index.html">Charturbo</a><span>Built with Rust. Open source. MIT licensed.</span><a href="https://github.com/jparkk0517/VizEngineSDK">Source ↗</a></footer>
+    <script type="module" src="./src/landing.ts"></script>
   </body>
 </html>

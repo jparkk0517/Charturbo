@@ -1,5 +1,5 @@
 /**
- * Opt-in chart animations (`VizEngineSDK.create(canvas, { animation })`, `setAnimation`, or the
+ * Opt-in chart animations (`Charturbo.create(canvas, { animation })`, `setAnimation`, or the
  * `animation` option of a chart): enter (lines reveal left -> right, bars grow from the
  * baseline, points / pie slices fade + scale in) and update (`setSeriesData`, or a chart
  * re-rendered with data of the same shape: y values / bar heights / pie angles tween). The

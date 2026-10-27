@@ -22,7 +22,7 @@ export async function openReport() {
     server: { port: await freePort(), host: '127.0.0.1', strictPort: true, open: false },
   });
   const port = await freePort();
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'viz-report-'));
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'charturbo-report-'));
   let chrome;
   let ws;
   const close = async () => {

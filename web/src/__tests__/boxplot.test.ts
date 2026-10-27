@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VIZ_THEMES, VizEngineSDK, type ChartTooltipContext, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { BOX_STATS_STRIDE, boxStatsAt, encodeBoxOptions, encodeBoxPlot, type BoxChartMeta } from '../sdk/chart-boxplot';
 
 // The SDK paths need no a11y DOM here; the real a11y model is tested below via importActual
@@ -106,7 +106,7 @@ const STATS = new Float64Array([
   ...new Array(BOX_STATS_STRIDE - 1).fill(NaN),
 ]);
 
-function mockBackend(calls: Calls, hit: () => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, hit: () => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -194,7 +194,7 @@ describe('Native box plot (SDK binding)', () => {
 
   it('flattens the groups once and sends options, palette colors and the legend padding', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0)));
     const res = sdk.renderBoxPlot(DATA, { title: 'Latency', whiskers: [5, 95], showMean: true });
     expect(res).toEqual({ boxCount: 6, seriesCount: 2, categoryCount: 3, sampleCount: 50 });
     const [values, counts, s, n, colors, layout, opts] = calls.set_box_chart[0] as [
@@ -204,8 +204,8 @@ describe('Native box plot (SDK binding)', () => {
     expect(Array.from(counts)).toEqual([3, 2, 1, 1, 2, 0]);
     expect([s, n]).toEqual([2, 3]);
     // Theme palette in fixed order
-    expect(Array.from(colors.subarray(0, 4))).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.palette[0])));
-    expect(Array.from(colors.subarray(4, 8))).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.palette[1])));
+    expect(Array.from(colors.subarray(0, 4))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.palette[0])));
+    expect(Array.from(colors.subarray(4, 8))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.palette[1])));
     expect(Array.from(layout).every(Number.isNaN)).toBe(true);
     expect([opts[0], opts[1], opts[2], opts[4], opts[7]]).toEqual([2, 0.05, 0.95, 1, 0]);
     // Title + legend on top (2 series)
@@ -223,17 +223,17 @@ describe('Native box plot (SDK binding)', () => {
     expect([t[0], t[1], t[3]]).toEqual([0, 3, 0]);
     expect(Number.isNaN(t[4])).toBe(true); // engine default
 
-    const palette = VIZ_THEMES.light.palette;
+    const palette = CHARTURBO_THEMES.light.palette;
     const many = {
       categories: ['x'],
       series: Array.from({ length: 10 }, (_, k) => ({ name: `S${k}`, values: [[k, k + 0.5]] })),
     };
-    const enc = encodeBoxPlot(many, palette, VIZ_THEMES.light.baseline);
+    const enc = encodeBoxPlot(many, palette, CHARTURBO_THEMES.light.baseline);
     expect(enc.names).toEqual(['S0', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'Other']);
     // "Other" pools the samples of S7..S9 and gets the neutral color
     expect(Array.from(enc.counts)).toEqual([2, 2, 2, 2, 2, 2, 2, 6]);
     expect(Array.from(enc.values.subarray(14))).toEqual([7, 7.5, 8, 8.5, 9, 9.5]);
-    expect(enc.rgba[7]).toEqual(VIZ_THEMES.light.baseline);
+    expect(enc.rgba[7]).toEqual(CHARTURBO_THEMES.light.baseline);
     expect(enc.rgba[0]).toEqual(palette[0]);
     // Explicit colors: no folding
     expect(encodeBoxPlot(many, palette, palette[0], many.series.map(() => '#ff0000')).names.length).toBe(10);
@@ -243,7 +243,7 @@ describe('Native box plot (SDK binding)', () => {
     const calls: Calls = {};
     // Engine hit: is_bar, primary, count, (series, index, value, id)
     let hit = new Float64Array([1, 0, 1, 1, 1, 9, 4]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderBoxPlot(DATA);
     const seen: (ChartTooltipContext | null)[] = [];
@@ -255,7 +255,7 @@ describe('Native box plot (SDK binding)', () => {
     expect(ctx.xLabel).toBe('B');
     expect(ctx.box).toMatchObject({ series: 1, category: 1, seriesName: 'Treated', categoryLabel: 'B', median: 9, q1: 7, q3: 11, n: 10, outliers: 2 });
     expect(ctx.box?.outlier).toBeUndefined();
-    const tooltip = body.children.find((c) => c.className.includes('viz-sdk-node-tooltip'))!;
+    const tooltip = body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
     for (const text of ['Treated', 'Median', 'Q1', 'Q3', 'Mean', 'Outliers', 'Whiskers']) expect(tooltip.innerHTML).toContain(text);
 
     // Outlier ids follow the 6 boxes
@@ -289,7 +289,7 @@ describe('Native box plot (SDK binding)', () => {
     const meta: BoxChartMeta = {
       kind: 'box',
       names: ['Control', 'Treated'],
-      colors: [VIZ_THEMES.dark.palette[0], VIZ_THEMES.dark.palette[1]],
+      colors: [CHARTURBO_THEMES.dark.palette[0], CHARTURBO_THEMES.dark.palette[1]],
       categories: ['A', 'B', 'C'],
       visible: [true, true],
       stats: STATS,

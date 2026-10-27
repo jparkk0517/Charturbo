@@ -10,7 +10,7 @@
  * charts without a vector writer (3D / 2.5D views, newer kinds) embed the whole canvas as a PNG
  * `<image>` under vector text, with a console warning.
  */
-import type { VizTheme } from './viz-engine-sdk';
+import type { CharturboTheme } from './charturbo';
 import {
   collectOverlayOps,
   domEnv,
@@ -37,7 +37,7 @@ export interface ChartSvgOptions {
 export interface ChartSvgHost {
   canvas: HTMLCanvasElement | null;
   overlay: HTMLElement | null;
-  theme: VizTheme;
+  theme: CharturboTheme;
   backend: { chart_export_svg?(maxMarks: number, id: string): string };
   /** `sdk.render()`: stages the current view (and draws it, for raster parts) */
   render: () => void;
@@ -191,14 +191,14 @@ function measureText(text: string, font: string): number {
 /** The chart as an SVG document string (see the module docs). Synchronous. */
 export function chartToSvg(host: ChartSvgHost, opts: ChartSvgOptions = {}): string {
   const canvas = host.canvas;
-  if (!canvas) throw new Error('exportChartSVG: no canvas (create the SDK with VizEngineSDK.create)');
+  if (!canvas) throw new Error('exportChartSVG: no canvas (create the SDK with Charturbo.create)');
   const warn = host.warn ?? ((m: string) => console.warn(m));
   const cr = canvas.getBoundingClientRect();
   const cssW = canvas.clientWidth || cr.width || canvas.width;
   const cssH = canvas.height / (canvas.width / Math.max(1, cssW));
   // Stage the current view (data / zoom changes since the last frame)
   host.render();
-  const id = `viz-svg-${++exportCounter}`;
+  const id = `charturbo-svg-${++exportCounter}`;
   const raw = host.backend.chart_export_svg?.(Math.max(0, Math.floor(opts.maxMarks ?? 0)), id) ?? '';
   const engine = parseEngineSvg(raw);
   const kind = host.kind ?? 'scene';

@@ -1,8 +1,8 @@
 import { RustWgpuAdapter } from './adapters/rust-wgpu-adapter';
 import { ThreeJsAdapter } from './adapters/three-js-adapter';
 import { BenchmarkController, EngineTarget } from './benchmark/controller';
-import { LayoutPresetMode, NodeDetails } from './sdk/viz-engine-sdk';
-import { VizShowcaseController } from './showcase/viz-showcase';
+import { LayoutPresetMode, NodeDetails } from './sdk/charturbo';
+import { CharturboShowcaseController } from './showcase/charturbo-showcase';
 
 const SEED = 42;
 const CLUSTERS = 8;
@@ -315,7 +315,7 @@ async function bootstrap(): Promise<void> {
     }
   };
 
-  const showcase = new VizShowcaseController(
+  const showcase = new CharturboShowcaseController(
     rustAdapter.sdk,
     rustCanvas,
     (details) => renderNodeInspector(details),
@@ -423,7 +423,7 @@ async function bootstrap(): Promise<void> {
       }
 
       statusBadge.textContent =
-        '⚡ 성능 벤치마크 — VizEngineSDK vs Three.js 측정 버튼을 눌러 비교하세요.';
+        '⚡ 성능 벤치마크 — Charturbo vs Three.js 측정 버튼을 눌러 비교하세요.';
     }
   };
 
@@ -571,7 +571,7 @@ async function bootstrap(): Promise<void> {
     stopAll();
     const comp = controller.compareWarmup(40, 0.016);
     updateTelemetryUI();
-    statusBadge.textContent = `[Warmup 40틱 완료] VizEngineSDK: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms (${comp.speedup.toFixed(2)}배 빠름)`;
+    statusBadge.textContent = `[Warmup 40틱 완료] Charturbo: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms (${comp.speedup.toFixed(2)}배 빠름)`;
   });
 
   btnSdkBox.addEventListener('click', () => {
@@ -579,7 +579,7 @@ async function bootstrap(): Promise<void> {
     stopAll();
     const comp = controller.compareBoxSelect(-0.35, -0.35, 0.35, 0.35);
     updateTelemetryUI();
-    statusBadge.textContent = `[Box 영역 선택 완료] ${comp.selectedCount.toLocaleString()}개 선택 — VizEngineSDK: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms`;
+    statusBadge.textContent = `[Box 영역 선택 완료] ${comp.selectedCount.toLocaleString()}개 선택 — Charturbo: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms`;
   });
 
   btnSdkNeighbor.addEventListener('click', () => {
@@ -588,7 +588,7 @@ async function bootstrap(): Promise<void> {
     const randomNode = Math.floor(Math.random() * Math.max(1, rustAdapter.nodeCount()));
     const comp = controller.compareNeighborHighlight(randomNode, 2);
     updateTelemetryUI();
-    statusBadge.textContent = `[2-Hop 서브그래프 탐색] 노드 #${randomNode} (${comp.selectedCount}개 연결) — VizEngineSDK: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms`;
+    statusBadge.textContent = `[2-Hop 서브그래프 탐색] 노드 #${randomNode} (${comp.selectedCount}개 연결) — Charturbo: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms`;
   });
 
   btnSdkCluster.addEventListener('click', () => {
@@ -597,7 +597,7 @@ async function bootstrap(): Promise<void> {
     const comp = controller.compareClusterSelect(currentClusterIdx);
     currentClusterIdx = (currentClusterIdx + 1) % CLUSTERS;
     updateTelemetryUI();
-    statusBadge.textContent = `[클러스터 필터링] ${comp.operation} — VizEngineSDK: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms`;
+    statusBadge.textContent = `[클러스터 필터링] ${comp.operation} — Charturbo: ${comp.rustMs.toFixed(2)}ms vs Three.js: ${comp.threeMs.toFixed(2)}ms`;
   });
 
   btnSdkFit.addEventListener('click', () => {
@@ -802,8 +802,8 @@ async function bootstrap(): Promise<void> {
     }
 
     if (r.sampleCount > 0 && t.sampleCount > 0) {
-      physicsSpeedupEl.textContent = `VizEngineSDK가 ${report.physicsSpeedup.toFixed(2)}배 빠름 (${t.avgPhysicsTimeMs.toFixed(2)}ms vs ${r.avgPhysicsTimeMs.toFixed(2)}ms)`;
-      totalSpeedupEl.textContent = `VizEngineSDK가 ${report.totalSpeedup.toFixed(2)}배 빠름 (${t.avgFrameTimeMs.toFixed(2)}ms vs ${r.avgFrameTimeMs.toFixed(2)}ms)`;
+      physicsSpeedupEl.textContent = `Charturbo가 ${report.physicsSpeedup.toFixed(2)}배 빠름 (${t.avgPhysicsTimeMs.toFixed(2)}ms vs ${r.avgPhysicsTimeMs.toFixed(2)}ms)`;
+      totalSpeedupEl.textContent = `Charturbo가 ${report.totalSpeedup.toFixed(2)}배 빠름 (${t.avgFrameTimeMs.toFixed(2)}ms vs ${r.avgFrameTimeMs.toFixed(2)}ms)`;
     } else {
       physicsSpeedupEl.textContent = '두 엔진을 각각 측정하면 배속이 표시됩니다';
       totalSpeedupEl.textContent = '측정 전';
@@ -811,7 +811,7 @@ async function bootstrap(): Promise<void> {
 
     if (report.lastFeatureComparison) {
       const fc = report.lastFeatureComparison;
-      sdkFeatureSpeedupEl.textContent = `${fc.operation}: VizEngineSDK ${fc.rustMs.toFixed(2)}ms vs Three.js ${fc.threeMs.toFixed(2)}ms (${fc.speedup.toFixed(2)}배 빠름)`;
+      sdkFeatureSpeedupEl.textContent = `${fc.operation}: Charturbo ${fc.rustMs.toFixed(2)}ms vs Three.js ${fc.threeMs.toFixed(2)}ms (${fc.speedup.toFixed(2)}배 빠름)`;
     }
   }
 }

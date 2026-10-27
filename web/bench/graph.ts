@@ -1,5 +1,5 @@
 /**
- * 3D graph comparison of the benchmark page (`graph-10k`, `graph-100k`): viz-engine-sdk (Rust
+ * 3D graph comparison of the benchmark page (`graph-10k`, `graph-100k`): charturbo (Rust
  * Barnes-Hut in WebAssembly + WebGPU billboards) vs three.js (the demo's JS Barnes-Hut octree +
  * InstancedMesh spheres / LineSegments edges on WebGL2). Both sides run through the demo app's
  * `EngineAdapter` implementations unchanged (src/adapters), with:
@@ -25,7 +25,7 @@
 
 import type { EngineAdapter } from '../src/adapters/engine-adapter';
 import { GraphDatasetTS } from '../src/domain/dataset';
-import type { RawGraphData } from '../src/sdk/viz-engine-sdk';
+import type { RawGraphData } from '../src/sdk/charturbo';
 
 export const GRAPH_IDS = ['graph-10k', 'graph-100k'] as const;
 export type GraphId = (typeof GRAPH_IDS)[number];

@@ -8,5 +8,5 @@
     "outDir": "./dist-lib",
     "rootDir": "./src"
   },
-  "include": ["src/index.ts", "src/inline.ts", "src/wasm-inline.d.ts", "src/sdk/viz-engine-sdk.ts", "src/react/index.ts", "src/vue/index.ts", "src/wasm-pkg/viz_core.d.ts"]
+  "include": ["src/index.ts", "src/inline.ts", "src/wasm-inline.d.ts", "src/sdk/charturbo.ts", "src/react/index.ts", "src/vue/index.ts", "src/wasm-pkg/charturbo_core.d.ts"]
 }

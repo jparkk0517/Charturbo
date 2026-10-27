@@ -12,9 +12,9 @@
  * nodes, at the laid-out position (`getBoundingClientRect`, so CSS translate / flex layout are
  * already applied) with the computed font / color / opacity / line-through. Rotations
  * (`rotate(-90deg)` y axis title) are read from the computed transform and drawn around the box
- * center. Mark an element `data-viz-export="false"` to leave it out.
+ * center. Mark an element `data-charturbo-export="false"` to leave it out.
  */
-import type { RgbaTuple, VizTheme } from './viz-engine-sdk';
+import type { RgbaTuple, CharturboTheme } from './charturbo';
 
 export type ChartImageFormat = 'png' | 'jpeg' | 'webp';
 
@@ -38,7 +38,7 @@ export interface ChartImageOptions {
 export interface ChartExportHost {
   canvas: HTMLCanvasElement | null;
   overlay: HTMLElement | null;
-  theme: VizTheme;
+  theme: CharturboTheme;
   backend: {
     resize(width: number, height: number): void;
     set_clear_color?(r: number, g: number, b: number, a: number): void;
@@ -171,7 +171,7 @@ export type ResolvedBackground =
  */
 export function resolveBackground(
   bg: ChartImageOptions['background'],
-  theme: VizTheme,
+  theme: CharturboTheme,
   normalize: (css: string) => string = (c) => c
 ): ResolvedBackground {
   if (!bg || bg === 'theme') return { mode: 'theme', color: theme.surface };
@@ -330,7 +330,7 @@ export function collectOverlayOps(root: Element, origin: { left: number; top: nu
   const rel = (b: Box): Box => ({ left: b.left - origin.left, top: b.top - origin.top, width: b.width, height: b.height });
 
   const visit = (el: Element, opacity: number, angle: number, strike: boolean) => {
-    if (el.getAttribute?.('data-viz-export') === 'false') return;
+    if (el.getAttribute?.('data-charturbo-export') === 'false') return;
     const s = env.style(el);
     if (s.display === 'none') return;
     const o = opacity * (s.opacity === '' || s.opacity === undefined ? 1 : parseFloat(s.opacity));
@@ -513,7 +513,7 @@ function context2d(c: HTMLCanvasElement): CanvasRenderingContext2D {
  */
 function captureFrame(host: ChartExportHost, opts: ChartImageOptions): HTMLCanvasElement | null {
   const canvas = host.canvas;
-  if (!canvas) throw new Error('toImage: no canvas (create the SDK with VizEngineSDK.create)');
+  if (!canvas) throw new Error('toImage: no canvas (create the SDK with Charturbo.create)');
   const cr = canvas.getBoundingClientRect();
   // The engine's CSS size: width from the canvas box (as `resize` derives the pixel ratio), height
   // from the backing store at that ratio. Overlay labels are laid out in these units, so the export

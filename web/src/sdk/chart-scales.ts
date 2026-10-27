@@ -1,7 +1,7 @@
 /**
  * Axis scales (linear / log10, reversed axes, tick-count hints) and the opt-in right y axis of
  * 2D line charts. The engine maps values, builds ticks / gridlines and hit-tests in scale space
- * (crates/viz-core/src/chart/scale.rs); this module only encodes the options for it.
+ * (crates/charturbo-core/src/chart/scale.rs); this module only encodes the options for it.
  */
 
 /** Value scale of an axis. `'log'`: log10, decade ticks; zero / negative values are not drawn. */

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Module load only: engines come from a mock `VizDevice` factory
-vi.mock('../wasm-pkg/viz_core', () => ({
+// Module load only: engines come from a mock `CharturboDevice` factory
+vi.mock('../wasm-pkg/charturbo_core', () => ({
   default: vi.fn(async () => ({})),
-  WasmVizEngine: { create: vi.fn(), create_with_device: vi.fn() },
+  WasmCharturboEngine: { create: vi.fn(), create_with_device: vi.fn() },
   WasmGpuDevice: { create: vi.fn() },
 }));
 
-import { VIZ_THEMES, VizDevice, VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, CharturboDevice, Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import {
   readSparklineSummary,
   resolveSparkline,
@@ -87,14 +87,14 @@ class FakeEl {
 type Calls = Record<string, unknown[][]>;
 
 /** Engine stand-in; `summary` = what `chart_sparkline_summary` returns (null = no binding). */
-function mockBackend(calls: Calls, summary: (() => Float64Array) | null, onFree?: () => void): WasmVizEngineBackend {
+function mockBackend(calls: Calls, summary: (() => Float64Array) | null, onFree?: () => void): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
       (calls[name] ??= []).push(args);
       return ret as never;
     };
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_line_chart: record('set_line_chart', 1),
     set_line_chart_xy: record('set_line_chart_xy', 1),
     set_area_chart: record('set_area_chart', 1),
@@ -159,7 +159,7 @@ function mockDevice(calls: Calls[], summary: (() => Float64Array) | null = () =>
     calls.push(c);
     return mockBackend(c, summary, () => live--);
   });
-  return { device: VizDevice.fromBackend(handle, factory), factory, handle };
+  return { device: CharturboDevice.fromBackend(handle, factory), factory, handle };
 }
 
 describe('renderSparkline', () => {
@@ -190,7 +190,7 @@ describe('renderSparkline', () => {
 
   async function sparklineSdk(calls: Calls[], summary?: (() => Float64Array) | null) {
     const { device } = mockDevice(calls, summary === undefined ? () => TREND : summary);
-    const sdk = await VizEngineSDK.create(canvas as unknown as HTMLCanvasElement, { device, autoResize: false });
+    const sdk = await Charturbo.create(canvas as unknown as HTMLCanvasElement, { device, autoResize: false });
     return { sdk, calls: calls[calls.length - 1] };
   }
 
@@ -267,7 +267,7 @@ describe('renderSparkline', () => {
     sdk.renderSparkline([3, -1, 0, 2, -5, 4], { type: 'winloss', showLast: true, label: 'Results' });
     const [values, colors] = calls.set_bar_chart![0] as [Float32Array, Float32Array];
     expect(Array.from(values)).toEqual([1, -1, NaN, 1, -1, 1]);
-    const palette = VIZ_THEMES.dark.palette;
+    const palette = CHARTURBO_THEMES.dark.palette;
     expect(Array.from(colors.subarray(0, 4))).toEqual(palette[0].map(Math.fround));
     expect(Array.from(colors.subarray(4, 8))).toEqual(palette[1].map(Math.fround));
     // The bar chart's 2D grid is turned off again
@@ -328,10 +328,10 @@ describe('renderSparkline', () => {
   it('200 sparklines on one shared device build no DOM', async () => {
     const calls: Calls[] = [];
     const { device, factory } = mockDevice(calls);
-    const sdks: VizEngineSDK[] = [];
+    const sdks: Charturbo[] = [];
     for (let i = 0; i < 200; i++) {
       const c = container.appendChild(new FakeEl('canvas'));
-      const sdk = await VizEngineSDK.create(c as unknown as HTMLCanvasElement, { device, autoResize: false });
+      const sdk = await Charturbo.create(c as unknown as HTMLCanvasElement, { device, autoResize: false });
       sdk.renderSparkline({ values: [i, i + 1, i % 7, i + 2] }, { showLast: true });
       sdk.render();
       sdks.push(sdk);
@@ -347,12 +347,12 @@ describe('renderSparkline', () => {
 });
 
 describe('sparkline helpers', () => {
-  const theme = VIZ_THEMES.dark;
+  const theme = CHARTURBO_THEMES.dark;
   const spec = (values: number[], label?: string): SparklineSpec =>
     resolveSparkline({ values }, { label }, theme, [124, 34], 'en-US');
 
   it('labels up / down / flat / empty trends', () => {
-    const none = { chart_sparkline_summary: undefined } as unknown as WasmVizEngineBackend;
+    const none = { chart_sparkline_summary: undefined } as unknown as WasmCharturboEngineBackend;
     const label = (v: number[]) => {
       const s = spec(v, 'CPU');
       return sparklineLabel(s, readSparklineSummary(none, s.values), 'en-US');
@@ -370,9 +370,9 @@ describe('sparkline helpers', () => {
 
   it('reads the engine summary (f32 values shortened) and maps win / loss signs', () => {
     const backend = { chart_sparkline_summary: () => new Float64Array([2, Math.fround(0.1), Math.fround(0.3), 0.1, 0.3, 0, 1, 0, 1, 200]) };
-    const s = readSparklineSummary(backend as unknown as WasmVizEngineBackend, [])!;
+    const s = readSparklineSummary(backend as unknown as WasmCharturboEngineBackend, [])!;
     expect([s.first, s.last, s.changePct]).toEqual([0.1, 0.3, 200]);
-    expect(readSparklineSummary({ chart_sparkline_summary: () => new Float64Array(0) } as unknown as WasmVizEngineBackend, [1])).toBeNull();
+    expect(readSparklineSummary({ chart_sparkline_summary: () => new Float64Array(0) } as unknown as WasmCharturboEngineBackend, [1])).toBeNull();
     expect(Array.from(winLossValues([2, -0.5, 0, NaN]))).toEqual([1, -1, NaN, NaN]);
   });
 

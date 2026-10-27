@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VizEventEmitter, frameThrottle, sameRange, type FrameScheduler } from '../sdk/chart-events';
-import { VizInitError, classifyInitError, isRenderingSupported, observeCanvasPixelSize } from '../sdk/viz-init';
+import { CharturboEventEmitter, frameThrottle, sameRange, type FrameScheduler } from '../sdk/chart-events';
+import { CharturboInitError, classifyInitError, isRenderingSupported, observeCanvasPixelSize } from '../sdk/charturbo-init';
 // The a11y layer has its own tests and needs a full DOM: replaced by an inert stand-in
 vi.mock('../sdk/chart-a11y', () => ({
   ChartA11y: class {
@@ -14,12 +14,12 @@ vi.mock('../sdk/chart-a11y', () => ({
 }));
 
 import {
-  VIZ_THEMES,
-  VizEngineSDK,
-  type VizHoverEvent,
-  type VizRange,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  CHARTURBO_THEMES,
+  Charturbo,
+  type CharturboHoverEvent,
+  type CharturboRange,
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 
 /** Backend whose zoom calls move a data-unit range the way the engine would (x only for lines). */
 function rangeBackend(kind: 'line' | 'scatter' = 'line') {
@@ -34,7 +34,7 @@ function rangeBackend(kind: 'line' | 'scatter' = 'line') {
   let x = [...full.x];
   let y = [...full.y];
   let hit = new Float64Array(0);
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_line_chart: record('set_line_chart', 0),
     set_scatter_chart: record('set_scatter_chart', 0),
     chart_series_count: () => 2,
@@ -116,7 +116,7 @@ function rangeBackend(kind: 'line' | 'scatter' = 'line') {
 
 function lineSdk() {
   const mock = rangeBackend('line');
-  const sdk = VizEngineSDK.fromBackend(mock.backend);
+  const sdk = Charturbo.fromBackend(mock.backend);
   sdk.renderLineChart([
     { name: 'A', values: [1, 2, 3] },
     { name: 'B', values: [4, 5, 6] },
@@ -135,9 +135,9 @@ function fakeCanvas() {
   return { canvas, handlers };
 }
 
-describe('VizEventEmitter', () => {
+describe('CharturboEventEmitter', () => {
   it('on returns an unsubscribe; off removes; has reports listeners', () => {
-    const em = new VizEventEmitter<{ ping: number }>();
+    const em = new CharturboEventEmitter<{ ping: number }>();
     const seen: number[] = [];
     const h = (v: number) => seen.push(v);
     expect(em.has('ping')).toBe(false);
@@ -156,7 +156,7 @@ describe('VizEventEmitter', () => {
   it('a throwing handler does not stop the others (rethrown asynchronously)', () => {
     vi.useFakeTimers();
     try {
-      const em = new VizEventEmitter<{ ping: number }>();
+      const em = new CharturboEventEmitter<{ ping: number }>();
       const seen: number[] = [];
       em.on('ping', () => {
         throw new Error('boom');
@@ -202,7 +202,7 @@ describe('SDK events', () => {
 
   it("'rangechange' fires once per frame after zoom / pan / reset, only when the range moved", () => {
     const { sdk } = lineSdk();
-    const ranges: VizRange[] = [];
+    const ranges: CharturboRange[] = [];
     sdk.on('rangechange', (r) => ranges.push(r));
 
     sdk.zoomChartX(0.5);
@@ -229,7 +229,7 @@ describe('SDK events', () => {
     const { sdk, calls } = lineSdk();
     expect(sdk.getXRange()).toEqual([0, 100]);
     expect(sdk.getYRange()).toBeNull();
-    const ranges: VizRange[] = [];
+    const ranges: CharturboRange[] = [];
     sdk.on('rangechange', (r) => ranges.push(r));
     expect(sdk.setXRange(10, 30)).toBe(true);
     expect(sdk.getXRange()).toEqual([10, 30]);
@@ -240,7 +240,7 @@ describe('SDK events', () => {
     expect(ranges).toEqual([{ xMin: 5, xMax: 25 }]);
 
     const scatter = rangeBackend('scatter');
-    const s = VizEngineSDK.fromBackend(scatter.backend);
+    const s = Charturbo.fromBackend(scatter.backend);
     s.renderScatterChart({ x: [0, 1], y: [0, 1] });
     expect(s.getYRange()).toEqual([-10, 10]);
     expect(s.setYRange(-2, 2)).toBe(true);
@@ -249,9 +249,9 @@ describe('SDK events', () => {
 
   it('no chart / bar chart: ranges are null and no events', () => {
     const { backend } = rangeBackend('line');
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     expect(sdk.getXRange()).toBeNull();
-    const ranges: VizRange[] = [];
+    const ranges: CharturboRange[] = [];
     sdk.on('rangechange', (r) => ranges.push(r));
     sdk.zoomChartX(0.5);
     vi.advanceTimersByTime(20);
@@ -289,7 +289,7 @@ describe('SDK events', () => {
     const { canvas, handlers } = fakeCanvas();
     const legacy: unknown[] = [];
     sdk.enableNodeInteractions(canvas, { onNodeHover: (d) => legacy.push(d?.id ?? null) });
-    const hovers: VizHoverEvent[] = [];
+    const hovers: CharturboHoverEvent[] = [];
     sdk.on('hover', (e) => hovers.push(e));
     const clicks: unknown[] = [];
     sdk.on('click', (e) => clicks.push(e.chart?.index));
@@ -318,7 +318,7 @@ describe('SDK events', () => {
     const themes: string[] = [];
     sdk.on('themechange', (t) => themes.push(t.name));
     sdk.dispose();
-    sdk.setTheme(VIZ_THEMES.light);
+    sdk.setTheme(CHARTURBO_THEMES.light);
     expect(themes).toEqual([]);
   });
 });
@@ -384,11 +384,11 @@ describe('Locale', () => {
     // One y tick at 1234.5
     mock.backend.chart_axes_revision = () => ++rev;
     mock.backend.chart_axes = () => new Float64Array([56, 16, 200, 100, 1, 1, 1234.5, 56, 50, 0]);
-    const sdk = VizEngineSDK.fromBackend(mock.backend);
+    const sdk = Charturbo.fromBackend(mock.backend);
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderLineChart([{ name: 'A', values: [1, 2, 6.5] }], lineOptions);
-    const tick = () => container.querySelectorAll('.viz-sdk-axis-tick')[0]?.textContent;
-    const tooltip = () => body.children.find((c) => c.className.includes('viz-sdk-node-tooltip'))!;
+    const tick = () => container.querySelectorAll('.charturbo-sdk-axis-tick')[0]?.textContent;
+    const tooltip = () => body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
     return { sdk, canvas, tick, tooltip, ...mock };
   }
 
@@ -501,23 +501,23 @@ describe('Init helpers', () => {
     expect(classifyInitError('Failed to request device: OutOfMemory').reason).toBe('device');
     expect(classifyInitError(new Error('No suitable GPU adapter found')).reason).toBe('adapter');
     expect(classifyInitError('Failed to create wgpu surface: X').reason).toBe('no-webgpu');
-    const e = new VizInitError('wasm', 'x');
+    const e = new CharturboInitError('wasm', 'x');
     expect(classifyInitError(e)).toBe(e);
     expect(e).toBeInstanceOf(Error);
-    expect(e.name).toBe('VizInitError');
+    expect(e.name).toBe('CharturboInitError');
   });
 
   it('isSupported is false without WebGPU / WebGL2 (node)', async () => {
     expect(await isRenderingSupported()).toBe(false);
-    expect(await VizEngineSDK.isSupported()).toBe(false);
+    expect(await Charturbo.isSupported()).toBe(false);
   });
 
   it('isSupported checks the WebGPU adapter', async () => {
     vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({}) } });
     try {
-      expect(await VizEngineSDK.isSupported()).toBe(true);
+      expect(await Charturbo.isSupported()).toBe(true);
       vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => null } });
-      expect(await VizEngineSDK.isSupported()).toBe(false);
+      expect(await Charturbo.isSupported()).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }

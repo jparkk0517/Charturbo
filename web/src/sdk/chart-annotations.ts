@@ -5,7 +5,7 @@
  * engine reports (`chart_annotation_labels`, re-read only when its revision changes).
  */
 import { parseColor, type ColorInput, type RgbaTuple } from './color';
-import type { VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
 /** x in data units: sample index (line without `x`), x value / `Date` (line with `x`, scatter), category index (bar). */
 export type AnnotationX = number | Date;
@@ -62,13 +62,13 @@ export interface EncodedAnnotations {
 const num = (v: AnnotationX): number => (v instanceof Date ? v.getTime() : Number(v));
 
 /** Default color of an annotation under `theme`. */
-export function annotationColor(a: ChartAnnotation, theme: VizTheme): RgbaTuple {
+export function annotationColor(a: ChartAnnotation, theme: CharturboTheme): RgbaTuple {
   if (a.color) return parseColor(a.color);
   return a.type === 'yband' || a.type === 'xband' ? theme.crosshair : theme.baseline;
 }
 
 /** Flat typed arrays for `set_chart_annotations` (NaN = engine default). */
-export function encodeAnnotations(list: readonly ChartAnnotation[], theme: VizTheme): EncodedAnnotations {
+export function encodeAnnotations(list: readonly ChartAnnotation[], theme: CharturboTheme): EncodedAnnotations {
   const n = list.length;
   const out: EncodedAnnotations = {
     kinds: new Uint8Array(n),
@@ -159,7 +159,7 @@ export class AnnotationLabelLayer {
   }
 
   /** Re-positions labels when the engine moved their anchors. */
-  update(backend: WasmVizEngineBackend, list: readonly ChartAnnotation[], theme: VizTheme): void {
+  update(backend: WasmCharturboEngineBackend, list: readonly ChartAnnotation[], theme: CharturboTheme): void {
     const rev = backend.chart_annotation_labels_revision?.() ?? 0;
     if (rev === this.revision) return;
     this.revision = rev;
@@ -174,7 +174,7 @@ export class AnnotationLabelLayer {
       let el = this.els[used];
       if (!el) {
         el = document.createElement('div');
-        el.className = 'viz-sdk-annotation-label';
+        el.className = 'charturbo-sdk-annotation-label';
         Object.assign(el.style, {
           position: 'absolute',
           fontSize: '11px',

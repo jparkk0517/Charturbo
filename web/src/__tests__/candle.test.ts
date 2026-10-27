@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  VIZ_THEMES,
-  VizEngineSDK,
+  CHARTURBO_THEMES,
+  Charturbo,
   type ChartTooltipContext,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 
 // The a11y layer (canvas ARIA, live region, data table) has its own tests and needs a full DOM;
 // this suite only checks bar layout / legend wiring, so it is replaced by an inert stand-in.
@@ -108,7 +108,7 @@ interface Mock {
   hist?: Float64Array;
 }
 
-function mockBackend(calls: Calls, m: Mock = {}): WasmVizEngineBackend {
+function mockBackend(calls: Calls, m: Mock = {}): WasmCharturboEngineBackend {
   const hit = m.hit ?? (() => new Float64Array(0));
   const axes = m.axes ?? (() => new Float64Array(0));
   const candle = m.candle ?? (() => new Float64Array(0));
@@ -122,6 +122,7 @@ function mockBackend(calls: Calls, m: Mock = {}): WasmVizEngineBackend {
   let axesRevision = 0;
   return {
     set_candle_chart: record('set_candle_chart', 40),
+    set_ohlc_chart: record('set_ohlc_chart', 40),
     set_chart_candle_style: record('set_chart_candle_style'),
     chart_candle: (i: number) => candle(i),
     set_histogram_chart: record('set_histogram_chart', 4),
@@ -217,7 +218,7 @@ describe('Candlestick charts', () => {
 
   it('sends OHLC arrays, time x, and theme-default up / down colors to the engine', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls));
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     const res = sdk.renderCandlestickChart(ohlc(), { title: 'ACME', hollowUp: false, wickWidth: 1.5 });
     expect(res).toEqual({ candleCount: 10 });
@@ -229,13 +230,13 @@ describe('Candlestick charts', () => {
     expect(xKind).toBe(1); // Date t -> time axis
     expect([width, height]).toEqual([168, 86]);
     // Up = palette[0] (blue), down = palette[1] (orange); explicit options, NaN = engine default
-    expect(Array.from(style.slice(0, 4))).toEqual(f32(VIZ_THEMES.dark.palette[0]));
-    expect(Array.from(style.slice(4, 8))).toEqual(f32(VIZ_THEMES.dark.palette[1]));
+    expect(Array.from(style.slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.dark.palette[0]));
+    expect(Array.from(style.slice(4, 8))).toEqual(f32(CHARTURBO_THEMES.dark.palette[1]));
     expect([style[8], style[9]]).toEqual([0, 1.5]);
     expect(Number.isNaN(style[10]) && Number.isNaN(style[12])).toBe(true);
     // Navigable like a line chart (wheel / drag zoom the x axis), no legend
     expect(sdk.handlesChartNavigation()).toBe(true);
-    expect(container.querySelectorAll('.viz-sdk-legend-item').length).toBe(0);
+    expect(container.querySelectorAll('.charturbo-sdk-legend-item').length).toBe(0);
     expect(calls.set_chart_padding.at(-1)).toEqual([36, 16, 30, 56]);
     // Details per candle id
     const d = sdk.getNodeDetails(2);
@@ -248,7 +249,7 @@ describe('Candlestick charts', () => {
 
   it('index placement and numeric x', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls));
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
     const { t: _t, ...noT } = ohlc();
     sdk.renderCandlestickChart(noT);
     expect((calls.set_candle_chart[0][0] as Float64Array).length).toBe(0);
@@ -263,7 +264,7 @@ describe('Candlestick charts', () => {
   it('tooltip shows O / H / L / C / V of the hovered candle or the aggregated bucket', () => {
     const calls: Calls = {};
     let bucket = new Float64Array([T0 + 7 * DAY, 107, 112, 102, 105, 1007, 7, 7]);
-    const sdk = VizEngineSDK.fromBackend(
+    const sdk = Charturbo.fromBackend(
       mockBackend(calls, { hit: () => hitOf(7, 105), candle: () => bucket })
     );
     let ctx: ChartTooltipContext | null = null;
@@ -277,7 +278,7 @@ describe('Candlestick charts', () => {
     expect(c.index).toBe(7);
     expect(c.ohlc).toEqual({ open: 107, high: 112, low: 102, close: 105, volume: 1007, x: T0 + 7 * DAY, xEnd: T0 + 7 * DAY, count: 1 });
     expect(c.items[0].seriesName).toBe('Close');
-    const tip = body.querySelectorAll('.viz-sdk-node-tooltip')[0];
+    const tip = body.querySelectorAll('.charturbo-sdk-node-tooltip')[0];
     for (const label of ['Open', 'High', 'Low', 'Close', 'Volume', '-1.87%']) expect(tip.innerHTML).toContain(label);
     // Falling candle: the change uses the down color
     expect(c.items[0].color).toBe('rgb(217, 89, 38)');
@@ -285,19 +286,79 @@ describe('Candlestick charts', () => {
     // Zoomed out: the engine aggregates candles 4..=8 into one bucket
     bucket = new Float64Array([T0 + 4 * DAY, 104, 113, 98, 106, 5030, 4, 8]);
     canvas.fire('pointermove', { clientX: 402, clientY: 200, buttons: 0 });
-    const tip2 = body.querySelectorAll('.viz-sdk-node-tooltip')[0];
+    const tip2 = body.querySelectorAll('.charturbo-sdk-node-tooltip')[0];
     expect(tip2.innerHTML).toContain('5 candles');
     expect(tip2.innerHTML).toContain('Jan 9');
   });
 
   it('theme changes re-apply default candle colors only', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls));
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
     sdk.renderCandlestickChart(ohlc(), { downColor: '#ff0000' });
     sdk.setTheme('light');
     const style = calls.set_chart_candle_style.at(-1)![0] as Float32Array;
-    expect(Array.from(style.slice(0, 4))).toEqual(f32(VIZ_THEMES.light.palette[0]));
+    expect(Array.from(style.slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.light.palette[0]));
     expect(Array.from(style.slice(4, 8))).toEqual(f32([1, 0, 0, 1]));
+  });
+
+  it('renders independent OHLC bars and preserves their mode through theme changes', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    expect(sdk.renderOhlcChart(ohlc(), { lineWidth: 2, tickWidth: 0.8 })).toEqual({ barCount: 10 });
+    expect(calls.set_candle_chart).toBeUndefined();
+    const [t, , , , , , style] = calls.set_ohlc_chart[0] as [Float64Array, unknown, unknown, unknown, unknown, unknown, Float32Array];
+    expect(t[3]).toBe(T0 + 3 * DAY);
+    expect(style[9]).toBe(2);
+    expect(style[10]).toBeCloseTo(0.8);
+    expect(style[16]).toBe(1);
+    expect(sdk.handlesChartNavigation()).toBe(true);
+    expect(sdk.getNodeDetails(2)?.metadata.tags).toContain('ohlc-chart');
+    sdk.setTheme('light');
+    expect((calls.set_chart_candle_style.at(-1)![0] as Float32Array)[16]).toBe(1);
+  });
+
+  it('OHLC pointer and keyboard tooltips report aggregate data with an OHLC identity', () => {
+    const calls: Calls = {};
+    const bucket = new Float64Array([T0 + 4 * DAY, 104, 113, 98, 106, 5030, 4, 8]);
+    const sdk = Charturbo.fromBackend(mockBackend(calls, { hit: () => hitOf(6, 106), candle: () => bucket }));
+    let ctx: ChartTooltipContext | undefined;
+    sdk.on('hover', e => { ctx = e.chart ?? undefined; });
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    sdk.renderOhlcChart(ohlc(), { timeZone: 'UTC' });
+    canvas.fire('pointermove', { clientX: 400, clientY: 200, buttons: 0 });
+    expect(ctx).toMatchObject({ chartType: 'ohlc', ohlc: { open: 104, high: 113, low: 98, close: 106, volume: 5030, count: 5 } });
+    expect(body.querySelectorAll('.charturbo-sdk-node-tooltip')[0].innerHTML).toContain('5 bars');
+    type Host = { chartTooltip(hit: Float64Array): ChartTooltipContext | null };
+    const host = (sdk as unknown as { a11y: { host: () => Host } }).a11y.host();
+    expect(host.chartTooltip(hitOf(6, 106))?.chartType).toBe('ohlc');
+  });
+
+  it('rejects malformed OHLC data and missing bindings before altering the current chart', () => {
+    const calls: Calls = {};
+    const backend = mockBackend(calls);
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.renderCandlestickChart(ohlc());
+    const clear = vi.spyOn(sdk, 'clearScene');
+    for (const data of [
+      { ...ohlc(), high: [1] },
+      { ...ohlc(), t: [2, 1, 3, 4, 5, 6, 7, 8, 9, 10] },
+      { ...ohlc(), t: [NaN, 1, 2, 3, 4, 5, 6, 7, 8, 9] },
+    ]) expect(() => sdk.renderOhlcChart(data)).toThrow(/renderOhlcChart/);
+    backend.set_ohlc_chart = undefined;
+    expect(() => sdk.renderOhlcChart(ohlc())).toThrow(/backend/);
+    expect(clear).not.toHaveBeenCalled();
+    expect(calls.set_ohlc_chart).toBeUndefined();
+    expect(sdk.getNodeDetails(2)?.metadata.tags).toContain('candlestick-chart');
+  });
+
+  it('OHLC brush selection retains its public chart identity', () => {
+    const backend = mockBackend({});
+    backend.chart_selection = () => new Float64Array([3, 0, T0, T0 + DAY, NaN, NaN, 2, 0]);
+    backend.chart_selection_ids = () => new Uint32Array([0, 1]);
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.renderOhlcChart(ohlc());
+    expect(sdk.getSelection()).toMatchObject({ kind: 'ohlc', count: 2, ids: new Uint32Array([0, 1]) });
   });
 
   it('a11y model lists candles with O / H / L / C / V columns', async () => {
@@ -329,7 +390,7 @@ describe('Candlestick charts', () => {
   it('a11y host tooltip hook returns the pointer OHLC tooltip (bucket aware)', () => {
     const calls: Calls = {};
     const bucket = new Float64Array([T0 + 4 * DAY, 104, 113, 98, 106, 5030, 4, 8]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, { candle: () => bucket }));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, { candle: () => bucket }));
     sdk.renderCandlestickChart(ohlc());
     type Host = { chartTooltip(hit: Float64Array): ChartTooltipContext | null };
     const host = (sdk as unknown as { a11y: { host: () => Host } }).a11y.host();
@@ -362,7 +423,7 @@ describe('Histograms', () => {
     const container = new FakeEl('div');
     const canvas = container.appendChild(new FakeEl('canvas'));
     let axes = new Float64Array(0);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, { hist: HIST, axes: () => axes }));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, { hist: HIST, axes: () => axes }));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     const values = new Float32Array(10);
     const res = sdk.renderHistogram(values);
@@ -372,7 +433,7 @@ describe('Histograms', () => {
     expect(sent).toBe(values); // no copy
     expect([bins, density, radius, gap]).toEqual([0, false, 0, 1]);
     expect(Number.isNaN(lo) && Number.isNaN(hi)).toBe(true);
-    expect(Array.from(color)).toEqual(f32(VIZ_THEMES.dark.palette[0]));
+    expect(Array.from(color)).toEqual(f32(CHARTURBO_THEMES.dark.palette[0]));
     expect(res.binCount).toBe(4);
     expect(Array.from(res.edges)).toEqual([0, 0.5, 1, 1.5, 2]);
     expect(Array.from(res.counts)).toEqual([1, 4, 3, 2]);
@@ -382,7 +443,7 @@ describe('Histograms', () => {
     // x ticks receive bin edge values (numeric, not category labels)
     axes = new Float64Array([56, 16, 700, 300, 1, 0, 1.5, 400, 316]);
     sdk.render();
-    expect(container.querySelectorAll('.viz-sdk-axis-tick')[0].textContent).toBe('1.5');
+    expect(container.querySelectorAll('.charturbo-sdk-axis-tick')[0].textContent).toBe('1.5');
 
     sdk.renderHistogram([1, 2, 3], { bins: 12.7, range: [0, 5], density: true, barGap: 0 });
     const call = calls.set_histogram_chart[1];
@@ -393,7 +454,7 @@ describe('Histograms', () => {
   it('throws on engines without histogram support', () => {
     const backend = mockBackend({});
     delete backend.set_histogram_chart;
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     expect(() => sdk.renderHistogram([1, 2])).toThrow(/histogram/);
   });
 });

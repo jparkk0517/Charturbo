@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FrameScheduler, VizHoverEvent, VizRange } from '../sdk/chart-events';
+import type { FrameScheduler, CharturboHoverEvent, CharturboRange } from '../sdk/chart-events';
 import { connectCharts, joinSyncGroup, leaveSyncGroup, syncMembership, type ChartSyncMember } from '../sdk/chart-sync';
 // The a11y layer has its own tests and needs a full DOM: replaced by an inert stand-in
 vi.mock('../sdk/chart-a11y', () => ({
@@ -13,7 +13,7 @@ vi.mock('../sdk/chart-a11y', () => ({
   },
 }));
 
-import { VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 /** Manual frame scheduler: `run()` fires the pending frame callbacks. */
 function frames() {
@@ -35,7 +35,7 @@ function frames() {
 
 /** Chart stand-in: records what the group asks of it; `domain` clamps `setXRange` like the engine. */
 function member(domain: [number, number] = [0, 100]) {
-  const handlers: { hover: ((e: VizHoverEvent) => void)[]; rangechange: ((r: VizRange) => void)[] } = {
+  const handlers: { hover: ((e: CharturboHoverEvent) => void)[]; rangechange: ((r: CharturboRange) => void)[] } = {
     hover: [],
     rangechange: [],
   };
@@ -247,7 +247,7 @@ function syncBackend(domain: [number, number]) {
     };
   let x = [...domain];
   let hoverX = NaN;
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_line_chart: record('set_line_chart', 0),
     chart_series_count: () => 1,
     set_chart_hover_style: record('set_chart_hover_style'),
@@ -325,7 +325,7 @@ function syncBackend(domain: [number, number]) {
 
 function timeSdk(domain: [number, number]) {
   const mock = syncBackend(domain);
-  const sdk = VizEngineSDK.fromBackend(mock.backend);
+  const sdk = Charturbo.fromBackend(mock.backend);
   const t0 = 1.7e12;
   sdk.renderLineChart([{ name: 'A', values: [1, 2, 6, 4], x: [0, 1, 2, 3].map((i) => t0 + i * 60_000) }], {
     axes: { x: { type: 'time' } },
@@ -344,7 +344,7 @@ function fakeCanvas() {
   return { canvas, handlers };
 }
 
-describe('VizEngineSDK.connect', () => {
+describe('Charturbo.connect', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
@@ -354,7 +354,7 @@ describe('VizEngineSDK.connect', () => {
     const b = timeSdk([t0, t0 + 180_000]);
     const { canvas, handlers } = fakeCanvas();
     a.sdk.enableNodeInteractions(canvas, { builtInTooltip: false });
-    const disconnect = VizEngineSDK.connect([a.sdk, b.sdk]);
+    const disconnect = Charturbo.connect([a.sdk, b.sdk]);
     expect(b.sdk.getSync()).toMatchObject({ cursor: true, x: true, tooltip: false });
 
     handlers.pointermove({ buttons: 0, clientX: 100, clientY: 50 });
@@ -377,7 +377,7 @@ describe('VizEngineSDK.connect', () => {
   it('zoom syncs without a feedback loop and stops after disconnect', () => {
     const a = timeSdk([0, 100]);
     const b = timeSdk([0, 50]);
-    const disconnect = VizEngineSDK.connect([a.sdk, b.sdk], { cursor: false });
+    const disconnect = Charturbo.connect([a.sdk, b.sdk], { cursor: false });
     a.sdk.zoomChartX(0.5); // a: [25, 75]
     a.sdk.zoomChartX(0.5); // a: [37.5, 62.5] (same frame: one 'rangechange')
     vi.advanceTimersByTime(200);
@@ -417,6 +417,6 @@ describe('VizEngineSDK.connect', () => {
     expect(a.calls.chart_clear_hover.length).toBe(1);
     expect(a.sdk.hoverAtX(new Date(7))).toBe(true);
     expect(a.calls.chart_hover_at_data_x.at(-1)).toEqual([7]);
-    expect(VizEngineSDK.fromBackend(syncBackend([0, 1]).backend).hoverAtX(1)).toBe(false);
+    expect(Charturbo.fromBackend(syncBackend([0, 1]).backend).hoverAtX(1)).toBe(false);
   });
 });

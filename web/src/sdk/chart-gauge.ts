@@ -8,7 +8,7 @@
 import { parseColor, parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartValueFormat } from './chart-format';
 import type { A11yChartModel, ChartDataTable } from './chart-a11y';
-import type { ChartPaddingOptions, ChartTooltipContext, NodeMetadata, VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { ChartPaddingOptions, ChartTooltipContext, NodeMetadata, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import {
   esc,
   overlayDiv,
@@ -155,7 +155,7 @@ export function gaugeMeta(data: GaugeChartData, options: GaugeChartOptions | und
   };
 }
 
-function bandColor(b: GaugeBandOptions, k: number, theme: VizTheme): RgbaTuple {
+function bandColor(b: GaugeBandOptions, k: number, theme: CharturboTheme): RgbaTuple {
   return parseOptionalColor(b.color) ?? (b.status ? parseColor(GAUGE_STATUS_COLORS[b.status]) : (theme.palette[k] ?? theme.baseline));
 }
 
@@ -163,7 +163,7 @@ function bandLabel(b: GaugeBandOptions): string {
   return b.label ?? (b.status ? GAUGE_STATUS_LABELS[b.status].label : '');
 }
 
-function styleArray(meta: GaugeChartMeta, theme: VizTheme): Float32Array {
+function styleArray(meta: GaugeChartMeta, theme: CharturboTheme): Float32Array {
   const track = parseOptionalColor(meta.inputs.trackColor) ?? theme.grid;
   const progress = parseOptionalColor(meta.inputs.color) ?? theme.palette[0];
   const needle = parseOptionalColor(meta.inputs.needleColor) ?? parseColor(theme.textPrimary);
@@ -171,7 +171,7 @@ function styleArray(meta: GaugeChartMeta, theme: VizTheme): Float32Array {
 }
 
 /** Uploads the gauge (`set_gauge_chart`; the engine throws on an invalid range / band). */
-export function sendGauge(backend: WasmVizEngineBackend, meta: GaugeChartMeta, options: GaugeChartOptions | undefined, theme: VizTheme): number {
+export function sendGauge(backend: WasmCharturboEngineBackend, meta: GaugeChartMeta, options: GaugeChartOptions | undefined, theme: CharturboTheme): number {
   const inputs = meta.bandInputs;
   const ranges = new Float64Array(inputs.length * 2);
   const colors = new Float32Array(inputs.length * 4);
@@ -205,7 +205,7 @@ export function sendGauge(backend: WasmVizEngineBackend, meta: GaugeChartMeta, o
 }
 
 /** Drawing-order bands (clipped / sorted by the engine) with their colors and labels. */
-export function syncGaugeBands(backend: WasmVizEngineBackend, meta: GaugeChartMeta, theme: VizTheme): void {
+export function syncGaugeBands(backend: WasmCharturboEngineBackend, meta: GaugeChartMeta, theme: CharturboTheme): void {
   const a = backend.chart_gauge_bands?.();
   if (!a) return;
   meta.bands = [];
@@ -218,7 +218,7 @@ export function syncGaugeBands(backend: WasmVizEngineBackend, meta: GaugeChartMe
 }
 
 /** Theme change: track / needle / surface follow the theme (bands keep their colors). */
-export function sendGaugeStyle(backend: WasmVizEngineBackend, meta: GaugeChartMeta, theme: VizTheme): void {
+export function sendGaugeStyle(backend: WasmCharturboEngineBackend, meta: GaugeChartMeta, theme: CharturboTheme): void {
   backend.set_chart_gauge_style?.(styleArray(meta, theme));
   // Palette-colored bands follow the theme (status / explicit colors are fixed)
   const colors = new Float32Array(meta.bandInputs.length * 4);
@@ -257,7 +257,7 @@ export function gaugeTooltipContext(meta: GaugeChartMeta, id: number, details: (
   };
 }
 
-export function gaugeTooltipHtml(ctx: ChartTooltipContext, meta: GaugeChartMeta, theme: VizTheme, formatValue: (v: number) => string): string {
+export function gaugeTooltipHtml(ctx: ChartTooltipContext, meta: GaugeChartMeta, theme: CharturboTheme, formatValue: (v: number) => string): string {
   const g = ctx.gauge;
   if (!g) return '';
   const status = (b: NonNullable<ChartGaugeTooltip['band']>) => {
@@ -363,11 +363,11 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
     parent: HTMLElement,
     private readonly meta: GaugeChartMeta
   ) {
-    this.root = overlayDiv('viz-sdk-gauge-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
-    this.value = overlayDiv('viz-sdk-gauge-value', { textAlign: 'center', display: 'none' });
-    this.valueText = overlayDiv('viz-sdk-gauge-value-text', { position: 'static', fontSize: '28px', fontWeight: '600', fontVariantNumeric: 'tabular-nums', lineHeight: '32px' });
-    this.caption = overlayDiv('viz-sdk-gauge-caption', { position: 'static', fontSize: '11px', lineHeight: '15px' });
-    this.status = overlayDiv('viz-sdk-gauge-status', { position: 'static', fontSize: '11px', lineHeight: '15px', marginTop: '2px' });
+    this.root = overlayDiv('charturbo-sdk-gauge-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
+    this.value = overlayDiv('charturbo-sdk-gauge-value', { textAlign: 'center', display: 'none' });
+    this.valueText = overlayDiv('charturbo-sdk-gauge-value-text', { position: 'static', fontSize: '28px', fontWeight: '600', fontVariantNumeric: 'tabular-nums', lineHeight: '32px' });
+    this.caption = overlayDiv('charturbo-sdk-gauge-caption', { position: 'static', fontSize: '11px', lineHeight: '15px' });
+    this.status = overlayDiv('charturbo-sdk-gauge-status', { position: 'static', fontSize: '11px', lineHeight: '15px', marginTop: '2px' });
     this.value.append(this.valueText, this.caption, this.status);
     this.root.append(this.value);
     parent.appendChild(this.root);
@@ -377,7 +377,7 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
     this.key = '';
   }
 
-  update(backend: WasmVizEngineBackend, theme: VizTheme): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme): void {
     const a = backend.chart_gauge_labels?.();
     if (!a || a.length < 2) return;
     const meta = this.meta;
@@ -396,7 +396,7 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
       if (kind !== 3 && !meta.showMinMax) continue;
       let el = this.labels[used];
       if (!el) {
-        el = overlayDiv('viz-sdk-gauge-label', { fontSize: '11px', fontVariantNumeric: 'tabular-nums' });
+        el = overlayDiv('charturbo-sdk-gauge-label', { fontSize: '11px', fontVariantNumeric: 'tabular-nums' });
         this.root.appendChild(el);
         this.labels.push(el);
       }
@@ -425,7 +425,7 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
     for (let k = used; k < this.labels.length; k++) this.labels[k].style.display = 'none';
   }
 
-  private layoutValue(theme: VizTheme, x: number, y: number, va: number): void {
+  private layoutValue(theme: CharturboTheme, x: number, y: number, va: number): void {
     const meta = this.meta;
     this.value.style.display = 'block';
     this.valueText.textContent = Number.isFinite(meta.value) ? meta.format(meta.value) : '—';

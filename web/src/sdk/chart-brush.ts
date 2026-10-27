@@ -10,17 +10,17 @@ import { parseColor, type ColorInput } from './color';
 export type BrushMode = 'x' | 'xy';
 
 /** Run of selected samples `[start, end)` of one line / area series (live sample indices). */
-export interface VizSelectionRange {
+export interface CharturboSelectionRange {
   series: number;
   start: number;
   end: number;
 }
 
 /** Brush selection (`'select'` event payload, `getSelection()`). */
-export interface VizSelection {
+export interface CharturboSelection {
   /** Area charts report `'line'` */
   /** Heatmaps / box plots / pies / combo / radar / gauge / funnel / waterfall charts have no brush: their `'select'` payloads are always empty */
-  kind: 'line' | 'bar' | 'scatter' | 'candlestick' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall';
+  kind: 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall';
   /** Bars always brush x */
   mode: BrushMode;
   /** Brushed x range in data units (sample index / x value / category index); `null` = cleared */
@@ -28,14 +28,14 @@ export interface VizSelection {
   /** Brushed y range (`'xy'` mode); `null` = whole y range or cleared */
   yRange: [number, number] | null;
   /** Line / area: selected sample runs per visible series */
-  ranges: VizSelectionRange[];
+  ranges: CharturboSelectionRange[];
   /** Scatter: selected point ids (ascending, visible series only); bars: category indices; candles: candle indices */
   ids: Uint32Array;
   /** Selected samples / points / categories */
   count: number;
 }
 
-const KINDS: VizSelection['kind'][] = ['line', 'bar', 'scatter', 'candlestick', 'heatmap'];
+const KINDS: CharturboSelection['kind'][] = ['line', 'bar', 'scatter', 'candlestick', 'heatmap'];
 const EMPTY_IDS = new Uint32Array(0);
 
 export function brushModeCode(mode: BrushMode): number {
@@ -43,7 +43,7 @@ export function brushModeCode(mode: BrushMode): number {
 }
 
 /** Selection payload of a cleared brush. */
-export function emptySelection(kind: VizSelection['kind'], mode: BrushMode = 'x'): VizSelection {
+export function emptySelection(kind: CharturboSelection['kind'], mode: BrushMode = 'x'): CharturboSelection {
   return { kind, mode, xRange: null, yRange: null, ranges: [], ids: EMPTY_IDS, count: 0 };
 }
 
@@ -51,10 +51,10 @@ export function emptySelection(kind: VizSelection['kind'], mode: BrushMode = 'x'
  * Decodes the engine selection `[kind, mode, x0, x1, y0, y1, count, n, (series, start, end) * n]`
  * (empty = none) plus the scatter / bar ids.
  */
-export function decodeSelection(header: Float64Array | undefined, ids: Uint32Array | undefined): VizSelection | null {
+export function decodeSelection(header: Float64Array | undefined, ids: Uint32Array | undefined): CharturboSelection | null {
   if (!header || header.length < 8) return null;
   const n = header[7];
-  const ranges: VizSelectionRange[] = [];
+  const ranges: CharturboSelectionRange[] = [];
   for (let k = 0; k < n; k++) {
     const at = 8 + k * 3;
     ranges.push({ series: header[at], start: header[at + 1], end: header[at + 2] });

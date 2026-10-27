@@ -253,7 +253,7 @@ async function main() {
   const base = `http://127.0.0.1:${vitePort}/e2e/index.html`;
 
   const cdpPort = await freePort();
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'viz-visual-'));
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'charturbo-visual-'));
   const chromeArgs = [
     '--headless=new',
     '--enable-unsafe-webgpu',

@@ -264,14 +264,14 @@ const fmtSize = (n) => (n >= 1e6 ? `${n / 1e6}M` : n >= 1e3 ? `${n / 1e3}k` : St
 
 function markdown(meta, ours, compare) {
   const lines = [];
-  lines.push(`# viz-engine-sdk benchmark results`);
+  lines.push(`# charturbo benchmark results`);
   lines.push('');
   lines.push(`${meta.date} · ${meta.machine.cpu} · ${mb(meta.machine.memBytes)} MB RAM · ${meta.machine.os} · ${meta.chrome}`);
   lines.push(`WebGPU adapter: ${meta.gpu.webgpu ? Object.values(meta.gpu.webgpu).filter(Boolean).join(' / ') : 'none'} · WebGL2: ${meta.gpu.webgl2 ?? 'none'}`);
   lines.push(`Base run: reps ${meta.reps} (+${meta.warmup} warmup) · steady phase ${meta.duration} ms · canvas 960x540 CSS px @ DPR 1 · idle rAF interval median ${ms(meta.idle?.interval?.median)} ms. Merged comparisons use the per-scenario conditions below.`);
   lines.push('');
   if (ours.length) {
-    lines.push('## viz-engine-sdk scenarios');
+    lines.push('## charturbo scenarios');
     lines.push('');
     lines.push('TTFF = render call -> second rAF after it (frame presented); call = synchronous render call; pixels = render + GPU read-back of 1 px (GPU work finished). Steady = rAF interval during the interaction (wheel+drag zoom/pan, hover sweep or streaming); work = JS+wasm time per frame. Memory after GC.');
     lines.push('');
@@ -424,7 +424,7 @@ async function main() {
   const base = `http://127.0.0.1:${vitePort}/bench/index.html`;
 
   const cdpPort = await freePort();
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'viz-bench-'));
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'charturbo-bench-'));
   const chrome = spawn(
     chromePath,
     [

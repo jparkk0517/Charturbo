@@ -1,20 +1,20 @@
 /**
- * Vue 3 bindings of VizEngineSDK (`viz-engine-sdk/vue`): `VizChart` component + `useVizChart`.
+ * Vue 3 bindings of Charturbo (`charturbo/vue`): `CharturboChart` component + `useCharturboChart`.
  * Vue is an optional peer dependency; the core entry never imports it.
  *
  * @packageDocumentation
- * @module viz-engine-sdk/vue
+ * @module charturbo/vue
  */
-export { VizChart, type VizChartInstance } from './VizChart';
-export { useVizChart, type UseVizChartOptions, type UseVizChartResult } from './useVizChart';
+export { CharturboChart, type CharturboChartInstance } from './CharturboChart';
+export { useCharturboChart, type UseCharturboChartOptions, type UseCharturboChartResult } from './useCharturboChart';
 export type {
-  VizChartCallbacks,
-  VizChartData,
-  VizChartInteractions,
-  VizChartOptions,
-  VizChartSpecMap,
-  VizChartSync,
-  VizChartTheme,
-  VizChartType,
-  VizCreateOptions,
+  CharturboChartCallbacks,
+  CharturboChartData,
+  CharturboChartInteractions,
+  CharturboChartOptions,
+  CharturboChartSpecMap,
+  CharturboChartSync,
+  CharturboChartTheme,
+  CharturboChartType,
+  CharturboCreateOptions,
 } from '../sdk/chart-binding';

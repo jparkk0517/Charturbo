@@ -1,16 +1,16 @@
-import { VizDevice, VizEngineSDK, type SparklineType } from 'viz-engine-sdk';
+import { CharturboDevice, Charturbo, type SparklineType } from 'charturbo';
 import { bindTheme } from '../../theme';
 
 export const meta = {
   title: '24 sparklines on one GPU device',
-  description: 'VizDevice shares one adapter / device and one pipeline set: no per-canvas device request, no WebGL context limit.',
+  description: 'CharturboDevice shares one adapter / device and one pipeline set: no per-canvas device request, no WebGL context limit.',
   height: 470,
 };
 
 export default async function mount(host: HTMLElement) {
   const table = host.appendChild(document.createElement('div'));
   table.className = 'spark-table';
-  const device = await VizDevice.create(); // { backend: 'auto' | 'webgpu' | 'webgl2' }
+  const device = await CharturboDevice.create(); // { backend: 'auto' | 'webgpu' | 'webgl2' }
   const disposers: Array<() => void> = [];
 
   const types: SparklineType[] = ['line', 'area', 'bar', 'winloss'];
@@ -33,7 +33,7 @@ export default async function mount(host: HTMLElement) {
     last.className = 'value';
     last.textContent = type === 'winloss' ? `${values.filter((x) => x > 0).length} W` : values[values.length - 1].toFixed(1);
 
-    const sdk = await VizEngineSDK.create(canvas, { device, locale: 'en-US' });
+    const sdk = await Charturbo.create(canvas, { device, locale: 'en-US' });
     sdk.renderSparkline(values, {
       type,
       showLast: type === 'line',

@@ -1,4 +1,4 @@
-import { VIZ_THEMES, type VizEngineSDK, type VizThemeInput } from 'viz-engine-sdk';
+import { CHARTURBO_THEMES, type Charturbo, type CharturboThemeInput } from 'charturbo';
 
 export const THEMES = {
   dark: { label: 'Dark', base: 'dark', surface: '#090b14', floor: '#1c2535', obstacle: '#35435c' },
@@ -7,18 +7,18 @@ export const THEMES = {
   paper: { label: 'Paper', base: 'light', surface: '#faf6ed', floor: '#e3dac8', obstacle: '#b1a38a' },
 } as const;
 export type ThemeName = keyof typeof THEMES;
-const STORAGE_KEY = 'viz-examples-theme';
+const STORAGE_KEY = 'charturbo-examples-theme';
 let theme: ThemeName = 'dark';
 try {
   const saved = localStorage.getItem(STORAGE_KEY)
-    ?? JSON.parse(localStorage.getItem('viz-examples-scene-design') ?? 'null')?.theme;
+    ?? JSON.parse(localStorage.getItem('charturbo-examples-scene-design') ?? 'null')?.theme;
   if (typeof saved === 'string' && Object.hasOwn(THEMES, saved)) theme = saved as ThemeName;
 } catch { /* Preferences also work without storage. */ }
 const listeners = new Set<() => void>();
 export const getThemeName = () => theme;
-export function chartTheme(): VizThemeInput {
+export function chartTheme(): CharturboThemeInput {
   const selected = THEMES[theme];
-  return { ...VIZ_THEMES[selected.base], name: selected.label, surface: selected.surface };
+  return { ...CHARTURBO_THEMES[selected.base], name: selected.label, surface: selected.surface };
 }
 export function setThemeName(next: ThemeName): void {
   theme = next;
@@ -30,7 +30,7 @@ export function subscribeTheme(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
-export function bindTheme(sdk: VizEngineSDK): () => void {
+export function bindTheme(sdk: Charturbo): () => void {
   const refresh = () => { sdk.setTheme(chartTheme()); sdk.render(); };
   refresh();
   return subscribeTheme(refresh);

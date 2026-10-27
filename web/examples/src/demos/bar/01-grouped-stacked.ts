@@ -1,4 +1,4 @@
-import { VizEngineSDK, type GroupedBarChartOptions } from 'viz-engine-sdk';
+import { Charturbo, type GroupedBarChartOptions } from 'charturbo';
 
 export const meta = {
   title: 'Grouped · stacked · percent bars',
@@ -11,7 +11,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
 
   const data = {
     categories: ['APAC', 'EMEA', 'US-East', 'US-West', 'LATAM'],

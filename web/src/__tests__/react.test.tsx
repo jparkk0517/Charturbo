@@ -4,11 +4,11 @@ import { StrictMode, act, createRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 
-vi.mock('../sdk/viz-engine-sdk', async () => (await import('./fake-viz-sdk')).fakeSdkModule);
+vi.mock('../sdk/charturbo', async () => (await import('./fake-charturbo-sdk')).fakeSdkModule);
 
-import { FakeSDK, flush } from './fake-viz-sdk';
-import { VizChart, useVizChart, type VizChartHandle, type VizChartProps } from '../react';
-import type { LineSeriesDescriptor } from '../sdk/viz-engine-sdk';
+import { FakeSDK, flush } from './fake-charturbo-sdk';
+import { CharturboChart, useCharturboChart, type CharturboChartHandle, type CharturboChartProps } from '../react';
+import type { LineSeriesDescriptor } from '../sdk/charturbo';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,15 +47,37 @@ async function ready(): Promise<FakeSDK> {
   return sdk;
 }
 
-function Line(props: Partial<VizChartProps<'line'>> & { chartRef?: React.Ref<VizChartHandle> }) {
+function Line(props: Partial<CharturboChartProps<'line'>> & { chartRef?: React.Ref<CharturboChartHandle> }) {
   const { chartRef, ...rest } = props;
-  return <VizChart ref={chartRef} type="line" data={series} options={lineOptions} {...rest} />;
+  return <CharturboChart ref={chartRef} type="line" data={series} options={lineOptions} {...rest} />;
 }
 
-describe('React VizChart', () => {
+describe('React CharturboChart', () => {
+  it.each(['errorBar', 'impulse'] as const)('dispatches independent %s props', async (type) => {
+    const data = [{ name: 'S', values: [1, 2], error: 0.5 }];
+    await mount(<CharturboChart type={type} data={data} />);
+    const sdk = await ready();
+    expect(type === 'errorBar' ? sdk.renderErrorBarChart : sdk.renderImpulseChart).toHaveBeenCalledWith(data, undefined);
+  });
+
+  it('dispatches independent band props', async () => {
+    const data = [{ name: 'Range', lower: [1, 2], upper: [3, 4] }];
+    const options = { fillOpacity: 0.3 };
+    await mount(<CharturboChart type="band" data={data} options={options} />);
+    const sdk = await ready();
+    expect(sdk.renderBandChart).toHaveBeenCalledWith(data, options);
+  });
+  it('dispatches OHLC props to the independent financial renderer', async () => {
+    const data = { open: [10], high: [12], low: [9], close: [11] };
+    const options = { lineWidth: 2 };
+    await mount(<CharturboChart type="ohlc" data={data} options={options} />);
+    const sdk = await ready();
+    expect(sdk.renderOhlcChart).toHaveBeenCalledWith(data, options);
+    expect(sdk.renderCandlestickChart).not.toHaveBeenCalled();
+  });
   it('creates the engine on mount and applies theme, sync, chart, interactions once ready', async () => {
     const onReady = vi.fn();
-    const ref = createRef<VizChartHandle>();
+    const ref = createRef<CharturboChartHandle>();
     await mount(<Line chartRef={ref} theme="light" syncGroup="dash" onReady={onReady} className="c" style={{ height: 200 }} />);
     expect(FakeSDK.create).toHaveBeenCalledTimes(1);
     const canvas = host.querySelector('canvas')!;
@@ -147,7 +169,7 @@ describe('React VizChart', () => {
 
   it('dispatches each chart type to its render call', async () => {
     const grouped = { categories: ['a'], series: [{ name: 's', values: [1] }] };
-    const cases: [VizChartProps['type'], unknown, keyof FakeSDK][] = [
+    const cases: [CharturboChartProps['type'], unknown, keyof FakeSDK][] = [
       ['area', series, 'renderAreaChart'],
       ['bar', [{ label: 'a', value: 1 }], 'renderBarChart'],
       ['bar', grouped, 'renderGroupedBarChart'],
@@ -167,21 +189,21 @@ describe('React VizChart', () => {
       ['sankey', { nodes: [{ id: 'a' }, { id: 'b' }], links: [{ source: 'a', target: 'b', value: 1 }] }, 'renderSankey'],
       ['sparkline', [1, 3, 2], 'renderSparkline'],
     ];
-    await mount(<VizChart type="line" data={series} />);
+    await mount(<CharturboChart type="line" data={series} />);
     const sdk = await ready();
     for (const [type, data, method] of cases) {
-      await mount(<VizChart type={type} data={data as never} />);
+      await mount(<CharturboChart type={type} data={data as never} />);
       expect(sdk[method]).toHaveBeenLastCalledWith(data, undefined);
     }
   });
 
   it('sparklines get no default interactions; a throwing first render still binds them', async () => {
-    await mount(<VizChart type="sparkline" data={[1, 2, 3]} />);
+    await mount(<CharturboChart type="sparkline" data={[1, 2, 3]} />);
     const sdk = await ready();
     expect(sdk.renderSparkline).toHaveBeenCalledTimes(1);
     expect(sdk.enableNodeInteractions).not.toHaveBeenCalled();
     // Switching to a regular chart binds the default interactions
-    await mount(<VizChart type="line" data={series} />);
+    await mount(<CharturboChart type="line" data={series} />);
     expect(sdk.enableNodeInteractions).toHaveBeenCalledTimes(1);
 
     act(() => root.unmount());
@@ -189,13 +211,13 @@ describe('React VizChart', () => {
     FakeSDK.reset();
     const onError = vi.fn();
     const bad = { labels: ['a'], values: [-1] };
-    await mount(<VizChart type="pie" data={bad} onError={onError} />);
+    await mount(<CharturboChart type="pie" data={bad} onError={onError} />);
     const sdk2 = await ready();
     sdk2.renderPieChart.mockImplementationOnce(() => {
       throw new Error('negative');
     });
     // (the first render already ran in `ready`; re-render with the throwing implementation)
-    await mount(<VizChart type="pie" data={{ ...bad }} onError={onError} />);
+    await mount(<CharturboChart type="pie" data={{ ...bad }} onError={onError} />);
     expect(onError).toHaveBeenCalled();
     expect(sdk2.enableNodeInteractions).toHaveBeenCalledTimes(1);
   });
@@ -226,7 +248,7 @@ describe('React VizChart', () => {
   });
 
   it('dispose on unmount: unsubscribes, detaches interactions, frees the engine', async () => {
-    const ref = createRef<VizChartHandle>();
+    const ref = createRef<CharturboChartHandle>();
     await mount(<Line chartRef={ref} />);
     const sdk = await ready();
     expect(sdk.listenerCount()).toBeGreaterThan(0);
@@ -256,7 +278,7 @@ describe('React VizChart', () => {
     const onError = vi.fn();
     let seen: unknown = null;
     function Probe() {
-      const chart = useVizChart({ type: 'line', data: series, onError });
+      const chart = useCharturboChart({ type: 'line', data: series, onError });
       seen = chart.error;
       return <canvas ref={chart.canvasRef} />;
     }
@@ -270,11 +292,11 @@ describe('React VizChart', () => {
     expect(seen).toBe(err);
   });
 
-  it('useVizChart exposes the sdk as state', async () => {
+  it('useCharturboChart exposes the sdk as state', async () => {
     const seen: unknown[] = [];
     function Probe() {
       const [data] = useState(series);
-      const chart = useVizChart({ type: 'line', data });
+      const chart = useCharturboChart({ type: 'line', data });
       seen.push(chart.sdk);
       return (
         <div style={{ position: 'relative' }}>
@@ -292,7 +314,7 @@ describe('React VizChart', () => {
   it('handle.sdk is live inside onReady; a throwing onReady does not reject whenReady', async () => {
     vi.useFakeTimers();
     try {
-      const ref = createRef<VizChartHandle>();
+      const ref = createRef<CharturboChartHandle>();
       let inside: unknown = 'unset';
       await mount(
         <Line

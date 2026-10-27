@@ -31,13 +31,20 @@ import type {
   LineYDomainOptions,
   NavigatorOption,
   SparklineSummary,
-  VizCreateOptions,
-  VizDeviceEngineFactory,
-  VizSelection,
-  VizSelectionRange,
+  CharturboCreateOptions,
+  CharturboDeviceEngineFactory,
+  CharturboSelection,
+  CharturboSelectionRange,
   WasmGpuDeviceBackend,
 } from '../index';
 import { createFormatter, formatNumber } from '../index';
+import type { ErrorBarSeriesDescriptor, ErrorBarChartOptions, ImpulseSeriesDescriptor, ImpulseChartOptions } from '../index';
+
+export const scientificSeries: [ErrorBarSeriesDescriptor, ImpulseSeriesDescriptor] = [
+  { name: 'Error', values: [2], errorLow: 1, errorHigh: [3], direction: 'horizontal' },
+  { name: 'Impulse', values: [2], baseline: -1, showMarker: false },
+];
+export const scientificOptions: [ErrorBarChartOptions, ImpulseChartOptions] = [{ capWidth: '40%', errorMode: 'high' }, { baseline: 2 }];
 
 export type PublicTypes = [
   AppendSeriesOptions,
@@ -67,10 +74,10 @@ export type PublicTypes = [
   LineYDomainOptions,
   NavigatorOption,
   SparklineSummary,
-  VizCreateOptions,
-  VizDeviceEngineFactory,
-  VizSelection,
-  VizSelectionRange,
+  CharturboCreateOptions,
+  CharturboDeviceEngineFactory,
+  CharturboSelection,
+  CharturboSelectionRange,
   WasmGpuDeviceBackend,
 ];
 

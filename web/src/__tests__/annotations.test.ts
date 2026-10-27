@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VIZ_THEMES, VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { encodeAnnotations, labelTransform, type ChartAnnotation } from '../sdk/chart-annotations';
 
 // The a11y layer needs a full DOM and has its own tests: replace it with an inert stand-in
@@ -88,7 +88,7 @@ class FakeEl {
 type Calls = Record<string, unknown[][]>;
 
 /** Backend whose annotation labels are `labels()`; the revision bumps on every set / clear. */
-function mockBackend(calls: Calls, labels: () => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, labels: () => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -159,7 +159,7 @@ const LIST: ChartAnnotation[] = [
 
 describe('chart annotations', () => {
   it('encodes kinds, data coords, styles, and engine defaults as flat arrays', () => {
-    const e = encodeAnnotations(LIST, VIZ_THEMES.dark);
+    const e = encodeAnnotations(LIST, CHARTURBO_THEMES.dark);
     expect(Array.from(e.kinds)).toEqual([0, 3, 4, 5]);
     expect(Array.from(e.coords.slice(0, 1))).toEqual([250]);
     expect(Array.from(e.coords.slice(4, 6))).toEqual([100, 140]);
@@ -167,8 +167,8 @@ describe('chart annotations', () => {
     expect(Number.isNaN(e.coords[1])).toBe(true);
     expect(Array.from(e.colors.slice(0, 4))).toEqual([1, 0, 0, 1]);
     // Bands default to the theme crosshair color, lines / points to the baseline color
-    expect(Array.from(e.colors.slice(4, 8))).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.crosshair)));
-    expect(Array.from(e.colors.slice(8, 12))).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.baseline)));
+    expect(Array.from(e.colors.slice(4, 8))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.crosshair)));
+    expect(Array.from(e.colors.slice(8, 12))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.baseline)));
     expect(Array.from(e.dash)).toEqual([6, 0, 0, 0]);
     expect(e.widths[2]).toBe(7);
     expect(Number.isNaN(e.widths[0]) && Number.isNaN(e.opacity[1])).toBe(true); // engine defaults
@@ -208,7 +208,7 @@ describe('chart annotations', () => {
       const calls: Calls = {};
       // hline at (700, 120); xband at (300, 340); point hidden; text at (50, 60)
       let labels = new Float64Array([4, 0, 700, 120, 1, 1, 300, 340, 1, 2, 0, 0, 0, 3, 50, 60, 1]);
-      const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => labels));
+      const sdk = Charturbo.fromBackend(mockBackend(calls, () => labels));
       sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
       sdk.renderLineChart([{ name: 'A', values: [1, 2, 3] }]);
 
@@ -217,13 +217,13 @@ describe('chart annotations', () => {
       expect(Array.from(kinds)).toEqual([0, 3, 4, 5]);
       expect(coords.length).toBe(16);
       sdk.render();
-      const els = () => container.querySelectorAll('.viz-sdk-annotation-label').filter((e) => e.style.display !== 'none');
+      const els = () => container.querySelectorAll('.charturbo-sdk-annotation-label').filter((e) => e.style.display !== 'none');
       // The point has no label text (and is hidden): 3 labels
       expect(els().map((e) => e.textContent)).toEqual(['SLO', 'Incident', 'note']);
       const [slo, incident, note] = els();
       expect([slo.style.left, slo.style.top]).toEqual(['700px', '120px']);
       expect(slo.style.borderLeft).toBe('3px solid rgb(255, 0, 0)');
-      expect(slo.style.background).toBe(VIZ_THEMES.dark.tooltipBackground);
+      expect(slo.style.background).toBe(CHARTURBO_THEMES.dark.tooltipBackground);
       expect(incident.style.transform).toBe('translate(-50%, calc(-100% - 4px))');
       expect(note.style.background).toBe('none'); // text annotations are plain text
 
@@ -249,7 +249,7 @@ describe('chart annotations', () => {
 
     it('rejects an invalid color without keeping the bad annotation', () => {
       const calls: Calls = {};
-      const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array([0])));
+      const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array([0])));
       sdk.renderLineChart([{ name: 'A', values: [1, 2, 3] }]);
       sdk.addAnnotation({ type: 'hline', y: 2, color: '#e66767' });
       expect(() => sdk.addAnnotation({ type: 'hline', y: 1, color: 'not-a-color' })).toThrow();

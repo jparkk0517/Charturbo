@@ -5,6 +5,44 @@
 
 ## [Unreleased]
 
+### 추가 — 독립 ErrorBar · Impulse
+
+- `renderErrorBarChart`·`renderImpulseChart`, React/Vue `type="errorBar"`·`type="impulse"`를 추가했습니다.
+- 절대/상대/비대칭 오차, 수평/수직, 단측 경계, CSS px/퍼센트 캡, 캡·연결선·마커 표시, baseline과 0길이 impulse를 지원합니다. 독립 샘플은 선 LOD로 생략하지 않습니다.
+- 실제 줄기/캡 hover, 데이터 구간 brush, 키보드 접근성·CSV·벡터 SVG, 세 가지 예제와 양 GPU backend fixture를 연결했습니다.
+- 전체 채널 교체로 갱신하며 단일 채널 streaming은 거부합니다. 작은 resize에서 CSS 캡 길이를 유지하고 수평 경계를 포함한 X축 범위·줌 한계를 재계산합니다.
+
+### 추가 — 독립 Band 차트
+
+- `renderBandChart(series, options)`와 React/Vue `type="band"`: 두 경계만으로 범위 채우기, 경계별 선 두께, 경계 교차 보존, 결측 쌍의 gap/연결을 지원합니다.
+- 두 경계의 극값과 픽셀 버킷 내부 결측을 보존하는 네이티브 LOD, 범위 기반 hover/brush, 줌·팬·시간축·오른쪽 축·범례·벡터 SVG를 연결했습니다.
+- 키보드 툴팁·접근성 요약·두 경계 CSV, 10만 쌍·교차 곡선 예제와 WebGPU/WebGL2 시각 회귀 fixture를 추가했습니다.
+- 데이터 교체는 두 경계를 함께 `renderBandChart`로 전달합니다. 단일 채널 스트리밍 API는 독립 Band에서 거부합니다.
+
+### 추가 — 독립 OHLC 차트
+
+- `renderOhlcChart(data, options)`와 React/Vue `type="ohlc"`를 추가했습니다. 고가–저가 세로선과 왼쪽 시가·오른쪽 종가 틱을 그리고 `{ barCount }`를 반환합니다.
+- `lineWidth`·`tickWidth`, 거래량 패널, 시간축·줌·팬, 픽셀 컬럼 OHLC 집계, 브러시 선택, 키보드 접근성·CSV·벡터 SVG를 지원합니다.
+- 툴팁·선택의 종류는 `'ohlc'`이며 잘못된 배열 길이·시간축과 미지원 backend는 기존 차트를 지우기 전에 거부합니다.
+- 금융 차트 예제에 5만 개 OHLC bar 데모를 추가했습니다.
+- 확대 구간 경계의 부동소수점 오차로 마지막 금융 샘플의 키보드 툴팁이 누락되는 문제를 수정했습니다.
+
+### 추가 — Area 스트리밍 · 제품 랜딩
+
+- overlap 영역의 시리즈별 교체·추가와 `appendAreaData(chunks, options)` 원자적 batch append를 지원합니다. 누적·100% 누적 영역은 정렬 검증 후 함께 갱신하며 FIFO·줌·가시성을 보존합니다.
+- 스트리밍 후 percent 툴팁의 오래된 값 참조와 숨긴 시리즈를 다시 표시할 때 누적 영역이 잘리는 문제를 수정했습니다.
+- 정적 제품 랜딩과 실제 SDK 스트리밍 hero를 추가했습니다. 지연 로딩, Play/Pause, reduced motion, 화면 밖·숨겨진 탭 정지, GPU 실패 시 정적 preview를 지원합니다.
+- 기존 갤러리는 `gallery.html`로 이동하고 area 스트리밍 실행 예제를 추가했습니다.
+
+### 변경 — Charturbo 리브랜딩
+
+- 제품명을 **Charturbo**, npm 패키지명을 `charturbo`로 변경합니다.
+- 코어 API는 `import { Charturbo } from 'charturbo'`와 `Charturbo.create(canvas)`를 사용합니다.
+- 기존 `Viz*` 타입·보조 API는 `Charturbo*`로, `VIZ_THEMES`는 `CHARTURBO_THEMES`로 변경합니다.
+  React·Vue는 `charturbo/react`, `charturbo/vue`의 `CharturboChart`와 `useCharturboChart`를 사용합니다.
+- Rust 크레이트와 WASM 파일은 `charturbo-core`, `charturbo_core_bg.wasm`으로 변경합니다.
+- 문서·데모·벤치마크 표시명을 통일합니다. 원본 측정의 `viz`·`vizgpu` 식별자는 기록 연결을 위해 유지합니다.
+
 ### 수정 — 데모 공통 테마 선택
 
 - 갤러리와 모든 예제 페이지의 상단에 Dark / Light / Midnight / Paper 선택을 표시합니다.
@@ -17,7 +55,7 @@
 - `supportsGpuPhysics()`와 `stepPhysicsAsync()`를 추가했습니다. WebGPU 반발력 + CPU 스프링·적분·공간 인덱스의 선택적 하이브리드 경로이며, WebGL2에서는 CPU로 폴백합니다.
 - 비동기 완료 후 좌표 조회·피킹이 갱신된 위치를 사용합니다. 중복 비동기 호출과 데이터/힘 설정 변경으로 오래된 결과, dispose 후 결과 적용을 거부합니다.
 - Apple M1에서 100k 노드 물리 시간 310.30→41.87 ms, FPS 3.5→19.6을 측정했습니다(GPU 왕복 포함). 자세한 조건은 `docs/BENCHMARKS.md`를 참고하세요.
-- cosmos 벤치마크의 프레임당 중복 물리 실행을 수정하고, 대시보드에 CPU와 하이브리드 GPU 결과를 구분해 표시합니다.
+- cosmos 벤치마크의 프레임당 중복 물리 실행을 수정하고, 대시보드에는 시나리오별 CPU·하이브리드 GPU 중 FPS가 높은 모드를 Charturbo 한 항목으로 표시합니다(동률이면 물리 시간이 짧은 모드).
 
 ### 추가 — 3D 데모 디자인 설정
 
@@ -37,7 +75,7 @@
 
 ## [0.1.0] - TODO: 배포일 (YYYY-MM-DD)
 
-첫 공개 릴리스입니다. Rust(`crates/viz-core`)가 데이터 처리 · 레이아웃 · LOD · hit-test를 맡고,
+첫 공개 릴리스입니다. Rust(`crates/charturbo-core`)가 데이터 처리 · 레이아웃 · LOD · hit-test를 맡고,
 TypeScript SDK는 WebGPU(WebGL2 폴백) 캔버스와 DOM 오버레이(라벨 · 범례 · 툴팁)만 다룹니다.
 
 ### 추가 — 차트
@@ -66,14 +104,14 @@ TypeScript SDK는 WebGPU(WebGL2 폴백) 캔버스와 DOM 오버레이(라벨 · 
 - 휠 / 드래그 / 핀치 줌 · 팬, y축 줌, 박스 줌, 줌 기록(undo / redo), 범위 네비게이터(미니맵).
 - 브러시 선택(`'x'` / `'xy'`)과 `select` 이벤트, 주석(기준선 · 구간 · 점 · 텍스트).
 - 실시간 스트리밍(`appendSeriesData` + `maxPoints` 슬라이딩 창), y축 autoscale(`all` / `visible` / `none`).
-- 로그 · 반전 축, 이중 y축, 대시보드 커서 · 줌 동기화(`VizEngineSDK.connect`, `sync` 옵션).
+- 로그 · 반전 축, 이중 y축, 대시보드 커서 · 줌 동기화(`Charturbo.connect`, `sync` 옵션).
 - 이벤트 API(`sdk.on` / `off`: `hover`, `click`, `select`, `rangechange`, `legendtoggle`, `themechange`,
   `resize`, `drill`).
 - 터치 · 펜 제스처(핀치 줌, 관성 팬, 탭 툴팁, 길게 눌러 스크럽).
 
 ### 추가 — 표시 · 접근성 · 내보내기
 
-- 테마(`dark` / `light` / 사용자 `VizTheme`), 색각 이상 검증 팔레트, CSS 색 문자열 입력(`ColorInput`).
+- 테마(`dark` / `light` / 사용자 `CharturboTheme`), 색각 이상 검증 팔레트, CSS 색 문자열 입력(`ColorInput`).
 - d3-format 스타일 숫자 형식(`'.2s'`, `'$,.2f'`, `'compact'`, `'bytes'` 등)과 `Intl` 옵션, 로캘 · 시간대(IANA,
   기본 `'local'`) 지원.
 - 접근성: 자동 요약 `aria-label`, 시각적으로 숨긴 긴 설명, 데이터 테이블 / CSV, 모든 차트 종류의 키보드 탐색,
@@ -84,14 +122,14 @@ TypeScript SDK는 WebGPU(WebGL2 폴백) 캔버스와 DOM 오버레이(라벨 · 
 
 ### 추가 — 플랫폼 · 패키징
 
-- `VizEngineSDK.create`의 타입 있는 초기화 오류(`VizInitError`: `no-webgpu` / `adapter` / `device` / `wasm`),
+- `Charturbo.create`의 타입 있는 초기화 오류(`CharturboInitError`: `no-webgpu` / `adapter` / `device` / `wasm`),
   `isSupported`, 캔버스 자동 리사이즈(DPR 변경 포함).
-- 공유 GPU 디바이스(`VizDevice`): 차트 수십~수백 개 페이지(WebGL 컨텍스트 한도 회피).
-- React / Vue 컴포넌트(`viz-engine-sdk/react`, `viz-engine-sdk/vue`: `VizChart`, `useVizChart`), SSR에서 import 안전.
+- 공유 GPU 디바이스(`CharturboDevice`): 차트 수십~수백 개 페이지(WebGL 컨텍스트 한도 회피).
+- React / Vue 컴포넌트(`charturbo/react`, `charturbo/vue`: `CharturboChart`, `useCharturboChart`), SSR에서 import 안전.
 - 3D 그래프 · 임베딩: Barnes-Hut 포스 레이아웃, 고차원 임베딩 투영(PCA / JL) + 코사인 k-NN, 노드 검색 · 최단 경로,
   범용 3D 도형 · 강체 물리.
-- 배포 형식: ES 모듈(WASM을 별도 `viz_core_bg.wasm` 파일로, 번들러가 에셋으로 처리) ·
-  `viz-engine-sdk/inline`(WASM base64 내장) · UMD(`<script>` 태그, WASM 내장, `require`) · `.d.ts`
+- 배포 형식: ES 모듈(WASM을 별도 `charturbo_core_bg.wasm` 파일로, 번들러가 에셋으로 처리) ·
+  `charturbo/inline`(WASM base64 내장) · UMD(`<script>` 태그, WASM 내장, `require`) · `.d.ts`
   (`moduleResolution` `bundler` / `node16` / `nodenext` / `node10` 및 CJS `.d.cts`).
 - `setWasmSource(url | Response | bytes | WebAssembly.Module)`: CDN 등 다른 위치에서 WASM 로드.
 - TypeDoc API 문서(`npm run docs`), 예제 사이트(`npm run examples:dev` / `examples:build`).

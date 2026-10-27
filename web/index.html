@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VizEngineSDK — WebGPU High-Volume 2D Charts & 3D Visualization Examples</title>
+    <title>Charturbo — WebGPU High-Volume 2D Charts & 3D Visualization Examples</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
         <div class="brand-left">
-          <h1>VizEngineSDK — WebGPU 대용량 데이터 시각화</h1>
+          <h1>Charturbo — WebGPU 대용량 데이터 시각화</h1>
           <div class="mode-tabs">
             <button id="tab-showcase" class="mode-tab active">🎨 Examples (2D 차트 · 3D 시각화)</button>
             <button id="tab-benchmark" class="mode-tab">⚡ 성능 벤치마크 (vs Three.js)</button>
@@ -55,7 +55,7 @@
 
         <!-- 스텝 측정 & SDK 모듈 기능 비교 패널 -->
         <div class="bench-controls">
-          <button id="btn-bench-rust" class="action-btn rust-btn">▶ VizEngineSDK 측정 (30프레임)</button>
+          <button id="btn-bench-rust" class="action-btn rust-btn">▶ Charturbo 측정 (30프레임)</button>
           <button id="btn-bench-three" class="action-btn three-btn">▶ Three.js 측정 (30프레임)</button>
           <button id="btn-bench-seq" class="action-btn primary-btn">⚡ 순차 자동 비교 (SDK ➔ Three.js)</button>
           <button id="btn-stop" class="action-btn stop-btn" disabled>■ 정지</button>
@@ -81,7 +81,7 @@
         </div>
 
         <!-- 3D 시각화 레이아웃 프리셋 & 최단경로 / 노드 데이터 검색 바 -->
-        <div class="sdk-feature-bar sdk-viz-bar">
+        <div class="sdk-feature-bar sdk-charturbo-bar">
           <span class="sdk-bar-label">3D 배치 & 그래프 분석:</span>
           <button data-layout-preset="cluster-sphere" class="sdk-btn">🌐 클러스터 구체 배치</button>
           <button data-layout-preset="radial-shells" class="sdk-btn">🎯 중심도(Degree) 계층 배치</button>
@@ -161,7 +161,7 @@
         <div class="overlay-card rust-card" id="rust-benchmark-card">
           <div class="card-header">
             <div class="header-top">
-              <span class="badge rust-badge">VizEngineSDK (Rust + wgpu)</span>
+              <span class="badge rust-badge">Charturbo (Rust + wgpu)</span>
               <span class="sample-count" id="rust-samples">0 samples</span>
             </div>
             <span class="tech-tag">TypedArray Bulk I/O · O(log N) Octree · Subgraph Dimming</span>

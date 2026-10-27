@@ -1,4 +1,4 @@
-import { RawGraphData } from '../sdk/viz-engine-sdk';
+import { RawGraphData } from '../sdk/charturbo';
 
 export interface NodeDataTS {
   id: number;

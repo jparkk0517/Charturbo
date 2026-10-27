@@ -12,7 +12,7 @@ vi.mock('../sdk/chart-a11y', () => ({
   },
 }));
 import { GRAPH_TOOLTIP_MAX_ATTRIBUTES, graphTooltipHtml, graphTooltipStrings } from '../sdk/graph-tooltip';
-import { VIZ_THEMES, VizEngineSDK, escapeHtml, type NodeDetails } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, escapeHtml, type NodeDetails } from '../sdk/charturbo';
 import { fakeCanvas, graphBackend } from './graph-backend';
 
 const XSS = '<img src=x onerror="window.__pwned = 1">';
@@ -49,7 +49,7 @@ describe('graphTooltipHtml', () => {
     const el = render(
       graphTooltipHtml(
         details({ label: XSS, metadata: { category: XSS, tags: [XSS], attributes: { [XSS]: XSS } } }),
-        VIZ_THEMES.dark,
+        CHARTURBO_THEMES.dark,
         'en-US'
       )
     );
@@ -63,18 +63,18 @@ describe('graphTooltipHtml', () => {
   it('English by default, Korean for ko locales; numbers follow the locale', () => {
     expect(graphTooltipStrings()).toBe(graphTooltipStrings('en-US'));
     expect(graphTooltipStrings('ko')).toBe(graphTooltipStrings('ko-KR'));
-    const en = render(graphTooltipHtml(details(), VIZ_THEMES.dark, 'en-US', true)).textContent!;
+    const en = render(graphTooltipHtml(details(), CHARTURBO_THEMES.dark, 'en-US', true)).textContent!;
     expect(en).toContain('Degree');
     expect(en).toContain('1,234');
     expect(en).toContain('(1.3, -2.0, 3.0)');
     expect(en).toContain('Gateway · Cluster 2');
     expect(en).toContain('Click to highlight neighbors');
     expect(en).not.toMatch(/[가-힣]/);
-    const ko = render(graphTooltipHtml(details(), VIZ_THEMES.dark, 'ko-KR', true)).textContent!;
+    const ko = render(graphTooltipHtml(details(), CHARTURBO_THEMES.dark, 'ko-KR', true)).textContent!;
     expect(ko).toContain('연결 차수');
     expect(ko).toContain('클러스터 2');
     expect(ko).toContain('클릭하면 이웃 노드를 강조합니다');
-    const de = render(graphTooltipHtml(details(), VIZ_THEMES.dark, 'de-DE')).textContent!;
+    const de = render(graphTooltipHtml(details(), CHARTURBO_THEMES.dark, 'de-DE')).textContent!;
     expect(de).toContain('1.234');
     expect(de).toContain('(1,3, -2,0, 3,0)');
     expect(de).not.toContain('Click');
@@ -82,8 +82,8 @@ describe('graphTooltipHtml', () => {
 
   it('uses theme text tokens, skips the fallback category and caps attribute rows', () => {
     const attributes = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`k${i}`, i]));
-    const html = graphTooltipHtml(details({ metadata: { category: 'Cluster 2', attributes } }), VIZ_THEMES.light);
-    expect(html).toContain(VIZ_THEMES.light.textPrimary);
+    const html = graphTooltipHtml(details({ metadata: { category: 'Cluster 2', attributes } }), CHARTURBO_THEMES.light);
+    expect(html).toContain(CHARTURBO_THEMES.light.textPrimary);
     expect(html).not.toContain('#fff');
     const text = render(html).textContent!;
     expect(text).not.toContain('Cluster 2 · Cluster 2');
@@ -99,11 +99,11 @@ describe('graphTooltipHtml', () => {
 
 describe('built-in tooltips escape data (SDK hover)', () => {
   afterEach(() => document.body.replaceChildren());
-  const tooltip = () => document.body.querySelector<HTMLElement>('.viz-sdk-node-tooltip')!;
+  const tooltip = () => document.body.querySelector<HTMLElement>('.charturbo-sdk-node-tooltip')!;
 
   it('graph node tooltip follows the SDK locale and renders labels as text', () => {
     const { backend, pick } = graphBackend();
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.setNodeMetadata([{ label: XSS, category: XSS }]);
     const { canvas, handlers } = fakeCanvas();
     sdk.enableNodeInteractions(canvas);
@@ -121,7 +121,7 @@ describe('built-in tooltips escape data (SDK hover)', () => {
 
   it('line chart tooltip escapes series names and x labels', () => {
     const { backend, setHit } = graphBackend();
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     const { canvas, handlers } = fakeCanvas();
     sdk.enableNodeInteractions(canvas);
     sdk.renderLineChart([{ name: XSS, values: [1, 2, 3] }], { xLabelPrefix: XSS });

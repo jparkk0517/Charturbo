@@ -14,7 +14,7 @@ try {
     await browser.evaluate(`(() => { const s = document.querySelector('#scenario'); s.value = '${scenario}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await browser.wait('window.__benchmark.ready === true');
     assert.equal(await browser.evaluate('window.__benchmark.error'), undefined);
-    assert.equal(await browser.evaluate('document.querySelectorAll("tbody tr").length'), scenario.startsWith('graph') ? 6 : 8);
+    assert.equal(await browser.evaluate('document.querySelectorAll("tbody tr").length'), scenario.startsWith('graph') ? 5 : 8);
     assert.equal(await browser.evaluate('document.querySelectorAll(".chart-host canvas").length'), scenario.startsWith('graph') ? 3 : 2);
   }
   for (const theme of ['dark', 'midnight', 'paper', 'light']) {
@@ -61,7 +61,7 @@ try {
   for (let y = 30; y < 300 && !tooltip; y += 24) {
     await browser.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: canvas.x + 122, y: canvas.y + y });
     await browser.evaluate('new Promise(r => requestAnimationFrame(r))');
-    tooltip = await browser.evaluate('[...document.querySelectorAll(".viz-sdk-node-tooltip")].some(e => getComputedStyle(e).display !== "none" && e.textContent.length > 0)');
+    tooltip = await browser.evaluate('[...document.querySelectorAll(".charturbo-sdk-node-tooltip")].some(e => getComputedStyle(e).display !== "none" && e.textContent.length > 0)');
   }
   assert.ok(tooltip, 'the real SDK tooltip should respond to pointer movement');
   await browser.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });

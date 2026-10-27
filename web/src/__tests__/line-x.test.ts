@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatChartTime, VizEngineSDK, WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { formatChartTime, Charturbo, WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 /** Mock backend recording chart calls (same pattern as benchmark-core.test.ts). */
 function mockSdk(withXy = true) {
@@ -10,7 +10,7 @@ function mockSdk(withXy = true) {
       (calls[name] ??= []).push(args);
       return ret as never;
     };
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_line_chart: record('set_line_chart', 0),
     ...(withXy ? { set_line_chart_xy: record('set_line_chart_xy', 0) } : {}),
     set_chart_hover_style: record('set_chart_hover_style'),
@@ -52,7 +52,7 @@ function mockSdk(withXy = true) {
     set_graph_visible: () => {},
     clear_scene_objects: () => {},
   };
-  return { sdk: VizEngineSDK.fromBackend(backend), calls };
+  return { sdk: Charturbo.fromBackend(backend), calls };
 }
 
 type XyArgs = [Float32Array, Uint32Array, Float64Array, Float32Array, Float32Array, number, number, number, number];

@@ -7,7 +7,7 @@
  * label (total, or the hovered slice).
  */
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
-import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import type { ChartAnimationInput } from './chart-animation';
 
 export interface PieChartData {
@@ -130,7 +130,7 @@ export function pieLabelSpace(labels: string[], otherLabel: string, mode: PieLab
 }
 
 /** Uploads the values and layout options (`set_pie_chart`); returns the displayed slice count. */
-export function sendPie(backend: WasmVizEngineBackend, data: PieChartData, meta: PieChartMeta, options?: PieChartOptions): number {
+export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData, meta: PieChartMeta, options?: PieChartOptions): number {
   const values = data.values instanceof Float64Array ? data.values : Float64Array.from(data.values);
   const max = options?.maxSlices === false ? 0 : (options?.maxSlices ?? -1);
   const [sx, sy] = pieLabelSpace(meta.inputLabels, meta.otherLabel, meta.labelMode);
@@ -152,7 +152,7 @@ export function sendPie(backend: WasmVizEngineBackend, data: PieChartData, meta:
 }
 
 /** Palette (fixed order), per-value colors, "Other" / leader colors and the surface under `theme`. */
-export function sendPieStyle(backend: WasmVizEngineBackend, meta: PieChartMeta, theme: VizTheme): void {
+export function sendPieStyle(backend: WasmCharturboEngineBackend, meta: PieChartMeta, theme: CharturboTheme): void {
   const palette = new Float32Array(theme.palette.length * 4);
   theme.palette.forEach((c, k) => palette.set(c, k * 4));
   const inputs = meta.colorInputs ?? [];
@@ -166,7 +166,7 @@ export function sendPieStyle(backend: WasmVizEngineBackend, meta: PieChartMeta, 
 }
 
 /** Re-reads the displayed slices (names, colors, values, percents, visibility) from the engine. */
-export function syncPieSlices(backend: WasmVizEngineBackend, meta: PieChartMeta): void {
+export function syncPieSlices(backend: WasmCharturboEngineBackend, meta: PieChartMeta): void {
   const a = backend.chart_pie_slices?.();
   if (!a) return;
   const n = Math.floor(a.length / 8);
@@ -220,7 +220,7 @@ export function pieTooltipContext(meta: PieChartMeta, k: number, cssColor: (c: R
 }
 
 /** Default pie tooltip: swatch + name, value, percent; "Other" lists what it folds. */
-export function pieTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, formatValue: (v: number) => string, locale?: string): string {
+export function pieTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): string {
   const it = ctx.items[0];
   const s = ctx.slice;
   if (!it || !s) return '';
@@ -274,16 +274,16 @@ export class PieLabelLayer {
       Object.assign(el.style, { position: 'absolute', pointerEvents: 'none', ...style });
       return el;
     };
-    this.root = div('viz-sdk-pie-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
-    this.center = div('viz-sdk-pie-center', { transform: 'translate(-50%, -50%)', textAlign: 'center', display: 'none' });
-    this.centerValue = div('viz-sdk-pie-center-value', {
+    this.root = div('charturbo-sdk-pie-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
+    this.center = div('charturbo-sdk-pie-center', { transform: 'translate(-50%, -50%)', textAlign: 'center', display: 'none' });
+    this.centerValue = div('charturbo-sdk-pie-center-value', {
       position: 'static',
       fontSize: '20px',
       fontWeight: '600',
       fontVariantNumeric: 'tabular-nums',
       whiteSpace: 'nowrap',
     });
-    this.centerCaption = div('viz-sdk-pie-center-caption', {
+    this.centerCaption = div('charturbo-sdk-pie-center-caption', {
       position: 'static',
       fontSize: '11px',
       whiteSpace: 'nowrap',
@@ -299,7 +299,7 @@ export class PieLabelLayer {
     this.centerKey = '';
   }
 
-  update(backend: WasmVizEngineBackend, theme: VizTheme, formatValue: (v: number) => string, locale?: string): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): void {
     const meta = this.meta;
     const a = backend.chart_pie_labels?.();
     if (a && a.length >= 2 && a[0] !== this.revision) {
@@ -312,7 +312,7 @@ export class PieLabelLayer {
         let el = this.labels[k];
         if (!el) {
           el = document.createElement('div');
-          el.className = 'viz-sdk-pie-label';
+          el.className = 'charturbo-sdk-pie-label';
           Object.assign(el.style, { position: 'absolute', pointerEvents: 'none', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' });
           this.root.appendChild(el);
           this.labels.push(el);

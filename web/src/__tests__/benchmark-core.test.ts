@@ -8,7 +8,7 @@ import {
 import { MetricsCollector } from '../benchmark/metrics';
 import { BenchmarkController } from '../benchmark/controller';
 import { EngineAdapter, EngineStepTiming } from '../adapters/engine-adapter';
-import { VIZ_THEMES, VizEngineSDK, WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 describe('Phase 5 Benchmark Core (TDD)', () => {
   it('DeterministicRngTS matches Rust XorShift32 bit-for-bit', () => {
@@ -193,14 +193,14 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
     expect(lastReload.nodes).toBe(3500);
   });
 
-  it('VizEngineSDK manages bulk TypedArray datasets, spatial queries, selection, and force controls', () => {
+  it('Charturbo manages bulk TypedArray datasets, spatial queries, selection, and force controls', () => {
     let storedPositions = new Float32Array(0);
     let storedEdges = new Uint32Array(0);
     let frustumCulling = false;
     let sleeping = false;
     const pinnedSet = new Set<number>();
 
-    const mockBackend: WasmVizEngineBackend = {
+    const mockBackend: WasmCharturboEngineBackend = {
       reload_dataset: () => {},
       load_raw_dataset: (positions, _masses, _colors, _clusters, edges) => {
         if (positions.length % 3 !== 0) {
@@ -254,7 +254,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
       edge_count: () => storedEdges.length / 2,
     };
 
-    const sdk = VizEngineSDK.fromBackend(mockBackend);
+    const sdk = Charturbo.fromBackend(mockBackend);
 
     sdk.loadDataset({
       positions: new Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0]),
@@ -288,7 +288,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
     expect(sdk.focusNode(2)).toBe(true);
   });
 
-  it('BenchmarkController compares VizEngineSDK module vs Three.js across Bulk Load, Warmup, and Spatial Queries', () => {
+  it('BenchmarkController compares Charturbo module vs Three.js across Bulk Load, Warmup, and Spatial Queries', () => {
     const createFullStub = (
       name: string,
       timings: { physics: number; render: number; bulkLoad: number; warmup: number; query: number }
@@ -316,7 +316,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
       edgeCount: () => 10000,
     });
 
-    const sdkModuleStub = createFullStub('VizEngineSDK (Rust + wgpu)', {
+    const sdkModuleStub = createFullStub('Charturbo (Rust + wgpu)', {
       physics: 1.2,
       render: 0.4,
       bulkLoad: 0.8,
@@ -347,11 +347,11 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
     expect(neighborComp.speedup).toBeCloseTo(16.0, 2);
   });
 
-  it('VizEngineSDK supports Three.js-style 3D Scene objects, custom meshes, transforms, and SceneDescriptor serialization', () => {
+  it('Charturbo supports Three.js-style 3D Scene objects, custom meshes, transforms, and SceneDescriptor serialization', () => {
     let nextId = 1;
     const transforms = new Map<number, Float32Array>();
 
-    const mockBackend: WasmVizEngineBackend = {
+    const mockBackend: WasmCharturboEngineBackend = {
       reload_dataset: () => {},
       load_raw_dataset: () => {},
       export_positions: () => new Float32Array(0),
@@ -403,7 +403,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
       pick_object_at_ndc: () => 1,
     };
 
-    const sdk = VizEngineSDK.fromBackend(mockBackend);
+    const sdk = Charturbo.fromBackend(mockBackend);
 
     const floorId = sdk.addPlane({ name: 'Floor', position: [0, -10, 0], scale: [120, 2, 120] });
     const boxId = sdk.addBox({
@@ -412,7 +412,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
       scale: [6, 6, 6],
       bodyType: 'dynamic',
     });
-    const torus = VizEngineSDK.createTorusMesh(6, 2, 12, 16);
+    const torus = Charturbo.createTorusMesh(6, 2, 12, 16);
     const torusId = sdk.addCustomMesh({
       name: 'Ring',
       positions: torus.positions,
@@ -441,7 +441,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
     expect(sdk.objectCount()).toBe(3);
   });
 
-  it('VizEngineSDK renders high-volume 2D line charts, bar charts, and scatter plots', () => {
+  it('Charturbo renders high-volume 2D line charts, bar charts, and scatter plots', () => {
     let loadedNodeCount = 0;
     let loadedEdgeCount = 0;
     const chartCalls: Record<string, unknown[][]> = {};
@@ -451,7 +451,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
         (chartCalls[name] ??= []).push(args);
         return ret as never;
       };
-    const mockBackend: WasmVizEngineBackend = {
+    const mockBackend: WasmCharturboEngineBackend = {
       set_line_chart: record('set_line_chart', 150),
       set_bar_chart: record('set_bar_chart', 40),
       set_chart_hover_style: record('set_chart_hover_style'),
@@ -502,7 +502,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
       clear_scene_objects: () => {},
     };
 
-    const sdk = VizEngineSDK.fromBackend(mockBackend);
+    const sdk = Charturbo.fromBackend(mockBackend);
 
     // 1. Line chart: data goes to the engine as one concatenated buffer + per-series layout
     const lineRes = sdk.renderLineChart(
@@ -558,7 +558,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
     expect(chartCalls.set_chart_series_visible).toEqual([[1, false]]);
     expect(chartCalls.set_chart_emphasis).toEqual([[2], [-1]]);
     expect(chartCalls.chart_zoom_x).toEqual([[0.5, 0.25]]);
-    expect(chartCalls.set_clear_color.at(-1)).toEqual(VIZ_THEMES.light.surface);
+    expect(chartCalls.set_clear_color.at(-1)).toEqual(CHARTURBO_THEMES.light.surface);
     // 3 series -> legend shown: top padding = 12 + legend 28; default axes left / bottom
     expect(chartCalls.set_chart_padding[0]).toEqual([40, 16, 30, 56]);
 
@@ -594,9 +594,9 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
     expect(sdk.nodeCount()).toBe(0);
   });
 
-  it('VizEngineSDK supports node metadata, getNodeDetails, searchNodes, shortest path, and 3D layout presets', () => {
+  it('Charturbo supports node metadata, getNodeDetails, searchNodes, shortest path, and 3D layout presets', () => {
     let lastLayout = -1;
-    const mockBackend: WasmVizEngineBackend = {
+    const mockBackend: WasmCharturboEngineBackend = {
       reload_dataset: () => {},
       load_raw_dataset: () => {},
       export_positions: () => new Float32Array([10, 20, 30, -5, 15, 0, 0, 0, 12]),
@@ -635,7 +635,7 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
       edge_count: () => 2,
     };
 
-    const sdk = VizEngineSDK.fromBackend(mockBackend);
+    const sdk = Charturbo.fromBackend(mockBackend);
     sdk.setSingleNodeMetadata(0, {
       label: 'Auth-Gateway-Primary',
       category: 'Security',
@@ -664,10 +664,10 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
     expect(lastLayout).toBe(2);
   });
 
-  it('VizEngineSDK ingests arbitrary D-dimensional embeddings (128D, 1536D) and queries exact Cosine Similarity', () => {
+  it('Charturbo ingests arbitrary D-dimensional embeddings (128D, 1536D) and queries exact Cosine Similarity', () => {
     let ingestedDim = 0;
     let ingestedLen = 0;
-    const mockBackend: WasmVizEngineBackend = {
+    const mockBackend: WasmCharturboEngineBackend = {
       reload_dataset: () => {},
       load_raw_dataset: () => {},
       export_positions: () => new Float32Array(0),
@@ -704,9 +704,9 @@ describe('Phase 5 Benchmark Core (TDD)', () => {
       edge_count: () => 60,
     };
 
-    const sdk = VizEngineSDK.fromBackend(mockBackend);
+    const sdk = Charturbo.fromBackend(mockBackend);
     for (const dim of [128, 1536]) {
-      const { vectors, clusters } = VizEngineSDK.generateSyntheticHighDimEmbeddings(20, dim, 4, 42);
+      const { vectors, clusters } = Charturbo.generateSyntheticHighDimEmbeddings(20, dim, 4, 42);
       expect(vectors.length).toBe(20 * dim);
       const stats = sdk.loadEmbeddings(vectors, {
         dimensions: dim,

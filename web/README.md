@@ -1,4 +1,4 @@
-# `viz-engine-sdk`
+# Charturbo
 
 High-performance charting library powered by **Rust + WebGPU (WebAssembly)** (WebGL2 fallback): line, area, bar, scatter, candlestick, histogram, heatmap, box / violin, pie, combo, radar, gauge, funnel, waterfall, treemap, sunburst, sankey and sparkline charts, plus 3D graph / embedding views.
 
@@ -7,32 +7,32 @@ Renders **1,000,000+ points at 60 FPS**: decimation, hit-testing, stacking and t
 ## Installation
 
 ```bash
-npm install viz-engine-sdk
+npm install charturbo
 ```
 
-The engine is a WebAssembly module (`viz_core_bg.wasm`, ~2.6 MB raw / ~1.0 MB gzip / ~0.77 MB brotli). Pick the entry
+The engine is a WebAssembly module (`charturbo_core_bg.wasm`, ~2.6 MB raw / ~1.0 MB gzip / ~0.77 MB brotli). Pick the entry
 that matches your toolchain:
 
 | Entry | WASM | Use with |
 |---|---|---|
-| `viz-engine-sdk` | separate file, loaded via `new URL('./viz_core_bg.wasm', import.meta.url)` | Vite, webpack 5, Rollup / Parcel with asset handling (verified: Vite 8 dev + build, webpack 5) — the bundler emits the `.wasm` as an asset |
-| `viz-engine-sdk/inline` | embedded (base64, ~3.9 MB JS) | esbuild or any setup without asset handling; no extra file to serve |
-| `viz-engine-sdk/umd` (`dist-lib/viz-engine-sdk.umd.cjs`) | embedded | `<script>` tag (global `VizEngineSDK`), CommonJS `require` |
-| `viz-engine-sdk/react`, `viz-engine-sdk/vue` | shares the main entry | React >= 18 / Vue >= 3.3 (optional peers); ESM only (no CommonJS build) |
+| `charturbo` | separate file, loaded via `new URL('./charturbo_core_bg.wasm', import.meta.url)` | Vite, webpack 5, Rollup / Parcel with asset handling (verified: Vite 8 dev + build, webpack 5) — the bundler emits the `.wasm` as an asset |
+| `charturbo/inline` | embedded (base64, ~3.9 MB JS) | esbuild or any setup without asset handling; no extra file to serve |
+| `charturbo/umd` (`dist-lib/charturbo.umd.cjs`) | embedded | `<script>` tag (global `Charturbo`), CommonJS `require` |
+| `charturbo/react`, `charturbo/vue` | shares the main entry | React >= 18 / Vue >= 3.3 (optional peers); ESM only (no CommonJS build) |
 
 Serving the `.wasm` yourself (CDN, esbuild copy step, strict CSP): call `setWasmSource` before the first `create()`:
 
 ```ts
-import { setWasmSource, VizEngineSDK } from 'viz-engine-sdk';
-import wasmUrl from 'viz-engine-sdk/viz_core_bg.wasm?url'; // Vite; or any URL / Response / bytes / WebAssembly.Module
+import { setWasmSource, Charturbo } from 'charturbo';
+import wasmUrl from 'charturbo/charturbo_core_bg.wasm?url'; // Vite; or any URL / Response / bytes / WebAssembly.Module
 setWasmSource(wasmUrl);
 ```
 
 ```html
 <!-- No bundler -->
-<script src="https://cdn.jsdelivr.net/npm/viz-engine-sdk@0.1/dist-lib/viz-engine-sdk.umd.cjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/charturbo@0.1/dist-lib/charturbo.umd.cjs"></script>
 <script>
-  VizEngineSDK.VizEngineSDK.create(document.querySelector('canvas')).then((sdk) => {
+  Charturbo.Charturbo.create(document.querySelector('canvas')).then((sdk) => {
     sdk.renderLineChart([{ name: 'a', values: [1, 3, 2, 5] }]);
     sdk.render();
   });
@@ -51,7 +51,7 @@ Runtime: browsers with WebGPU, or WebGL2 (automatic fallback). Importing any ent
 - ⏱️ **Streaming & navigation**: `appendSeriesData` with sliding windows, time axes, log / reversed / dual y axes, wheel / drag / pinch zoom, range navigator, brush selection, synced dashboards.
 - 🧩 **Formatting & tooltips**: d3-format style specs (`'.2f'`, `'$,.2f'`, `'.2s'`, `'compact'`, `'bytes'`) for axes and tooltip values; tooltip `sort`, `shared`, click `pin`.
 - ♿ **Accessibility**: generated summaries, data tables / CSV, keyboard navigation for every chart kind.
-- ⚛️ **React / Vue**: `viz-engine-sdk/react` and `viz-engine-sdk/vue` components (optional peers).
+- ⚛️ **React / Vue**: `charturbo/react` and `charturbo/vue` components (optional peers).
 - 🌌 **3D graphs & embeddings**: Barnes-Hut force layout, high-dimensional embedding projection (PCA / JL) with cosine k-NN, node inspection.
 
 ## Usage
@@ -59,10 +59,10 @@ Runtime: browsers with WebGPU, or WebGL2 (automatic fallback). Importing any ent
 ### 1. Charts
 
 ```ts
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 const canvas = document.querySelector('canvas')!;
-const sdk = await VizEngineSDK.create(canvas); // autoResize: true by default
+const sdk = await Charturbo.create(canvas); // autoResize: true by default
 
 // Multi-series line chart (1M+ points per series are fine)
 sdk.renderLineChart(
@@ -125,10 +125,10 @@ console.log('Top 5 most similar items to item 0:', topK);
 ### 3. Interactive 3D Graphs & Networks
 
 ```ts
-import { VizEngineSDK, escapeHtml } from 'viz-engine-sdk';
+import { Charturbo, escapeHtml } from 'charturbo';
 
 const canvas = document.querySelector('canvas')!;
-const sdk = await VizEngineSDK.create(canvas, {
+const sdk = await Charturbo.create(canvas, {
   nodeCount: 1000,
   edgeCount: 2500,
   clusterCount: 6,
@@ -198,4 +198,3 @@ const camera = sdk.getCameraState(); // { target, eye, distance, yaw, pitch, fov
 ## License
 
 MIT — see [LICENSE](./LICENSE).
-

@@ -1,5 +1,5 @@
 // Examples site (`npm run examples:dev` / `examples:build`): a multi-page Vite app, one page per
-// chart family. `viz-engine-sdk` imports resolve to the sources (../src), so the demo code reads
+// chart family. `charturbo` imports resolve to the sources (../src), so the demo code reads
 // exactly like application code against the published package.
 import { readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -14,9 +14,9 @@ export default defineConfig({
   base: './',
   resolve: {
     alias: [
-      { find: /^viz-engine-sdk\/react$/, replacement: resolve(src, 'react/index.ts') },
-      { find: /^viz-engine-sdk\/vue$/, replacement: resolve(src, 'vue/index.ts') },
-      { find: /^viz-engine-sdk$/, replacement: resolve(src, 'index.ts') },
+      { find: /^charturbo\/react$/, replacement: resolve(src, 'react/index.ts') },
+      { find: /^charturbo\/vue$/, replacement: resolve(src, 'vue/index.ts') },
+      { find: /^charturbo$/, replacement: resolve(src, 'index.ts') },
     ],
   },
   define: {

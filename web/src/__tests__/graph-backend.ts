@@ -3,7 +3,7 @@
  * `camera_state`), 4 nodes, enough chart calls for a line chart, and a canvas whose listeners
  * are callable directly.
  */
-import type { WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import type { WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 /** Graph-mode backend with a simulated orbit camera (`camera_state` optional). */
 export function graphBackend(withCameraState = true) {
@@ -17,7 +17,7 @@ export function graphBackend(withCameraState = true) {
   const cam = { target: [0, 0, 0], distance: 220, yaw: 0.4, pitch: 0.3 };
   let picked = -1;
   let hit = new Float64Array(0);
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     reload_dataset: () => {},
     load_raw_dataset: () => {},
     export_positions: () => new Float32Array(0),

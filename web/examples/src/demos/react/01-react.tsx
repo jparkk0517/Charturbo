@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
-import { VizChart, type VizChartHandle } from 'viz-engine-sdk/react';
+import { CharturboChart, type CharturboChartHandle } from 'charturbo/react';
 import { chartTheme, getThemeName, setThemeName, subscribeTheme } from '../../theme';
 
 export const meta = {
-  title: 'React <VizChart>',
+  title: 'React <CharturboChart>',
   description: 'data / options are compared by identity: memoize them so the chart re-renders only when they change.',
 };
 
@@ -14,7 +14,7 @@ const walk = (n: number, seed: number) => {
 };
 
 function Dashboard() {
-  const chart = useRef<VizChartHandle>(null);
+  const chart = useRef<CharturboChartHandle>(null);
   const [version, setVersion] = useState(0);
   const theme = useSyncExternalStore(subscribeTheme, getThemeName);
   const appearance = useMemo(() => chartTheme(), [theme]);
@@ -36,7 +36,7 @@ function Dashboard() {
         <button onClick={() => chart.current?.sdk?.resetChartZoom()}>Reset zoom</button>
         <span>{range}</span>
       </div>
-      <VizChart
+      <CharturboChart
         ref={chart}
         type="line"
         data={data}

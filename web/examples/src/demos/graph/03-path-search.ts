@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Shortest path · node search',
@@ -21,7 +21,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { seed: 7, nodeCount: 2_000, edgeCount: 2_600, clusterCount: 8, locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { seed: 7, nodeCount: 2_000, edgeCount: 2_600, clusterCount: 8, locale: 'en-US' });
   sdk.generateDefaultMetadata('svc'); // labels 'svc-0000'…, categories, tags, attributes
   sdk.warmup(150);
   sdk.fitToView();

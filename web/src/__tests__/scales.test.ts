@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { decodeScale, encodeScale, encodeSeriesAxes, hasScaleOptions } from '../sdk/chart-scales';
 import { encodeAnnotations } from '../sdk/chart-annotations';
-import { VIZ_THEMES } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES } from '../sdk/charturbo';
 
 // Overlay-only suite: the a11y layer has its own tests and needs a full DOM.
 vi.mock('../sdk/chart-a11y', () => ({
@@ -98,7 +98,7 @@ class FakeEl {
 type Calls = Record<string, unknown[][]>;
 
 /** Mock backend recording chart calls; `scales` stands in for the engine's per-axis scale state. */
-function mockBackend(calls: Calls, axes: () => Float64Array = () => new Float64Array(0)): WasmVizEngineBackend {
+function mockBackend(calls: Calls, axes: () => Float64Array = () => new Float64Array(0)): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -197,7 +197,7 @@ describe('chart-scales encoding', () => {
         { type: 'hline', y: 500, yAxis: 'right' },
         { type: 'yband', from: 1, to: 2, yAxis: 'left' },
       ],
-      VIZ_THEMES.dark
+      CHARTURBO_THEMES.dark
     );
     expect(Array.from(e.yAxes)).toEqual([0, 1, 0]);
   });
@@ -226,7 +226,7 @@ describe('axis scales and dual y axes in the SDK', () => {
 
   it('single-axis line charts stay opt-out: no series axes, no scale calls, default padding', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls));
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
     sdk.renderLineChart([TEMP, { ...RAIN, yAxis: 'left' }], { axes: { y2: { title: 'unused', scale: 'log' } } });
     expect(calls.set_chart_series_axes).toBeUndefined();
     expect(calls.set_chart_axis_scale).toBeUndefined();
@@ -238,7 +238,7 @@ describe('axis scales and dual y axes in the SDK', () => {
     const calls: Calls = {};
     // Plot 56,40 600x300; one left y tick, one right y tick, one x tick
     const axes = () => new Float64Array([56, 40, 600, 300, 3, 0, 1, 100, 340, 1, 10, 56, 200, 2, 100, 656, 100]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderLineChart([TEMP, RAIN], {
       axes: {
@@ -260,12 +260,12 @@ describe('axis scales and dual y axes in the SDK', () => {
     expect(sdk.getY2Domain()).toEqual([1, 1000]);
 
     sdk.render();
-    const ticks = container.querySelectorAll('.viz-sdk-axis-tick');
+    const ticks = container.querySelectorAll('.charturbo-sdk-axis-tick');
     expect(ticks.map((t) => t.textContent)).toEqual(['T+1', '10', '100 mm']);
     expect(ticks[2].style.left).toBe('664px');
     expect(ticks[2].style.transform).toBe('translate(0, -50%)');
     expect(ticks[1].style.transform).toBe('translate(-100%, -50%)');
-    const titles = container.querySelectorAll('.viz-sdk-axis-title');
+    const titles = container.querySelectorAll('.charturbo-sdk-axis-title');
     expect(titles.map((t) => t.textContent)).toEqual(['', 'Temp', 'Rain']);
     expect(titles[2].style.left).toBe('718px');
     expect(titles[2].style.transform).toContain('rotate(90deg)');
@@ -274,19 +274,19 @@ describe('axis scales and dual y axes in the SDK', () => {
   it('hides right tick labels without a right axis presentation (2.5D)', () => {
     const calls: Calls = {};
     const axes = () => new Float64Array([56, 40, 600, 300, 1, 2, 100, 656, 100]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderLineChart([TEMP, RAIN], { viewMode: '2.5d' });
     expect(calls.set_chart_series_axes).toHaveLength(1);
     sdk.render();
-    const shown = container.querySelectorAll('.viz-sdk-axis-tick').filter((t) => t.style.display !== 'none');
+    const shown = container.querySelectorAll('.charturbo-sdk-axis-tick').filter((t) => t.style.display !== 'none');
     expect(shown).toHaveLength(0);
-    expect(container.querySelectorAll('.viz-sdk-axis-title')).toHaveLength(2);
+    expect(container.querySelectorAll('.charturbo-sdk-axis-title')).toHaveLength(2);
   });
 
   it('setAxisScale merges into the engine state; setY2Domain merges its options', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls));
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
     sdk.renderLineChart([TEMP, RAIN]);
     sdk.setAxisScale('y2', { scale: 'log' });
     sdk.setAxisScale('y2', { reverse: true });
@@ -302,7 +302,7 @@ describe('axis scales and dual y axes in the SDK', () => {
 
   it('applies scatter scales; area charts ignore right-axis series; bar charts ignore setAxisScale', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls));
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
     sdk.renderScatterChart({ x: [1, 10, 100], y: [3, 2, 1] }, { axes: { x: { scale: 'log' }, y: { reverse: true, tickCount: 3 } } });
     expect(calls.set_chart_axis_scale).toEqual([
       [0, 1, false, 0],
@@ -322,7 +322,7 @@ describe('axis scales and dual y axes in the SDK', () => {
 
   it('forwards annotation y axes only when an annotation uses the right axis', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls));
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
     sdk.renderLineChart([TEMP, RAIN]);
     sdk.setAnnotations([{ type: 'hline', y: 11 }]);
     expect(calls.set_chart_annotation_y_axes).toBeUndefined();

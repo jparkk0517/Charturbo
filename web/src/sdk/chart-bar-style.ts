@@ -8,7 +8,7 @@
 import { parseColor, parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import { createFormatter } from './chart-format';
 import { textOn } from './chart-pie';
-import type { VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
 export type BarOrientation = 'vertical' | 'horizontal';
 
@@ -144,7 +144,7 @@ export function formatBarError(err: [number, number], format: (v: number) => str
 }
 
 /** Uploads orientation + error bars (`set_bar_style`); no-op on engines without it. */
-export function sendBarStyle(backend: WasmVizEngineBackend, state: BarStyleState, theme: VizTheme): void {
+export function sendBarStyle(backend: WasmCharturboEngineBackend, state: BarStyleState, theme: CharturboTheme): void {
   const color = parseOptionalColor(state.errorBar.color) ?? parseColor(theme.textSecondary);
   backend.set_bar_style?.(
     state.orientation === 'horizontal' ? 1 : 0,
@@ -235,7 +235,7 @@ export function widestLabel(state: BarStyleState, fontFamily: string): number {
 }
 
 /** Uploads label options + measured text sizes (`set_bar_labels`); mode 0 clears them. */
-export function sendBarLabels(backend: WasmVizEngineBackend, state: BarStyleState, fontFamily: string): void {
+export function sendBarLabels(backend: WasmCharturboEngineBackend, state: BarStyleState, fontFamily: string): void {
   const l = state.labels;
   if (!l) {
     backend.set_bar_labels?.(0, 0, new Float32Array(0), 0, NaN);
@@ -261,7 +261,7 @@ export class BarLabelLayer {
     private readonly colorOf: (id: number) => RgbaTuple | undefined
   ) {
     this.root = document.createElement('div');
-    this.root.className = 'viz-sdk-bar-labels';
+    this.root.className = 'charturbo-sdk-bar-labels';
     Object.assign(this.root.style, { position: 'absolute', left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible', pointerEvents: 'none' });
     parent.appendChild(this.root);
   }
@@ -271,7 +271,7 @@ export class BarLabelLayer {
     this.revision = -1;
   }
 
-  update(backend: WasmVizEngineBackend, theme: VizTheme): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme): void {
     const a = backend.chart_bar_labels?.();
     if (!a || a.length < 2 || a[0] === this.revision) return;
     this.revision = a[0];
@@ -286,7 +286,7 @@ export class BarLabelLayer {
       let el = this.labels[used];
       if (!el) {
         el = document.createElement('div');
-        el.className = 'viz-sdk-bar-label';
+        el.className = 'charturbo-sdk-bar-label';
         Object.assign(el.style, {
           position: 'absolute',
           pointerEvents: 'none',

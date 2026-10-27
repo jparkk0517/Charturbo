@@ -1,15 +1,15 @@
 /**
- * `viz-engine-sdk/inline`: the main entry with the WebAssembly module embedded (base64), so
+ * `charturbo/inline`: the main entry with the WebAssembly module embedded (base64), so
  * there is no separate `.wasm` file to serve. Use it with bundlers or CDNs that do not emit
  * `new URL('...', import.meta.url)` assets (e.g. esbuild without a copy step). The main entry
  * downloads less (binary `.wasm`, streaming compile) — prefer it when your bundler supports it.
  * The UMD build (`<script>` tag) is built from this entry.
  *
  * @packageDocumentation
- * @module viz-engine-sdk/inline
+ * @module charturbo/inline
  */
-import wasmBase64 from 'virtual:viz-wasm-base64';
-import { setWasmSourceLazy } from './sdk/viz-engine-sdk';
+import wasmBase64 from 'virtual:charturbo-wasm-base64';
+import { setWasmSourceLazy } from './sdk/charturbo';
 
 /** Decoded on the first engine start, not at import (SSR / unused imports stay cheap). */
 setWasmSourceLazy(() => {

@@ -1,13 +1,14 @@
-# 성능 벤치마크 (viz-engine-sdk)
+# 성능 벤치마크 (charturbo)
 
-이 문서는 `web/bench/` 하네스로 측정한 viz-engine-sdk(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly · ChartGPU · SciChart · Highcharts와의 차트 비교, three.js · deck.gl · cosmos.gl · 3d-force-graph와의 3D 그래프 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
+이 문서는 `web/bench/` 하네스로 측정한 charturbo(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly · ChartGPU · SciChart · Highcharts와의 차트 비교, three.js · deck.gl · cosmos.gl · 3d-force-graph와의 3D 그래프 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
 
 - 최신 원본 결과: [`docs/bench/results.json`](bench/results.json), [`results.md`](bench/results.md). 아래 4~6절의 수치 표는 **2026-10-26 초기 측정 기록**이며, 이후 추가 라이브러리·수정 측정은 원본과 [라이브 비교 페이지](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html)를 기준으로 읽으세요.
 - 기존 자체 엔진 시나리오는 2026-10-26 기록을 유지합니다. 교차 라이브러리 비교는 어댑터 수정 후 5회(+워밍업 1), 정상상태 3초로 재측정합니다. 개별 실행 일시·버전·설정은 각 항목의 `measurement`, 실제 샘플 수는 `result.ttff.frame.n`에 기록합니다.
+- 제품명은 **Charturbo**입니다. 원본 측정과 벤치마크 CLI의 `viz`·`vizgpu`는 각각 Charturbo CPU·hybrid GPU 경로의 기존 식별자로, 측정 기록 연결을 위해 유지합니다.
 
 ### 우리 SDK로 그린 결과와 디자인 설정
 
-비교 페이지 `web/examples/benchmarks.html`은 `results.json`을 읽고, 공유 `VizDevice` 위에서 `VizEngineSDK.renderBarChart()`로 가로 막대를 그립니다. 라이트·다크·미드나이트·페이퍼 테마, 강조색, 다색 팔레트, 글꼴, 모서리 반경, 데이터 라벨을 변경할 수 있습니다. GPU를 사용할 수 없어도 원본 표는 남습니다.
+비교 페이지 `web/examples/benchmarks.html`은 `results.json`을 읽고, 공유 `CharturboDevice` 위에서 `Charturbo.renderBarChart()`로 가로 막대를 그립니다. 라이트·다크·미드나이트·페이퍼 테마, 강조색, 다색 팔레트, 글꼴, 모서리 반경, 데이터 라벨을 변경할 수 있습니다. GPU를 사용할 수 없어도 원본 표는 남습니다.
 
 `npm run bench:charts`는 Chrome에서 같은 차트 코드를 실행한 뒤 **SDK의 `exportChartSVG()`**로 라이트/다크 SVG 6개를 생성합니다. 외곽 제목·측정 조건만 합성하고, 막대·축·라벨은 SDK가 생성합니다. GitHub README에서는 정적 이미지로, GitHub Pages에서는 툴팁이 있는 실제 SDK 차트로 표시합니다.
 
@@ -20,6 +21,8 @@ npm run bench:report:check    # 시나리오·테마·스타일·SVG·모바일 
 ```
 
 실패·미지원·미측정은 0으로 바꾸지 않고 이름과 사유를 표시합니다. 이전 SciChart TTFF(데이터 복사 제외), 물리 실행이 검증되지 않은 이전 3d-force-graph 결과, cosmos v2의 중복 물리 실행 결과는 그래프에서 제외하고 재측정 필요로 표시합니다.
+
+비교 페이지와 README 그래프에서 SDK는 **Charturbo 한 항목**으로 표시합니다. 시나리오별 CPU(`viz`)·hybrid GPU(`vizgpu`)의 유효 측정 중 FPS가 높은 모드를 선택하고, 동률이면 물리 시간이 짧은 모드를 선택합니다. TTFF·FPS·물리 시간과 측정 조건은 모두 선택된 같은 실행에서 가져옵니다. 선택 모드는 표·툴팁·SVG에 표시하며, 전체 CPU/GPU 기록은 원본 JSON/Markdown에 보존합니다. 이는 측정 결과의 표시 규칙이며 SDK 런타임의 자동 모드 선택을 의미하지 않습니다.
 
 ## 1. 재현 방법
 
@@ -65,12 +68,12 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
 - 스트리밍(`stream-1m`): 1M 창(`maxPoints: 1_000_000`)에 프레임마다 10k 포인트 `appendSeriesData`.
 
 ### 단계 (시나리오마다 새 탭)
-1. 엔진 생성(`VizEngineSDK.create`, 비교 대상은 라이브러리 import + 초기화) — `initMs`로 따로 기록.
+1. 엔진 생성(`Charturbo.create`, 비교 대상은 라이브러리 import + 초기화) — `initMs`로 따로 기록.
 2. **TTFF**: 워밍업 1회 후 5회 전체 렌더. 매 회 두 번의 rAF로 vsync 경계에 맞춘 뒤 시작.
    - `렌더 호출` = 동기 렌더 호출 시간(viz: `renderXxxChart()` + `render()`; uPlot/Chart.js: 차트 생성; ECharts: `setOption(notMerge)` → `finished`; Plotly: `newPlot` 완료 + 1 rAF)
    - `TTFF` = 호출 시작 → 그 다음 프레임이 컴포지터로 넘어간 시점(rAF 다음 task). **60 Hz vsync로 양자화**되므로 16.7 ms 미만의 차이는 `렌더 호출` 열로 비교하세요.
    - `pixels` = 렌더 + 1 px GPU 리드백(GPU 작업 완료까지) — `results.json`에 있음.
-3. **메모리**: 강제 GC 2회 후 `performance.memory.usedJSHeapSize`(JS 힙), `measureUserAgentSpecificMemory`(UA 메모리: JS + wasm 등 페이지 전체), 엔진 통계의 wasm 메모리 크기와 GPU 버퍼 · 텍스처 바이트(`VizEngineSDK.getRenderStats()`).
+3. **메모리**: 강제 GC 2회 후 `performance.memory.usedJSHeapSize`(JS 힙), `measureUserAgentSpecificMemory`(UA 메모리: JS + wasm 등 페이지 전체), 엔진 통계의 wasm 메모리 크기와 GPU 버퍼 · 텍스처 바이트(`Charturbo.getRenderStats()`).
 4. **정상상태(steady) 3초**: rAF 루프에서 매 프레임 입력을 주고 rAF 간격을 기록. `드롭` = 16.7 ms를 넘긴 만큼의 누락 vsync 수 / 측정 프레임 수, `작업` = 그 프레임에 입력 처리 + 렌더에 쓴 JS+wasm 시간, `메인 스레드 ms/프레임` = CDP `Performance.getMetrics`의 TaskDuration 증가량 / 프레임 수(지연 실행 · 레이아웃 포함).
    - viz 시나리오: 실제 SDK 제스처 경로 — 휠 줌 인(35%) → 드래그 팬(30%) → 휠 줌 아웃(35%). 탐색이 없는 차트(막대, 트리맵, 생키)는 hover 스윕, 스트리밍은 프레임당 append.
    - 라이브러리 비교: 모든 라이브러리에 **같은 시간 기반 창 스케줄**(전체 → 1% 창으로 줌 인 → 1% 창 팬 → 전체로 줌 아웃)을 각자의 범위 API로 적용(viz `setXRange`/`setYRange`, uPlot `setScale`, ECharts `dataZoom` 액션, Chart.js `scales.min/max` + `update('none')`, Plotly `relayout`). 산점도는 x, y 모두.
@@ -94,7 +97,7 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
 - `렌더 호출`의 범위가 라이브러리마다 다릅니다: viz는 엔진을 재사용하고 데이터만 다시 넘기며, uPlot / Chart.js는 매 회 차트를 파괴 후 새로 만들고, Plotly는 `purge` + `newPlot`입니다. 엔진/라이브러리 초기화 시간은 별도(`initMs`)입니다.
 - 모든 라이브러리는 같은 패딩(좌 64 / 우 24 / 상 36 / 하 36 px)과 1 px 선, 같은 색을 씁니다. 툴팁은 각 라이브러리 기본 hover 동작을 켠 상태입니다.
 
-## 4. 결과: viz-engine-sdk 시나리오
+## 4. 결과: charturbo 시나리오
 
 정상상태 / 드롭 / 작업 / hover / 메모리는 WebGPU 값입니다(WebGL2도 `results.md`에 전부 있음 — 정상상태는 두 백엔드가 거의 같았습니다). `GPU MB` = 할당된 GPU 버퍼 · 텍스처 용량, `업로드/프레임` = 정상상태 동안 프레임당 차트 데이터 업로드 평균.
 
@@ -280,9 +283,9 @@ three.js 쪽은 데모 비교 화면의 구현을 손대지 않고 썼습니다.
 1. **NaN 처리 없는 min/max** (`chart/finite.rs`, `line.rs`, `candle.rs`, `scatter.rs`): `f32::min`/`max`는 NaN 피연산자 처리 때문에 wasm32에서 비교마다 느린 시퀀스로 내려갑니다. 이미 `is_finite` 검사를 통과한 값에는 단순 비교-선택을 사용(2~3배 빠름).
 2. **선 범위 계산 1패스** (`line.rs` `extents`): 유한 min/max와 양수 min/max(로그 축용)를 시리즈당 2패스 → 1패스.
 3. **M4 LOD 내부 루프** (`line.rs` `push_m4`): 현재 min/max 값을 레지스터에 유지(이전엔 매 샘플마다 인덱스로 재조회), 동률 시 첫 인덱스 유지 규칙 동일. 줌/팬 프레임마다 보이는 모든 샘플을 도는 핫 루프.
-4. **단일 시리즈 복사 제거** (`viz-engine-sdk.ts`, `lib.rs`): 시리즈 1개 + `Float32Array`(및 `Float64Array` x)는 연결용 새 배열을 만들지 않고 그대로 넘기고, Rust 쪽은 wasm-bindgen이 이미 복사한 `Vec`을 소유해 두 번째 복사를 하지 않습니다 → 10M 단일 시리즈 wasm 메모리 78 → 41 MB.
+4. **단일 시리즈 복사 제거** (`charturbo.ts`, `lib.rs`): 시리즈 1개 + `Float32Array`(및 `Float64Array` x)는 연결용 새 배열을 만들지 않고 그대로 넘기고, Rust 쪽은 wasm-bindgen이 이미 복사한 `Vec`을 소유해 두 번째 복사를 하지 않습니다 → 10M 단일 시리즈 wasm 메모리 78 → 41 MB.
 5. **접근성 요약의 O(n) 패스 공유** (`chart-a11y.ts` `withPassMemo`): 한 번의 갱신에서 요약과 설명이 같은 시리즈 통계를 각각 계산하던 것을 그 갱신 범위 안에서만 메모(데이터가 제자리에서 바뀌어도 다음 갱신에는 다시 계산).
-6. **렌더 통계 API** (`renderer/stats.rs`, `lib_stats.rs`, `chart-stats.ts`, `VizEngineSDK.getRenderStats()`): GPU 버퍼/텍스처 바이트, 프레임당 차트 업로드 바이트, 레이어별 마크 수, wasm 메모리 크기. 벤치마크와 진단용(렌더링 결과 변화 없음).
+6. **렌더 통계 API** (`renderer/stats.rs`, `lib_stats.rs`, `chart-stats.ts`, `Charturbo.getRenderStats()`): GPU 버퍼/텍스처 바이트, 프레임당 차트 업로드 바이트, 레이어별 마크 수, wasm 메모리 크기. 벤치마크와 진단용(렌더링 결과 변화 없음).
 
 개선되지 않은 것: line-10m-1s의 정상상태 작업 p95와 드롭 수는 차이가 없거나 노이즈 범위(9 → 11)입니다. 10M 첫 렌더의 남은 시간은 대부분 JS → wasm 복사와 첫 LOD입니다.
 

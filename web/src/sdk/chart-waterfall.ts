@@ -26,9 +26,9 @@ import type {
   ChartPaddingOptions,
   ChartTooltipContext,
   NodeMetadata,
-  VizTheme,
-  WasmVizEngineBackend,
-} from './viz-engine-sdk';
+  CharturboTheme,
+  WasmCharturboEngineBackend,
+} from './charturbo';
 import { esc, plural, rgbCss, stepSingle, tooltipHeader, tooltipRow, type A11yCommon, type A11yCustomModel, type BusinessLabelLayer } from './chart-business-util';
 
 export interface WaterfallChartData {
@@ -166,7 +166,7 @@ export function waterfallMeta(
   };
 }
 
-function styleArray(meta: WaterfallChartMeta, theme: VizTheme): Float32Array {
+function styleArray(meta: WaterfallChartMeta, theme: CharturboTheme): Float32Array {
   const c = meta.colorInputs ?? {};
   meta.kindColors = {
     increase: parseOptionalColor(c.increase) ?? theme.palette[0],
@@ -187,10 +187,10 @@ function syncLegend(meta: WaterfallChartMeta): void {
 
 /** Uploads the waterfall (`set_waterfall_chart`) and reads the running totals back. */
 export function sendWaterfall(
-  backend: WasmVizEngineBackend,
+  backend: WasmCharturboEngineBackend,
   meta: WaterfallChartMeta,
   options: WaterfallChartOptions | undefined,
-  theme: VizTheme
+  theme: CharturboTheme
 ): number {
   const n =
     backend.set_waterfall_chart?.(
@@ -211,7 +211,7 @@ export function sendWaterfall(
   return n;
 }
 
-export function sendWaterfallStyle(backend: WasmVizEngineBackend, meta: WaterfallChartMeta, theme: VizTheme): void {
+export function sendWaterfallStyle(backend: WasmCharturboEngineBackend, meta: WaterfallChartMeta, theme: CharturboTheme): void {
   backend.set_chart_waterfall_style?.(styleArray(meta, theme), NaN);
   syncLegend(meta);
 }
@@ -224,7 +224,7 @@ export function waterfallValueText(meta: WaterfallChartMeta, item: WaterfallItem
 }
 
 /** Label texts + measured sizes for the engine (`set_bar_labels`; bar id = item). */
-export function sendWaterfallLabels(backend: WasmVizEngineBackend, meta: WaterfallChartMeta, fontFamily: string): void {
+export function sendWaterfallLabels(backend: WasmCharturboEngineBackend, meta: WaterfallChartMeta, fontFamily: string): void {
   const st = meta.barStyle;
   const l = st.labels;
   st.texts = l ? meta.items.map((it) => waterfallValueText(meta, it)) : [];
@@ -250,7 +250,7 @@ export function waterfallTooltipContext(meta: WaterfallChartMeta, i: number, det
   };
 }
 
-export function waterfallTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, formatValue: (v: number) => string): string {
+export function waterfallTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string): string {
   const w = ctx.waterfall;
   const it = ctx.items[0];
   if (!w || !it) return '';
@@ -349,7 +349,7 @@ export class WaterfallLabelLayer implements BusinessLabelLayer {
     this.bars.invalidate();
   }
 
-  update(backend: WasmVizEngineBackend, theme: VizTheme): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme): void {
     this.bars.update(backend, theme);
   }
 

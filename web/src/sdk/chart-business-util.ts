@@ -4,7 +4,7 @@
  */
 import type { RgbaTuple } from './color';
 import type { A11yFocus, ChartDataTable } from './chart-a11y';
-import type { VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
 /** CSS `rgb()` of a tuple (alpha ignored: swatches are opaque). */
 export function rgbCss(c: RgbaTuple | undefined): string {
@@ -46,7 +46,7 @@ export function placeAt(el: HTMLElement, x: number, y: number, ha: number, va: n
  * Tooltip row: label on the left, value (HTML) on the right (theme text tokens). `labelHtml`:
  * the label is already HTML (e.g. a status icon span), else it is escaped.
  */
-export function tooltipRow(theme: VizTheme, label: string, value: string, swatch?: string, labelHtml = false): string {
+export function tooltipRow(theme: CharturboTheme, label: string, value: string, swatch?: string, labelHtml = false): string {
   const sw = swatch
     ? `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;flex:none;background:${swatch};"></span>`
     : '';
@@ -58,13 +58,13 @@ export function tooltipRow(theme: VizTheme, label: string, value: string, swatch
 }
 
 /** Tooltip header line (muted). */
-export function tooltipHeader(theme: VizTheme, text: string): string {
+export function tooltipHeader(theme: CharturboTheme, text: string): string {
   return `<div style="color:${theme.textMuted};font-size:11px;margin-bottom:4px;">${esc(text)}</div>`;
 }
 
 /** DOM label layer of a business chart (re-laid out when the engine's label revision changes). */
 export interface BusinessLabelLayer {
-  update(backend: WasmVizEngineBackend, theme: VizTheme, locale?: string): void;
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme, locale?: string): void;
   /** Forces a re-layout on the next `update` (theme / locale change) */
   invalidate(): void;
   remove(): void;

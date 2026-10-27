@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Funnel',
@@ -7,7 +7,7 @@ export const meta = {
 
 export default async function mount(host: HTMLElement) {
   const canvas = host.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
 
   sdk.renderFunnelChart(
     { labels: ['Visits', 'Sign-ups', 'Trials', 'Activated', 'Paid'], values: [12_000, 5_400, 2_100, 1_300, 760] },

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VIZ_THEMES, VizEngineSDK, type ChartTooltipContext, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { formatPercent, pieLabelSpace, pieMeta, textOn } from '../sdk/chart-pie';
 import {
   buildA11yModel,
@@ -109,7 +109,7 @@ interface PieState {
 }
 
 /** Engine stand-in: percents of the visible total, palette colors by display order. */
-function mockBackend(calls: Calls, st: PieState): WasmVizEngineBackend {
+function mockBackend(calls: Calls, st: PieState): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -229,7 +229,7 @@ describe('Native pie chart (SDK binding)', () => {
 
   it('sends values and layout codes to the engine and the theme palette in fixed order', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, state()));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, state()));
     const res = sdk.renderPieChart(DATA, {
       donut: 0.6,
       sort: 'desc',
@@ -253,13 +253,13 @@ describe('Native pie chart (SDK binding)', () => {
     expect(sy).toBeGreaterThan(0);
 
     const [palette, colors, other, leader, surface] = calls.set_chart_pie_style[0] as Float32Array[];
-    expect(palette.length).toBe(VIZ_THEMES.dark.palette.length * 4);
-    expect(Array.from(palette.slice(0, 4))).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.palette[0])));
+    expect(palette.length).toBe(CHARTURBO_THEMES.dark.palette.length * 4);
+    expect(Array.from(palette.slice(0, 4))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.palette[0])));
     expect(Number.isNaN(colors[0])).toBe(true);
     expect(Array.from(colors.slice(4, 8))).toEqual([1, 0, 0, 1]);
-    expect(Array.from(other)).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.baseline)));
+    expect(Array.from(other)).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.baseline)));
     expect(leader.length).toBe(4);
-    expect(Array.from(surface)).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.surface)));
+    expect(Array.from(surface)).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.surface)));
 
     // No axes, no navigation, no brush (angular layout); legend + title reserve the top
     expect(sdk.handlesChartNavigation()).toBe(false);
@@ -274,13 +274,13 @@ describe('Native pie chart (SDK binding)', () => {
     // Theme switch re-sends the palette
     sdk.setTheme('light');
     const last = calls.set_chart_pie_style.at(-1) as Float32Array[];
-    expect(Array.from(last[0].slice(0, 4))).toEqual(Array.from(new Float32Array(VIZ_THEMES.light.palette[0])));
+    expect(Array.from(last[0].slice(0, 4))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.light.palette[0])));
   });
 
   it('hover tooltip shows label, value and percent; "Other" lists its members', () => {
     const calls: Calls = {};
     const st = state();
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, st));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderPieChart(DATA, { maxSlices: 4, valueLabel: 'Visits' });
     const seen: (ChartTooltipContext | null)[] = [];
@@ -294,7 +294,7 @@ describe('Native pie chart (SDK binding)', () => {
     expect(ctx.slice).toEqual({ label: 'Direct', value: 30, percent: 30 });
     expect(ctx.items[0]).toMatchObject({ seriesName: 'Direct', value: 30, percent: 30, nodeId: 1 });
     expect(ctx.details?.metadata.attributes).toEqual({ value: 30, percent: 30 });
-    const tooltip = body.children.find((c) => c.className.includes('viz-sdk-node-tooltip'))!;
+    const tooltip = body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
     expect(tooltip.innerHTML).toContain('Direct');
     expect(tooltip.innerHTML).toContain('30.0%');
 
@@ -317,19 +317,19 @@ describe('Native pie chart (SDK binding)', () => {
   it('legend toggles slices through the engine and labels / center follow its anchors', () => {
     const calls: Calls = {};
     const st = state();
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, st));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderPieChart(DATA, { maxSlices: 4, donut: 0.5, format: (v) => `${v} u` });
     sdk.render();
 
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.textContent)).toEqual(['Search', 'Direct', 'Social', 'Other']);
     // Square swatches (fills), colors from the engine
     expect(items[0].children[0].style.height).toBe('10px');
     expect(items[1].children[0].style.background).toBe('rgb(26, 128, 128)');
 
     // Labels at the engine anchors: right side grows right, left side grows left, inside centered
-    const labels = container.querySelectorAll('.viz-sdk-pie-label');
+    const labels = container.querySelectorAll('.charturbo-sdk-pie-label');
     expect(labels.length).toBe(3);
     expect([labels[0].style.left, labels[0].style.top, labels[0].style.transform]).toEqual(['604px', '120px', 'translate(0, -50%)']);
     expect(labels[0].textContent).toBe('Search50.0%');
@@ -339,7 +339,7 @@ describe('Native pie chart (SDK binding)', () => {
     expect(labels[2].style.transform).toBe('translate(-50%, -50%)');
 
     // Donut center: visible total, then the hovered slice
-    const [center] = container.querySelectorAll('.viz-sdk-pie-center');
+    const [center] = container.querySelectorAll('.charturbo-sdk-pie-center');
     expect([center.style.left, center.style.top, center.style.display]).toEqual(['400px', '210px', 'block']);
     expect(center.textContent).toBe('100 uTotal');
     st.hovered = 0;

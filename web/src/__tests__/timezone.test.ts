@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { formatChartTime, VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { formatChartTime, Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import {
   buildTimeZoneTable,
   isLocalMidnight,
@@ -141,7 +141,7 @@ class FakeEl {
 type Calls = Record<string, unknown[][]>;
 
 /** Line backend with a time domain and one x tick at `tick` (granularity code `gran`). */
-function mockBackend(calls: Calls, domain: () => number[], tick: number, gran: number): WasmVizEngineBackend {
+function mockBackend(calls: Calls, domain: () => number[], tick: number, gran: number): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -221,13 +221,13 @@ describe('SDK time zones', () => {
     vi.unstubAllGlobals();
   });
 
-  const tickText = () => canvas.parentElement!.querySelectorAll('.viz-sdk-axis-tick')[0]?.textContent;
+  const tickText = () => canvas.parentElement!.querySelectorAll('.charturbo-sdk-axis-tick')[0]?.textContent;
   const lastTable = (calls: Calls) => calls.set_chart_time_zone.at(-1) as [Float64Array, Float32Array];
 
   it('defaults to the local zone and sends its offset table once per covered domain', () => {
     const calls: Calls = {};
     let domain = [T0, T0 + 2 * DAY];
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => domain, T0, 5));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => domain, T0, 5));
     expect(sdk.getTimeZone()).toBe('local');
     sdk.setTimeZone('America/New_York');
     sdk.renderLineChart(SERIES, { axes: { x: { type: 'time' } } });
@@ -259,7 +259,7 @@ describe('SDK time zones', () => {
 
   it('does not rebuild every frame when the domain exceeds the table span', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => [0, 1e15], 0, 7));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => [0, 1e15], 0, 7));
     sdk.setTimeZone('Europe/Berlin');
     sdk.renderLineChart(SERIES, { axes: { x: { type: 'time' } } });
     sdk.render();
@@ -270,7 +270,7 @@ describe('SDK time zones', () => {
   it('resends the table for every new chart (the engine starts each one in UTC)', () => {
     const calls: Calls = {};
     let domain: number[] = [T0, T0 + 2 * DAY];
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => domain, T0, 5));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => domain, T0, 5));
     sdk.setTimeZone('Europe/Berlin');
     for (let k = 0; k < 2; k++) {
       sdk.renderLineChart(SERIES, { axes: { x: { type: 'time' } } });
@@ -288,7 +288,7 @@ describe('SDK time zones', () => {
 
   it('re-renders tick labels, tooltips, and data table text in the new zone', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => [T0, T0 + 2 * DAY], T0, 4));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => [T0, T0 + 2 * DAY], T0, 4));
     sdk.setLocale('en-US');
     sdk.setTimeZone('UTC');
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
@@ -309,7 +309,7 @@ describe('SDK time zones', () => {
 
   it('chart option timeZone wins over the SDK zone (line and candlestick)', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => [T0, T0 + 2 * DAY], T0, 5));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => [T0, T0 + 2 * DAY], T0, 5));
     sdk.setTimeZone('UTC');
     sdk.renderLineChart(SERIES, { locale: 'en-US', timeZone: 'America/New_York', axes: { x: { type: 'time' } } });
     sdk.render();

@@ -20,7 +20,7 @@ import {
   type OverlayStyle,
   type PaintContext,
 } from '../sdk/chart-export';
-import { VIZ_THEMES, VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 const DEG = Math.PI / 180;
 
@@ -62,7 +62,7 @@ describe('colors / background', () => {
   });
 
   it('resolves theme / transparent / css backgrounds', () => {
-    const theme = VIZ_THEMES.light;
+    const theme = CHARTURBO_THEMES.light;
     expect(resolveBackground(undefined, theme)).toEqual({ mode: 'theme', color: theme.surface });
     expect(resolveBackground('theme', theme).mode).toBe('theme');
     expect(resolveBackground('transparent', theme)).toEqual({ mode: 'transparent', under: null });
@@ -215,7 +215,7 @@ function sampleOverlay(): FakeNode {
   const hidden = el({ display: 'none' }, B(0, 0, 50, 10), text('gone'));
   const srOnly = el({ clip: 'rect(0px, 0px, 0px, 0px)' }, B(0, 0, 1, 1), text('screen reader only'));
   const skipped = el({}, B(0, 0, 40, 10), text('skip me'));
-  skipped.attrs['data-viz-export'] = 'false';
+  skipped.attrs['data-charturbo-export'] = 'false';
   return el({ color: 'rgb(195, 194, 183)' }, B(0, 0, 800, 400), title, legend, tick, yTitle, hidden, srOnly, skipped);
 }
 
@@ -406,7 +406,7 @@ function setup(opts: { blankFrames?: number; clearHook?: boolean } = {}) {
   const host: ChartExportHost = {
     canvas: gpu as unknown as HTMLCanvasElement,
     overlay: null,
-    theme: VIZ_THEMES.dark,
+    theme: CHARTURBO_THEMES.dark,
     backend,
     render: () => {
       rendering = true;
@@ -443,7 +443,7 @@ describe('captureChartCanvas', () => {
   it('uses an opaque css background as the clear color and restores the theme surface', async () => {
     const { log, host } = setup();
     await captureChartCanvas(host, { background: '#ffffff' });
-    const s = VIZ_THEMES.dark.surface;
+    const s = CHARTURBO_THEMES.dark.surface;
     expect(log).toEqual(['clear 1,1,1,1', 'render 800x400', 'drawImage 800x400 -> 800x400', `clear ${s.join(',')}`, 'render 800x400']);
   });
 
@@ -485,7 +485,7 @@ describe('captureChartCanvas', () => {
       log.push(`render ${gpu.width}x${gpu.height}`);
     };
     await expect(captureChartCanvas(host, { pixelRatio: 3, background: '#000' })).rejects.toThrow('device lost');
-    const s = VIZ_THEMES.dark.surface;
+    const s = CHARTURBO_THEMES.dark.surface;
     expect(log).toEqual(['resize 1200x600', 'clear 0,0,0,1', `clear ${s.join(',')}`, 'resize 800x400', 'render 800x400']);
     expect([gpu.width, gpu.height]).toEqual([800, 400]);
   });
@@ -497,9 +497,9 @@ describe('captureChartCanvas', () => {
   });
 });
 
-describe('VizEngineSDK image export', () => {
+describe('Charturbo image export', () => {
   it('rejects without a canvas (fromBackend)', async () => {
-    const sdk = VizEngineSDK.fromBackend({ resize() {}, sync_and_render() {} } as unknown as WasmVizEngineBackend);
+    const sdk = Charturbo.fromBackend({ resize() {}, sync_and_render() {} } as unknown as WasmCharturboEngineBackend);
     await expect(sdk.toImage()).rejects.toThrow(/no canvas/);
   });
 });

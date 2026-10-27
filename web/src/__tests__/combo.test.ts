@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  VIZ_THEMES,
-  VizEngineSDK,
+  CHARTURBO_THEMES,
+  Charturbo,
   type ChartTooltipContext,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 import { comboMeta, drawnAxes, encodeCombo, type ComboChartData } from '../sdk/chart-combo';
 import { buildA11yModel, buildChartDescription, buildChartSummary, buildDataTable, keyboardHelp, pointAnnouncement } from '../sdk/chart-a11y';
 import { renderChartSpec } from '../sdk/chart-binding';
@@ -107,7 +107,7 @@ class FakeEl {
 
 type Calls = Record<string, unknown[][]>;
 
-function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -181,8 +181,8 @@ const DATA: ComboChartData = {
 
 describe('encodeCombo', () => {
   it('flattens series, kinds, axes, colors, layout and y domain options', () => {
-    const palette = VIZ_THEMES.dark.palette;
-    const enc = encodeCombo(DATA, { barMode: 'stacked', groupGap: 0.4, axes: { y: { min: 0 }, y2: { max: 1, nice: false } } }, palette, VIZ_THEMES.dark.baseline);
+    const palette = CHARTURBO_THEMES.dark.palette;
+    const enc = encodeCombo(DATA, { barMode: 'stacked', groupGap: 0.4, axes: { y: { min: 0 }, y2: { max: 1, nice: false } } }, palette, CHARTURBO_THEMES.dark.baseline);
     expect(enc.n).toBe(4);
     expect(Array.from(enc.values.slice(0, 8))).toEqual([10, 20, 30, 40, 5, 5, 10, 10]);
     expect(Number.isNaN(enc.values[10])).toBe(true); // null = missing
@@ -206,8 +206,8 @@ describe('encodeCombo', () => {
     const enc = encodeCombo(
       { x: [new Date(t0), new Date(t0 + day)], series: [{ name: 'a', type: 'bar', values: [1, 2] }] },
       undefined,
-      VIZ_THEMES.dark.palette,
-      VIZ_THEMES.dark.baseline
+      CHARTURBO_THEMES.dark.palette,
+      CHARTURBO_THEMES.dark.baseline
     );
     expect(Array.from(enc.x)).toEqual([t0, t0 + day]);
     expect(enc.timeX).toBe(true);
@@ -260,7 +260,7 @@ describe('Combo charts (SDK)', () => {
   it('uploads the series, line styles, and builds legend, axes and details', () => {
     const calls: Calls = {};
     let axes = new Float64Array(0);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     const res = sdk.renderComboChart(DATA, { barMode: 'stacked', title: 'Revenue', axes: { y2: { title: 'Margin' } } });
     expect(res).toEqual({ seriesCount: 4, categoryCount: 4, pointCount: 12 });
@@ -286,7 +286,7 @@ describe('Combo charts (SDK)', () => {
     expect(sdk.getY2Domain()).toEqual([0.1, 0.3]);
 
     // Legend swatches follow the mark: bar square, line stroke, area block
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.children[1].textContent)).toEqual(['Revenue', 'Cost', 'Margin', 'Trend']);
     expect(items.map((i) => i.children[0].style.height)).toEqual(['10px', '10px', '3px', '8px']);
     items[1].fire('click');
@@ -304,7 +304,7 @@ describe('Combo charts (SDK)', () => {
     // Category x labels; right-axis ticks use the y2 options
     axes = new Float64Array([56, 64, 600, 300, 3, 0, 2, 400, 364, 1, 50, 56, 200, 2, 0.2, 656, 200]);
     sdk.render();
-    const ticks = container.querySelectorAll('.viz-sdk-axis-tick').map((t) => t.textContent);
+    const ticks = container.querySelectorAll('.charturbo-sdk-axis-tick').map((t) => t.textContent);
     expect(ticks).toEqual(['Q3', '50', '0.2']);
   });
 
@@ -315,7 +315,7 @@ describe('Combo charts (SDK)', () => {
       [1, 2, 10, 6],
       [2, 2, 0.15, 10],
     ]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     let ctx: ChartTooltipContext | null = null;
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {
       formatChartTooltip: (c) => {
@@ -336,11 +336,11 @@ describe('Combo charts (SDK)', () => {
     expect(c.details?.label).toBe('Cost · Q3');
 
     // Default tooltip renders one row per series; `shared: false` keeps the primary only
-    const sdk2 = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk2 = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     sdk2.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { tooltip: { shared: false } });
     sdk2.renderComboChart(DATA);
     canvas.fire('pointermove', { clientX: 400, clientY: 200, buttons: 0 });
-    const tips = body.querySelectorAll('.viz-sdk-node-tooltip');
+    const tips = body.querySelectorAll('.charturbo-sdk-node-tooltip');
     const html = tips[tips.length - 1].innerHTML;
     expect(html).toContain('Cost');
     expect(html).not.toContain('Margin');
@@ -349,7 +349,7 @@ describe('Combo charts (SDK)', () => {
   it('numeric x labels the tooltip with the formatted x', () => {
     const calls: Calls = {};
     const hit = hitOf(0, [[0, 1, 2, 1]]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     let ctx: ChartTooltipContext | null = null;
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { formatChartTooltip: (c) => ((ctx = c), '') });
     sdk.renderComboChart(
@@ -364,7 +364,7 @@ describe('Combo charts (SDK)', () => {
 
   it('dispatches through the framework binding', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     renderChartSpec(sdk, { type: 'combo', data: DATA, options: { barMode: 'grouped' } });
     expect(calls.set_combo_chart.length).toBe(1);
   });
@@ -372,7 +372,7 @@ describe('Combo charts (SDK)', () => {
 
 describe('Combo chart a11y model', () => {
   const formatX = (v: number) => String(v);
-  const enc = encodeCombo(DATA, undefined, VIZ_THEMES.dark.palette, VIZ_THEMES.dark.baseline);
+  const enc = encodeCombo(DATA, undefined, CHARTURBO_THEMES.dark.palette, CHARTURBO_THEMES.dark.baseline);
   const meta = comboMeta(enc, DATA, 'stacked', formatX);
   const pres = { title: 'Quarterly', xAxis: { title: 'Quarter' }, yAxis: { title: 'USD' }, y2Axis: { title: 'Margin' } };
   const model = buildA11yModel(meta, pres)!;

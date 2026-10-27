@@ -1,5 +1,5 @@
 /**
- * Touch / pen gesture recognizer for `VizEngineSDK.enableNodeInteractions`.
+ * Touch / pen gesture recognizer for `Charturbo.enableNodeInteractions`.
  *
  * Pure logic: it consumes Pointer Events (or any `{ pointerId, pointerType, clientX, clientY,
  * timeStamp }` sample) and reports semantic gestures through injected callbacks, so the SDK maps

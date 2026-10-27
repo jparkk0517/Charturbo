@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Range navigator',
@@ -11,7 +11,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US', timeZone: 'UTC' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US', timeZone: 'UTC' });
 
   const n = 20_000;
   const minute = 60_000;

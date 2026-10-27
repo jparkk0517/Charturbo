@@ -1,13 +1,13 @@
-# VizEngineSDK 사용 가이드
+# Charturbo 사용 가이드
 
 > 처음이라면 [README](../README.md)의 빠른 시작부터 보세요. 이 문서는 기능별 전체 옵션 레퍼런스입니다.
 
 **Rust + WebGPU (WebAssembly) 기반 초고성능 2D/3D 대규모 시각화 · 대용량 차트 · 임베딩 분석 · 공간 물리 엔진 라이브러리**
 
-`VizEngineSDK`는 수만 개의 데이터 포인트(선 그래프, 막대 그래프, 산점도)와 대규모 3D 네트워크 그래프/수천 차원 임베딩 포인트 클라우드를 DOM이나 Canvas2D의 프레임 저하 없이 WebGPU 하드웨어 가속(60 FPS)으로 실시간 렌더링하고, Three.js 스타일의 범용 3D 공간을 단일 Rust + `wgpu` 파이프라인으로 제공하는 **Zero-dependency** 웹 라이브러리입니다.
+`Charturbo`는 수만 개의 데이터 포인트(선 그래프, 막대 그래프, 산점도)와 대규모 3D 네트워크 그래프/수천 차원 임베딩 포인트 클라우드를 DOM이나 Canvas2D의 프레임 저하 없이 WebGPU 하드웨어 가속(60 FPS)으로 실시간 렌더링하고, Three.js 스타일의 범용 3D 공간을 단일 Rust + `wgpu` 파이프라인으로 제공하는 **Zero-dependency** 웹 라이브러리입니다.
 
 > 💡 **순수 라이브러리 vs 데모 쇼케이스 분리 안내**
-> - **NPM 배포용 순수 라이브러리 (`npm run build:lib`)**: [`web/src/index.ts`](../web/src/index.ts) 엔트리포인트를 통해 오직 `VizEngineSDK` 코어 클래스, 타입 선언(`.d.ts`), 그리고 WebAssembly 바이너리만 `web/dist-lib/`로 번들링됩니다. 데모 화면(예시 아카이브 갤러리, Three.js 벤치마크 비교 화면)은 라이브러리에 **일절 포함되지 않습니다**.
+> - **NPM 배포용 순수 라이브러리 (`npm run build:lib`)**: [`web/src/index.ts`](../web/src/index.ts) 엔트리포인트를 통해 오직 `Charturbo` 코어 클래스, 타입 선언(`.d.ts`), 그리고 WebAssembly 바이너리만 `web/dist-lib/`로 번들링됩니다. 데모 화면(예시 아카이브 갤러리, Three.js 벤치마크 비교 화면)은 라이브러리에 **일절 포함되지 않습니다**.
 
 ---
 
@@ -19,6 +19,7 @@
    - **2D / 3D 막대 그래프 (`renderBarChart`: 단일 시리즈, `renderGroupedBarChart`: 그룹 / 누적 / 100% 누적)**: 2D 평면 모드 및 3D 입체 큐브 모드 자유 전환 지원
    - **100만 포인트 2D 산점도 / 버블 차트 (`renderScatterChart`)**: GPU 인스턴싱(포인트 1회 업로드), x/y 동시 줌·팬, 균일 그리드 해시 hover, 시리즈 범례
    - **캔들스틱 (OHLC) 차트 (`renderCandlestickChart`)**: 몸통(막대) + 심지(선), 2px 미만으로 좁아지면 Rust에서 픽셀 컬럼 단위 OHLC 집계, 거래량 패널, x 줌·팬 + 보이는 구간에 맞춘 가격 축, 십자선 · O/H/L/C/V 툴팁
+   - **독립 OHLC 차트 (`renderOhlcChart`)**: 고가–저가 세로선 + 왼쪽 시가·오른쪽 종가 틱. 캔들의 거래량·집계·시간축·탐색을 공유하고 React/Vue `type="ohlc"`로 사용
    - **히스토그램 (`renderHistogram`)**: Rust에서 O(n) 구간화(Freedman–Diaconis, IQR 0이면 Sturges), 간격 없는 막대 + 구간 경계 숫자 눈금
    - **4096×4096 히트맵 / 행렬 차트 (`renderHeatmap`)**: 값 그리드를 R32Float 텍스처로 1회 업로드해 쿼드 하나로 렌더, 256색 LUT 컬러맵, x/y 줌·팬, 셀 hover, 컬러바
    - **박스 플롯 / 바이올린 (`renderBoxPlot`)**: 그룹별 O(n) 통계(선택 알고리즘, 정렬 없음), Tukey / min·max / 백분위 수염, 이상치 샘플링, binned KDE 바이올린, 시리즈 그룹 배치
@@ -42,14 +43,61 @@
 
 ---
 
+## 독립 ErrorBar / Impulse 차트
+
+두 API는 `{ totalPoints, seriesCount }`를 반환합니다. 각 샘플을 독립적으로 그리므로 선 M4 데시메이션이나 이웃 샘플 연결을 적용하지 않습니다.
+
+```ts
+sdk.renderErrorBarChart([
+  { name: '측정', x: [1, 2, 3], values: [10, 15, 12], errorLow: 2, errorHigh: [3, 5, 4],
+    capWidth: 12, showCenter: true },
+]);
+sdk.renderImpulseChart([
+  { name: '이벤트', x: [0, 1, 2, 3], values: [0, 5, -3, 0], baseline: 0, showMarker: true },
+]);
+```
+
+- ErrorBar 입력은 `values`와 같은 길이의 절대 `low`·`high`, 대칭 `error`, 비대칭 `errorLow`·`errorHigh` 중 하나입니다. 상대 오차는 숫자 또는 배열이며 절댓값을 적용합니다. 뒤집힌 절대 경계는 정렬합니다.
+- `errorMode`: `'both'`(기본), `'high'`, `'low'`. 양측은 low↔high, 단측은 중심값↔해당 경계입니다. 사용되는 경계나 중심값이 비유한 값이면 gap입니다.
+- `direction: 'horizontal'`이면 high/low는 X 좌표, `values`는 Y 좌표입니다. 중심 마커는 `(x, values)`입니다. ChartGPU v0.4.0과 같이 상대 오차·단측 줄기의 기준은 수평에서도 `values`입니다. 일반 수평 신뢰구간에는 절대 경계와 `errorMode: 'both'`를 사용합니다.
+- `capWidth`는 전체 길이(CSS px 숫자 또는 평균 카테고리 간격의 퍼센트, 기본 `'40%'`). `drawWhiskers`·`drawConnector` 기본 true, `showCenter` 기본 false, `symbolSize` 기본 6입니다.
+- Impulse `baseline` 기본 0, `showMarker` 기본 true, `symbolSize` 기본 6입니다. 값이 baseline과 같으면 줄기는 생략하고 마커만 남깁니다.
+- 두 종류 모두 `lineWidth` 기본 1.5px, 시리즈 `color`·오른쪽 Y축·범례·줌·팬을 지원합니다. `x`는 모든 시리즈에 제공하거나 모두 생략하며, 제공한 X는 유한·비감소 순서여야 합니다. 2D 전용이고 샘플링 옵션은 없습니다.
+- 포인터는 실제 줄기·캡·마커를 hit-test합니다. XY brush는 데이터 단위 줄기/경계 교차를 선택합니다(CSS px 캡 폭은 brush 범위에 포함하지 않음). 툴팁/선택 종류는 `'errorBar'`·`'impulse'`입니다. 키보드 툴팁과 CSV는 각각 중심값·low/high 또는 값·baseline을 제공합니다. SVG는 벡터 경로입니다.
+- React/Vue `<CharturboChart type="errorBar" ... />`, `type="impulse"`로 사용합니다. 데이터 갱신은 각 `render*Chart`에 전체 채널을 다시 전달합니다. `setSeriesData`·`appendSeriesData`는 두 종류에서 거부합니다.
+- 예제: `/line.html#08-error-bars`, `#09-error-horizontal`, `#10-impulse`.
+
+## 독립 Band / 범위 차트
+
+중심선 없이 두 경계 사이를 채웁니다. 반환값은 `{ totalPoints, seriesCount }`이며 한 쌍의 경계를 하나의 시리즈로 셉니다.
+
+```ts
+sdk.renderBandChart([{
+  name: '예측 범위',
+  x: new Float64Array([0, 1, 2, 3]),
+  lower: [8, 12, 20, 11],
+  upper: [12, 18, 16, 15], // 교차 허용: 입력 채널 순서를 보존
+  lowerLineWidth: 1.5,
+  upperLineWidth: 1.5,
+}], { fillOpacity: 0.3, axes: { x: { title: '시간' } } });
+```
+
+- `lower`·`upper`·선택적 `x`는 시리즈 내 길이가 같아야 합니다. `x`는 모든 시리즈에 제공하거나 모두 생략하며, 유한한 비감소 숫자 또는 `Date`를 받습니다. 시간축은 `axes.x.type: 'time'` 또는 `Date[]`로 지정합니다.
+- 경계별 두께 기본값은 `0`(채우기만), `fillOpacity` 기본값은 `0.25`입니다. 시리즈별 설정이 차트 기본값보다 우선합니다. `curve`, `yAxis: 'right'`도 지원합니다.
+- 어느 경계든 유효하지 않은 샘플은 쌍 전체의 gap입니다. `connectNulls: true`이면 이웃 유효 쌍을 연결합니다. 교차는 실제 교점에서 삼각형을 분할합니다.
+- 대용량 LOD는 두 채널의 최소·최대와 gap을 함께 보존합니다. hover/XY brush는 중앙값이 아니라 실제 범위를 검사합니다. 툴팁 `chartType`과 선택 `kind`는 `'band'`이고, `items[].band`에 두 원본 경계를 반환합니다. 공통 `items[].value`는 내부 선택용 중간값입니다.
+- 키보드 탐색·범례·축·줌·팬·SVG를 지원하며 CSV에는 두 경계만 출력합니다. React/Vue에서 `type="band"`와 같은 시리즈 배열을 사용합니다.
+- 교체 시 `renderBandChart`에 두 경계를 함께 전달합니다. `setSeriesData`·`appendSeriesData`의 단일 채널 갱신은 지원하지 않습니다. 전체 ChartGPU API/샘플링 옵션 호환을 뜻하지 않습니다.
+- 실행 예제: `line.html#06-band`(10만 쌍), `line.html#07-band-crossing`(교차).
+
 ## 🚀 빠른 시작 (Quick Start)
 
 ### 1. 50,000개 포인트 고속 2D 선 그래프
 ```ts
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 const canvas = document.getElementById('my-canvas') as HTMLCanvasElement;
-const sdk = await VizEngineSDK.create(canvas);
+const sdk = await Charturbo.create(canvas);
 
 // 5만 개 데이터 포인트 실시간 렌더링
 sdk.renderLineChart(
@@ -98,7 +146,7 @@ sdk.resetChartZoom();
 ```
 - 눈금은 엔진이 1·2·5×10ⁿ 단위로 계산하고 그리드도 같은 값에 그립니다. 라벨 DOM은 눈금이 실제로 바뀔 때만 다시 배치됩니다.
 - 범례는 `<button aria-pressed>`라 키보드로도 조작됩니다. 시리즈를 숨겨도 y축 범위는 유지됩니다.
-- CSS 클래스: `.viz-sdk-chart-overlay`, `.viz-sdk-chart-title`, `.viz-sdk-chart-legend`, `.viz-sdk-legend-item`, `.viz-sdk-axis-tick`, `.viz-sdk-axis-title`
+- CSS 클래스: `.charturbo-sdk-chart-overlay`, `.charturbo-sdk-chart-title`, `.charturbo-sdk-chart-legend`, `.charturbo-sdk-legend-item`, `.charturbo-sdk-axis-tick`, `.charturbo-sdk-axis-title`
 
 #### 터치 · 펜 제스처 (모바일)
 `enableNodeInteractions`는 Pointer Events로 터치/펜 멀티 포인터를 직접 인식합니다 (마우스 동작은 그대로). 연결 중에는 캔버스에 `touch-action: none`을 걸고 해제 시 원래 값으로 복원합니다.
@@ -201,7 +249,7 @@ sdk.renderComboChart(
   }
 );
 sdk.getYDomain(); sdk.getY2Domain();                 // [min, max]
-// React / Vue: <VizChart type="combo" data={...} options={{ barMode: 'grouped' }} />
+// React / Vue: <CharturboChart type="combo" data={...} options={{ barMode: 'grouped' }} />
 ```
 - 한 플롯에서 x 매핑을 공유합니다: 카테고리 i는 데이터 x `i`(또는 `x[i]`)에 놓이고, x 도메인을 양쪽으로 반 칸씩 넓혀 **선의 점이 막대 칸 중앙에 정확히 정렬**됩니다. 숫자 / 시간 `x`면 막대 칸 폭 = 가장 작은 x 간격(막대끼리 겹치지 않음, 막대는 그 72%), x 눈금은 선 그래프와 같은 숫자 / 달력 눈금입니다.
 - 엔진 구성: 막대 시리즈는 내부 `BarChart`(그룹 / 누적 / 100% 누적, 범례 토글 시 재누적), 선 · 영역 시리즈는 내부 `LineChart`(M4 데시메이션, 마커 · 대시 · 곡선 · 결측값 스타일, 줌 창)를 그대로 재사용합니다. 그리기 순서는 막대 → 영역 채움(반투명, 0까지) → 선 → 마커입니다.
@@ -230,7 +278,7 @@ sdk.renderLineChart(
 
 #### 시간대 (`chart-timezone.ts`, `lib_timezone.rs`)
 ```ts
-const sdk = await VizEngineSDK.create(canvas, { timeZone: 'Asia/Seoul' }); // 'UTC' | 'local' | IANA 이름
+const sdk = await Charturbo.create(canvas, { timeZone: 'Asia/Seoul' }); // 'UTC' | 'local' | IANA 이름
 sdk.setTimeZone('America/New_York');   // 활성 차트의 눈금 · 라벨을 즉시 다시 그림 (모르는 이름은 RangeError)
 sdk.getTimeZone();                     // 'America/New_York'
 sdk.renderLineChart(series, { axes: { x: { type: 'time' } }, timeZone: 'UTC' }); // 차트 옵션이 SDK 값보다 우선
@@ -258,8 +306,24 @@ sdk.renderAreaChart(
 - 2D 전용이며 선 그래프 옵션(축, 범례, 줌/팬, hover, `lineWidth` 등)을 그대로 받습니다. 채우기는 선과 같은 M4 데시메이션 샘플 위에서 Rust가 삼각형으로 분할합니다.
 - `overlap`: 시리즈마다 0 기준선까지 채움 (기본 불투명도 0.2). `stacked`: 아래 시리즈 위에 누적 (기본 0.8, 위 가장자리에 선). `percent`: x마다 표시 시리즈 합을 100%로 정규화 (음수는 0 취급, y 축 라벨 `%`). 값 축은 항상 0을 포함합니다.
 - 누적 모드는 모든 시리즈 길이가 같아야 하고, `x`를 주면 시리즈 간 `x`가 같아야 합니다 (아니면 오류). `NaN`은 자기 선·영역에 틈을 남기고 위 시리즈에는 0으로 누적됩니다.
-- 범례 클릭 → 엔진이 재누적 (값 축 고정), hover → 나머지 채우기·선 흐리게. 툴팁은 누적값이 아닌 원래 값을 보여주고 `stacked`는 합계(`ctx.total`), `percent`는 비율(`item.percent`)을 덧붙입니다. 마커는 누적된 위 가장자리에 놓입니다 (`ctx.areaMode`).
+- 범례 클릭 → 엔진이 재누적 (숨긴 동안 스트리밍된 값을 다시 표시하면 자동 값 축 확장), hover → 나머지 채우기·선 흐리게. 툴팁은 누적값이 아닌 원래 값을 보여주고 `stacked`는 합계(`ctx.total`), `percent`는 비율(`item.percent`)을 덧붙입니다. 마커는 누적된 위 가장자리에 놓입니다 (`ctx.areaMode`).
 - 엔진 API: `set_area_chart(values, lengths, xs, colors, widths, width, height, mode, fill_opacity, x_kind)` (`mode` 0 = overlap, 1 = stacked, 2 = percent; `fill_opacity` NaN = 기본값).
+
+영역 차트도 데이터를 재생성하지 않고 갱신할 수 있습니다:
+```ts
+// renderAreaChart의 시리즈 순서대로 모든 시리즈의 chunk를 한 번에 추가
+const lengths = sdk.appendAreaData([
+  { values: nextSearch, x: nextDays },
+  { values: nextSocial, x: nextDays },
+], { maxPoints: 4_000 });
+sdk.render();
+```
+- `overlap`은 `setSeriesData` / `appendSeriesData`로 개별 갱신할 수도 있습니다. `stacked` / `percent`의 `setSeriesData`는 다른 시리즈와 같은 길이·x를 유지해야 하며, 추가는 `appendAreaData`를 사용합니다.
+- batch에는 숨겨진 시리즈를 포함해 모든 시리즈가 있어야 합니다. 누적 모드는 chunk 길이·x도 같아야 합니다. 인덱스 축은 `x`를 생략하고, 명시적 축에는 각 값의 x(숫자 또는 `Date`)를 전달합니다. 전체 검증이 끝나야 갱신되므로 잘못된 batch는 기존 데이터를 바꾸지 않습니다.
+- 반환값은 시리즈별 유지된 길이입니다. `maxPoints`는 0 또는 생략 시 무제한이며 0..4294967295 정수를 받습니다. FIFO 삭제 후 id는 다시 계산됩니다. 스타일·범례 가시성·줌은 유지하고 CSV·툴팁은 누적값이 아닌 최신 원시 값을 읽습니다.
+- overlap은 선 차트의 FIFO 경로를 재사용합니다. **stacked / percent는 갱신마다 유지된 전체 샘플의 누적값을 O(유지된 샘플 수)로 다시 계산**합니다. 큰 스트림에서는 batch 크기와 `maxPoints`를 조절하세요.
+- WASM: `append_area_data(values, lengths, xs, max_points)`는 시리즈 순서대로 평탄화한 버퍼를 받고 유지된 길이 배열을 반환합니다. 이전 WASM에 binding이 없으면 SDK는 오류를 냅니다.
+- 실행 예제: `web/examples/src/demos/line/05-streaming-area.ts` 및 `web/examples/src/streaming-area.ts`. 랜딩은 정적 preview를 먼저 표시하고 화면에 들어올 때 SDK를 로드합니다. Play/Pause, reduced motion, 화면 밖·숨겨진 탭 정지를 지원합니다.
 
 #### 선 스타일 · 결측값 · 오차 범위 (`chart-linestyle.ts`)
 ```ts
@@ -337,10 +401,10 @@ sdk.setAnnotations([{ type: 'hline', y: 100, yAxis: 'right', label: '호우 기�
 
 #### 테마 · 수명 주기
 ```ts
-sdk.setTheme('light'); // 'dark' | 'light' | 사용자 VizTheme 객체 (배경, 팔레트, 그리드, 글자, 툴팁 색)
+sdk.setTheme('light'); // 'dark' | 'light' | 사용자 CharturboTheme 객체 (배경, 팔레트, 그리드, 글자, 툴팁 색)
 sdk.dispose();         // 이벤트 해제, 오버레이 DOM 제거, WASM 메모리 해제
 ```
-기본 팔레트는 각 테마 배경에 대해 색각 이상 구분 검증을 통과한 8색 순서입니다 (`VIZ_THEMES`).
+기본 팔레트는 각 테마 배경에 대해 색각 이상 구분 검증을 통과한 8색 순서입니다 (`CHARTURBO_THEMES`).
 
 커스텀 테마는 기존 테마를 펼친 뒤 필요한 토큰을 덮어씁니다. GPU 색 토큰에도 CSS 색 문자열을 사용할 수 있습니다.
 
@@ -365,11 +429,11 @@ sdk.render();
 
 #### 초기화 · 이벤트 · 범위 · 색 · 로캘
 ```ts
-if (!(await VizEngineSDK.isSupported())) showFallback();   // WebGPU 어댑터 또는 WebGL2 폴백
+if (!(await Charturbo.isSupported())) showFallback();   // WebGPU 어댑터 또는 WebGL2 폴백
 try {
-  sdk = await VizEngineSDK.create(canvas, { autoResize: true, locale: 'ko-KR' });
+  sdk = await Charturbo.create(canvas, { autoResize: true, locale: 'ko-KR' });
 } catch (e) {
-  if (e instanceof VizInitError) console.warn(e.reason);  // 'no-webgpu' | 'adapter' | 'device' | 'wasm'
+  if (e instanceof CharturboInitError) console.warn(e.reason);  // 'no-webgpu' | 'adapter' | 'device' | 'wasm'
 }
 const off = sdk.on('rangechange', ({ xMin, xMax, yMin, yMax }) => syncOtherChart(xMin, xMax));
 sdk.on('hover', ({ chart, node }) => {});   // 차트: ChartTooltipContext, 그래프: NodeDetails (떠나면 null)
@@ -394,10 +458,10 @@ sdk.setLocale('de-DE');                     // 기본 눈금 · 툴팁 숫자 ·
 
 #### 대시보드 차트 동기화 (`chart-sync.ts`: 크로스헤어 · 줌/팬)
 ```ts
-const disconnect = VizEngineSDK.connect([cpu, mem, net], { cursor: true, x: true }); // 기본 둘 다 true
+const disconnect = Charturbo.connect([cpu, mem, net], { cursor: true, x: true }); // 기본 둘 다 true
 // 또는 인스턴스별 그룹 키 (ECharts group / Highcharts 방식)
-await VizEngineSDK.create(canvas, { sync: { key: 'dash', tooltip: true } });  // 또는 sdk.setSync({ key })
-VizEngineSDK.connect('dash', { x: false });  // 그룹 공통 옵션 (멤버 자체 옵션이 우선); 반환 함수 = 그룹 해산
+await Charturbo.create(canvas, { sync: { key: 'dash', tooltip: true } });  // 또는 sdk.setSync({ key })
+Charturbo.connect('dash', { x: false });  // 그룹 공통 옵션 (멤버 자체 옵션이 우선); 반환 함수 = 그룹 해산
 sdk.hoverAtX(Date.parse('2026-01-01T09:00Z')); sdk.getHoverX();             // 수동 커서 (null = 해제)
 ```
 - 커서: 한 차트에서 hover한 데이터 x(라인 `x`/epoch ms 또는 인덱스, 막대 카테고리 인덱스, 산점도 x)에서 나머지 차트가 엔진 `chart_hover_at_data_x(x)`로 index 모드 hit-test → 크로스헤어 + 시리즈별 최근접 마커 (막대: `round(x)` 카테고리 강조, 산점도: 시리즈별 x 최근접 점, 크로스헤어 없음). 범위 밖이면 해제, 떠나면 모두 해제. 팔로워 툴팁은 기본 꺼짐 (`tooltip: true`). hover하는 차트에 `enableNodeInteractions`가 필요합니다.
@@ -460,7 +524,7 @@ sdk.getSelection();                             // 현재 확정된 선택 또�
 sdk.clearChartSelection();                      // 선택이 있었을 때만 빈 'select' 발생
 ```
 - 마우스 조작: 드래그 = 브러시(5 px 이내 이동은 클릭으로 처리), 릴리스 = 확정 + `'select'`, **Alt + 드래그** = 팬, 휠 줌 · 더블클릭 리셋은 그대로. 클릭 · `Escape`(캔버스 포커스) · `sdk.clearSelection()`이 선택을 해제합니다.
-- `VizSelection`: `kind`(`'line' | 'bar' | 'scatter' | 'candlestick' | 'heatmap' | 'box' | 'pie'`, 영역 차트는 `'line'`; 히트맵 · 박스 플롯 · 파이는 브러시가 없어 항상 빈 선택), `mode`, `xRange` / `yRange`(데이터 단위: 샘플 인덱스 · `x` 값 · 카테고리 인덱스, `'x'` 모드는 `yRange = null`), `ranges`(선/영역), `ids`(`Uint32Array`, 오름차순 · 보이는 시리즈만), `count`. 막대는 항상 x 구간으로 선택합니다.
+- `CharturboSelection`: `kind`(`'line' | 'bar' | 'scatter' | 'candlestick' | 'heatmap' | 'box' | 'pie'`, 영역 차트는 `'line'`; 히트맵 · 박스 플롯 · 파이는 브러시가 없어 항상 빈 선택), `mode`, `xRange` / `yRange`(데이터 단위: 샘플 인덱스 · `x` 값 · 카테고리 인덱스, `'x'` 모드는 `yRange = null`), `ranges`(선/영역), `ids`(`Uint32Array`, 오름차순 · 보이는 시리즈만), `count`. 막대는 항상 x 구간으로 선택합니다.
 - Rust가 드래그 사각형을 데이터 단위로 변환해 그리고, 선택 질의(선 샘플 구간, 산점도는 공간 해시, 막대 카테고리)와 산점도 점 강조를 수행합니다. 데이터 · 범례가 바뀌면 `getSelection()`은 다시 질의된 결과를 돌려줍니다. 2D 차트 전용(`handlesChartBrush()`: 3D 막대 · 2.5D 선 · 히트맵에서는 false라 드래그가 그대로 팬/회전). 이중 y축의 `'xy'` 브러시는 오른쪽 축 시리즈를 같은 화면 구간의 오른쪽 축 값으로 비교하고, 로그 축에서도 범위는 데이터 단위입니다. 차트를 바꾸면 남아 있던 선택에 대해 빈 `'select'`가 발생합니다.
 - 엔진 API: `chart_brush(mode, ax, ay, bx, by)`(NDC, mode 0 = x · 1 = xy), `chart_brush_end()`, `chart_select_range(x0, x1, y0, y1)`(y NaN = 전체), `chart_selection()` → `[kind, mode, x0, x1, y0, y1, count, n, (series, start, end) * n]`(비면 선택 없음), `chart_selection_ids()`, `chart_clear_selection()`, `set_chart_brush_style(params)`.
 
@@ -522,7 +586,7 @@ sdk.enableNodeInteractions(canvas, {
   // 툴팁 HTML 직접 작성
   formatChartTooltip: (ctx) =>
     `<b>${ctx.xLabel}</b>` + ctx.items.map((it) => `<div style="color:${it.color}">${it.seriesName}: ${it.value}</div>`).join(''),
-  tooltipClassName: 'my-tooltip', // 기본 클래스: viz-sdk-node-tooltip
+  tooltipClassName: 'my-tooltip', // 기본 클래스: charturbo-sdk-node-tooltip
   tooltipStyle: { background: '#fff', color: '#111' },
   onNodeClick: (details) => console.log(details?.metadata.attributes),
 });
@@ -531,7 +595,7 @@ sdk.enableNodeInteractions(canvas, {
 #### 숫자 형식 (`chart-format.ts`)
 축 `format`(`axes.x` / `y` / `y2`), 막대 라벨 `labels.format`, 툴팁 `valueFormatter`는 함수 외에 **d3-format 스타일 문자열** 또는 `Intl.NumberFormatOptions` 객체를 받습니다. 문자열은 차트 로캘(`locale` 옵션 → `setLocale` → 런타임)로 `Intl.NumberFormat`을 한 번 만들어 캐시하고, `setLocale` 시 눈금이 새 로캘로 다시 그려집니다.
 ```ts
-import { createFormatter, formatNumber } from 'viz-engine-sdk';
+import { createFormatter, formatNumber } from 'charturbo';
 
 sdk.renderLineChart(series, {
   axes: { y: { format: '.2s' }, y2: { format: { style: 'percent' } }, x: { format: ',d' } },
@@ -571,7 +635,29 @@ sdk.enableNodeInteractions(canvas, {
 - `valueFormatter`: 시리즈 값 · 합계 · OHLC · 히트맵 셀 · 박스 통계 · 파이 값 · 산점도 y. 생략 시 기존처럼 y축 `format`(캔들 · 박스 · 산점도) 또는 로캘 숫자.
 - `pin: 'click'`: hover 중인 항목을 클릭하면 툴팁과 엔진 hover(크로스헤어 · 마커)가 그 자리에 고정되고(`data-pinned="true"`), 포인터 이동 · 캔버스 이탈 · 동기화 커서에도 바뀌지 않습니다. 다음 클릭(그 지점 hover로 복귀), 캔버스 밖 `pointerdown`, `Escape`(캔버스 포커스), 휠 줌 · 드래그 팬, 키보드 포인트 이동, 차트 교체 시 해제됩니다. 빈 곳 클릭은 고정하지 않습니다. 해제되면 `'hover'` 이벤트 / `onNodeHover`에 `null`이 전달됩니다. 한계: 고정 중에도 동기화 그룹의 커서(`hoverAtX`)는 엔진 마커를 움직입니다 (툴팁만 고정).
 
-#### 캔들스틱 (OHLC) · 히스토그램
+#### 캔들스틱 · 독립 OHLC · 히스토그램
+
+`renderOhlcChart`는 몸통 없이 고가–저가 세로선, 왼쪽 시가 틱, 오른쪽 종가 틱을 그립니다.
+입력은 `OhlcChartData`(캔들과 동일한 `t`, `open`, `high`, `low`, `close`, 선택적 `volume`)이며
+`t`는 유한한 오름차순 값이어야 합니다. 비유한 가격은 빈 구간으로 처리합니다.
+
+```ts
+const { barCount } = sdk.renderOhlcChart({ t, open, high, low, close, volume }, {
+  lineWidth: 1.5, // CSS px, 0.25–8 (기본 1)
+  tickWidth: 0.8, // 좌우 틱 전체 너비 / bar 간격, 0.05–1 (기본 0.7)
+  showVolume: true,
+  yFit: 'visible',
+  timeZone: 'UTC',
+  axes: { y: { format: '$,.2f' } },
+});
+```
+
+캔들의 시간축·줌·팬·집계·거래량 옵션을 공유하며 `hollowUp`, `wickWidth`, `bodyWidth`,
+`cornerRadius` 대신 `lineWidth`·`tickWidth`를 사용합니다. 툴팁은 `chartType: 'ohlc'`와
+`ohlc` 집계 값, 브러시는 `kind: 'ohlc'`를 반환합니다. 테마 변경 후에도 OHLC 모드가 유지됩니다.
+React/Vue는 `<CharturboChart type="ohlc" ... />`로 사용합니다. 키보드 탐색·데이터 표·CSV·벡터 SVG도 지원합니다.
+실행 예제: `candlestick.html#03-ohlc-bars`.
+
 ```ts
 sdk.renderCandlestickChart(
   { t: dates /* Date[] | epoch ms; 생략 시 인덱스 */, open, high, low, close, volume /* 선택 */ },
@@ -725,24 +811,24 @@ await sdk.downloadImage('chart.webp', { background: 'transparent' });   // 확�
 - 캔버스를 다시 렌더링하고 같은 태스크 안에서 2D 캔버스로 `drawImage` 합니다 (WebGPU 캔버스는 프레임이 present된 뒤 내용이 사라짐). 읽은 결과가 전부 투명이면 다음 `requestAnimationFrame`에서 최대 2번 재시도 후 오류.
 - `pixelRatio`가 현재와 다르면 캔버스 backing store를 잠시 그 크기로 바꿔(`resize`) 렌더링한 뒤 복원합니다 (한 변 최대 8192px).
 - `background`: `'theme'`(기본, 테마 surface) / CSS 색 (불투명이면 GPU clear color로 렌더) / `'transparent'` (검정·흰 배경으로 두 번 렌더해 정확한 알파 복원; 반투명 CSS 색은 그 아래에 깔림). JPEG는 알파가 없어 투명 부분이 검정이 됩니다.
-- DOM 오버레이(제목, 범례 스와치·이름·숨김 상태, 축 눈금, 축 제목, 주석 라벨 등)는 오버레이 루트를 일반적으로 순회해 레이아웃된 위치·계산된 폰트/색/투명도/취소선/회전(`rotate(-90deg)`)으로 `fillText` 합니다. 내보내지 않을 요소는 `data-viz-export="false"`. `overlay: false`면 캔버스만.
+- DOM 오버레이(제목, 범례 스와치·이름·숨김 상태, 축 눈금, 축 제목, 주석 라벨 등)는 오버레이 루트를 일반적으로 순회해 레이아웃된 위치·계산된 폰트/색/투명도/취소선/회전(`rotate(-90deg)`)으로 `fillText` 합니다. 내보내지 않을 요소는 `data-charturbo-export="false"`. `overlay: false`면 캔버스만.
 - 한계: 툴팁(오버레이 밖)은 포함하지 않습니다. 오버레이 안 SVG / 이미지 / 테두리 / 그림자는 그리지 않고, 여러 줄로 줄바꿈된 텍스트는 한 줄로 그립니다. `setPixelRatio`로 덮어쓴 배율은 고해상도 내보내기 후 캔버스 기준으로 다시 계산됩니다.
 
-#### React / Vue 컴포넌트 (`viz-engine-sdk/react`, `viz-engine-sdk/vue`)
-코어(`viz-engine-sdk`)는 React / Vue를 import하지 않습니다. 래퍼는 별도 엔트리이며 `react`·`react-dom`(>=18) / `vue`(>=3.3)는 선택적 peer 의존성입니다.
+#### React / Vue 컴포넌트 (`charturbo/react`, `charturbo/vue`)
+코어(`charturbo`)는 React / Vue를 import하지 않습니다. 래퍼는 별도 엔트리이며 `react`·`react-dom`(>=18) / `vue`(>=3.3)는 선택적 peer 의존성입니다.
 
 ```tsx
 // React
 import { useMemo, useRef } from 'react';
-import { VizChart, type VizChartHandle } from 'viz-engine-sdk/react';
+import { CharturboChart, type CharturboChartHandle } from 'charturbo/react';
 
 function CpuChart({ values, dark }: { values: Float32Array; dark: boolean }) {
-  const chart = useRef<VizChartHandle>(null);
+  const chart = useRef<CharturboChartHandle>(null);
   // data / options는 identity로 비교: 바뀔 때만 다시 렌더링되도록 메모이즈
   const data = useMemo(() => [{ name: 'cpu', values }], [values]);
   const options = useMemo(() => ({ title: 'CPU', legend: false }), []);
   return (
-    <VizChart
+    <CharturboChart
       ref={chart}
       type="line"                    // 'line' | 'area' | 'bar' | 'scatter' | 'candlestick' | 'histogram' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'sparkline'
       data={data}
@@ -754,14 +840,14 @@ function CpuChart({ values, dark }: { values: Float32Array; dark: boolean }) {
       onHover={(e) => {}}
       onSelect={(sel) => {}}
       onReady={(sdk) => sdk.setXRange(0, 100)}
-      onError={(e) => {}}            // VizInitError: WebGPU / WebGL2 없음 등
+      onError={(e) => {}}            // CharturboInitError: WebGPU / WebGL2 없음 등
     />
   );
 }
 // 명령형 API: chart.current?.sdk?.downloadImage('cpu.png') (sdk는 준비 전 / 언마운트 후 null)
 
 // 훅: 캔버스를 직접 배치할 때 (부모는 position: relative)
-const { canvasRef, sdk, error } = useVizChart({ type: 'bar', data: items });
+const { canvasRef, sdk, error } = useCharturboChart({ type: 'bar', data: items });
 return <div style={{ position: 'relative', height: 240 }}><canvas ref={canvasRef} style={{ width: '100%', height: '100%' }} /></div>;
 ```
 
@@ -769,18 +855,18 @@ return <div style={{ position: 'relative', height: 240 }}><canvas ref={canvasRef
 <!-- Vue 3 -->
 <script setup lang="ts">
 import { ref, shallowRef } from 'vue';
-import { VizChart, type VizChartInstance } from 'viz-engine-sdk/vue';
+import { CharturboChart, type CharturboChartInstance } from 'charturbo/vue';
 
 const data = shallowRef([{ name: 'cpu', values: new Float32Array(10_000) }]);
 const options = { title: 'CPU' }; // 템플릿 인라인 객체는 부모 렌더마다 새 참조 → 상수 / shallowRef로
-const chart = ref<VizChartInstance | null>(null);
+const chart = ref<CharturboChartInstance | null>(null);
 function update(values: Float32Array) {
   data.value = [{ name: 'cpu', values }]; // 새 배열로 교체해야 다시 렌더링 (얕은 watch)
 }
 </script>
 
 <template>
-  <VizChart
+  <CharturboChart
     ref="chart"
     type="line"
     :data="data"
@@ -794,20 +880,20 @@ function update(values: Float32Array) {
   <!-- chart?.sdk?.setXRange(0, 100) -->
 </template>
 ```
-- 수명 주기: 마운트 시 엔진 1회 생성(`VizEngineSDK.create`, 비동기), 언마운트 시 `dispose()`. 생성 완료 전에 언마운트되면 도착한 엔진을 바로 해제하고 콜백은 호출하지 않습니다. React StrictMode의 마운트 → 언마운트 → 마운트에서도 엔진은 하나만 만들어집니다 (생성을 마이크로태스크 하나 늦춰 첫 바인딩은 시작 전에 폐기).
+- 수명 주기: 마운트 시 엔진 1회 생성(`Charturbo.create`, 비동기), 언마운트 시 `dispose()`. 생성 완료 전에 언마운트되면 도착한 엔진을 바로 해제하고 콜백은 호출하지 않습니다. React StrictMode의 마운트 → 언마운트 → 마운트에서도 엔진은 하나만 만들어집니다 (생성을 마이크로태스크 하나 늦춰 첫 바인딩은 시작 전에 폐기).
 - 갱신 규칙: `type` / `data` / `options`의 **참조**가 바뀔 때만 `render*Chart`를 한 번 호출합니다 (깊은 비교 없음 → React는 `useMemo` / state, Vue는 `shallowRef` + 교체). `theme` → `setTheme`만, `syncGroup` → 키·플래그가 바뀔 때 `setSync`, `interactions` 참조 변경 → `enableNodeInteractions` 재바인딩 (`false` = 정적 차트, 기본은 툴팁 · 줌/팬 + `autoRender: true`). `createOptions`(`locale`, `autoResize` 등)는 마운트 시 한 번만 읽습니다. 준비 전에 바뀐 props는 준비 직후 최신 값으로 한 번만 적용됩니다.
 - `type: 'bar'`는 `data`가 배열이면 `renderBarChart`, `{ categories, series }`면 `renderGroupedBarChart`입니다.
 - 이벤트: React `onHover` / `onClick` / `onSelect` / `onRangeChange` / `onLegendToggle` / `onThemeChange` / `onResize` (인라인 함수 가능: 최신 콜백을 호출하며 재구독하지 않음), Vue `@hover` / `@click` / `@select` / `@range-change` / `@legend-toggle` / `@theme-change` / `@resize` / `@ready` / `@error`.
 - 크기: 래퍼 `<div>`(`position: relative`, 오버레이 라벨 · 범례가 붙는 곳)에 `className` / `style`로 크기를 주면 캔버스가 100%로 따라가고 SDK `autoResize`가 `ResizeObserver`로 backing 크기를 맞춥니다.
 - SSR: import 시 `window` / `document`에 접근하지 않고, 엔진은 클라이언트 마운트(`useEffect` / `onMounted`)에서만 만듭니다. 서버는 `<div><canvas></div>` 마크업만 렌더링합니다.
 
-#### 공유 GPU 디바이스 · 스파크라인 (`viz-device.ts`, `chart-sparkline.ts`)
+#### 공유 GPU 디바이스 · 스파크라인 (`charturbo-device.ts`, `chart-sparkline.ts`)
 ```ts
-import { VizDevice, VizEngineSDK } from 'viz-engine-sdk';
+import { CharturboDevice, Charturbo } from 'charturbo';
 
-const device = await VizDevice.create();               // { backend: 'auto' | 'webgpu' | 'webgl2' }
+const device = await CharturboDevice.create();               // { backend: 'auto' | 'webgpu' | 'webgl2' }
 for (const row of rows) {
-  const sdk = await VizEngineSDK.create(row.canvas, { device });   // 어댑터/디바이스 요청·파이프라인 컴파일 없음
+  const sdk = await Charturbo.create(row.canvas, { device });   // 어댑터/디바이스 요청·파이프라인 컴파일 없음
   sdk.renderSparkline(row.values, {
     type: 'line',            // 'line' | 'area' | 'bar' | 'winloss'
     color: '#3987e5', lineWidth: 1.5,
@@ -820,17 +906,17 @@ for (const row of rows) {
 device.engineCount;  // 살아 있는 엔진 수
 device.dispose();    // 핸들 해제 (남은 엔진은 계속 동작, 모두 dispose되면 GPU 디바이스 해제)
 ```
-- **왜 필요한가**: `VizEngineSDK.create(canvas)`는 캔버스마다 adapter/device를 요청하고 모든 파이프라인을 컴파일합니다. 브라우저는 WebGL 컨텍스트를 ~16개로 제한하므로 차트 100개 페이지는 실패합니다. `VizDevice`는 instance/adapter/device/queue 하나와 파이프라인(서피스 포맷별 캐시 1세트)을 공유하고, 엔진마다 서피스 설정·깊이 텍스처·uniform·인스턴스 버퍼만 가집니다(공유 엔진은 버퍼를 16개 요소로 시작해 필요할 때 키움).
+- **왜 필요한가**: `Charturbo.create(canvas)`는 캔버스마다 adapter/device를 요청하고 모든 파이프라인을 컴파일합니다. 브라우저는 WebGL 컨텍스트를 ~16개로 제한하므로 차트 100개 페이지는 실패합니다. `CharturboDevice`는 instance/adapter/device/queue 하나와 파이프라인(서피스 포맷별 캐시 1세트)을 공유하고, 엔진마다 서피스 설정·깊이 텍스처·uniform·인스턴스 버퍼만 가집니다(공유 엔진은 버퍼를 16개 요소로 시작해 필요할 때 키움).
 - **WebGPU**: 캔버스마다 `GPUCanvasContext`를 공유 디바이스로 구성 → N 캔버스 = N 서피스 + 디바이스 1개.
-- **WebGL2 폴백**: GL 컨텍스트는 자기 캔버스에만 present할 수 있으므로, 디바이스가 숨은 공유 캔버스 하나에 각 엔진을 렌더(크기가 다르면 그 엔진 크기로 재구성)한 뒤 같은 태스크에서 엔진 캔버스의 2D 컨텍스트로 `drawImage` 복사합니다 → WebGL 컨텍스트 1개로 캔버스 수 제한 없음. 엔진 캔버스는 `2d` 컨텍스트를 쓰므로 이미 `webgl2`/`webgpu` 컨텍스트가 있는 캔버스는 안 됩니다(`VizInitError('no-webgpu')`). 크기가 제각각인 캔버스가 섞이면 프레임마다 공유 캔버스 재구성 비용이 듭니다.
-- 기존 `VizEngineSDK.create(canvas)` 동작은 그대로입니다. `device` 경로의 그래프 기본값은 노드/엣지 0개입니다. 모듈 초기화는 `VizEngineSDK.create`와 같은 Promise를 공유합니다(동시 호출해도 한 번만 instantiate).
+- **WebGL2 폴백**: GL 컨텍스트는 자기 캔버스에만 present할 수 있으므로, 디바이스가 숨은 공유 캔버스 하나에 각 엔진을 렌더(크기가 다르면 그 엔진 크기로 재구성)한 뒤 같은 태스크에서 엔진 캔버스의 2D 컨텍스트로 `drawImage` 복사합니다 → WebGL 컨텍스트 1개로 캔버스 수 제한 없음. 엔진 캔버스는 `2d` 컨텍스트를 쓰므로 이미 `webgl2`/`webgpu` 컨텍스트가 있는 캔버스는 안 됩니다(`CharturboInitError('no-webgpu')`). 크기가 제각각인 캔버스가 섞이면 프레임마다 공유 캔버스 재구성 비용이 듭니다.
+- 기존 `Charturbo.create(canvas)` 동작은 그대로입니다. `device` 경로의 그래프 기본값은 노드/엣지 0개입니다. 모듈 초기화는 `Charturbo.create`와 같은 Promise를 공유합니다(동시 호출해도 한 번만 instantiate).
 - **스파크라인**: 축·그리드·범례·제목·오버레이 DOM·줌 없음, 패딩 2px(마커가 있으면 반지름 + 1), y 도메인은 nice 없이 데이터에 딱 맞춤. last/min/max 마커·기준 밴드·win/loss 0선은 Rust 주석 레이어로 GPU에만 그리고, 데이터 갱신(`setSeriesData`) 시 엔진이 다시 계산합니다. 추세 요약(first/last/min/max/변화율)도 엔진(`chart_sparkline_summary`)이 계산합니다. 캔버스에는 `role="img"` + `aria-label`만 붙고 설명/라이브 영역 DOM·tabindex는 만들지 않습니다(`getChartSummary()`도 같은 문장). `width`/`height`를 주지 않으면 캔버스 CSS 크기에 맞추고, 리사이즈로 비율이 바뀌면 다시 맞춥니다.
 - win/loss: 값의 부호로 같은 높이의 위/아래 막대(이김 = palette[0], 짐 = palette[1], 0 = 빈칸), 0선 표시, 라벨 `"Results: 7 wins, 3 losses, last: win"`.
 - **성능 메모**: 헤드리스 Chrome에서 120×30 스파크라인 100개 = WebGPU 165ms / WebGL2 717ms(생성+첫 렌더), 200개 = WebGPU 234ms, 파이프라인 1세트, 오버레이 DOM 0개. 엔진당 CPU 메모리 ~67KB(`tests/sparkline_memory.rs`, 카운팅 할당자), GPU 초기 할당 ~73KB(240×60 backing, 깊이 텍스처 57KB 포함; `engine_gpu_bytes`) vs 기본 엔진 ~813KB.
 
 #### 애니메이션 (옵트인, `chart-animation.ts`, `chart/animation.rs`)
 ```ts
-const sdk = await VizEngineSDK.create(canvas, { animation: { duration: 400, easing: 'ease-out' } }); // 기본 off
+const sdk = await Charturbo.create(canvas, { animation: { duration: 400, easing: 'ease-out' } }); // 기본 off
 sdk.setAnimation(true);                                   // 이후 차트 전체 (true = 400ms ease-out, false = off)
 sdk.renderBarChart(items, { animation: false });          // 차트별 덮어쓰기 (line/area/bar/grouped/scatter/pie/box/candle)
 sdk.setSeriesData(0, next); sdk.render();                 // update: y 값이 보간됨
@@ -893,7 +979,7 @@ console.log('Top 5 유사 항목:', topMatches);
 
 ### 3. 3D 그래프 네트워크 및 노드 인터랙션
 ```ts
-const sdk = await VizEngineSDK.create(canvas, {
+const sdk = await Charturbo.create(canvas, {
   seed: 42,
   nodeCount: 2000,
   edgeCount: 4000,

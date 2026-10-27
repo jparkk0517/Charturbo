@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseColor, parseOptionalColor } from '../sdk/color';
-import { VIZ_THEMES, VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 const close = (a: number[], b: number[]) => {
   expect(a.length).toBe(b.length);
@@ -94,7 +94,7 @@ describe('CSS colors across the SDK', () => {
         return 0 as never;
       };
     const noop = () => undefined as never;
-    const b = new Proxy({} as WasmVizEngineBackend, {
+    const b = new Proxy({} as WasmCharturboEngineBackend, {
       get: (_t, key: string) =>
         ['set_line_chart', 'set_bar_chart', 'set_bar_chart_multi', 'set_scatter_chart', 'set_chart_hover_style',
           'set_chart_frame_style', 'set_clear_color', 'set_node_hover_style'].includes(key)
@@ -107,7 +107,7 @@ describe('CSS colors across the SDK', () => {
                 ? undefined
                 : noop,
     });
-    return { sdk: VizEngineSDK.fromBackend(b), calls };
+    return { sdk: Charturbo.fromBackend(b), calls };
   }
   const rgba = (f: Float32Array, at = 0) => Array.from(f.slice(at, at + 4));
 
@@ -146,7 +146,7 @@ describe('CSS colors across the SDK', () => {
 
   it('custom themes may use CSS strings; getTheme returns tuples', () => {
     const { sdk, calls } = backend();
-    sdk.setTheme({ ...VIZ_THEMES.light, name: 'brand', surface: '#ffffff', palette: ['#ff0000', 'hsl(120, 100%, 50%)'], crosshair: 'rgb(0 0 0 / 50%)' });
+    sdk.setTheme({ ...CHARTURBO_THEMES.light, name: 'brand', surface: '#ffffff', palette: ['#ff0000', 'hsl(120, 100%, 50%)'], crosshair: 'rgb(0 0 0 / 50%)' });
     const t = sdk.getTheme();
     expect(t.name).toBe('brand');
     expect(t.surface).toEqual([1, 1, 1, 1]);

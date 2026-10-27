@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Line reveal and pie enter',
@@ -11,7 +11,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
   sdk.setAnimation({ duration: 900, easing: 'ease-in-out' }); // true = 400 ms ease-out, false = off
 
   const values = Float32Array.from({ length: 2_000 }, (_, i) => Math.sin(i / 90) * 30 + Math.sin(i / 13) * 6);

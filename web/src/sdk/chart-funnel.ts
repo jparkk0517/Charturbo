@@ -8,7 +8,7 @@
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartValueFormat } from './chart-format';
 import type { A11yChartModel } from './chart-a11y';
-import type { ChartPaddingOptions, ChartTooltipContext, NodeMetadata, VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { ChartPaddingOptions, ChartTooltipContext, NodeMetadata, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import {
   enNumber,
   esc,
@@ -110,7 +110,7 @@ export function funnelMeta(data: FunnelChartData, options: FunnelChartOptions | 
   };
 }
 
-function stageColors(meta: FunnelChartMeta, theme: VizTheme): RgbaTuple[] {
+function stageColors(meta: FunnelChartMeta, theme: CharturboTheme): RgbaTuple[] {
   const base = parseOptionalColor(meta.colorInputs.color) ?? theme.palette[0];
   return meta.values.map((_, i) => {
     const c = meta.colorInputs.colors?.[i];
@@ -154,7 +154,7 @@ export function funnelLabelSpace(meta: FunnelChartMeta): number {
 }
 
 /** Uploads the funnel (`set_funnel_chart`) and reads the conversion rates back. */
-export function sendFunnel(backend: WasmVizEngineBackend, meta: FunnelChartMeta, options: FunnelChartOptions | undefined, theme: VizTheme): number {
+export function sendFunnel(backend: WasmCharturboEngineBackend, meta: FunnelChartMeta, options: FunnelChartOptions | undefined, theme: CharturboTheme): number {
   meta.stageColors = stageColors(meta, theme);
   const n =
     backend.set_funnel_chart?.(
@@ -170,7 +170,7 @@ export function sendFunnel(backend: WasmVizEngineBackend, meta: FunnelChartMeta,
 }
 
 /** Reads `[(value, % of first, % of previous) * stages]` from the engine. */
-export function syncFunnelStages(backend: WasmVizEngineBackend, meta: FunnelChartMeta): void {
+export function syncFunnelStages(backend: WasmCharturboEngineBackend, meta: FunnelChartMeta): void {
   const a = backend.chart_funnel_stages?.();
   if (!a) return;
   meta.pctFirst = [];
@@ -181,7 +181,7 @@ export function syncFunnelStages(backend: WasmVizEngineBackend, meta: FunnelChar
   }
 }
 
-export function sendFunnelColors(backend: WasmVizEngineBackend, meta: FunnelChartMeta, theme: VizTheme): void {
+export function sendFunnelColors(backend: WasmCharturboEngineBackend, meta: FunnelChartMeta, theme: CharturboTheme): void {
   meta.stageColors = stageColors(meta, theme);
   backend.set_chart_funnel_colors?.(colorArray(meta.stageColors));
 }
@@ -199,7 +199,7 @@ export function funnelTooltipContext(meta: FunnelChartMeta, i: number, details: 
   };
 }
 
-export function funnelTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, formatValue: (v: number) => string, locale?: string): string {
+export function funnelTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): string {
   const f = ctx.funnel;
   if (!f) return '';
   return `${tooltipHeader(theme, f.stage)}${tooltipRow(theme, ctx.items[0]?.seriesName ?? 'Value', esc(formatValue(f.value)), ctx.items[0]?.color)}${
@@ -277,7 +277,7 @@ export class FunnelLabelLayer implements BusinessLabelLayer {
     parent: HTMLElement,
     private readonly meta: FunnelChartMeta
   ) {
-    this.root = overlayDiv('viz-sdk-funnel-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
+    this.root = overlayDiv('charturbo-sdk-funnel-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
     parent.appendChild(this.root);
   }
 
@@ -285,7 +285,7 @@ export class FunnelLabelLayer implements BusinessLabelLayer {
     this.revision = -1;
   }
 
-  update(backend: WasmVizEngineBackend, theme: VizTheme, locale?: string): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme, locale?: string): void {
     const meta = this.meta;
     if (!meta.showLabels) return;
     const a = backend.chart_funnel_labels?.();
@@ -298,7 +298,7 @@ export class FunnelLabelLayer implements BusinessLabelLayer {
       const [stage, x, y, ha, va] = [a[at], a[at + 1], a[at + 2], a[at + 3], a[at + 4]];
       let el = this.labels[k];
       if (!el) {
-        el = overlayDiv('viz-sdk-funnel-label', { fontSize: '11px', lineHeight: '15px', fontVariantNumeric: 'tabular-nums' });
+        el = overlayDiv('charturbo-sdk-funnel-label', { fontSize: '11px', lineHeight: '15px', fontVariantNumeric: 'tabular-nums' });
         this.root.appendChild(el);
         this.labels.push(el);
       }

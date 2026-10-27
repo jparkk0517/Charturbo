@@ -1,4 +1,4 @@
-# VizEngineSDK
+# Charturbo
 
 **Rust + WebGPU로 만든 대용량 웹 차트 라이브러리.** 100만~1000만 포인트를 60 FPS로 줌·팬합니다.
 WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
@@ -12,7 +12,7 @@ WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
   <a href="https://jparkk0517.github.io/VizEngineSDK/"><img src="docs/assets/demo/hero.png" alt="선, 산점도, 캔들스틱, 3D 네트워크 그래프, 생키, 비즈니스 차트 예제" width="880"></a>
 </p>
 
-## 왜 VizEngineSDK인가
+## 왜 Charturbo인가
 
 - **큰 데이터에서 빠름**: 데이터 축약(M4), 마우스 위치 판정, 누적 계산, 눈금 배치를 전부 Rust(WebAssembly)에서 하고 GPU로 그립니다. DOM은 라벨·범례·툴팁만 담당합니다.
 - **차트 18종**: 선, 영역, 막대, 산점도, 캔들스틱, 히스토그램, 히트맵, 박스·바이올린, 파이, 콤보, 레이더, 게이지, 퍼널, 워터폴, 트리맵, 선버스트, 생키, 스파크라인
@@ -26,25 +26,25 @@ WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
 
 **[▶ 인터랙티브 성능 비교 · 테마/색상 바꾸기](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html)**
 
-아래 그래프는 **VizEngineSDK로 렌더링하고 `exportChartSVG()`로 내보낸 이미지**입니다. 비교 페이지에서는 시나리오 선택, 툴팁, 4개 테마, 강조 색상·팔레트·글꼴·모서리·수치 표시 변경과 SVG 다운로드를 지원합니다.
+아래 그래프는 **Charturbo로 렌더링하고 `exportChartSVG()`로 내보낸 이미지**입니다. 비교 페이지에서는 시나리오 선택, 툴팁, 4개 테마, 강조 색상·팔레트·글꼴·모서리·수치 표시 변경과 SVG 다운로드를 지원합니다.
 
 같은 시드 데이터로 uPlot, ECharts, Chart.js, Plotly, ChartGPU, SciChart, Highcharts와 비교합니다. Apple M1의 단일 환경 측정이며, 초기화 비용은 TTFF에서 제외합니다. ChartGPU 산점도는 x축만 이동하므로 다른 라이브러리와 작업량이 다릅니다.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/bench-ttff-dark.svg">
-  <img src="docs/assets/bench-ttff-light.svg" alt="VizEngineSDK로 그린 첫 프레임 시간 비교. 선 1M·10M, 산점도 1M, 막대 10k. 실패와 미지원은 별도 표기." width="880">
+  <img src="docs/assets/bench-ttff-light.svg" alt="Charturbo로 그린 첫 프레임 시간 비교. 선 1M·10M, 산점도 1M, 막대 10k. 실패와 미지원은 별도 표기." width="880">
 </picture>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/bench-fps-dark.svg">
-  <img src="docs/assets/bench-fps-light.svg" alt="VizEngineSDK로 그린 줌·팬 및 막대 hover 중 FPS 비교. 60 Hz 환경, 개별 수치는 연결된 비교 페이지의 표 참조." width="880">
+  <img src="docs/assets/bench-fps-light.svg" alt="Charturbo로 그린 줌·팬 및 막대 hover 중 FPS 비교. 60 Hz 환경, 개별 수치는 연결된 비교 페이지의 표 참조." width="880">
 </picture>
 
-그래프는 **작업 조건별로** 읽어야 합니다. viz·VizEngine GPU·three.js는 같은 3D Barnes-Hut 힘 모델입니다. VizEngine GPU는 GPU 반발력 + CPU 적분·공간 인덱스의 하이브리드 방식이며 물리 시간에 GPU 왕복을 포함합니다. deck.gl은 물리 없는 렌더, cosmos.gl은 2D GPU 레이아웃, 3d-force-graph는 다른 d3-force-3d 힘 모델입니다. 이들의 FPS를 동일 작업의 종합 순위로 해석하지 않습니다. 시간 초과는 해당 어댑터·설정에서의 결과입니다.
+그래프는 **작업 조건별로** 읽어야 합니다. Charturbo는 시나리오별 CPU·GPU 측정 중 FPS가 높은 모드 하나로 표시하며, 모든 지표는 선택된 같은 실행의 값입니다(동률이면 물리 시간이 짧은 모드). Charturbo·three.js는 같은 3D Barnes-Hut 힘 모델입니다. SDK의 hybrid GPU 모드는 GPU 반발력 + CPU 적분·공간 인덱스 방식이며 물리 시간에 GPU 왕복을 포함합니다. deck.gl은 물리 없는 렌더, cosmos.gl은 2D GPU 레이아웃, 3d-force-graph는 다른 d3-force-3d 힘 모델입니다. 이들의 FPS를 동일 작업의 종합 순위로 해석하지 않습니다. 시간 초과는 해당 어댑터·설정에서의 결과입니다.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/bench-graph-dark.svg">
-  <img src="docs/assets/bench-graph-light.svg" alt="노드 10k·100k의 FPS, 물리 시간, 첫 프레임 시간. VizEngine GPU는 GPU 왕복 포함, deck.gl은 렌더만, cosmos.gl은 2D로 작업 조건이 다름." width="880">
+  <img src="docs/assets/bench-graph-light.svg" alt="노드 10k·100k의 FPS, 물리 시간, 첫 프레임 시간. Charturbo는 최고 FPS 모드, GPU 물리는 GPU 왕복 포함, deck.gl은 렌더만, cosmos.gl은 2D로 작업 조건이 다름." width="880">
 </picture>
 
 Apple M1 측정에서 하이브리드 GPU 물리는 10k 노드 **60 FPS**, 100k 노드 **19.6 FPS**였습니다(개선 전 CPU: 43.8 / 3.5 FPS). `await sdk.stepPhysicsAsync(0.016)` 후 `sdk.render()`로 사용하며, WebGL2에서는 CPU로 폴백합니다. 동기 `stepPhysics()`는 CPU 경로입니다.
@@ -58,7 +58,7 @@ README 이미지 재생성: `cd web && npm run bench:charts` (Chrome 필요). �
 > npm 배포 전입니다. 지금은 [소스에서 빌드](docs/DEVELOPMENT.md)해서 쓰세요.
 
 ```bash
-npm install viz-engine-sdk
+npm install charturbo
 ```
 
 Vite, webpack 5 등 번들러는 wasm 파일을 자동으로 처리합니다. 번들러 없이 `<script>`로 쓰거나 esbuild를 쓰는 경우는 [패키지 README](web/README.md#installation)를 보세요.
@@ -66,10 +66,10 @@ Vite, webpack 5 등 번들러는 wasm 파일을 자동으로 처리합니다. �
 ## 빠른 시작
 
 ```ts
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 const canvas = document.querySelector('canvas')!;
-const sdk = await VizEngineSDK.create(canvas);
+const sdk = await Charturbo.create(canvas);
 
 // 100만 포인트 선 그래프
 const values = Float32Array.from({ length: 1_000_000 }, (_, i) => Math.sin(i / 5000) * 40 + Math.random() * 4);
@@ -83,9 +83,9 @@ sdk.render();
 React:
 
 ```tsx
-import { VizChart } from 'viz-engine-sdk/react';
+import { CharturboChart } from 'charturbo/react';
 
-<VizChart type="line" data={series} options={{ title: '사용률' }} style={{ height: 300 }} />;
+<CharturboChart type="line" data={series} options={{ title: '사용률' }} style={{ height: 300 }} />;
 ```
 
 차트 종류별 예제와 소스는 [라이브 데모](https://jparkk0517.github.io/VizEngineSDK/)에서 볼 수 있습니다.

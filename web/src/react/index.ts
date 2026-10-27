@@ -1,20 +1,20 @@
 /**
- * React bindings of VizEngineSDK (`viz-engine-sdk/react`): `VizChart` component + `useVizChart`.
+ * React bindings of Charturbo (`charturbo/react`): `CharturboChart` component + `useCharturboChart`.
  * React is an optional peer dependency; the core entry never imports it.
  *
  * @packageDocumentation
- * @module viz-engine-sdk/react
+ * @module charturbo/react
  */
-export { VizChart, type VizChartProps, type VizChartHandle } from './VizChart';
-export { useVizChart, type UseVizChartOptions, type UseVizChartResult } from './useVizChart';
+export { CharturboChart, type CharturboChartProps, type CharturboChartHandle } from './CharturboChart';
+export { useCharturboChart, type UseCharturboChartOptions, type UseCharturboChartResult } from './useCharturboChart';
 export type {
-  VizChartCallbacks,
-  VizChartData,
-  VizChartInteractions,
-  VizChartOptions,
-  VizChartSpecMap,
-  VizChartSync,
-  VizChartTheme,
-  VizChartType,
-  VizCreateOptions,
+  CharturboChartCallbacks,
+  CharturboChartData,
+  CharturboChartInteractions,
+  CharturboChartOptions,
+  CharturboChartSpecMap,
+  CharturboChartSync,
+  CharturboChartTheme,
+  CharturboChartType,
+  CharturboCreateOptions,
 } from '../sdk/chart-binding';

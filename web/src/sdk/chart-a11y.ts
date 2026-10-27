@@ -13,6 +13,7 @@ import { comboA11yModel, comboAnnouncement, comboDescription, comboSummary, type
 import { businessA11yModel, isBusinessKind } from './chart-business';
 import type { A11yCustomModel } from './chart-business-util';
 import { hierarchyA11yModel } from './chart-hierarchy';
+import { sparseTooltip, type SparseMeta } from './chart-sparse';
 import type {
   ChartOhlc,
   ChartTooltipContext,
@@ -20,9 +21,9 @@ import type {
   NodeDetails,
   NodeMetadata,
   RgbaTuple,
-  VizTheme,
-  WasmVizEngineBackend,
-} from './viz-engine-sdk';
+  CharturboTheme,
+  WasmCharturboEngineBackend,
+} from './charturbo';
 
 // ---------------------------------------------------------------------------
 // Chart model (normalized view of the SDK chart meta / presentation)
@@ -98,6 +99,7 @@ export interface A11yScatterData {
 
 /** Chart data in the shape the a11y helpers work on (built by `buildA11yModel`). */
 export interface A11yChartModel {
+  financialMode?: 'candlestick' | 'ohlc';
   kind: A11yChartKind;
   title?: string;
   description?: string;
@@ -110,6 +112,8 @@ export interface A11yChartModel {
   barMode?: 'grouped' | 'stacked' | 'percent';
   /** Line-kind model of an area chart (`renderAreaChart`) */
   areaMode?: 'overlap' | 'stacked' | 'percent';
+  standaloneBand?: boolean;
+  sparse?: SparseMeta;
   /** Line: per-series x arrays (`null` = index placement or one shared x array) */
   seriesX?: ArrayLike<number>[] | null;
   /** Line: samples carry real x values (tooltip `x`) */
@@ -313,6 +317,8 @@ export function buildA11yModel(
       kind: 'line',
       ...common,
       ...(area === 'overlap' || area === 'stacked' || area === 'percent' ? { areaMode: area } : {}),
+      ...(m.standaloneBand === true ? { standaloneBand: true } : {}),
+      ...(m.sparse ? { sparse: m.sparse as SparseMeta } : {}),
       series,
       length: series.reduce((n, s) => Math.max(n, s.values.length), 0),
       seriesX: pickSeriesX(m, series.length),
@@ -409,6 +415,7 @@ export function buildA11yModel(
     const ohlcAt = (k: number, i: number) => modelValue(model, k, i);
     const model: A11yChartModel = {
       kind: 'candle',
+      financialMode: m.mode === 'ohlc' ? 'ohlc' : 'candlestick',
       ...common,
       series,
       length: series[3]?.values.length ?? 0,
@@ -843,12 +850,18 @@ export function buildChartSummary(model: A11yChartModel): string {
   if (model.kind === 'line' || model.kind === 'candle') {
     const points = model.series.reduce((n, s) => n + s.values.length, 0);
     const parts = summaryParts(model, (s) => {
+      if (model.standaloneBand && s.band) {
+        const a = seriesStats(s.band.lower, true), b = seriesStats(s.band.upper, true);
+        return a.count || b.count ? `${s.name} ranges ${f(Math.min(a.min, b.min))}–${f(Math.max(a.max, b.max))}` : `${s.name} has no data`;
+      }
       const st = seriesStats(s.values, s.f32);
       const fs = s.format ?? f;
       return st.count ? `${s.name} ranges ${fs(st.min)}–${fs(st.max)}` : `${s.name} has no data`;
     });
-    if (model.kind === 'candle') return `${head}Candlestick chart, ${plural(model.length, 'candle')}${tail(parts)}.`;
-    const kind = model.areaMode ? AREA_MODE_LABEL[model.areaMode] : 'Line chart';
+    if (model.kind === 'candle') return model.financialMode === 'ohlc'
+      ? `${head}OHLC chart, ${plural(model.length, 'bar')}${tail(parts)}.`
+      : `${head}Candlestick chart, ${plural(model.length, 'candle')}${tail(parts)}.`;
+    const kind = model.sparse ? (model.sparse.kind === 'errorBar' ? 'Error bar chart' : 'Impulse chart') : model.standaloneBand ? 'Band chart' : model.areaMode ? AREA_MODE_LABEL[model.areaMode] : 'Line chart';
     return `${head}${kind}, ${model.series.length} series, ${plural(points, 'point')}${tail(parts)}.`;
   }
   if (model.kind === 'bar-multi') {
@@ -965,8 +978,13 @@ export function buildChartDescription(model: A11yChartModel): string {
     out.push(`X axis${model.xTitle ? ` (${model.xTitle})` : ''}${xRange}.`);
     if (model.yTitle) out.push(`Y axis: ${model.yTitle}.`);
     model.series.forEach((s, k) => {
-      const st = seriesStats(s.values, s.f32);
       const f = s.format ?? model.formatValue;
+      if (model.standaloneBand && s.band) {
+        const a = seriesStats(s.band.lower, true), b = seriesStats(s.band.upper, true);
+        out.push(`${s.name}${s.visible ? '' : ' (hidden)'}: first edge ${a.count ? `${f(a.min)}–${f(a.max)}` : 'no data'}, second edge ${b.count ? `${f(b.min)}–${f(b.max)}` : 'no data'}.`);
+        return;
+      }
+      const st = seriesStats(s.values, s.f32);
       if (!st.count) {
         out.push(`${s.name}: no data.`);
         return;
@@ -1011,7 +1029,8 @@ export function buildChartDescription(model: A11yChartModel): string {
       );
     }
   }
-  out.push(keyboardHelp(model.kind));
+  const help = keyboardHelp(model.kind);
+  out.push(model.financialMode === 'ohlc' ? help.replace('candles', 'bars') : help);
   return out.join(' ');
 }
 
@@ -1205,6 +1224,15 @@ export function pointAnnouncement(model: A11yChartModel, focus: A11yFocus): stri
   }
   const value = model.formatValue(modelValue(model, focus.series, focus.index));
   const s = model.series[focus.series];
+  if (model.sparse) {
+    const info = sparseTooltip(model.sparse, focus.series, focus.index);
+    const extra = info.errorBar ? `low ${model.formatValue(info.errorBar.low)}, high ${model.formatValue(info.errorBar.high)}, ${info.errorBar.direction}` : `baseline ${model.formatValue(info.baseline!)}`;
+    return `${model.xLabel(focus.index, focus.series)}, ${s?.name ?? ''}: ${value}, ${extra}. ${focus.index + 1} of ${model.length}.`;
+  }
+  if (model.standaloneBand && s?.band) {
+    const lo = Number(s.band.lower[focus.index]), hi = Number(s.band.upper[focus.index]);
+    return `${model.xLabel(focus.index, focus.series)}, ${s.name}: first edge ${model.formatValue(lo)}, second edge ${model.formatValue(hi)}.`;
+  }
   if (model.kind === 'bar') {
     return `${model.xLabel(focus.index)}, ${value}. ${focus.index + 1} of ${model.length}.`;
   }
@@ -1372,10 +1400,16 @@ export function buildDataTable(model: A11yChartModel, maxRows = Infinity, maxCol
   // Band series add `lower` / `upper` columns right after their value column
   const columns = [
     xHeader,
-    ...model.series.flatMap((s) => (s.band ? [s.name, `${s.name} lower`, `${s.name} upper`] : [s.name])),
+    ...model.series.flatMap((s) => model.sparse ? [s.name, ...(model.sparse.kind === 'errorBar' ? [`${s.name} low`, `${s.name} high`] : [`${s.name} baseline`])] : (s.band ? [...(model.standaloneBand ? [] : [s.name]), `${s.name} lower`, `${s.name} upper`] : [s.name])),
     ...(total ? ['Total'] : []),
   ];
   const bandCells = (row: ChartDataCell[], s: number, i: number) => {
+    if (model.sparse) {
+      const info = sparseTooltip(model.sparse, s, i);
+      if (info.errorBar) row.push(cell(f32ToShortest(info.errorBar.low)), cell(f32ToShortest(info.errorBar.high)));
+      else row.push(i >= 0 && i < model.series[s].values.length ? cell(info.baseline!) : null);
+      return;
+    }
     const b = model.series[s]?.band;
     if (!b) return;
     const at = (a: ArrayLike<number>) => (i >= 0 && i < a.length ? cell(f32ToShortest(Number(a[i]))) : null);
@@ -1392,7 +1426,7 @@ export function buildDataTable(model: A11yChartModel, maxRows = Infinity, maxCol
       const row: ChartDataCell[] = [model.formatX(x)];
       lookups.forEach((find, s) => {
         const i = find(x);
-        row.push(cell(modelValue(model, s, i)));
+        if (!model.standaloneBand) row.push(cell(modelValue(model, s, i)));
         bandCells(row, s, i);
       });
       return row;
@@ -1404,7 +1438,7 @@ export function buildDataTable(model: A11yChartModel, maxRows = Infinity, maxCol
   const rows = indices.map((i) => {
     const row: ChartDataCell[] = [model.xLabel(i)];
     model.series.forEach((_, s) => {
-      row.push(cell(modelValue(model, s, i)));
+      if (!model.standaloneBand) row.push(cell(modelValue(model, s, i)));
       bandCells(row, s, i);
     });
     if (total) row.push(cell(categoryTotal(model, i)));
@@ -1457,8 +1491,8 @@ export interface ChartA11yHostState {
   presentation: unknown;
   /** Effective chart locale (spec formats in a11y text / tables) */
   locale?: string;
-  theme: VizTheme;
-  backend: Pick<WasmVizEngineBackend, 'project_node_to_ndc' | 'chart_hover_at_ndc' | 'chart_clear_hover' | 'chart_sample'>;
+  theme: CharturboTheme;
+  backend: Pick<WasmCharturboEngineBackend, 'project_node_to_ndc' | 'chart_hover_at_ndc' | 'chart_clear_hover' | 'chart_sample'>;
   details(id: number): NodeDetails | null;
   /**
    * Pointer-path tooltip of an engine hit for charts whose keyboard tooltip is the same
@@ -1478,18 +1512,18 @@ export interface ChartA11yHostState {
 export type ChartA11yTooltipHook = (ctx: ChartTooltipContext | null, clientX: number, clientY: number) => void;
 
 let a11yIdSeq = 0;
-const STYLE_ID = 'viz-sdk-a11y-style';
+const STYLE_ID = 'charturbo-sdk-a11y-style';
 
 /** Focus ring + forced-colors (Windows High Contrast) rules; no transitions or animations. */
 const A11Y_CSS = `
-.viz-sdk-a11y-canvas:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.charturbo-sdk-a11y-canvas:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 @media (forced-colors: active) {
-  .viz-sdk-a11y-canvas:focus-visible { outline-color: Highlight; }
-  .viz-sdk-legend-item { color: CanvasText; }
-  .viz-sdk-legend-swatch { forced-color-adjust: none; border: 1px solid CanvasText; }
-  .viz-sdk-legend-item[aria-pressed="false"] .viz-sdk-legend-swatch { border-style: dashed; }
-  .viz-sdk-node-tooltip { border: 1px solid CanvasText !important; }
-  .viz-sdk-data-table th, .viz-sdk-data-table td { border: 1px solid CanvasText !important; }
+  .charturbo-sdk-a11y-canvas:focus-visible { outline-color: Highlight; }
+  .charturbo-sdk-legend-item { color: CanvasText; }
+  .charturbo-sdk-legend-swatch { forced-color-adjust: none; border: 1px solid CanvasText; }
+  .charturbo-sdk-legend-item[aria-pressed="false"] .charturbo-sdk-legend-swatch { border-style: dashed; }
+  .charturbo-sdk-node-tooltip { border: 1px solid CanvasText !important; }
+  .charturbo-sdk-data-table th, .charturbo-sdk-data-table td { border: 1px solid CanvasText !important; }
 }`;
 
 const SR_ONLY: Partial<CSSStyleDeclaration> = {
@@ -1596,7 +1630,7 @@ export class ChartA11y {
     const [summary, description] = withPassMemo(() => [buildChartSummary(model), buildChartDescription(model)]);
     this.descEl!.textContent = model.description ? `${summary} ${description}` : description;
     this.saveAttrs(canvas);
-    canvas.classList.add('viz-sdk-a11y-canvas');
+    canvas.classList.add('charturbo-sdk-a11y-canvas');
     canvas.setAttribute('role', 'img');
     canvas.setAttribute('aria-label', model.description ?? summary);
     canvas.setAttribute('aria-describedby', this.descEl!.id);
@@ -1612,8 +1646,8 @@ export class ChartA11y {
     if (this.table && this.table.container !== container) this.hideDataTable();
     if (!this.table) {
       const wrap = document.createElement('div');
-      wrap.className = 'viz-sdk-data-table';
-      wrap.id = `viz-sdk-data-table-${++a11yIdSeq}`;
+      wrap.className = 'charturbo-sdk-data-table';
+      wrap.id = `charturbo-sdk-data-table-${++a11yIdSeq}`;
       wrap.setAttribute('role', 'region');
       // Scrollable region must be keyboard reachable
       wrap.tabIndex = 0;
@@ -1675,9 +1709,9 @@ export class ChartA11y {
       canvas.insertAdjacentElement('afterend', el);
       return el;
     };
-    this.descEl ??= make('viz-sdk-chart-description');
+    this.descEl ??= make('charturbo-sdk-chart-description');
     if (!this.liveEl) {
-      this.liveEl = make('viz-sdk-chart-live');
+      this.liveEl = make('charturbo-sdk-chart-live');
       this.liveEl.setAttribute('aria-live', 'polite');
       this.liveEl.setAttribute('aria-atomic', 'true');
     }
@@ -1701,7 +1735,7 @@ export class ChartA11y {
       if (v === null) canvas.removeAttribute(a);
       else canvas.setAttribute(a, v);
     }
-    canvas.classList.remove('viz-sdk-a11y-canvas');
+    canvas.classList.remove('charturbo-sdk-a11y-canvas');
     this.savedAttrs.clear();
     if (this.descEl) this.descEl.textContent = '';
   }
@@ -1710,8 +1744,8 @@ export class ChartA11y {
   private decorateLegend(overlay: HTMLElement | null): void {
     if (!overlay) return;
     const forced = forcedColorsActive();
-    overlay.querySelectorAll<HTMLElement>('.viz-sdk-legend-item > span:first-child').forEach((sw) => {
-      sw.classList.add('viz-sdk-legend-swatch');
+    overlay.querySelectorAll<HTMLElement>('.charturbo-sdk-legend-item > span:first-child').forEach((sw) => {
+      sw.classList.add('charturbo-sdk-legend-swatch');
       sw.setAttribute('aria-hidden', 'true');
       if (forced) {
         sw.style.setProperty('forced-color-adjust', 'none');
@@ -1825,7 +1859,7 @@ export class ChartA11y {
     h.render();
   }
 
-  private renderTable(model: A11yChartModel, theme: VizTheme): HTMLTableElement {
+  private renderTable(model: A11yChartModel, theme: CharturboTheme): HTMLTableElement {
     const state = this.table!;
     const wrap = state.wrap;
     const maxRows = state.options?.maxRows ?? 1000;
@@ -1961,7 +1995,7 @@ export function tooltipContext(
       count: 1,
     };
     return {
-      chartType: 'candlestick',
+      chartType: model.financialMode ?? 'candlestick',
       index: focus.index,
       x,
       xLabel: model.xLabel(focus.index),
@@ -2024,6 +2058,7 @@ export function tooltipContext(
       value: hit[at + 2],
       color: css(model.itemColor(series, index)),
       nodeId: hit[at + 3],
+      ...sparseTooltip(model.sparse, series, index),
       ...(band && index < band.lower.length && Number.isFinite(Number(band.lower[index])) && Number.isFinite(Number(band.upper[index]))
         ? { band: { lower: Number(band.lower[index]), upper: Number(band.upper[index]) } }
         : {}),
@@ -2040,7 +2075,7 @@ export function tooltipContext(
   }
   const x = model.kind === 'line' && model.hasX ? Number(model.xValue(focus.index, focus.series)) : undefined;
   return {
-    chartType: model.kind === 'line' ? 'line' : model.kind === 'combo' ? 'combo' : 'bar',
+    chartType: model.kind === 'line' ? (model.sparse?.kind ?? (model.standaloneBand ? 'band' : 'line')) : model.kind === 'combo' ? 'combo' : 'bar',
     index: focus.index,
     ...(x !== undefined ? { x } : {}),
     xLabel: model.xLabel(focus.index, focus.series),

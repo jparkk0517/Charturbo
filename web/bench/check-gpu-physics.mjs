@@ -8,7 +8,7 @@ const root = `/@fs${path.resolve(import.meta.dirname, '..')}`;
 const browser = await openReport();
 try {
   const expression = `(${async function run(root) {
-    const { VizEngineSDK, VizDevice } = await import(`${root}/src/index.ts`);
+    const { Charturbo, CharturboDevice } = await import(`${root}/src/index.ts`);
     const { graphData } = await import(`${root}/bench/graph.ts`);
     const check = (v, message) => { if (!v) throw new Error(message); };
     const rejects = async (promise, pattern) => {
@@ -20,9 +20,9 @@ try {
     const make = async (device) => {
       const canvas = document.createElement('canvas'); canvas.width = 960; canvas.height = 540;
       document.body.append(canvas); canvases.push(canvas);
-      return VizEngineSDK.create(canvas, { device, nodeCount: 0, edgeCount: 0, autoResize: false });
+      return Charturbo.create(canvas, { device, nodeCount: 0, edgeCount: 0, autoResize: false });
     };
-    const device = await VizDevice.create({ backend: 'webgpu' });
+    const device = await CharturboDevice.create({ backend: 'webgpu' });
     const cpu = await make(device), gpu = await make(device);
     const comparisons = [];
     try {
@@ -75,7 +75,7 @@ try {
       pending = gpu.stepPhysicsAsync(.016); gpu.dispose();
       await rejects(pending, /disposed/);
     } finally { cpu.dispose(); gpu.dispose(); device.dispose(); }
-    const glDevice = await VizDevice.create({ backend: 'webgl2' });
+    const glDevice = await CharturboDevice.create({ backend: 'webgl2' });
     const gl = await make(glDevice);
     try {
       check(!gl.supportsGpuPhysics(), 'WebGL2 must report no compute support');

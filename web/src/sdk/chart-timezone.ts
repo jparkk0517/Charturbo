@@ -1,12 +1,12 @@
 /**
  * Time zones of time axes. The engine has no tz database (wasm): this module derives a compact
  * UTC-offset transition table from `Intl.DateTimeFormat` for the data domain and the engine
- * aligns ticks to local boundaries with it (crates/viz-core/src/chart/time_zone.rs). Labels,
+ * aligns ticks to local boundaries with it (crates/charturbo-core/src/chart/time_zone.rs). Labels,
  * tooltips, a11y text, and CSV format with `Intl` in the same zone.
  */
 
 /** `'UTC'`, the runtime's zone (`'local'`), or an IANA name such as `'America/New_York'`. */
-export type VizTimeZone = 'UTC' | 'local' | (string & {});
+export type CharturboTimeZone = 'UTC' | 'local' | (string & {});
 
 /** Offset table for `set_chart_time_zone`, covering UTC ms `[lo, hi)`. */
 export interface TimeZoneTable {
@@ -47,22 +47,22 @@ function runtimeZone(): string | undefined {
 }
 
 /** Cache / comparison key of `tz`: `'local'` follows the runtime zone. */
-export function timeZoneKey(tz: VizTimeZone): string {
+export function timeZoneKey(tz: CharturboTimeZone): string {
   return tz === 'local' ? `local:${runtimeZone() ?? ''}` : tz;
 }
 
 /** True for UTC and its aliases (no offsets, the engine's zero-cost path). */
-export function isUtcZone(tz: VizTimeZone): boolean {
+export function isUtcZone(tz: CharturboTimeZone): boolean {
   return tz === 'UTC' || tz === 'Etc/UTC' || tz === 'Etc/GMT' || tz === 'GMT';
 }
 
 /** `timeZone` for `Intl.DateTimeFormat` (`undefined` = the runtime zone). */
-export function intlTimeZone(tz: VizTimeZone): string | undefined {
+export function intlTimeZone(tz: CharturboTimeZone): string | undefined {
   return tz === 'local' ? undefined : tz;
 }
 
 /** Throws a `RangeError` naming `tz` unless the runtime knows it. */
-export function validateTimeZone(tz: VizTimeZone): void {
+export function validateTimeZone(tz: CharturboTimeZone): void {
   if (tz === 'local' || tz === 'UTC') return;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz });
@@ -91,7 +91,7 @@ function formatter(tz: string): Intl.DateTimeFormat {
 }
 
 /** UTC offset of `tz` at instant `ms`, in minutes east of UTC (whole seconds). */
-export function timeZoneOffset(tz: VizTimeZone, ms: number): number {
+export function timeZoneOffset(tz: CharturboTimeZone, ms: number): number {
   if (isUtcZone(tz) || !(Math.abs(ms) <= MAX_DATE_MS)) return 0;
   if (tz === 'local') return -new Date(ms).getTimezoneOffset();
   const p: Record<string, string> = {};
@@ -106,7 +106,7 @@ export function timeZoneOffset(tz: VizTimeZone, ms: number): number {
 }
 
 /** First second in `(a, b]` whose offset differs from `a`'s (`a` / `b` differ). */
-function findTransition(tz: VizTimeZone, a: number, b: number, offA: number): number {
+function findTransition(tz: CharturboTimeZone, a: number, b: number, offA: number): number {
   let lo = Math.floor(a / 1000);
   let hi = Math.ceil(b / 1000);
   while (hi - lo > 1) {
@@ -122,7 +122,7 @@ function findTransition(tz: VizTimeZone, a: number, b: number, offA: number): nu
  * year. Sampled weekly with a binary search per change, so two transitions less than a week
  * apart that cancel out are not seen (no current zone does that).
  */
-function yearTransitions(tz: VizTimeZone, year: number): [number, number][] {
+function yearTransitions(tz: CharturboTimeZone, year: number): [number, number][] {
   const key = `${timeZoneKey(tz)}|${year}`;
   const hit = yearCache.get(key);
   if (hit) return hit;
@@ -159,7 +159,7 @@ const utcYear = (ms: number) => new Date(Math.min(MAX_DATE_MS, Math.max(-MAX_DAT
  * Offset table of `tz` covering `[lo, hi]` (UTC ms) plus a year either side, from per-year
  * tables cached by zone. UTC (and unusable ranges) give empty arrays covering everything.
  */
-export function buildTimeZoneTable(tz: VizTimeZone, lo: number, hi: number): TimeZoneTable {
+export function buildTimeZoneTable(tz: CharturboTimeZone, lo: number, hi: number): TimeZoneTable {
   if (isUtcZone(tz) || !Number.isFinite(lo) || !Number.isFinite(hi)) {
     return { transitions: new Float64Array(0), offsets: new Float32Array(0), lo: -Infinity, hi: Infinity };
   }
@@ -181,7 +181,7 @@ export function buildTimeZoneTable(tz: VizTimeZone, lo: number, hi: number): Tim
 }
 
 /** True when epoch ms `ms` is local midnight in `tz`. */
-export function isLocalMidnight(tz: VizTimeZone, ms: number): boolean {
+export function isLocalMidnight(tz: CharturboTimeZone, ms: number): boolean {
   const wall = ms + timeZoneOffset(tz, ms) * 60_000;
   return ((wall % DAY) + DAY) % DAY === 0;
 }

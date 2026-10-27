@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "name": "viz-engine-sdk",
+  "name": "charturbo",
   "entryPoints": ["src/index.ts", "src/react/index.ts", "src/vue/index.ts"],
   "entryPointStrategy": "resolve",
   "tsconfig": "tsconfig.json",

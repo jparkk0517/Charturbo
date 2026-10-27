@@ -1,10 +1,10 @@
-# viz-engine-sdk benchmark results
+# charturbo benchmark results
 
 2026-10-26T07:40:28.358Z · Apple M1 · 16384.0 MB RAM · Darwin 24.1.0 (darwin arm64) · Chrome/156.0.8078.48
 WebGPU adapter: apple / metal-3 · WebGL2: ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)
 Base run: reps 5 (+1 warmup) · steady phase 3000 ms · canvas 960x540 CSS px @ DPR 1 · idle rAF interval median 16.7 ms. Merged comparisons use the per-scenario conditions below.
 
-## viz-engine-sdk scenarios
+## charturbo scenarios
 
 TTFF = render call -> second rAF after it (frame presented); call = synchronous render call; pixels = render + GPU read-back of 1 px (GPU work finished). Steady = rAF interval during the interaction (wheel+drag zoom/pan, hover sweep or streaming); work = JS+wasm time per frame. Memory after GC.
 

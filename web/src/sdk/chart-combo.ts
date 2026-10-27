@@ -21,8 +21,8 @@ import type {
   ChartTimeGranularity,
   NodeDetails,
   NodeMetadata,
-} from './viz-engine-sdk';
-import type { VizTimeZone } from './chart-timezone';
+} from './charturbo';
+import type { CharturboTimeZone } from './chart-timezone';
 
 export type ComboSeriesType = 'bar' | 'line' | 'area';
 
@@ -106,7 +106,7 @@ export interface ComboChartOptions {
   /** Locale of default number / time labels (default: the SDK locale) */
   locale?: string;
   /** Time zone of a time x axis (default: the SDK zone) */
-  timeZone?: VizTimeZone;
+  timeZone?: CharturboTimeZone;
 }
 
 /** Display state the SDK keeps for a combo chart (point id = `series * categories + category`). */

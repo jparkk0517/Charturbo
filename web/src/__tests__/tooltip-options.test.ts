@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { presentTooltipContext } from '../sdk/chart-tooltip';
 import {
-  VIZ_THEMES,
-  VizEngineSDK,
+  CHARTURBO_THEMES,
+  Charturbo,
   type ChartTooltipContext,
   type LineSeriesDescriptor,
-  type VizHoverEvent,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type CharturboHoverEvent,
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 
 // The a11y layer has its own tests and needs a full DOM; replaced by an inert stand-in here.
 vi.mock('../sdk/chart-a11y', () => ({
@@ -95,7 +95,7 @@ class FakeEl {
 
 type Calls = Record<string, unknown[][]>;
 
-function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -231,14 +231,14 @@ describe('Chart tooltip options and format specs (SDK)', () => {
     vi.unstubAllGlobals();
   });
 
-  const tooltipOf = () => body.querySelectorAll('.viz-sdk-node-tooltip')[0];
-  const ticks = () => container.querySelectorAll('.viz-sdk-axis-tick').map((t) => t.textContent);
+  const tooltipOf = () => body.querySelectorAll('.charturbo-sdk-node-tooltip')[0];
+  const ticks = () => container.querySelectorAll('.charturbo-sdk-axis-tick').map((t) => t.textContent);
 
   it('axis `format` accepts spec strings / Intl options and follows setLocale', () => {
     const calls: Calls = {};
     // One x tick (value 2) and two y ticks
     const axes = new Float64Array([56, 40, 700, 300, 3, 0, 2, 100, 340, 1, 1234.5, 56, 100, 1, 0.25, 56, 200, 0, 0, 0]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
     sdk.setLocale('en-US');
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderLineChart(SERIES, { axes: { x: { format: '.1f' }, y: { format: ',.1f' } } });
@@ -262,7 +262,7 @@ describe('Chart tooltip options and format specs (SDK)', () => {
 
   it('valueFormatter formats default tooltip values; formatChartTooltip still wins', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));
     sdk.setLocale('en-US');
     const off = sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { tooltip: { valueFormatter: '$,.2f' } });
     sdk.renderLineChart(SERIES);
@@ -287,9 +287,9 @@ describe('Chart tooltip options and format specs (SDK)', () => {
 
   it('sort / shared shape the tooltip rows; hover events keep the engine order', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));
     let seen: ChartTooltipContext | null = null;
-    const hovers: VizHoverEvent[] = [];
+    const hovers: CharturboHoverEvent[] = [];
     sdk.on('hover', (e) => hovers.push(e));
     const off = sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {
       tooltip: { sort: 'asc' },
@@ -315,7 +315,7 @@ describe('Chart tooltip options and format specs (SDK)', () => {
   it("pin: 'click' freezes the tooltip until the next click, Escape, or a press outside", () => {
     const calls: Calls = {};
     let hit = HIT_AT_1;
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { tooltip: { pin: 'click' } });
     sdk.renderLineChart(SERIES);
     const tip = tooltipOf();
@@ -362,7 +362,7 @@ describe('Chart tooltip options and format specs (SDK)', () => {
     expect(docListeners.pointerdown?.length).toBe(1);
     docListeners.pointerdown[0]({ target: canvas });
     expect(tip.dataset.pinned).toBe('true');
-    const hovers: VizHoverEvent[] = [];
+    const hovers: CharturboHoverEvent[] = [];
     sdk.on('hover', (e) => hovers.push(e));
     docListeners.pointerdown[0]({ target: body });
     expect(tip.dataset.pinned).toBeUndefined();
@@ -379,7 +379,7 @@ describe('Chart tooltip options and format specs (SDK)', () => {
 
   it('without pin, clicks leave the tooltip following the pointer', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderLineChart(SERIES);
     canvas.fire('pointerdown', mouse(100));
@@ -391,7 +391,7 @@ describe('Chart tooltip options and format specs (SDK)', () => {
 
   it('single-series bar `legend`: static key of the item categories', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     const items = [
       { label: 'A', value: 3, category: 'Fruit', color: '#ff0000' },
@@ -399,7 +399,7 @@ describe('Chart tooltip options and format specs (SDK)', () => {
       { label: 'C', value: 2, category: 'Fruit', color: '#0000ff' },
       { label: 'D', value: 1 },
     ];
-    const legendItems = () => container.querySelectorAll('.viz-sdk-legend-item');
+    const legendItems = () => container.querySelectorAll('.charturbo-sdk-legend-item');
 
     sdk.renderBarChart(items);
     expect(legendItems()).toEqual([]);
@@ -422,8 +422,8 @@ describe('Chart tooltip options and format specs (SDK)', () => {
     );
     const css = (c: readonly number[]) => `rgb(${c.slice(0, 3).map((v) => Math.round(v * 255)).join(', ')})`;
     expect(legendItems().map((i) => i.children[0].style.background)).toEqual([
-      css(VIZ_THEMES.dark.palette[0]),
-      css(VIZ_THEMES.dark.palette[1]),
+      css(CHARTURBO_THEMES.dark.palette[0]),
+      css(CHARTURBO_THEMES.dark.palette[1]),
     ]);
 
     // 3D view: no key; items without categories: one entry for the series (`seriesName`)

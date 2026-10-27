@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Any dimension: 128 → 3072',
@@ -14,7 +14,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { nodeCount: 0, edgeCount: 0, locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { nodeCount: 0, edgeCount: 0, locale: 'en-US' });
   sdk.setHelpers({ showAxes: true, axesLength: 85 });
   // Built-in orbit / pan / zoom
   sdk.enableNodeInteractions(canvas, {
@@ -23,7 +23,7 @@ export default async function mount(host: HTMLElement) {
   });
 
   const load = (dimensions: number) => {
-    const { vectors } = VizEngineSDK.generateSyntheticHighDimEmbeddings(800, dimensions, 6, dimensions);
+    const { vectors } = Charturbo.generateSyntheticHighDimEmbeddings(800, dimensions, 6, dimensions);
     const stats = sdk.loadEmbeddings(vectors, { dimensions, projection: 'pca', kNeighbors: 3, similarityThreshold: 0.3 });
     sdk.setCameraPose([0, 50, 160], [0, 0, 0]);
     sdk.render();

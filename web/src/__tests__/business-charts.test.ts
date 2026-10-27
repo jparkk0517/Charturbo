@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VIZ_THEMES, VizEngineSDK, type ChartTooltipContext, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { parseColor } from '../sdk/color';
 import { buildA11yModel, buildChartDescription, buildChartSummary, buildDataTable, pointAnnouncement, stepFocus } from '../sdk/chart-a11y';
 import { radarLabelSpace, radarMeta } from '../sdk/chart-radar';
@@ -113,7 +113,7 @@ function engineState(): EngineState {
   return { hit: new Float64Array(0), labels: {}, rev: 1, radarScale: [], radarHovered: -1, gaugeBands: [], funnelStages: [], waterfallItems: [] };
 }
 
-function mockBackend(calls: Calls, st: EngineState): WasmVizEngineBackend {
+function mockBackend(calls: Calls, st: EngineState): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -221,11 +221,11 @@ describe('Business charts (SDK bindings)', () => {
 
   function setup(st = engineState()) {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, st));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     const seen: (ChartTooltipContext | null)[] = [];
     sdk.on('hover', (e) => seen.push(e.chart));
-    const tooltip = () => body.children.find((c) => c.className.includes('viz-sdk-node-tooltip'))!;
+    const tooltip = () => body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
     const hover = (hit: number[]) => {
       st.hit = new Float64Array(hit);
       canvas.fire('pointermove', { buttons: 0, clientX: 300, clientY: 200 });
@@ -254,7 +254,7 @@ describe('Business charts (SDK bindings)', () => {
     expect([a[0], a[1]]).toEqual([5, 2]);
     expect(Number.isNaN(a[2][2])).toBe(true);
     expect(a[2][5]).toBe(50);
-    expect(Array.from(a[3].slice(0, 4))).toEqual(f32(VIZ_THEMES.dark.palette[0]));
+    expect(Array.from(a[3].slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.dark.palette[0]));
     expect(Array.from(a[3].slice(4, 8))).toEqual([1, 0, 0, 1]);
     expect(Number.isNaN(a[4]) && a[5].length === 0).toBe(true);
     expect([a[6], a[7], a[9], a[11]]).toEqual([4, 0.3, 0, 1]);
@@ -268,14 +268,14 @@ describe('Business charts (SDK bindings)', () => {
     sdk.render();
 
     // Labels at the anchors (ha / va -> translate), ring values formatted
-    const labels = container.querySelectorAll('.viz-sdk-radar-label');
+    const labels = container.querySelectorAll('.charturbo-sdk-radar-label');
     expect(labels.map((l) => l.textContent)).toEqual(['Speed', 'Range', '50']);
     expect([labels[0].style.left, labels[0].style.top, labels[0].style.transform]).toEqual(['400px', '70px', 'translate(-50%, -100%)']);
     expect(labels[1].style.transform).toBe('translate(0, -50%)');
-    expect(labels[2].style.color).toBe(VIZ_THEMES.dark.textMuted);
+    expect(labels[2].style.color).toBe(CHARTURBO_THEMES.dark.textMuted);
 
     // Legend: two series, click toggles in the engine
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.textContent)).toEqual(['Model A', 'Model B']);
     items[1].fire('click');
     expect(calls.set_chart_series_visible).toEqual([[1, false]]);
@@ -298,7 +298,7 @@ describe('Business charts (SDK bindings)', () => {
     expect(sdk.handlesChartBrush()).toBe(false);
     expect(sdk.handlesChartNavigation()).toBe(false);
     sdk.setTheme('light');
-    expect(Array.from((calls.set_chart_radar_colors.at(-1)![0] as Float32Array).slice(0, 4))).toEqual(f32(VIZ_THEMES.light.palette[0]));
+    expect(Array.from((calls.set_chart_radar_colors.at(-1)![0] as Float32Array).slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.light.palette[0]));
     // Shape validation
     expect(() => sdk.renderRadarChart({ axes: ['a', 'b', 'c'], series: [{ name: 's', values: [1, 2] }] })).toThrow(/2 values for 3 axes/);
     const nine = Array.from({ length: 9 }, (_, k) => ({ name: `s${k}`, values: [1, 2, 3] }));
@@ -357,7 +357,7 @@ describe('Business charts (SDK bindings)', () => {
     expect(Array.from(a[9] as Uint8Array)).toEqual([1, 1, 1]);
     // Track / needle from the theme
     const style = a[10] as Float32Array;
-    expect(Array.from(style.slice(0, 4))).toEqual(f32(VIZ_THEMES.dark.grid));
+    expect(Array.from(style.slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.dark.grid));
     expect(a[11] as number).toBeGreaterThan(28);
     // Without bands: progress indicator
     sdk.renderGauge({ value: 10 });
@@ -367,11 +367,11 @@ describe('Business charts (SDK bindings)', () => {
     sdk.render();
 
     // Labels: min / max muted, band label with its status icon, value + caption + status
-    const labels = container.querySelectorAll('.viz-sdk-gauge-label');
+    const labels = container.querySelectorAll('.charturbo-sdk-gauge-label');
     expect(labels.map((l) => l.textContent)).toEqual(['0', '100', '▲Warning']);
     expect(labels[2].children[0].style.color).toBe('rgb(250, 178, 25)');
-    expect(labels[2].style.color).toBe(VIZ_THEMES.dark.textSecondary);
-    const [value] = container.querySelectorAll('.viz-sdk-gauge-value');
+    expect(labels[2].style.color).toBe(CHARTURBO_THEMES.dark.textSecondary);
+    const [value] = container.querySelectorAll('.charturbo-sdk-gauge-value');
     expect(value.textContent).toBe('72CPU %▲Warning');
     expect([value.style.left, value.style.top, value.style.transform]).toEqual(['400px', '240px', 'translate(-50%, 0)']);
 
@@ -412,7 +412,7 @@ describe('Business charts (SDK bindings)', () => {
     sdk.setTheme('light');
     const bandColors = calls.set_chart_gauge_band_colors.at(-1)![0] as Float32Array;
     expect(Array.from(bandColors.slice(0, 4))).toEqual(f32(parseColor(GAUGE_STATUS_COLORS.warning)));
-    expect(Array.from((calls.set_chart_gauge_style.at(-1)![0] as Float32Array).slice(0, 4))).toEqual(f32(VIZ_THEMES.light.grid));
+    expect(Array.from((calls.set_chart_gauge_style.at(-1)![0] as Float32Array).slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.light.grid));
     expect(sdk.setGaugeValue(Infinity)).toBe(false);
   });
 
@@ -425,14 +425,14 @@ describe('Business charts (SDK bindings)', () => {
     expect(sdk.renderFunnelChart(data, { conversion: 'both', format: ',.0f', shape: 'bar' })).toEqual({ stageCount: 3 });
     const a = calls.set_funnel_chart[0] as unknown[];
     expect(Array.from(a[0] as Float64Array)).toEqual([1000, 400, 100]);
-    expect(Array.from((a[1] as Float32Array).slice(0, 4))).toEqual(f32(VIZ_THEMES.dark.palette[0]));
-    expect(Array.from((a[1] as Float32Array).slice(8, 12))).toEqual(f32(VIZ_THEMES.dark.palette[0]));
+    expect(Array.from((a[1] as Float32Array).slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.dark.palette[0]));
+    expect(Array.from((a[1] as Float32Array).slice(8, 12))).toEqual(f32(CHARTURBO_THEMES.dark.palette[0]));
     expect([a[2], a[3]]).toEqual([0, 1]);
     // Labels to the right: padding keeps their room
     const pad = calls.set_chart_padding.at(-1) as number[];
     expect(pad[1]).toBeGreaterThan(80);
     sdk.render();
-    const labels = container.querySelectorAll('.viz-sdk-funnel-label');
+    const labels = container.querySelectorAll('.charturbo-sdk-funnel-label');
     expect(labels.map((l) => l.textContent)).toEqual(['Visits1,000', 'Signups40040.0% · 40.0% of previous', 'Paid10010.0% · 25.0% of previous']);
     expect(labels[1].style.transform).toBe('translate(0, -50%)');
 
@@ -477,19 +477,19 @@ describe('Business charts (SDK bindings)', () => {
     expect(Array.from(a[1] as Uint8Array)).toEqual([0, 0, 0, 1]);
     expect([a[2], a[3]]).toEqual([0, true]);
     const style = a[5] as Float32Array;
-    expect(Array.from(style.slice(0, 4))).toEqual(f32(VIZ_THEMES.dark.palette[0]));
-    expect(Array.from(style.slice(4, 8))).toEqual(f32(VIZ_THEMES.dark.palette[1]));
-    expect(Array.from(style.slice(8, 12))).toEqual(f32(VIZ_THEMES.dark.baseline));
+    expect(Array.from(style.slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.dark.palette[0]));
+    expect(Array.from(style.slice(4, 8))).toEqual(f32(CHARTURBO_THEMES.dark.palette[1]));
+    expect(Array.from(style.slice(8, 12))).toEqual(f32(CHARTURBO_THEMES.dark.baseline));
     // Labels measured and sent like bar labels (auto mode)
     const [mode, , widths] = calls.set_bar_labels[0] as [number, number, Float32Array];
     expect(mode).toBe(2);
     expect(widths.length).toBe(4);
     sdk.render();
-    const labels = container.querySelectorAll('.viz-sdk-bar-label');
+    const labels = container.querySelectorAll('.charturbo-sdk-bar-label');
     expect(labels.map((l) => l.textContent)).toEqual(['+100', '+30', '−50', '80']);
-    expect(labels[0].style.color).toBe(VIZ_THEMES.dark.textSecondary);
+    expect(labels[0].style.color).toBe(CHARTURBO_THEMES.dark.textSecondary);
     // Static legend of the kinds present
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.textContent)).toEqual(['Increase', 'Decrease', 'Total']);
     expect(items[0].children[0].style.height).toBe('10px');
     items[0].fire('click');
@@ -511,14 +511,14 @@ describe('Business charts (SDK bindings)', () => {
     sdk.setLocale('de-DE');
     expect(calls.set_bar_labels.length).toBe(sent + 1);
     sdk.render();
-    expect(container.querySelectorAll('.viz-sdk-bar-label')[0].textContent).toBe('+100');
+    expect(container.querySelectorAll('.charturbo-sdk-bar-label')[0].textContent).toBe('+100');
     // Horizontal: value axis on x
     sdk.renderWaterfallChart(data, { orientation: 'horizontal', labels: false });
     expect(calls.set_waterfall_chart[1][2]).toBe(1);
     expect(calls.set_bar_labels.at(-1)![0]).toBe(0);
     // Theme switch re-sends colors and label sizes
     sdk.setTheme('light');
-    expect(Array.from((calls.set_chart_waterfall_style.at(-1)![0] as Float32Array).slice(0, 4))).toEqual(f32(VIZ_THEMES.light.palette[0]));
+    expect(Array.from((calls.set_chart_waterfall_style.at(-1)![0] as Float32Array).slice(0, 4))).toEqual(f32(CHARTURBO_THEMES.light.palette[0]));
 
     // Meta helpers / a11y
     const meta = waterfallMeta({ labels: ['a', 'b', 'c'], values: [10, null, 5], totals: [1] }, { total: true }, (v) => `${v}`);
@@ -557,7 +557,7 @@ describe('Business charts (SDK bindings)', () => {
       renderGauge: vi.fn(),
       renderFunnelChart: vi.fn(),
       renderWaterfallChart: vi.fn(),
-    } as unknown as VizEngineSDK;
+    } as unknown as Charturbo;
     renderChartSpec(sdk, { type: 'gauge', data: { value: 1 }, options: { max: 10 } });
     renderChartSpec(sdk, { type: 'waterfall', data: { labels: ['a'], values: [1] }, options: undefined });
     expect((sdk.renderGauge as unknown as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([{ value: 1 }, { max: 10 }]);

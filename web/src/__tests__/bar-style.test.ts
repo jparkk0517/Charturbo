@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  VIZ_THEMES,
-  VizEngineSDK,
+  CHARTURBO_THEMES,
+  Charturbo,
   type ChartTooltipContext,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 import { barErrorOf, barLabelTexts, encodeErrors, formatBarError, resolveBarLabels, type BarStyleState } from '../sdk/chart-bar-style';
 
 // The a11y layer (canvas ARIA, live region, data table) has its own tests and needs a full DOM;
@@ -106,7 +106,7 @@ function mockBackend(
   hit: () => Float64Array,
   axes: () => Float64Array,
   labels: () => Float64Array = () => new Float64Array(0)
-): WasmVizEngineBackend {
+): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -259,7 +259,7 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
 
   it('plain bar charts send no styling', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.renderBarChart(ITEMS.map(({ label, value }) => ({ label, value })));
     sdk.renderGroupedBarChart({ categories: DATA.categories, series: DATA.series.map(({ name, values }) => ({ name, values })) });
     expect(calls.set_bar_style).toBeUndefined();
@@ -269,7 +269,7 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
   it('horizontal bars: value axis on x, category labels on y, wider left margin, no brush', () => {
     const calls: Calls = {};
     let axes = new Float64Array(0);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { brush: 'x' });
     sdk.renderBarChart(ITEMS, { orientation: 'horizontal', axes: { x: { title: 'Score' } } });
     const [orientation, minus, plus, color] = calls.set_bar_style[0] as [number, Float32Array, Float32Array, Float32Array];
@@ -286,7 +286,7 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     // axis 0 = value ticks (numbers), axis 1 = categories
     axes = new Float64Array([90, 12, 600, 300, 2, 0, 1500, 400, 312, 1, 2, 90, 200]);
     sdk.render();
-    const ticks = container.querySelectorAll('.viz-sdk-axis-tick').map((t) => t.textContent);
+    const ticks = container.querySelectorAll('.charturbo-sdk-axis-tick').map((t) => t.textContent);
     expect(ticks).toEqual(['1,500', 'A much long…']);
 
     // Vertical charts keep the brush and default margins
@@ -299,18 +299,18 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
   it('horizontal grouped percent bars format the x axis in percent', () => {
     const calls: Calls = {};
     let axes = new Float64Array(0);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderGroupedBarChart(DATA, { mode: 'percent', orientation: 'horizontal' });
     axes = new Float64Array([56, 40, 700, 300, 2, 0, 60, 400, 340, 1, 1, 56, 120]);
     sdk.render();
-    expect(container.querySelectorAll('.viz-sdk-axis-tick').map((t) => t.textContent)).toEqual(['60%', 'Q2']);
+    expect(container.querySelectorAll('.charturbo-sdk-axis-tick').map((t) => t.textContent)).toEqual(['60%', 'Q2']);
   });
 
   it('data labels: measured texts go to the engine, DOM labels sit at its anchors', () => {
     const calls: Calls = {};
     let labels = new Float64Array([1, 2, 0, 100, 50, 0, 1, 200, 80, 1]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0), () => labels));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0), () => labels));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderBarChart(ITEMS, { labels: { show: 'auto', position: 'inside' }, color: '#fde047' });
     const [mode, position, widths, height] = calls.set_bar_labels[0] as [number, number, Float32Array, number];
@@ -321,13 +321,13 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     // Outside labels on vertical bars reserve room above the plot
     expect(calls.set_chart_padding.at(-1)?.[0]).toBe(12);
     sdk.render();
-    const els = container.querySelectorAll('.viz-sdk-bar-label');
+    const els = container.querySelectorAll('.charturbo-sdk-bar-label');
     expect(els.map((e) => [e.textContent, e.style.left, e.style.top])).toEqual([
       ['12', '100px', '50px'],
       ['-4', '200px', '80px'],
     ]);
     // Outside: theme text token; inside: dark text on the light yellow bar
-    expect(els[0].style.color).toBe(VIZ_THEMES.dark.textSecondary);
+    expect(els[0].style.color).toBe(CHARTURBO_THEMES.dark.textSecondary);
     expect(els[1].style.color).toBe('#0b0b0b');
     // Same revision: untouched; fewer anchors hide the rest
     els[0].style.left = 'x';
@@ -346,7 +346,7 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
 
   it('percent labels follow legend toggles', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderGroupedBarChart(DATA, { mode: 'percent', labels: { color: [1, 1, 1, 1] } });
     const widthsOf = () => Array.from(calls.set_bar_labels.at(-1)?.[2] as Float32Array).map((w) => Number.isFinite(w));
@@ -359,7 +359,7 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
   it('tooltips show the error next to the value', () => {
     const calls: Calls = {};
     let hit = hitOf(0, [[0, 1, -4, 1]]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     let ctx: ChartTooltipContext | null = null;
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {
       formatChartTooltip: (c) => {
@@ -372,13 +372,13 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     expect((ctx as unknown as ChartTooltipContext).items[0].error).toEqual([1, 3]);
 
     // Default tooltip: ± text; grouped bars carry their series' errors
-    const sdk2 = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk2 = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     const canvas2 = container.appendChild(new FakeEl('canvas'));
     sdk2.enableNodeInteractions(canvas2 as unknown as HTMLCanvasElement);
     sdk2.renderGroupedBarChart(DATA);
     hit = hitOf(0, [[0, 0, 30, 0]]);
     canvas2.fire('pointermove', { clientX: 100, clientY: 100, buttons: 0 });
-    const tooltip = body.querySelectorAll('.viz-sdk-node-tooltip').at(-1)!;
+    const tooltip = body.querySelectorAll('.charturbo-sdk-node-tooltip').at(-1)!;
     expect(tooltip.innerHTML).toContain('±5');
     hit = hitOf(0, [[1, 0, 10, 2]]);
     canvas2.fire('pointermove', { clientX: 110, clientY: 100, buttons: 0 });
@@ -387,22 +387,22 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     sdk2.renderGroupedBarChart(DATA, { mode: 'percent' });
     hit = hitOf(0, [[0, 0, 30, 0]]);
     canvas2.fire('pointermove', { clientX: 120, clientY: 100, buttons: 0 });
-    expect(body.querySelectorAll('.viz-sdk-node-tooltip').at(-1)!.innerHTML).not.toContain('±');
+    expect(body.querySelectorAll('.charturbo-sdk-node-tooltip').at(-1)!.innerHTML).not.toContain('±');
   });
 
   it('single-series legend: hidden by default, one static entry on request', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderBarChart(ITEMS);
-    expect(container.querySelectorAll('.viz-sdk-legend-item').length).toBe(0);
+    expect(container.querySelectorAll('.charturbo-sdk-legend-item').length).toBe(0);
     sdk.renderBarChart(ITEMS, { legend: true, seriesName: 'Score', title: 'T' });
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.children[1].textContent)).toEqual(['Score']);
     expect(items[0].tag).toBe('span'); // nothing to toggle
     expect(calls.set_chart_padding.at(-1)?.[0]).toBe(64); // title + legend
     // 3D: no legend
     sdk.renderBarChart(ITEMS, { legend: true, viewMode: '3d' });
-    expect(container.querySelectorAll('.viz-sdk-legend-item').length).toBe(0);
+    expect(container.querySelectorAll('.charturbo-sdk-legend-item').length).toBe(0);
   });
 });

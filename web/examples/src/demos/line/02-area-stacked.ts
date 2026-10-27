@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Stacked area on a time axis',
@@ -7,7 +7,7 @@ export const meta = {
 
 export default async function mount(host: HTMLElement) {
   const canvas = host.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US', timeZone: 'UTC' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US', timeZone: 'UTC' });
 
   const day = 86_400_000;
   const x = Array.from({ length: 180 }, (_, i) => Date.UTC(2026, 0, 1) + i * day);

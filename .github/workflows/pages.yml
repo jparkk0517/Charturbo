@@ -41,7 +41,7 @@ jobs:
           wasm-pack --version
 
       - name: Build wasm (web/src/wasm-pkg)
-        run: wasm-pack build crates/viz-core --target web --out-dir ../../web/src/wasm-pkg --release
+        run: wasm-pack build crates/charturbo-core --target web --out-dir ../../web/src/wasm-pkg --release
 
       - uses: actions/setup-node@v4
         with:

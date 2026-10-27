@@ -22,7 +22,7 @@ vi.mock('../sdk/chart-a11y', () => ({
   },
 }));
 
-import { VizEngineSDK, type VizRange, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { Charturbo, type CharturboRange, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 /**
  * Engine stand-in: a 200 x 100 canvas whose bottom fifth (NDC y < -0.6) is the strip across the
@@ -44,7 +44,7 @@ function navBackend() {
     const start = Math.min(Math.max(a, 0), 1 - span);
     w = [start, start + span];
   };
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_line_chart: record('set_line_chart', 0),
     set_bar_chart: record('set_bar_chart', 0),
     chart_series_count: () => 1,
@@ -165,7 +165,7 @@ const ptr = (x: number, y: number, extra: Record<string, unknown> = {}) => ({
 
 function navSdk(navigator: boolean | { height?: number } = true) {
   const mock = navBackend();
-  const sdk = VizEngineSDK.fromBackend(mock.backend);
+  const sdk = Charturbo.fromBackend(mock.backend);
   sdk.renderLineChart([{ name: 'A', values: [1, 2, 3, 4] }], { navigator });
   const c = fakeCanvas();
   sdk.enableNodeInteractions(c.canvas, { builtInTooltip: false });
@@ -250,7 +250,7 @@ describe('SDK navigator wiring', () => {
     expect(style[7]).toBeCloseTo(0.6); // mask alpha over the surface color
 
     const plain = navBackend();
-    const sdk = VizEngineSDK.fromBackend(plain.backend);
+    const sdk = Charturbo.fromBackend(plain.backend);
     sdk.renderLineChart([{ name: 'A', values: [1, 2] }]);
     sdk.renderLineChart([{ name: 'A', values: [1, 2] }], { viewMode: '2.5d', navigator: true });
     expect(plain.calls.set_chart_navigator).toBeUndefined();
@@ -267,7 +267,7 @@ describe('SDK navigator wiring', () => {
   it('dragging the window moves it instead of panning and emits rangechange', () => {
     const { sdk, calls, handlers, captured, setWindow, window } = navSdk();
     setWindow(0.25, 0.5);
-    const ranges: VizRange[] = [];
+    const ranges: CharturboRange[] = [];
     sdk.on('rangechange', (r) => ranges.push(r));
     // Window spans canvas x 50..100; grab its middle on the strip
     handlers.pointerdown(ptr(75, 90));

@@ -1,9 +1,9 @@
 /**
- * viz-engine-sdk scenarios of the benchmark page: data (untimed) + one full render call per
+ * charturbo scenarios of the benchmark page: data (untimed) + one full render call per
  * scenario, and how the steady phase drives it (wheel / drag zoom-pan, hover sweep, streaming).
  */
 
-import type { VizEngineSDK } from '../src/index';
+import type { Charturbo } from '../src/index';
 import * as gen from './data';
 
 export type Interaction = 'zoom-x' | 'zoom-xy' | 'hover' | 'stream';
@@ -14,9 +14,9 @@ export interface OurScenario {
   size: number;
   interaction: Interaction;
   /** Builds the dataset (not timed) and returns the render call */
-  prepare(): (sdk: VizEngineSDK) => void;
+  prepare(): (sdk: Charturbo) => void;
   /** `stream`: called once per frame after the first render */
-  stream?: (sdk: VizEngineSDK, frame: number) => void;
+  stream?: (sdk: Charturbo, frame: number) => void;
 }
 
 const PADDING = { top: 36, right: 24, bottom: 36, left: 64 };
@@ -111,7 +111,7 @@ export const OUR_SCENARIOS: OurScenario[] = [
     stream: (() => {
       // Pre-generated chunks (cycled): appends never wait on the PRNG
       const chunks = Array.from({ length: 8 }, (_, k) => gen.walk(100 + k, STREAM_CHUNK));
-      return (sdk: VizEngineSDK, frame: number) => {
+      return (sdk: Charturbo, frame: number) => {
         sdk.appendSeriesData(0, chunks[frame % chunks.length], undefined, { maxPoints: STREAM_WINDOW });
       };
     })(),

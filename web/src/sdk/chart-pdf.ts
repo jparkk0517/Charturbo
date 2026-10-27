@@ -68,7 +68,7 @@ export function buildPdf(page: PdfPage): Uint8Array {
   );
   const content = enc.encode(`q ${num(W)} 0 0 ${num(H)} 0 0 cm /Im0 Do Q`);
   obj(5, `<< /Length ${content.length} >>`, content);
-  obj(6, `<< /Producer (viz-engine) /Title ${pdfString(page.title ?? 'Chart')} >>`);
+  obj(6, `<< /Producer (charturbo-engine) /Title ${pdfString(page.title ?? 'Chart')} >>`);
   const xref = length;
   let table = `xref\n0 7\n0000000000 65535 f \n`;
   for (let id = 1; id <= 6; id++) table += `${String(offsets[id]).padStart(10, '0')} 00000 n \n`;

@@ -11,7 +11,7 @@ import {
 } from '../sdk/chart-svg';
 import { buildPdf, canCopyImage, copyPngToClipboard, deflate, pdfString, rgbaToRgb } from '../sdk/chart-pdf';
 import type { OverlayDrawOp } from '../sdk/chart-export';
-import { VIZ_THEMES, VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 vi.mock('../sdk/chart-a11y', () => ({
   ChartA11y: class {
@@ -43,9 +43,9 @@ function parse(svg: string): Document {
 /** What chart/svg.rs writes for a small zoomed line chart (header + clip + layers). */
 const ENGINE_LINE =
   '<!--viz:0,12,0,56,16,400,200-->' +
-  '<defs><clipPath id="viz-svg-1-plot"><rect x="56" y="16" width="400" height="200"/></clipPath></defs>' +
+  '<defs><clipPath id="charturbo-svg-1-plot"><rect x="56" y="16" width="400" height="200"/></clipPath></defs>' +
   '<g data-layer="grid"><path d="M56 216L456 216" fill="none" stroke="rgb(33,43,61)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>' +
-  '<g data-layer="plot" clip-path="url(#viz-svg-1-plot)">' +
+  '<g data-layer="plot" clip-path="url(#charturbo-svg-1-plot)">' +
   '<g data-layer="series"><path d="M56 216L156 116L256 66" fill="none" stroke="rgb(255,0,0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>' +
   '<g data-layer="points"><circle cx="100" cy="100" r="3" fill="rgb(0,0,255)" fill-opacity="0.5"/></g>' +
   '</g>';
@@ -136,8 +136,8 @@ describe('SVG helpers', () => {
     expect(bg.getAttribute('fill')).toBe('rgb(9, 11, 20)');
     expect(root.querySelector('image')!.getAttribute('href')).toBe('data:image/png;base64,AAAA');
     const plot = root.querySelector('[data-layer="plot"]')!;
-    expect(plot.getAttribute('clip-path')).toBe('url(#viz-svg-1-plot)');
-    expect(root.querySelector('clipPath#viz-svg-1-plot rect')!.getAttribute('width')).toBe('400');
+    expect(plot.getAttribute('clip-path')).toBe('url(#charturbo-svg-1-plot)');
+    expect(root.querySelector('clipPath#charturbo-svg-1-plot rect')!.getAttribute('width')).toBe('400');
     const line = root.querySelector('[data-layer="series"] path')!;
     expect(line.getAttribute('d')).toBe('M56 216L156 116L256 66');
     expect(line.getAttribute('stroke')).toBe('rgb(255,0,0)');
@@ -185,7 +185,7 @@ describe('chartToSvg', () => {
     const h = {
       canvas,
       overlay,
-      theme: VIZ_THEMES.dark,
+      theme: CHARTURBO_THEMES.dark,
       backend: { chart_export_svg: vi.fn(() => raw) },
       renders: 0,
       render: () => void h.renders++,
@@ -199,7 +199,7 @@ describe('chartToSvg', () => {
     const h = host(ENGINE_LINE);
     const doc = parse(chartToSvg(h, { maxMarks: 5000 }));
     expect(h.renders).toBeGreaterThan(0); // staged the current view first
-    expect(h.backend.chart_export_svg).toHaveBeenCalledWith(5000, expect.stringMatching(/^viz-svg-\d+$/));
+    expect(h.backend.chart_export_svg).toHaveBeenCalledWith(5000, expect.stringMatching(/^charturbo-svg-\d+$/));
     const root = doc.documentElement;
     expect(root.getAttribute('width')).toBe('480');
     expect(root.getAttribute('height')).toBe('300');
@@ -259,8 +259,8 @@ describe('chartToSvg', () => {
       set_scene_helpers: () => {},
       clear_selection: () => {},
       chart_export_svg: () => ENGINE_LINE,
-    } as unknown as WasmVizEngineBackend;
-    const sdk = VizEngineSDK.fromBackend(backend);
+    } as unknown as WasmCharturboEngineBackend;
+    const sdk = Charturbo.fromBackend(backend);
     sdk.enableNodeInteractions(canvas, { builtInTooltip: false });
     sdk.renderLineChart([{ name: 'A', values: [1, 2, 3] }], { title: 'Hello' });
     const doc = parse(sdk.exportChartSVG());

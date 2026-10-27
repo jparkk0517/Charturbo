@@ -3,9 +3,9 @@
   "compilerOptions": {
     "types": ["vite/client"],
     "paths": {
-      "viz-engine-sdk": ["../src/index.ts"],
-      "viz-engine-sdk/react": ["../src/react/index.ts"],
-      "viz-engine-sdk/vue": ["../src/vue/index.ts"]
+      "charturbo": ["../src/index.ts"],
+      "charturbo/react": ["../src/react/index.ts"],
+      "charturbo/vue": ["../src/vue/index.ts"]
     }
   },
   "include": ["src"]

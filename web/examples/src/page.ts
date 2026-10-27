@@ -6,7 +6,7 @@
 import './style.css';
 import { FAMILIES, renderHeader } from './families';
 import { highlight } from './highlight';
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 import { bindTheme } from './theme';
 
 /** A demo file: `meta` + a default `mount(host)` (returns anything, e.g. the SDK instance). */
@@ -83,8 +83,8 @@ async function main() {
       card.style.order = String(paths.indexOf(path));
       try {
         const demo = await mod.default(host);
-        const sdk = demo instanceof VizEngineSDK ? demo
-          : demo && typeof demo === 'object' && 'sdk' in demo && demo.sdk instanceof VizEngineSDK ? demo.sdk : null;
+        const sdk = demo instanceof Charturbo ? demo
+          : demo && typeof demo === 'object' && 'sdk' in demo && demo.sdk instanceof Charturbo ? demo.sdk : null;
         if (sdk && familyId !== 'scene') disposers.push(bindTheme(sdk));
         if (demo && typeof demo === 'object' && 'dispose' in demo && typeof demo.dispose === 'function') {
           const dispose = demo.dispose.bind(demo);

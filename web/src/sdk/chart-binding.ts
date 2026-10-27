@@ -1,16 +1,20 @@
 /**
- * Framework-agnostic lifecycle of one chart component (React `VizChart` / Vue `VizChart`):
- * async `VizEngineSDK.create` with dispose-before-ready safety, desired-state props (chart
+ * Framework-agnostic lifecycle of one chart component (React `CharturboChart` / Vue `CharturboChart`):
+ * async `Charturbo.create` with dispose-before-ready safety, desired-state props (chart
  * type / data / options, theme, sync group, interactions) applied once the engine is ready, and
  * SDK events forwarded to the latest callbacks. No DOM / window access at import (SSR-safe).
  */
 import {
-  VizEngineSDK,
+  Charturbo,
   type AreaChartOptions,
+  type BandSeriesDescriptor,
+  type BandChartOptions,
   type BarChartItemDescriptor,
   type BarChartOptions,
   type CandlestickChartData,
   type CandlestickChartOptions,
+  type OhlcChartData,
+  type OhlcChartOptions,
   type GroupedBarChartData,
   type GroupedBarChartOptions,
   type HistogramChartOptions,
@@ -19,9 +23,9 @@ import {
   type NodeInteractionOptions,
   type ScatterChartData,
   type ScatterChartOptions,
-  type VizTheme,
-  type VizThemeInput,
-} from './viz-engine-sdk';
+  type CharturboTheme,
+  type CharturboThemeInput,
+} from './charturbo';
 import type { HeatmapChartData, HeatmapChartOptions } from './chart-heatmap';
 import type { BoxPlotData, BoxPlotOptions } from './chart-boxplot';
 import type { PieChartData, PieChartOptions } from './chart-pie';
@@ -33,18 +37,23 @@ import type { WaterfallChartData, WaterfallChartOptions } from './chart-waterfal
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
-import type { VizEventMap } from './chart-events';
+import type { CharturboEventMap } from './chart-events';
+import type { ErrorBarSeriesDescriptor, ErrorBarChartOptions, ImpulseSeriesDescriptor, ImpulseChartOptions } from './chart-sparse';
 
 /** Data / options of each chart `type` (bar: an item array, or grouped / stacked series). */
-export interface VizChartSpecMap {
+export interface CharturboChartSpecMap {
   line: { data: LineSeriesDescriptor[]; options: LineChartOptions };
   area: { data: LineSeriesDescriptor[]; options: AreaChartOptions };
+  band: { data: BandSeriesDescriptor[]; options: BandChartOptions };
+  errorBar: { data: ErrorBarSeriesDescriptor[]; options: ErrorBarChartOptions };
+  impulse: { data: ImpulseSeriesDescriptor[]; options: ImpulseChartOptions };
   bar: {
     data: BarChartItemDescriptor[] | GroupedBarChartData;
     options: BarChartOptions | GroupedBarChartOptions;
   };
   scatter: { data: ScatterChartData; options: ScatterChartOptions };
   candlestick: { data: CandlestickChartData; options: CandlestickChartOptions };
+  ohlc: { data: OhlcChartData; options: OhlcChartOptions };
   histogram: { data: Float32Array | number[]; options: HistogramChartOptions };
   heatmap: { data: HeatmapChartData; options: HeatmapChartOptions };
   box: { data: BoxPlotData; options: BoxPlotOptions };
@@ -63,37 +72,37 @@ export interface VizChartSpecMap {
   sparkline: { data: SparklineData | Float32Array | number[]; options: SparklineOptions };
 }
 
-export type VizChartType = keyof VizChartSpecMap;
-export type VizChartData<T extends VizChartType = VizChartType> = VizChartSpecMap[T]['data'];
-export type VizChartOptions<T extends VizChartType = VizChartType> = VizChartSpecMap[T]['options'];
-export type VizChartTheme = 'dark' | 'light' | VizTheme | VizThemeInput;
+export type CharturboChartType = keyof CharturboChartSpecMap;
+export type CharturboChartData<T extends CharturboChartType = CharturboChartType> = CharturboChartSpecMap[T]['data'];
+export type CharturboChartOptions<T extends CharturboChartType = CharturboChartType> = CharturboChartSpecMap[T]['options'];
+export type CharturboChartTheme = 'dark' | 'light' | CharturboTheme | CharturboThemeInput;
 /** Sync group key, or full member options (`setSync`); `null` / `undefined` = not synced */
-export type VizChartSync = string | ChartSyncMemberOptions | null | undefined;
+export type CharturboChartSync = string | ChartSyncMemberOptions | null | undefined;
 /**
  * `enableNodeInteractions` options (tooltip, zoom / pan, touch, brush); `false` = none.
  * `autoRender` defaults to true here (components have no render loop).
  */
-export type VizChartInteractions = NodeInteractionOptions | false;
-export type VizCreateOptions = NonNullable<Parameters<typeof VizEngineSDK.create>[1]>;
+export type CharturboChartInteractions = NodeInteractionOptions | false;
+export type CharturboCreateOptions = NonNullable<Parameters<typeof Charturbo.create>[1]>;
 
 /** Component callbacks: SDK events plus the lifecycle (`ready` / `error`). */
-export interface VizChartCallbacks {
-  onReady?: (sdk: VizEngineSDK) => void;
-  /** `create` failed (`VizInitError` when the device lacks WebGPU / WebGL2) or a render threw */
+export interface CharturboChartCallbacks {
+  onReady?: (sdk: Charturbo) => void;
+  /** `create` failed (`CharturboInitError` when the device lacks WebGPU / WebGL2) or a render threw */
   onError?: (error: unknown) => void;
-  onHover?: (e: VizEventMap['hover']) => void;
-  onClick?: (e: VizEventMap['click']) => void;
-  onSelect?: (e: VizEventMap['select']) => void;
-  onRangeChange?: (e: VizEventMap['rangechange']) => void;
-  onLegendToggle?: (e: VizEventMap['legendtoggle']) => void;
-  onThemeChange?: (e: VizEventMap['themechange']) => void;
-  onResize?: (e: VizEventMap['resize']) => void;
+  onHover?: (e: CharturboEventMap['hover']) => void;
+  onClick?: (e: CharturboEventMap['click']) => void;
+  onSelect?: (e: CharturboEventMap['select']) => void;
+  onRangeChange?: (e: CharturboEventMap['rangechange']) => void;
+  onLegendToggle?: (e: CharturboEventMap['legendtoggle']) => void;
+  onThemeChange?: (e: CharturboEventMap['themechange']) => void;
+  onResize?: (e: CharturboEventMap['resize']) => void;
   /** Treemap / sunburst drill-down / up */
-  onDrill?: (e: VizEventMap['drill']) => void;
+  onDrill?: (e: CharturboEventMap['drill']) => void;
 }
 
 /** SDK event -> callback name (subscribed once; the binding reads the latest callbacks). */
-export const VIZ_CHART_EVENTS = {
+export const CHARTURBO_CHART_EVENTS = {
   hover: 'onHover',
   click: 'onClick',
   select: 'onSelect',
@@ -102,16 +111,16 @@ export const VIZ_CHART_EVENTS = {
   themechange: 'onThemeChange',
   resize: 'onResize',
   drill: 'onDrill',
-} as const satisfies { [K in keyof VizEventMap]: keyof VizChartCallbacks };
+} as const satisfies { [K in keyof CharturboEventMap]: keyof CharturboChartCallbacks };
 
 interface ChartSpec {
-  type: VizChartType;
-  data: VizChartData;
-  options: VizChartOptions | undefined;
+  type: CharturboChartType;
+  data: CharturboChartData;
+  options: CharturboChartOptions | undefined;
 }
 
 /** Renders `spec` with the matching `render*Chart` call. */
-export function renderChartSpec(sdk: VizEngineSDK, spec: ChartSpec): void {
+export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
   const { data, options } = spec;
   switch (spec.type) {
     case 'line':
@@ -119,6 +128,15 @@ export function renderChartSpec(sdk: VizEngineSDK, spec: ChartSpec): void {
       break;
     case 'area':
       sdk.renderAreaChart(data as LineSeriesDescriptor[], options as AreaChartOptions);
+      break;
+    case 'band':
+      sdk.renderBandChart(data as BandSeriesDescriptor[], options as BandChartOptions);
+      break;
+    case 'errorBar':
+      sdk.renderErrorBarChart(data as ErrorBarSeriesDescriptor[], options as ErrorBarChartOptions);
+      break;
+    case 'impulse':
+      sdk.renderImpulseChart(data as ImpulseSeriesDescriptor[], options as ImpulseChartOptions);
       break;
     case 'bar':
       if (Array.isArray(data)) sdk.renderBarChart(data as BarChartItemDescriptor[], options as BarChartOptions);
@@ -129,6 +147,9 @@ export function renderChartSpec(sdk: VizEngineSDK, spec: ChartSpec): void {
       break;
     case 'candlestick':
       sdk.renderCandlestickChart(data as CandlestickChartData, options as CandlestickChartOptions);
+      break;
+    case 'ohlc':
+      sdk.renderOhlcChart(data as OhlcChartData, options as OhlcChartOptions);
       break;
     case 'histogram':
       sdk.renderHistogram(data as Float32Array | number[], options as HistogramChartOptions);
@@ -175,7 +196,7 @@ export function renderChartSpec(sdk: VizEngineSDK, spec: ChartSpec): void {
 /** `interactions` unset: tooltip + navigation with the SDK defaults */
 const DEFAULT_INTERACTIONS: NodeInteractionOptions = {};
 
-function syncOptions(sync: VizChartSync): ChartSyncMemberOptions | null {
+function syncOptions(sync: CharturboChartSync): ChartSyncMemberOptions | null {
   if (sync == null || sync === '') return null;
   return typeof sync === 'string' ? { key: sync } : sync;
 }
@@ -186,23 +207,23 @@ function syncOptions(sync: VizChartSync): ChartSyncMemberOptions | null {
  * change never re-renders the data). `dispose()` is safe at any time, including while `create`
  * is pending: the late engine is disposed on arrival and no callback fires.
  */
-export class VizChartBinding {
-  private engine: VizEngineSDK | null = null;
+export class CharturboChartBinding {
+  private engine: Charturbo | null = null;
   private disposed = false;
   private spec: ChartSpec | null = null;
-  private theme: VizChartTheme | undefined;
+  private theme: CharturboChartTheme | undefined;
   private sync: ChartSyncMemberOptions | null = null;
-  private interactions: VizChartInteractions = DEFAULT_INTERACTIONS;
+  private interactions: CharturboChartInteractions = DEFAULT_INTERACTIONS;
   private detachInteractions: (() => void) | null = null;
   private readonly unsubscribers: (() => void)[] = [];
   /** Resolves with the engine, or `null` when disposed first / `create` failed */
-  readonly ready: Promise<VizEngineSDK | null>;
+  readonly ready: Promise<Charturbo | null>;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     /** Read on every event: callers may swap callbacks without resubscribing */
-    private readonly callbacks: () => VizChartCallbacks,
-    createOptions?: VizCreateOptions
+    private readonly callbacks: () => CharturboChartCallbacks,
+    createOptions?: CharturboCreateOptions
   ) {
     // Deferred one microtask: React StrictMode's synchronous mount -> unmount -> mount disposes
     // the first binding before it starts, so only one engine is ever created
@@ -210,7 +231,7 @@ export class VizChartBinding {
   }
 
   /** The engine once ready (`null` before / after) */
-  get sdk(): VizEngineSDK | null {
+  get sdk(): Charturbo | null {
     return this.engine;
   }
 
@@ -218,11 +239,11 @@ export class VizChartBinding {
     return this.disposed;
   }
 
-  private async start(createOptions?: VizCreateOptions): Promise<VizEngineSDK | null> {
+  private async start(createOptions?: CharturboCreateOptions): Promise<Charturbo | null> {
     if (this.disposed) return null;
-    let sdk: VizEngineSDK;
+    let sdk: Charturbo;
     try {
-      sdk = await VizEngineSDK.create(this.canvas, createOptions);
+      sdk = await Charturbo.create(this.canvas, createOptions);
     } catch (err) {
       if (!this.disposed) this.notify(() => this.callbacks().onError?.(err));
       return null;
@@ -233,8 +254,8 @@ export class VizChartBinding {
       return null;
     }
     this.engine = sdk;
-    for (const event of Object.keys(VIZ_CHART_EVENTS) as (keyof VizEventMap)[]) {
-      const name = VIZ_CHART_EVENTS[event];
+    for (const event of Object.keys(CHARTURBO_CHART_EVENTS) as (keyof CharturboEventMap)[]) {
+      const name = CHARTURBO_CHART_EVENTS[event];
       this.unsubscribers.push(
         sdk.on(event, (payload) => (this.callbacks()[name] as ((p: typeof payload) => void) | undefined)?.(payload))
       );
@@ -274,7 +295,7 @@ export class VizChartBinding {
     }
   }
 
-  setChart<T extends VizChartType>(type: T, data: VizChartData<T>, options?: VizChartOptions<T>): void {
+  setChart<T extends CharturboChartType>(type: T, data: CharturboChartData<T>, options?: CharturboChartOptions<T>): void {
     const wasSparkline = this.spec?.type === 'sparkline';
     this.spec = { type, data, options };
     const sdk = this.engine;
@@ -289,7 +310,7 @@ export class VizChartBinding {
     }
   }
 
-  setTheme(theme: VizChartTheme | undefined): void {
+  setTheme(theme: CharturboChartTheme | undefined): void {
     if (theme === this.theme) return;
     this.theme = theme;
     const sdk = this.engine;
@@ -301,14 +322,14 @@ export class VizChartBinding {
     });
   }
 
-  setSync(sync: VizChartSync): void {
+  setSync(sync: CharturboChartSync): void {
     const next = syncOptions(sync);
     if (sameSync(next, this.sync)) return;
     this.sync = next;
     this.engine?.setSync(next);
   }
 
-  setInteractions(interactions: VizChartInteractions | undefined): void {
+  setInteractions(interactions: CharturboChartInteractions | undefined): void {
     const next = interactions ?? DEFAULT_INTERACTIONS;
     if (next === this.interactions) return;
     this.interactions = next;

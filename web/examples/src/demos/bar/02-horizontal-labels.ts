@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Horizontal bars, data labels, error bars',
@@ -7,7 +7,7 @@ export const meta = {
 
 export default async function mount(host: HTMLElement) {
   const canvas = host.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
 
   sdk.renderGroupedBarChart(
     {

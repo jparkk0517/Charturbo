@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
   --bg: #05070d;
-  --surface: #090b14; /* VIZ_THEMES.dark.surface: cards blend with the charts */
+  --surface: #090b14; /* CHARTURBO_THEMES.dark.surface: cards blend with the charts */
   --border: #1c2333;
   --text: #f0efec;
   --muted: #8b8a84;

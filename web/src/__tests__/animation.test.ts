@@ -9,7 +9,7 @@ import {
   type AnimationBackend,
 } from '../sdk/chart-animation';
 import type { FrameScheduler } from '../sdk/chart-events';
-import { VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 
 // The a11y layer is covered by its own suite
 vi.mock('../sdk/chart-a11y', () => ({
@@ -163,7 +163,7 @@ describe('AnimationDriver', () => {
   });
 });
 
-function sdkWith(extra: Partial<WasmVizEngineBackend> = {}) {
+function sdkWith(extra: Partial<WasmCharturboEngineBackend> = {}) {
   const calls: Record<string, unknown[][]> = {};
   const record =
     (name: string, ret?: unknown) =>
@@ -182,8 +182,8 @@ function sdkWith(extra: Partial<WasmVizEngineBackend> = {}) {
     set_scene_helpers: () => {},
     clear_selection: () => {},
     ...extra,
-  } as unknown as WasmVizEngineBackend;
-  return { sdk: VizEngineSDK.fromBackend(backend), calls };
+  } as unknown as WasmCharturboEngineBackend;
+  return { sdk: Charturbo.fromBackend(backend), calls };
 }
 
 describe('SDK animation wiring', () => {
@@ -241,7 +241,7 @@ describe('SDK animation wiring', () => {
       return f.length;
     };
     const { backend, state } = fakeEngine(50);
-    const { sdk, calls } = sdkWith(backend as Partial<WasmVizEngineBackend>);
+    const { sdk, calls } = sdkWith(backend as Partial<WasmCharturboEngineBackend>);
     sdk.setAnimation({ duration: 50 });
     sdk.renderLineChart([{ name: 'A', values: [1, 2, 3] }]);
     backend.start(); // the engine armed the enter animation

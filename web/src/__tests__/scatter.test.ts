@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VIZ_THEMES, VizEngineSDK, WasmVizEngineBackend, NodeDetails } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, WasmCharturboEngineBackend, NodeDetails } from '../sdk/charturbo';
 
 /** Minimal backend recording every native chart call. */
 function mockBackend(seriesCount = 1) {
@@ -11,7 +11,7 @@ function mockBackend(seriesCount = 1) {
       return ret as never;
     };
   let hit = new Float64Array(0);
-  const backend: WasmVizEngineBackend = {
+  const backend: WasmCharturboEngineBackend = {
     set_scatter_chart: record('set_scatter_chart', 0),
     chart_series_count: () => seriesCount,
     set_chart_hover_style: record('set_chart_hover_style'),
@@ -79,7 +79,7 @@ function fakeCanvas() {
 describe('Native scatter chart (SDK binding)', () => {
   it('sends flat typed arrays and layout to the engine without loading graph nodes', () => {
     const { backend, calls } = mockBackend(3);
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     const res = sdk.renderScatterChart(
       {
         x: [1, 2, 3, 4],
@@ -119,20 +119,20 @@ describe('Native scatter chart (SDK binding)', () => {
 
   it('defaults: no sizes means no ring, palette series colors, single series has no legend', () => {
     const { backend, calls } = mockBackend(1);
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.renderScatterChart({ x: new Float32Array(10), y: new Float32Array(12) });
     const args = calls.set_scatter_chart[0];
     expect((args[0] as Float32Array).length).toBe(10); // trimmed to the shorter axis
     expect((args[1] as Float32Array).length).toBe(10);
     expect((args[3] as Uint16Array).length).toBe(0);
     expect(args[10]).toBe(0);
-    expect((args[5] as Float32Array).length).toBe(VIZ_THEMES.dark.palette.length * 4);
+    expect((args[5] as Float32Array).length).toBe(CHARTURBO_THEMES.dark.palette.length * 4);
     expect(calls.set_chart_padding[0]).toEqual([12, 16, 30, 56]);
   });
 
   it('point details carry x / y / series and merge user metadata', () => {
     const { backend } = mockBackend(2);
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.renderScatterChart(
       { x: [10, 20], y: [30, 40], clusters: [0, 1] },
       { seriesNames: ['Alpha', 'Beta'] }
@@ -149,7 +149,7 @@ describe('Native scatter chart (SDK binding)', () => {
 
   it('legend visibility / emphasis and x+y navigation are thin engine calls', () => {
     const { backend, calls } = mockBackend(3);
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.renderScatterChart({ x: [0, 1, 2], y: [0, 1, 2], clusters: [0, 1, 2] });
     sdk.setSeriesVisible(2, false);
     sdk.setSeriesVisible(9, false); // out of range: ignored
@@ -166,7 +166,7 @@ describe('Native scatter chart (SDK binding)', () => {
 
   it('pointer hover resolves engine hits; wheel / drag zoom and pan both axes', () => {
     const { backend, calls, setHit } = mockBackend(2);
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.renderScatterChart({ x: [1.5, 2.5, 3.5], y: [7, 8, 9], clusters: [0, 1, 1] }, { seriesNames: ['A', 'B'] });
     const { canvas, handlers } = fakeCanvas();
     const hovered: (NodeDetails | null)[] = [];

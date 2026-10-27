@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildA11yModel, buildDataTable, tableToCSV } from '../sdk/chart-a11y';
 import { LINE_STYLE_STRIDE, encodeLineStyles, numericSamples, resolveMarker } from '../sdk/chart-linestyle';
 import {
-  VizEngineSDK,
+  Charturbo,
   type ChartTooltipContext,
   type LineSeriesDescriptor,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 
 // The a11y DOM layer has its own tests; the pure table builder is tested directly below
 vi.mock('../sdk/chart-a11y', async (orig) => {
@@ -103,7 +103,7 @@ class FakeEl {
 
 type Calls = Record<string, unknown[][]>;
 
-function mockBackend(calls: Calls, hit: () => Float64Array, band?: (s: number, i: number) => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, hit: () => Float64Array, band?: (s: number, i: number) => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -116,6 +116,9 @@ function mockBackend(calls: Calls, hit: () => Float64Array, band?: (s: number, i
     set_line_chart_xy: record('set_line_chart_xy', 8),
     set_line_series_styles: record('set_line_series_styles', true),
     set_line_series_band: record('set_line_series_band'),
+    set_band_series: record('set_band_series'),
+    set_error_bar_series: record('set_error_bar_series'),
+    set_impulse_series: record('set_impulse_series'),
     chart_line_band_at: band,
     set_chart_hover_style: record('set_chart_hover_style'),
     set_chart_frame_style: record('set_chart_frame_style'),
@@ -256,9 +259,93 @@ describe('line styles in the SDK', () => {
     { name: 'Actual', values: new Float32Array([9, 21, 29]), marker: true, curve: 'monotone' },
   ];
 
+  it('renders standalone bands from two channels with one logical series and stable sample ids', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0)));
+    const result = sdk.renderBandChart([
+      { name: 'Range', lower: [8, 22, NaN], upper: [12, 18, 4], x: [10, 20, 30], lowerLineWidth: 2, upperLineWidth: 3 },
+    ], { fillOpacity: 0.4, connectNulls: true });
+    expect(result).toEqual({ totalPoints: 3, seriesCount: 1 });
+    expect(Array.from(calls.set_line_chart_xy[0][0] as Float32Array)).toEqual([10, 20, NaN]);
+    expect(calls.set_band_series[0]).toEqual([0, new Float32Array([8, 22, NaN]), new Float32Array([12, 18, 4]), 0.4, 2, 3]);
+    expect(calls.set_line_series_band).toBeUndefined();
+    expect(record(calls.set_line_series_styles[0][0] as Float32Array, 0)[17]).toBe(1);
+    expect(sdk.getNodeDetails(1)?.metadata).toMatchObject({ tags: ['band-chart', 'range'], attributes: { lower: 22, upper: 18 } });
+    expect(() => sdk.appendSeriesData(0, [10], [40])).toThrow(/band/i);
+    expect(() => sdk.setSeriesData(0, [10], [40])).toThrow(/band/i);
+    sdk.dispose();
+  });
+
+  it('renders ErrorBar with normalized endpoints and preserves the center in tooltip and details', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array([0, 0, 1, 0, 1, 20, 1])));
+    let ctx: ChartTooltipContext | undefined;
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { formatChartTooltip: c => { ctx = c; return ''; } });
+    expect(sdk.renderErrorBarChart([{ name: 'E', values: [10, 20], low: [8, 23], high: [12, 17], x: [1, 2] }]))
+      .toEqual({ totalPoints: 2, seriesCount: 1 });
+    expect(Array.from(calls.set_line_chart_xy[0][0] as Float32Array)).toEqual([10, 20]);
+    expect(calls.set_error_bar_series[0].slice(0, 3)).toEqual([0, new Float32Array([8, 17]), new Float32Array([12, 23])]);
+    canvas.fire('pointermove', { clientX: 400, clientY: 200, buttons: 0 });
+    expect(ctx?.chartType).toBe('errorBar');
+    expect(ctx?.items[0]).toMatchObject({ value: 20, errorBar: { low: 17, high: 23, direction: 'vertical' } });
+    expect(sdk.getNodeDetails(1)?.metadata).toMatchObject({ tags: ['errorBar-chart', 'e'], attributes: { low: 17, high: 23 } });
+    expect(() => sdk.appendSeriesData(0, [5], [3])).toThrow(/renderErrorBarChart/);
+    sdk.dispose();
+  });
+
+  it('renders impulse baselines, marker defaults and rejects invalid requests atomically', () => {
+    const calls: Calls = {};
+    const backend = mockBackend(calls, () => new Float64Array(0));
+    const sdk = Charturbo.fromBackend(backend);
+    expect(sdk.renderImpulseChart([{ name: 'I', values: [-2, 0, 3], baseline: 1, showMarker: false }]))
+      .toEqual({ totalPoints: 3, seriesCount: 1 });
+    expect(calls.set_impulse_series[0]).toEqual([0, 1, false, 6]);
+    expect(sdk.getNodeDetails(0)?.metadata.tags).toContain('impulse-chart');
+    const cleared = vi.spyOn(backend, 'clear_scene_objects');
+    expect(() => sdk.renderImpulseChart([{ name: 'Bad', values: [1], baseline: Infinity }])).toThrow(/baseline/);
+    expect(() => sdk.renderErrorBarChart([{ name: 'Bad', values: [1, 2], low: [0], high: [3] }])).toThrow(/length/);
+    expect(() => sdk.renderErrorBarChart([{ name: 'Bad', values: [1], error: 1, capWidth: 'oops' as never }])).toThrow(/capWidth/);
+    delete backend.set_impulse_series;
+    expect(() => sdk.renderImpulseChart([{ name: 'I', values: [1] }])).toThrow(/backend/);
+    expect(cleared).not.toHaveBeenCalled();
+    sdk.dispose();
+  });
+
+  it('rejects malformed bands and unavailable bindings before clearing the current chart', () => {
+    const calls: Calls = {};
+    const backend = mockBackend(calls, () => new Float64Array(0));
+    backend.clear_scene_objects = vi.fn();
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.renderLineChart([{ name: 'Existing', values: [1, 2] }]);
+    vi.mocked(backend.clear_scene_objects!).mockClear();
+    const valid = { name: 'B', lower: [1, 2], upper: [3, 4] };
+    for (const bad of [
+      { ...valid, upper: [3] }, { ...valid, x: [2, 1] }, { ...valid, x: [1, Infinity] },
+      { ...valid, lowerLineWidth: -1 }, { ...valid, fillOpacity: 2 }, { ...valid, curve: 'invalid' as never },
+    ]) expect(() => sdk.renderBandChart([bad])).toThrow(/renderBandChart/);
+    delete backend.set_band_series;
+    expect(() => sdk.renderBandChart([valid])).toThrow(/backend/);
+    expect(backend.clear_scene_objects).not.toHaveBeenCalled();
+    expect(sdk.getNodeDetails(0)?.metadata.tags).toContain('line-chart');
+    sdk.dispose();
+  });
+
+  it('band hover exposes both original edges and its own chart type after a theme change', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array([0, 0, 1, 0, 1, 20, 1])));
+    let ctx: ChartTooltipContext | undefined;
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { formatChartTooltip: (c) => { ctx = c; return ''; } });
+    sdk.renderBandChart([{ name: 'B', lower: [8, 22], upper: [12, 18] }]);
+    sdk.setTheme('light');
+    canvas.fire('pointermove', { clientX: 400, clientY: 200, buttons: 0 });
+    expect(ctx?.chartType).toBe('band');
+    expect(ctx?.items[0].band).toEqual({ lower: 22, upper: 18 });
+    sdk.dispose();
+  });
+
   it('uploads styles and bands after the chart; missing samples are NaN', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0)));
     sdk.renderLineChart(SERIES, { nulls: 'connect' });
     const values = calls.set_line_chart[0][0] as Float32Array;
     expect(Number.isNaN(values[1])).toBe(true);
@@ -302,7 +389,7 @@ describe('line styles in the SDK', () => {
       (calls.set ??= []).push(args);
       return 2;
     };
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.renderLineChart([{ name: 'S', values: [1, 2] }]);
     sdk.appendSeriesData(0, [3, null as unknown as number]);
     expect(Number.isNaN((calls.append[0][1] as Float32Array)[1])).toBe(true);
@@ -313,14 +400,14 @@ describe('line styles in the SDK', () => {
   it('tooltips show the band range of the hovered sample', () => {
     const calls: Calls = {};
     const hit = new Float64Array([0, 0, 2, 0, 2, 30, 2, 1, 2, 29, 5]);
-    const sdk = VizEngineSDK.fromBackend(
+    const sdk = Charturbo.fromBackend(
       mockBackend(calls, () => hit, (s, i) => (s === 0 ? new Float64Array([25 + i, 35 + i]) : new Float64Array(0)))
     );
     let ctx: ChartTooltipContext | null = null;
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderLineChart(SERIES);
     canvas.fire('pointermove', { clientX: 400, clientY: 200, buttons: 0 });
-    const tooltip = body.querySelectorAll('.viz-sdk-node-tooltip')[0];
+    const tooltip = body.querySelectorAll('.charturbo-sdk-node-tooltip')[0];
     // Engine copy (follows streamed data): index 2 -> [27, 37]
     expect(tooltip.innerHTML).toContain('27 – 37');
 
@@ -339,7 +426,7 @@ describe('line styles in the SDK', () => {
   it('samples without band edges (streamed after the band) show no range', () => {
     const calls: Calls = {};
     const hit = new Float64Array([0, 0, 1, 0, 2, 30, 2]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array([NaN, NaN])));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array([NaN, NaN])));
     let ctx: ChartTooltipContext | null = null;
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {
       formatChartTooltip: (c) => {

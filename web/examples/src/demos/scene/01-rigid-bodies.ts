@@ -1,4 +1,4 @@
-import { VizEngineSDK, type RgbaTuple } from 'viz-engine-sdk';
+import { Charturbo, type RgbaTuple } from 'charturbo';
 import { bindSceneDesign } from '../../scene-design';
 
 export const meta = {
@@ -23,7 +23,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { nodeCount: 0, edgeCount: 0 });
+  const sdk = await Charturbo.create(canvas, { nodeCount: 0, edgeCount: 0 });
 
   let dropped = 0;
   const drop = (count: number) => {

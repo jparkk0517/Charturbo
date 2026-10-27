@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Violin plot',
@@ -9,7 +9,7 @@ const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * M
 
 export default async function mount(host: HTMLElement) {
   const canvas = host.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US' });
 
   const bimodal = (n: number, a: number, b: number) =>
     Float32Array.from({ length: n }, (_, i) => (i % 2 ? a : b) + gauss() * 5);

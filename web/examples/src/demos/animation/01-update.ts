@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 
 export const meta = {
   title: 'Animated updates',
@@ -11,7 +11,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { locale: 'en-US', animation: { duration: 600, easing: 'ease-out' } });
+  const sdk = await Charturbo.create(canvas, { locale: 'en-US', animation: { duration: 600, easing: 'ease-out' } });
 
   const categories = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const random = () => categories.map(() => 20 + Math.round(Math.random() * 80));

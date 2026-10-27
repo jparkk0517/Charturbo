@@ -10,7 +10,7 @@ import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartValueFormat } from './chart-format';
 import type { A11yChartModel, ChartDataCell } from './chart-a11y';
 import type { A11yCustomModel } from './chart-business-util';
-import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -127,7 +127,7 @@ export interface SankeyChartOptions {
 }
 
 /** `'drill'` event payload: the treemap / sunburst now shows the subtree of `node`. */
-export interface VizDrillEvent {
+export interface CharturboDrillEvent {
   kind: 'treemap' | 'sunburst';
   /** Node index (input order; tree input: depth-first order; a synthetic root is last) */
   node: number;
@@ -309,7 +309,7 @@ export interface SankeyChartMeta {
 
 /** Uploads a treemap / sunburst; returns the meta (fields filled by `syncHierarchy`). */
 export function sendHierarchy(
-  backend: WasmVizEngineBackend,
+  backend: WasmCharturboEngineBackend,
   kind: 'treemap' | 'sunburst',
   data: HierarchyData,
   options?: TreemapChartOptions
@@ -350,7 +350,7 @@ export function sendHierarchy(
 }
 
 /** Uploads a sankey; returns the meta (fields filled by `syncSankey`). */
-export function sendSankey(backend: WasmVizEngineBackend, data: SankeyChartData, options?: SankeyChartOptions): SankeyChartMeta {
+export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChartData, options?: SankeyChartOptions): SankeyChartMeta {
   const o = options ?? {};
   const nodes = data.nodes ?? [];
   const index = new Map<string, number>();
@@ -416,7 +416,7 @@ export function sendSankey(backend: WasmVizEngineBackend, data: SankeyChartData,
 }
 
 /** Palette, per-node colors, neutral / surface / highlight colors (and the value colormap). */
-export function sendHierarchyStyle(backend: WasmVizEngineBackend, meta: HierarchyChartMeta | SankeyChartMeta, theme: VizTheme): void {
+export function sendHierarchyStyle(backend: WasmCharturboEngineBackend, meta: HierarchyChartMeta | SankeyChartMeta, theme: CharturboTheme): void {
   const own = (meta.palette ?? []).map((c) => parseOptionalColor(c)).filter((c): c is RgbaTuple => !!c);
   const pal = own.length ? own : theme.palette;
   const palette = new Float32Array(pal.length * 4);
@@ -441,7 +441,7 @@ export function sendHierarchyStyle(backend: WasmVizEngineBackend, meta: Hierarch
 const rgbaAt = (a: ArrayLike<number>, i: number): RgbaTuple => [a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]];
 
 /** Re-reads values, colors, legend and the current root of a treemap / sunburst. */
-export function syncHierarchy(backend: WasmVizEngineBackend, meta: HierarchyChartMeta): void {
+export function syncHierarchy(backend: WasmCharturboEngineBackend, meta: HierarchyChartMeta): void {
   meta.values = backend.chart_hierarchy_values?.() ?? meta.values;
   meta.nodeColors = backend.chart_hierarchy_colors?.() ?? meta.nodeColors;
   const info = backend.chart_hierarchy_info?.();
@@ -465,7 +465,7 @@ export function syncHierarchy(backend: WasmVizEngineBackend, meta: HierarchyChar
 }
 
 /** Re-reads node / link values, shares, colors and the group legend of a sankey. */
-export function syncSankey(backend: WasmVizEngineBackend, meta: SankeyChartMeta): void {
+export function syncSankey(backend: WasmCharturboEngineBackend, meta: SankeyChartMeta): void {
   meta.nodes = backend.chart_sankey_nodes?.() ?? meta.nodes;
   meta.links = backend.chart_sankey_links?.() ?? meta.links;
   meta.nodeColors = backend.chart_hierarchy_colors?.() ?? meta.nodeColors;
@@ -569,7 +569,7 @@ export function formatShare(p: number, locale?: string): string {
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** Default tooltip: path (A › B ›), swatch + name + value, shares; sankey `A → B: value (x% of A)`. */
-export function hierarchyTooltipHtml(ctx: ChartTooltipContext, theme: VizTheme, formatValue: (v: number) => string, locale?: string): string {
+export function hierarchyTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): string {
   const it = ctx.items[0];
   if (!it) return '';
   const swatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;flex:none;background:${it.color};"></span>`;
@@ -864,15 +864,15 @@ export class HierarchyLabelLayer {
       Object.assign(el.style, { position: 'absolute', pointerEvents: 'none', ...style });
       return el;
     };
-    this.root = div('viz-sdk-hierarchy-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
+    this.root = div('charturbo-sdk-hierarchy-labels', { left: '0px', top: '0px', width: '0px', height: '0px', overflow: 'visible' });
     if (meta.kind !== 'sankey') {
-      this.crumbs = div('viz-sdk-breadcrumb', { display: 'flex', alignItems: 'center', gap: '2px', fontSize: '12px', whiteSpace: 'nowrap', pointerEvents: 'auto' });
+      this.crumbs = div('charturbo-sdk-breadcrumb', { display: 'flex', alignItems: 'center', gap: '2px', fontSize: '12px', whiteSpace: 'nowrap', pointerEvents: 'auto' });
       this.crumbs.setAttribute('role', 'navigation');
       this.crumbs.setAttribute('aria-label', 'Drill path');
       this.root.append(this.crumbs);
     }
     if (meta.kind === 'sunburst') {
-      this.center = div('viz-sdk-sunburst-center', { transform: 'translate(-50%, -50%)', textAlign: 'center', display: 'none' });
+      this.center = div('charturbo-sdk-sunburst-center', { transform: 'translate(-50%, -50%)', textAlign: 'center', display: 'none' });
       this.root.append(this.center);
     }
     parent.appendChild(this.root);
@@ -885,7 +885,7 @@ export class HierarchyLabelLayer {
     this.centerKey = '';
   }
 
-  update(backend: WasmVizEngineBackend, theme: VizTheme, formatValue: (v: number) => string, locale?: string): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): void {
     const meta = this.meta;
     const layout = backend.chart_hierarchy_layout?.();
     const a = backend.chart_hierarchy_labels?.();
@@ -898,7 +898,7 @@ export class HierarchyLabelLayer {
         let el = this.labels[k];
         if (!el) {
           el = document.createElement('div');
-          el.className = 'viz-sdk-hierarchy-label';
+          el.className = 'charturbo-sdk-hierarchy-label';
           Object.assign(el.style, { position: 'absolute', pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden', fontSize: '11px', lineHeight: '14px', fontVariantNumeric: 'tabular-nums' });
           this.root.appendChild(el);
           this.labels.push(el);
@@ -977,7 +977,7 @@ export class HierarchyLabelLayer {
     this.updateCenter(meta, layout, theme, formatValue, locale);
   }
 
-  private updateCrumbs(meta: HierarchyChartMeta, layout: Float64Array, theme: VizTheme): void {
+  private updateCrumbs(meta: HierarchyChartMeta, layout: Float64Array, theme: CharturboTheme): void {
     const el = this.crumbs;
     if (!el) return;
     const root = layout[0];
@@ -1010,7 +1010,7 @@ export class HierarchyLabelLayer {
       } else {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'viz-sdk-breadcrumb-item';
+        b.className = 'charturbo-sdk-breadcrumb-item';
         b.textContent = fitText(name, 160, 7);
         Object.assign(b.style, { border: 'none', background: 'none', padding: '0', font: 'inherit', color: theme.textSecondary, cursor: 'pointer', textDecoration: 'underline' });
         b.addEventListener('click', () => this.drill(v));
@@ -1019,7 +1019,7 @@ export class HierarchyLabelLayer {
     });
   }
 
-  private updateCenter(meta: HierarchyChartMeta, layout: Float64Array, theme: VizTheme, formatValue: (v: number) => string, locale?: string): void {
+  private updateCenter(meta: HierarchyChartMeta, layout: Float64Array, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): void {
     const el = this.center;
     if (!el) return;
     const [root, , , , , cx, cy, r, hs, hi] = layout;
@@ -1052,7 +1052,7 @@ export class HierarchyLabelLayer {
 }
 
 /** Path names of node `v` (drill events). */
-export function drillEvent(meta: HierarchyChartMeta, node: number): VizDrillEvent {
+export function drillEvent(meta: HierarchyChartMeta, node: number): CharturboDrillEvent {
   // Same path as the tooltip (a synthetic root only when it is the node itself)
   const path = hierarchyPath(meta, node);
   if (!path.length) path.push(node);

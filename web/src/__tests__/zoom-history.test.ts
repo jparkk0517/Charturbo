@@ -14,8 +14,8 @@ import {
   type ZoomBackend,
   type ZoomControllerHost,
 } from '../sdk/chart-zoom';
-import { VizEngineSDK, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
-import type { VizRange } from '../sdk/chart-events';
+import { Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
+import type { CharturboRange } from '../sdk/chart-events';
 
 vi.mock('../sdk/chart-a11y', () => ({
   ChartA11y: class {
@@ -274,7 +274,7 @@ function lineBackend(calls: Calls) {
       clear_selection: () => {},
       pick_node_at_ndc: () => -1,
       chart_hover_at_ndc: () => new Float64Array(0),
-    } as unknown as WasmVizEngineBackend,
+    } as unknown as WasmCharturboEngineBackend,
   };
 }
 
@@ -301,7 +301,7 @@ describe('SDK zoom binding', () => {
   it("wheel ('y' option / Shift), Ctrl + drag box, Ctrl + Z, double-click reset clear history", () => {
     const calls: Calls = {};
     const { backend } = lineBackend(calls);
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.enableNodeInteractions(canvas, { zoom: 'y', builtInTooltip: false });
     sdk.renderLineChart([{ name: 'A', values: [1, 2, 3] }]);
     canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, clientX: 100, clientY: 25, cancelable: true }));
@@ -330,9 +330,9 @@ describe('SDK zoom binding', () => {
   it("programmatic y / box zoom and 'rangechange' with y", async () => {
     const calls: Calls = {};
     const { backend, setRange } = lineBackend(calls);
-    const sdk = VizEngineSDK.fromBackend(backend);
+    const sdk = Charturbo.fromBackend(backend);
     sdk.renderLineChart([{ name: 'A', values: [1, 2, 3] }]);
-    const ranges: VizRange[] = [];
+    const ranges: CharturboRange[] = [];
     sdk.on('rangechange', (r) => ranges.push(r));
     expect(sdk.zoomChartY(0.5, 0.25)).toBe(true);
     setRange([0, 100, 2, 6]);

@@ -1,4 +1,4 @@
-import { VizEngineSDK } from 'viz-engine-sdk';
+import { Charturbo } from 'charturbo';
 import { bindSceneDesign } from '../../scene-design';
 
 export const meta = {
@@ -14,7 +14,7 @@ export default async function mount(host: HTMLElement) {
   const chart = host.appendChild(document.createElement('div'));
   chart.className = 'chart';
   const canvas = chart.appendChild(document.createElement('canvas'));
-  const sdk = await VizEngineSDK.create(canvas, { nodeCount: 0, edgeCount: 0 });
+  const sdk = await Charturbo.create(canvas, { nodeCount: 0, edgeCount: 0 });
 
   sdk.setGraphVisible(false);
   sdk.setRigidPhysics(false); // a still life: no gravity
@@ -35,7 +35,7 @@ export default async function mount(host: HTMLElement) {
   }
   const torus = sdk.addCustomMesh({
     name: 'torus',
-    ...VizEngineSDK.createTorusMesh(8, 2.6, 24, 48), // positions, normals, indices
+    ...Charturbo.createTorusMesh(8, 2.6, 24, 48), // positions, normals, indices
     position: [0, 40, -10],
     color: [0.62, 0.5, 0.92, 1],
     metallic: 0.8,

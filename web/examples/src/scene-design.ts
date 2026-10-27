@@ -1,4 +1,4 @@
-import { VIZ_THEMES, parseColor, type VizEngineSDK, type ObjectMaterialDescriptor, type RgbaTuple } from 'viz-engine-sdk';
+import { CHARTURBO_THEMES, parseColor, type Charturbo, type ObjectMaterialDescriptor, type RgbaTuple } from 'charturbo';
 
 import { THEMES, getThemeName, setThemeName, subscribeTheme } from './theme';
 const PALETTES = {
@@ -23,7 +23,7 @@ interface SceneDesign {
   axes: boolean;
 }
 const DEFAULTS: SceneDesign = { theme: 'dark', palette: 'vivid', accent: '#3987e5', material: 'original', brightness: 1, grid: true, axes: false };
-const STORAGE_KEY = 'viz-examples-scene-design';
+const STORAGE_KEY = 'charturbo-examples-scene-design';
 let design = { ...DEFAULTS };
 try {
   const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<SceneDesign> | null;
@@ -97,11 +97,11 @@ export function mountSceneDesignControls(host: HTMLElement): void {
 }
 
 /** Reapply after adding/resetting objects. Only appearance is changed, preserving live physics. */
-export function bindSceneDesign(sdk: VizEngineSDK, applyLighting: (brightness: number) => void) {
+export function bindSceneDesign(sdk: Charturbo, applyLighting: (brightness: number) => void) {
   const originals = new Map<number, ObjectMaterialDescriptor>();
   const refresh = () => {
     const theme = THEMES[design.theme];
-    sdk.setTheme({ ...VIZ_THEMES[theme.base], name: theme.label, surface: parseColor(theme.surface) });
+    sdk.setTheme({ ...CHARTURBO_THEMES[theme.base], name: theme.label, surface: parseColor(theme.surface) });
     sdk.setHelpers({ showGrid: design.grid, showAxes: design.axes, gridSize: 180, gridDivisions: 18, axesLength: 70 });
     const objects = sdk.getObjects();
     const live = new Set(objects.map((o) => o.id));

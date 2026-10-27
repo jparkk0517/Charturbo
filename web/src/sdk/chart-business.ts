@@ -3,11 +3,11 @@
  * SDK stores, dispatchers for tooltips / point details / a11y models / theme / DOM labels, and
  * small DOM helpers. Each chart lives in its own module (chart-radar.ts, chart-gauge.ts,
  * chart-funnel.ts, chart-waterfall.ts); the engine owns every bit of geometry, layout, hit
- * testing and label anchoring (crates/viz-core/src/chart/{radar,gauge,funnel,waterfall}.rs).
+ * testing and label anchoring (crates/charturbo-core/src/chart/{radar,gauge,funnel,waterfall}.rs).
  */
 import type { RgbaTuple } from './color';
 import type { A11yChartModel } from './chart-a11y';
-import type { ChartTooltipContext, NodeMetadata, VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { ChartTooltipContext, NodeMetadata, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import type { A11yCommon, BusinessLabelLayer } from './chart-business-util';
 import {
   radarA11yModel,
@@ -78,7 +78,7 @@ export function createBusinessLabelLayer(parent: HTMLElement, meta: BusinessChar
 }
 
 /** Re-sends the theme-derived colors of a business chart. */
-export function sendBusinessTheme(backend: WasmVizEngineBackend, meta: BusinessChartMeta, theme: VizTheme): void {
+export function sendBusinessTheme(backend: WasmCharturboEngineBackend, meta: BusinessChartMeta, theme: CharturboTheme): void {
   switch (meta.kind) {
     case 'radar':
       return sendRadarColors(backend, meta, theme);
@@ -117,7 +117,7 @@ export function businessTooltipContext(
 export function businessTooltipHtml(
   ctx: ChartTooltipContext,
   meta: BusinessChartMeta,
-  theme: VizTheme,
+  theme: CharturboTheme,
   formatValue: (v: number) => string,
   locale?: string
 ): string | null {

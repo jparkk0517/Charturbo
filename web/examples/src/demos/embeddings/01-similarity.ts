@@ -1,4 +1,4 @@
-import { VizEngineSDK, escapeHtml, type EmbeddingProjectionMode, type NodeMetadata } from 'viz-engine-sdk';
+import { Charturbo, escapeHtml, type EmbeddingProjectionMode, type NodeMetadata } from 'charturbo';
 
 export const meta = {
   title: '1536-dim embeddings → 3D with cosine k-NN',
@@ -44,7 +44,7 @@ export default async function mount(host: HTMLElement) {
   const panel = chart.appendChild(document.createElement('div'));
   panel.className = 'side-panel';
   panel.textContent = 'Click a point to list its most similar documents.';
-  const sdk = await VizEngineSDK.create(canvas, { nodeCount: 0, edgeCount: 0, locale: 'en-US' });
+  const sdk = await Charturbo.create(canvas, { nodeCount: 0, edgeCount: 0, locale: 'en-US' });
 
   const dimensions = 1536;
   const { vectors, clusters } = syntheticEmbeddings(1_000, dimensions); // 1,000 x 1536 floats

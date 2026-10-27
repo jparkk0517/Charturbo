@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  VIZ_THEMES,
-  VizEngineSDK,
+  CHARTURBO_THEMES,
+  Charturbo,
   type ChartTooltipContext,
-  type WasmVizEngineBackend,
-} from '../sdk/viz-engine-sdk';
+  type WasmCharturboEngineBackend,
+} from '../sdk/charturbo';
 
 // The a11y layer (canvas ARIA, live region, data table) has its own tests and needs a full DOM;
 // this suite only checks bar layout / legend wiring, so it is replaced by an inert stand-in.
@@ -100,7 +100,7 @@ class FakeEl {
 
 type Calls = Record<string, unknown[][]>;
 
-function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmVizEngineBackend {
+function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64Array): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -203,7 +203,7 @@ describe('Multi-series bar charts (grouped / stacked / percent)', () => {
   it('sends flat series values to the engine and builds metadata, legend, and axes', () => {
     const calls: Calls = {};
     let axes = new Float64Array(0);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
 
     const res = sdk.renderGroupedBarChart(DATA, { mode: 'stacked', barGap: 3, title: 'Revenue' });
@@ -216,7 +216,7 @@ describe('Multi-series bar charts (grouped / stacked / percent)', () => {
     expect(Array.from(values.slice(8, 10))).toEqual([1, 2]);
     expect(Number.isNaN(values[10]) && Number.isNaN(values[11])).toBe(true);
     expect(seriesCount).toBe(3);
-    expect(Array.from(colors.slice(4, 8))).toEqual(Array.from(new Float32Array(VIZ_THEMES.dark.palette[1])));
+    expect(Array.from(colors.slice(4, 8))).toEqual(Array.from(new Float32Array(CHARTURBO_THEMES.dark.palette[1])));
     expect([mode, barWidth, radius, gapPx, viewMode]).toEqual([1, 0, 4, 3, 0]);
     expect(Number.isNaN(groupGap)).toBe(true); // engine default
     // Title (24) + legend (28) on top
@@ -233,17 +233,17 @@ describe('Multi-series bar charts (grouped / stacked / percent)', () => {
     // Category labels on the x axis
     axes = new Float64Array([56, 64, 700, 300, 2, 0, 2, 400, 364, 1, 50, 56, 200]);
     sdk.render();
-    const ticks = container.querySelectorAll('.viz-sdk-axis-tick').map((t) => t.textContent);
+    const ticks = container.querySelectorAll('.charturbo-sdk-axis-tick').map((t) => t.textContent);
     expect(ticks).toEqual(['Q3', '50']);
   });
 
   it('legend toggles and emphasizes bar series through the engine', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderGroupedBarChart(DATA, { mode: 'grouped' });
 
-    const items = container.querySelectorAll('.viz-sdk-legend-item');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
     expect(items.map((i) => i.children[1].textContent)).toEqual(['North', 'South', 'West']);
     expect(items[0].children[0].style.height).toBe('10px'); // square bar swatch
     items[1].fire('click');
@@ -260,7 +260,7 @@ describe('Multi-series bar charts (grouped / stacked / percent)', () => {
 
     // Legend can be turned off; single-series bars have no series to toggle
     sdk.renderGroupedBarChart(DATA, { legend: false });
-    expect(container.querySelectorAll('.viz-sdk-legend-item').length).toBe(0);
+    expect(container.querySelectorAll('.charturbo-sdk-legend-item').length).toBe(0);
     expect(calls.set_chart_padding.at(-1)).toEqual([12, 16, 30, 56]);
     sdk.renderBarChart([{ label: 'A', value: 1 }]);
     sdk.setSeriesVisible(0, false);
@@ -274,7 +274,7 @@ describe('Multi-series bar charts (grouped / stacked / percent)', () => {
       [0, 2, 30, 2],
       [1, 2, 15, 6],
     ]);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
     let ctx: ChartTooltipContext | null = null;
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {
       formatChartTooltip: (c) => {
@@ -311,25 +311,25 @@ describe('Multi-series bar charts (grouped / stacked / percent)', () => {
       [2, 0, -5, 8],
     ]);
     let axes = new Float64Array(0);
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => hit, () => axes));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => axes));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     sdk.renderGroupedBarChart(DATA, { mode: 'percent' });
     expect(calls.set_bar_chart_multi[0][3]).toBe(2);
 
     canvas.fire('pointermove', { clientX: 100, clientY: 200, buttons: 0 });
-    const tooltip = body.querySelectorAll('.viz-sdk-node-tooltip')[0];
+    const tooltip = body.querySelectorAll('.charturbo-sdk-node-tooltip')[0];
     expect(tooltip.innerHTML).toContain('50.0%');
     expect(tooltip.innerHTML).toContain('25.0%');
     expect(tooltip.innerHTML).not.toContain('Total');
 
     axes = new Float64Array([56, 40, 700, 300, 1, 1, 60, 56, 100]);
     sdk.render();
-    expect(container.querySelectorAll('.viz-sdk-axis-tick')[0].textContent).toBe('60%');
+    expect(container.querySelectorAll('.charturbo-sdk-axis-tick')[0].textContent).toBe('60%');
   });
 
   it('3D view sends only the first series and hides the legend', () => {
     const calls: Calls = {};
-    const sdk = VizEngineSDK.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
     sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
     const res = sdk.renderGroupedBarChart(DATA, { viewMode: '3d', mode: 'stacked' });
     expect(res).toEqual({ barCount: 4, seriesCount: 1, categoryCount: 4 });
@@ -338,7 +338,7 @@ describe('Multi-series bar charts (grouped / stacked / percent)', () => {
     ];
     expect(values.length).toBe(4);
     expect([seriesCount, viewMode]).toEqual([1, 1]);
-    expect(container.querySelectorAll('.viz-sdk-legend-item').length).toBe(0);
+    expect(container.querySelectorAll('.charturbo-sdk-legend-item').length).toBe(0);
     expect(sdk.renderGroupedBarChart({ categories: [], series: [] }).barCount).toBe(0);
   });
 });

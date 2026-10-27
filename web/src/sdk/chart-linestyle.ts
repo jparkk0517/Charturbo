@@ -5,7 +5,7 @@
  * encodes the options and reads band values back for tooltips and the data table.
  */
 import { parseOptionalColor, type ColorInput } from './color';
-import type { WasmVizEngineBackend } from './viz-engine-sdk';
+import type { WasmCharturboEngineBackend } from './charturbo';
 
 export type LineMarkerShape = 'circle' | 'square' | 'diamond' | 'triangle' | 'none';
 export type LineCurve = 'linear' | 'step' | 'stepBefore' | 'stepAfter' | 'monotone';
@@ -148,7 +148,7 @@ function edge(v: Float32Array | number[]): Float32Array {
  * per series (`null` = none) for the chart meta. Throws on malformed bands.
  */
 export function applyLineStyles(
-  backend: WasmVizEngineBackend,
+  backend: WasmCharturboEngineBackend,
   series: (LineStyleInput & { values: ArrayLike<unknown> })[],
   chartNulls: LineNullPolicy | undefined,
   fn: string,
@@ -171,7 +171,7 @@ export function applyLineStyles(
 
 /** Band edges of a hovered sample, read from the engine (follows streamed data); `undefined` without a band. */
 export function lineBandAt(
-  backend: WasmVizEngineBackend,
+  backend: WasmCharturboEngineBackend,
   bands: (LineBandMeta | null)[] | undefined,
   series: number,
   index: number

@@ -1,5 +1,5 @@
 /**
- * Sparkline preset (`VizEngineSDK.renderSparkline`): a line / area / bar / win-loss chart with
+ * Sparkline preset (`Charturbo.renderSparkline`): a line / area / bar / win-loss chart with
  * zero chrome — no axes, grid, legend, title, overlay DOM, zoom or tooltip (opt-in). The
  * last / min / max markers, the reference band and the win / loss zero line are engine marks
  * (Rust annotation layers, rebuilt on data updates); the trend summary comes from the engine
@@ -8,7 +8,7 @@
  */
 
 import { parseColor, type ColorInput, type RgbaTuple } from './color';
-import type { VizTheme, WasmVizEngineBackend } from './viz-engine-sdk';
+import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
 export type SparklineType = 'line' | 'area' | 'bar' | 'winloss';
 
@@ -146,7 +146,7 @@ export function sparklineData(data: SparklineData | Float32Array | number[]): Sp
 export function resolveSparkline(
   data: SparklineData,
   options: SparklineOptions | undefined,
-  theme: VizTheme,
+  theme: CharturboTheme,
   canvasCss: [number, number],
   locale?: string
 ): SparklineSpec {
@@ -207,7 +207,7 @@ export function sparklineBarItems(spec: SparklineSpec): { label: string; value: 
 }
 
 /** Sends the marks (markers, band, zero line) to the engine. */
-export function applySparklineMarks(backend: WasmVizEngineBackend, spec: SparklineSpec): void {
+export function applySparklineMarks(backend: WasmCharturboEngineBackend, spec: SparklineSpec): void {
   const c = (v: RgbaTuple | null) => (v ? new Float32Array(v) : EMPTY_F32);
   backend.set_chart_sparkline?.(
     c(spec.last),
@@ -230,7 +230,7 @@ function shortF32(v: number): number {
 }
 
 /** Engine summary, or computed here from `values` when the engine has no sparkline binding. */
-export function readSparklineSummary(backend: WasmVizEngineBackend, values: ArrayLike<number>): SparklineSummary | null {
+export function readSparklineSummary(backend: WasmCharturboEngineBackend, values: ArrayLike<number>): SparklineSummary | null {
   const a = backend.chart_sparkline_summary?.();
   if (a) {
     if (a.length < 10) return null;

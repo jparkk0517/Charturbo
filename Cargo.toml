@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/viz-core"]
+members = ["crates/charturbo-core"]
 resolver = "2"
 
 [profile.release]
@@ -9,7 +9,7 @@ codegen-units = 1
 
 # Size-optimize the WebGL2 fallback stack (WGSL -> GLSL translation, validation, GLES backend):
 # most of the wasm, but only on shader / pipeline creation and command encoding, not in the
-# engine's hot loops. viz-core and the small math / container crates stay at opt-level 3
+# engine's hot loops. charturbo-core and the small math / container crates stay at opt-level 3
 # (opt-level "s" / "z" for everything slows scatter / sankey / graph physics by 5-70%).
 # wasm-pack's default wasm-opt pass (-O) runs on top.
 [profile.release.package.naga]

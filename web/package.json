@@ -1,5 +1,5 @@
 {
-  "name": "viz-engine-sdk",
+  "name": "charturbo",
   "version": "0.1.0",
   "description": "GPU-accelerated charting for the web: Rust + WebGPU (WebAssembly, WebGL2 fallback) line, area, bar, scatter, candlestick, heatmap, box/violin, pie, combo, radar, gauge, funnel, waterfall, treemap, sunburst, sankey and sparkline charts with 1M+ points at 60 FPS, real-time streaming, accessibility, SVG/PNG/PDF export and React / Vue components",
   "type": "module",
@@ -19,26 +19,26 @@
   },
   "sideEffects": [
     "./dist-lib/inline.js",
-    "./dist-lib/viz-engine-sdk.umd.cjs"
+    "./dist-lib/charturbo.umd.cjs"
   ],
-  "main": "./dist-lib/viz-engine-sdk.umd.cjs",
-  "module": "./dist-lib/viz-engine-sdk.js",
+  "main": "./dist-lib/charturbo.umd.cjs",
+  "module": "./dist-lib/charturbo.js",
   "types": "./dist-lib/index.d.ts",
-  "unpkg": "./dist-lib/viz-engine-sdk.umd.cjs",
-  "jsdelivr": "./dist-lib/viz-engine-sdk.umd.cjs",
+  "unpkg": "./dist-lib/charturbo.umd.cjs",
+  "jsdelivr": "./dist-lib/charturbo.umd.cjs",
   "exports": {
     ".": {
       "import": {
         "types": "./dist-lib/index.d.ts",
-        "default": "./dist-lib/viz-engine-sdk.js"
+        "default": "./dist-lib/charturbo.js"
       },
       "require": {
         "types": "./dist-lib/index.d.cts",
-        "default": "./dist-lib/viz-engine-sdk.umd.cjs"
+        "default": "./dist-lib/charturbo.umd.cjs"
       },
       "default": {
         "types": "./dist-lib/index.d.ts",
-        "default": "./dist-lib/viz-engine-sdk.js"
+        "default": "./dist-lib/charturbo.js"
       }
     },
     "./inline": {
@@ -48,7 +48,7 @@
       },
       "require": {
         "types": "./dist-lib/inline.d.cts",
-        "default": "./dist-lib/viz-engine-sdk.umd.cjs"
+        "default": "./dist-lib/charturbo.umd.cjs"
       },
       "default": {
         "types": "./dist-lib/inline.d.ts",
@@ -65,20 +65,20 @@
       "import": "./dist-lib/vue.js",
       "default": "./dist-lib/vue.js"
     },
-    "./umd": "./dist-lib/viz-engine-sdk.umd.cjs",
-    "./viz_core_bg.wasm": "./dist-lib/viz_core_bg.wasm",
+    "./umd": "./dist-lib/charturbo.umd.cjs",
+    "./charturbo_core_bg.wasm": "./dist-lib/charturbo_core_bg.wasm",
     "./webgpu": {
-      "types": "./dist-lib/viz-engine-sdk-webgpu.d.ts",
-      "import": "./dist-lib/viz-engine-sdk-webgpu.js",
-      "default": "./dist-lib/viz-engine-sdk-webgpu.js"
+      "types": "./dist-lib/index.d.ts",
+      "import": "./dist-lib/charturbo-webgpu.js",
+      "default": "./dist-lib/charturbo-webgpu.js"
     },
     "./inline-webgpu": {
-      "types": "./dist-lib/inline-webgpu.d.ts",
+      "types": "./dist-lib/inline.d.ts",
       "import": "./dist-lib/inline-webgpu.js",
       "default": "./dist-lib/inline-webgpu.js"
     },
-    "./webgpu-umd": "./dist-lib/viz-engine-sdk-webgpu.umd.cjs",
-    "./viz_core_bg-webgpu.wasm": "./dist-lib/viz_core_bg-webgpu.wasm",
+    "./webgpu-umd": "./dist-lib/charturbo-webgpu.umd.cjs",
+    "./charturbo_core_bg-webgpu.wasm": "./dist-lib/charturbo_core_bg-webgpu.wasm",
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -146,8 +146,8 @@
     "build": "tsc && vite build",
     "build:lib": "vite build --config vite.lib.config.ts && vite build --config vite.lib.config.ts --mode umd && tsc -p tsconfig.lib.json && node scripts/finalize-dts.mjs",
     "build:lib:webgpu": "vite build --config vite.lib.config.ts --mode webgpu && vite build --config vite.lib.config.ts --mode webgpu-umd",
-    "wasm:build": "wasm-pack build ../crates/viz-core --target web --out-dir ../../web/src/wasm-pkg --release",
-    "wasm:webgpu": "wasm-pack build ../crates/viz-core --target web --out-dir ../../web/src/wasm-pkg-webgpu --release --no-default-features",
+    "wasm:build": "wasm-pack build ../crates/charturbo-core --target web --out-dir ../../web/src/wasm-pkg --release",
+    "wasm:webgpu": "wasm-pack build ../crates/charturbo-core --target web --out-dir ../../web/src/wasm-pkg-webgpu --release --no-default-features",
     "test": "vitest run",
     "test:visual": "node e2e/run-visual.mjs",
     "docs": "typedoc",
@@ -155,7 +155,7 @@
     "examples:build": "tsc -p examples/tsconfig.json && vite build --config examples/vite.config.ts",
     "examples:preview": "vite preview --config examples/vite.config.ts",
     "examples:shots": "npm run examples:build && node examples/scripts/capture-screens.mjs",
-    "prepack": "npm run build:lib",
+    "prepack": "npm run build:lib && npm run build:lib:webgpu",
     "prepublishOnly": "node scripts/check-release-metadata.mjs",
     "bench": "node bench/run-bench.mjs",
     "bench:charts": "node bench/readme-charts.mjs",

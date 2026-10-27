@@ -22,7 +22,7 @@ import {
   type A11yChartModel,
   type ChartA11yHostState,
 } from '../sdk/chart-a11y';
-import { VIZ_THEMES, VizEngineSDK, type ChartTooltipContext, type WasmVizEngineBackend } from '../sdk/viz-engine-sdk';
+import { CHARTURBO_THEMES, Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { heatmapMeta } from '../sdk/chart-heatmap';
 
 const lineMeta = (over: Record<string, unknown> = {}) => ({
@@ -67,6 +67,37 @@ const barMeta = () => ({
 const lineModel = (meta = lineMeta(), pres = linePresentation()) => buildA11yModel(meta, pres)!;
 
 describe('chart-a11y model + text', () => {
+  it('ErrorBar and Impulse keyboard, announcements and CSV expose scientific values', () => {
+    const meta = lineMeta({ names: ['E'], values: [[10, 20]], offsets: [0], visible: [true], sparse: {
+      kind: 'errorBar', errors: [{ low: [8, 17], high: [12, 23], direction: 'horizontal' }],
+    } });
+    const m = lineModel(meta);
+    expect(buildChartSummary(m)).toContain('Error bar chart');
+    expect(buildDataTable(m).columns).toEqual(['X', 'E', 'E low', 'E high']);
+    expect(tableToCSV(buildDataTable(m))).toContain('T+1,20,17,23');
+    expect(tooltipContext(m, { series: 0, index: 1 }, [0, 0, 1, 0, 1, 20, 1], () => null))
+      .toMatchObject({ chartType: 'errorBar', items: [{ value: 20, errorBar: { low: 17, high: 23, direction: 'horizontal' } }] });
+    expect(pointAnnouncement(m, { series: 0, index: 1 })).toContain('17');
+    const impulse = lineModel(lineMeta({ ...meta, sparse: { kind: 'impulse', baselines: [-5] } }));
+    expect(buildChartSummary(impulse)).toContain('Impulse chart');
+    expect(buildDataTable(impulse).columns).toEqual(['X', 'E', 'E baseline']);
+    expect(tableToCSV(buildDataTable(impulse))).toContain('T+1,20,-5');
+    expect(tooltipContext(impulse, { series: 0, index: 1 }, [0, 0, 1, 0, 1, 20, 1], () => null))
+      .toMatchObject({ chartType: 'impulse', items: [{ value: 20, baseline: -5 }] });
+  });
+  it('standalone band summaries, keyboard tooltip and CSV use the actual edges', () => {
+    const m = lineModel(lineMeta({
+      standaloneBand: true, names: ['Range'], values: [new Float32Array([0, 0])], offsets: [0], visible: [true],
+      bands: [{ lower: [10, -20], upper: [-10, 20] }],
+    }));
+    expect(buildChartSummary(m)).toContain('Band chart, 1 series, 2 points; Range ranges -20–20');
+    const table = buildDataTable(m);
+    expect(table.columns).toEqual(['X', 'Range lower', 'Range upper']);
+    expect(table.rows[0]).toEqual(['T+0', 10, -10]);
+    expect(tableToCSV(table)).toContain('T+1,-20,20');
+    expect(tooltipContext(m, { series: 0, index: 1 }, [0, 0, 1, 0, 1, 0, 1], () => null)).toMatchObject({ chartType: 'band', items: [{ band: { lower: -20, upper: 20 } }] });
+    expect(pointAnnouncement(m, { series: 0, index: 1 })).toContain('-20');
+  });
   it('normalizes line and bar meta, and ignores unknown chart kinds', () => {
     const m = lineModel();
     expect(m.kind).toBe('line');
@@ -227,7 +258,7 @@ describe('chart-a11y keyboard', () => {
       overlay: null,
       meta: lineMeta(),
       presentation: linePresentation(),
-      theme: VIZ_THEMES.dark,
+      theme: CHARTURBO_THEMES.dark,
       backend: {
         project_node_to_ndc: (id) => {
           calls.push(`project ${id}`);
@@ -325,8 +356,8 @@ describe('chart-a11y data table + CSV', () => {
       set_graph_visible: noop,
       set_scene_helpers: noop,
       load_raw_dataset: noop,
-    } as unknown as WasmVizEngineBackend;
-    const sdk = VizEngineSDK.fromBackend(backend);
+    } as unknown as WasmCharturboEngineBackend;
+    const sdk = Charturbo.fromBackend(backend);
     expect(sdk.getChartDataTable()).toBeNull();
     expect(sdk.exportChartCSV()).toBe('');
     sdk.renderLineChart(
@@ -546,7 +577,7 @@ describe('chart-a11y scatter', () => {
         series: new Uint16Array([0, 1, 0, 1, 0, 0, 0]),
       }),
       presentation: scatterPres,
-      theme: VIZ_THEMES.dark,
+      theme: CHARTURBO_THEMES.dark,
       backend: {
         project_node_to_ndc: (id) => {
           projected.push(id);
@@ -592,12 +623,12 @@ describe('chart-a11y SDK integration (bar-multi / scatter / view flags)', () => 
       set_graph_visible: noop,
       set_scene_helpers: noop,
       load_raw_dataset: noop,
-    }) as unknown as WasmVizEngineBackend;
-  const flat = (sdk: VizEngineSDK) => (sdk as unknown as { flatCameraView: boolean }).flatCameraView;
+    }) as unknown as WasmCharturboEngineBackend;
+  const flat = (sdk: Charturbo) => (sdk as unknown as { flatCameraView: boolean }).flatCameraView;
   const data = { categories: ['Q1', 'Q2'], series: [{ name: 'A', values: [1, 2] }, { name: 'B', values: [3, 4] }] };
 
   it('exposes bar-multi and scatter summaries / CSV', () => {
-    const sdk = VizEngineSDK.fromBackend(backend());
+    const sdk = Charturbo.fromBackend(backend());
     sdk.renderGroupedBarChart(data, { mode: 'stacked' });
     expect(sdk.getChartSummary()).toBe('Stacked bar chart, 2 categories, 2 series; A ranges 1–2; B ranges 3–4.');
     expect(sdk.exportChartCSV()).toBe('Category,A,B,Total\r\nQ1,1,3,4\r\nQ2,2,4,6');
@@ -607,7 +638,7 @@ describe('chart-a11y SDK integration (bar-multi / scatter / view flags)', () => 
   });
 
   it('3D bar-multi ignores setSeriesVisible (engine keeps every bar); 2D toggles', () => {
-    const sdk = VizEngineSDK.fromBackend(backend());
+    const sdk = Charturbo.fromBackend(backend());
     sdk.renderGroupedBarChart(data, { viewMode: '3d' });
     sdk.setSeriesVisible(0, false);
     expect(sdk.isSeriesVisible(0)).toBe(true);
@@ -617,7 +648,7 @@ describe('chart-a11y SDK integration (bar-multi / scatter / view flags)', () => 
   });
 
   it('flat camera flag follows every chart builder and resets on exit', () => {
-    const sdk = VizEngineSDK.fromBackend(backend());
+    const sdk = Charturbo.fromBackend(backend());
     sdk.renderLineChart([{ name: 'A', values: [1, 2] }]);
     expect(flat(sdk)).toBe(true);
     sdk.renderLineChart([{ name: 'A', values: [1, 2] }], { viewMode: '2.5d' });
@@ -696,6 +727,16 @@ describe('chart-a11y candlestick charts', () => {
   });
   const pres = { xAxis: {}, yAxis: {}, formatX: (v: number) => `Day ${v}` };
 
+  it('OHLC summary, keyboard tooltip and CSV preserve financial identity and data', () => {
+    const m = buildA11yModel(candleMeta({ mode: 'ohlc' }), pres)!;
+    expect(buildChartSummary(m)).toContain('OHLC chart, 3 bars');
+    expect(buildChartDescription(m)).toContain('move between bars');
+    expect(stepFocus(m, null, 'ArrowRight')).toEqual({ series: 3, index: 0 });
+    const ctx = tooltipContext(m, { series: 3, index: 1 }, new Float64Array([0, 0, 1, 0, 1, 99, 1]), () => null);
+    expect(ctx).toMatchObject({ chartType: 'ohlc', ohlc: { open: 101, high: 106, low: 96, close: 99, volume: 1001 } });
+    expect(tableToCSV(buildDataTable(m, 2))).toBe('X,Open,High,Low,Close,Volume\r\nDay 0,100,105,95,102,1000\r\nDay 2,102,107,97,104,1002');
+  });
+
   it('one focus stop per candle; announcement reads O / H / L / C / V', () => {
     const m = buildA11yModel(candleMeta(), pres)!;
     expect(m.kind).toBe('candle');
@@ -747,7 +788,7 @@ describe('chart-a11y candlestick charts', () => {
       overlay: null,
       meta: candleMeta(),
       presentation: pres,
-      theme: VIZ_THEMES.dark,
+      theme: CHARTURBO_THEMES.dark,
       backend: {
         project_node_to_ndc: (id) => {
           calls.push(`project ${id}`);
@@ -878,7 +919,7 @@ describe('chart-a11y heatmaps', () => {
       overlay: null,
       meta: heatmapMeta({ cols: 4, rows: 3, values: grid(), ...LABELS }),
       presentation: pres(),
-      theme: VIZ_THEMES.dark,
+      theme: CHARTURBO_THEMES.dark,
       backend: {
         project_node_to_ndc: (id) => {
           calls.push(`project ${id}`);
@@ -943,7 +984,7 @@ describe('chart-a11y heatmaps', () => {
       overlay: null,
       meta: heatmapMeta({ cols: 4, rows: 3, values: grid(), ...LABELS }),
       presentation: pres({ title: 'Load' }),
-      theme: VIZ_THEMES.dark,
+      theme: CHARTURBO_THEMES.dark,
       backend: {},
       details: () => null,
       render: () => {},
@@ -969,8 +1010,8 @@ describe('chart-a11y heatmaps', () => {
       set_graph_visible: noop,
       set_scene_helpers: noop,
       load_raw_dataset: noop,
-    } as unknown as WasmVizEngineBackend;
-    const sdk = VizEngineSDK.fromBackend(backend);
+    } as unknown as WasmCharturboEngineBackend;
+    const sdk = Charturbo.fromBackend(backend);
     sdk.renderHeatmap({ cols: 4, rows: 3, values: grid(), ...LABELS }, { title: 'Load', axes: { y: { title: 'Server' } } });
     expect(sdk.getChartSummary()).toBe('Load. Heatmap, 3 rows × 4 columns, values 0–23 (1 empty cell).');
     expect(sdk.exportChartCSV().split('\r\n')[0]).toBe('Server,Mon,Tue,Wed,Thu');
