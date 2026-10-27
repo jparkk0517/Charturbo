@@ -1,4 +1,5 @@
 import { VizDevice, VizEngineSDK, type SparklineType } from 'viz-engine-sdk';
+import { bindTheme } from '../../theme';
 
 export const meta = {
   title: '24 sparklines on one GPU device',
@@ -10,6 +11,7 @@ export default async function mount(host: HTMLElement) {
   const table = host.appendChild(document.createElement('div'));
   table.className = 'spark-table';
   const device = await VizDevice.create(); // { backend: 'auto' | 'webgpu' | 'webgl2' }
+  const disposers: Array<() => void> = [];
 
   const types: SparklineType[] = ['line', 'area', 'bar', 'winloss'];
   const metrics = ['Revenue', 'Orders', 'Visitors', 'Refunds', 'Latency', 'Errors'];
@@ -39,7 +41,8 @@ export default async function mount(host: HTMLElement) {
       band: type === 'area' ? [95, 105] : undefined,
       label: name.textContent,
     });
-    sdk.render();
+    const unbind = bindTheme(sdk);
+    disposers.push(() => { unbind(); sdk.dispose(); });
   }
-  return device;
+  return { dispose: () => { disposers.forEach((dispose) => dispose()); device.dispose(); } };
 }

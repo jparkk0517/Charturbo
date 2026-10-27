@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { VizChart, type VizChartHandle } from 'viz-engine-sdk/react';
+import { chartTheme, getThemeName, setThemeName, subscribeTheme } from '../../theme';
 
 export const meta = {
   title: 'React <VizChart>',
@@ -15,7 +16,8 @@ const walk = (n: number, seed: number) => {
 function Dashboard() {
   const chart = useRef<VizChartHandle>(null);
   const [version, setVersion] = useState(0);
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const theme = useSyncExternalStore(subscribeTheme, getThemeName);
+  const appearance = useMemo(() => chartTheme(), [theme]);
   const data = useMemo(
     () => [
       { name: 'CPU', values: walk(5_000, version) },
@@ -30,7 +32,7 @@ function Dashboard() {
     <>
       <div className="toolbar">
         <button onClick={() => setVersion((v) => v + 1)}>New data</button>
-        <button onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>Theme: {theme}</button>
+        <button onClick={() => setThemeName(theme === 'dark' ? 'light' : 'dark')}>Theme: {theme}</button>
         <button onClick={() => chart.current?.sdk?.resetChartZoom()}>Reset zoom</button>
         <span>{range}</span>
       </div>
@@ -39,7 +41,7 @@ function Dashboard() {
         type="line"
         data={data}
         options={options}
-        theme={theme}
+        theme={appearance}
         createOptions={{ locale: 'en-US' }}
         style={{ height: 290 }}
         onRangeChange={(r) => setRange(`x ${r.xMin.toFixed(0)} – ${r.xMax.toFixed(0)}`)}

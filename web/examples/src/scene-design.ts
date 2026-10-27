@@ -1,11 +1,6 @@
 import { VIZ_THEMES, parseColor, type VizEngineSDK, type ObjectMaterialDescriptor, type RgbaTuple } from 'viz-engine-sdk';
 
-const THEMES = {
-  dark: { label: 'Dark', base: 'dark', surface: '#090b14', floor: '#1c2535', obstacle: '#35435c' },
-  light: { label: 'Light', base: 'light', surface: '#ffffff', floor: '#e0e6ef', obstacle: '#97a7bc' },
-  midnight: { label: 'Midnight', base: 'dark', surface: '#101b35', floor: '#182b4c', obstacle: '#334f78' },
-  paper: { label: 'Paper', base: 'light', surface: '#faf6ed', floor: '#e3dac8', obstacle: '#b1a38a' },
-} as const;
+import { THEMES, getThemeName, setThemeName, subscribeTheme } from './theme';
 const PALETTES = {
   vivid: ['#3987e5', '#f28c33', '#4dc78c', '#db5473', '#9e80eb'],
   ocean: ['#3987e5', '#22d3ee', '#14b8a6', '#818cf8', '#a5f3fc'],
@@ -42,10 +37,11 @@ try {
     if (typeof saved.axes === 'boolean') design.axes = saved.axes;
   }
 } catch { /* Storage can be disabled; controls still work in memory. */ }
+design.theme = getThemeName();
 
 const listeners = new Set<() => void>();
 function applyPageDesign() {
-  document.documentElement.dataset.theme = design.theme;
+  setThemeName(design.theme);
   document.documentElement.style.setProperty('--accent', design.accent);
 }
 
@@ -93,6 +89,11 @@ export function mountSceneDesignControls(host: HTMLElement): void {
   syncControls();
   applyPageDesign();
   host.appendChild(section);
+  subscribeTheme(() => {
+    design.theme = getThemeName();
+    syncControls();
+    for (const listener of listeners) listener();
+  });
 }
 
 /** Reapply after adding/resetting objects. Only appearance is changed, preserving live physics. */

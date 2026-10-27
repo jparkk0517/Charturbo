@@ -1,5 +1,6 @@
-import { createApp, defineComponent, h, ref, shallowRef } from 'vue';
+import { createApp, defineComponent, h, ref, shallowRef, onUnmounted } from 'vue';
 import { VizChart, type VizChartInstance } from 'viz-engine-sdk/vue';
+import { chartTheme, getThemeName, setThemeName, subscribeTheme } from '../../theme';
 
 export const meta = {
   title: 'Vue <VizChart>',
@@ -15,13 +16,14 @@ const randomData = () => ({
 const Dashboard = defineComponent({
   setup() {
     const data = shallowRef(randomData());
-    const theme = ref<'dark' | 'light'>('dark');
+    const theme = shallowRef(chartTheme());
+    onUnmounted(subscribeTheme(() => { theme.value = chartTheme(); }));
     const chart = ref<VizChartInstance | null>(null);
     const options = { title: 'Revenue (Vue)', mode: 'stacked' as const };
     return () => [
       h('div', { class: 'toolbar' }, [
         h('button', { onClick: () => (data.value = randomData()) }, 'New data'),
-        h('button', { onClick: () => (theme.value = theme.value === 'dark' ? 'light' : 'dark') }, `Theme: ${theme.value}`),
+        h('button', { onClick: () => setThemeName(getThemeName() === 'dark' ? 'light' : 'dark') }, `Theme: ${theme.value.name}`),
         h('button', { onClick: () => chart.value?.sdk?.downloadChartSVG('vue-chart.svg') }, 'Download SVG'),
       ]),
       h(VizChart, {

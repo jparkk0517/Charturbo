@@ -1,0 +1,50 @@
+import { VIZ_THEMES, type VizEngineSDK, type VizThemeInput } from 'viz-engine-sdk';
+
+export const THEMES = {
+  dark: { label: 'Dark', base: 'dark', surface: '#090b14', floor: '#1c2535', obstacle: '#35435c' },
+  light: { label: 'Light', base: 'light', surface: '#ffffff', floor: '#e0e6ef', obstacle: '#97a7bc' },
+  midnight: { label: 'Midnight', base: 'dark', surface: '#101b35', floor: '#182b4c', obstacle: '#334f78' },
+  paper: { label: 'Paper', base: 'light', surface: '#faf6ed', floor: '#e3dac8', obstacle: '#b1a38a' },
+} as const;
+export type ThemeName = keyof typeof THEMES;
+const STORAGE_KEY = 'viz-examples-theme';
+let theme: ThemeName = 'dark';
+try {
+  const saved = localStorage.getItem(STORAGE_KEY)
+    ?? JSON.parse(localStorage.getItem('viz-examples-scene-design') ?? 'null')?.theme;
+  if (typeof saved === 'string' && Object.hasOwn(THEMES, saved)) theme = saved as ThemeName;
+} catch { /* Preferences also work without storage. */ }
+const listeners = new Set<() => void>();
+export const getThemeName = () => theme;
+export function chartTheme(): VizThemeInput {
+  const selected = THEMES[theme];
+  return { ...VIZ_THEMES[selected.base], name: selected.label, surface: selected.surface };
+}
+export function setThemeName(next: ThemeName): void {
+  theme = next;
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem(STORAGE_KEY, theme); } catch { /* In-memory fallback. */ }
+  for (const listener of listeners) listener();
+}
+export function subscribeTheme(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+export function bindTheme(sdk: VizEngineSDK): () => void {
+  const refresh = () => { sdk.setTheme(chartTheme()); sdk.render(); };
+  refresh();
+  return subscribeTheme(refresh);
+}
+export function themeControl(): HTMLElement {
+  document.documentElement.dataset.theme = theme;
+  const label = document.createElement('label');
+  label.className = 'site-theme';
+  label.textContent = '테마';
+  const select = label.appendChild(document.createElement('select'));
+  select.name = 'site-theme';
+  for (const [value, entry] of Object.entries(THEMES)) select.add(new Option(entry.label, value));
+  select.value = theme;
+  select.addEventListener('change', () => setThemeName(select.value as ThemeName));
+  subscribeTheme(() => { select.value = theme; });
+  return label;
+}

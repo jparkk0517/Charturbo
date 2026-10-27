@@ -1,3 +1,5 @@
+import { themeControl } from './theme';
+
 /** Pages of the examples site (one HTML page per family, demos in src/demos/<id>/). */
 export interface Family {
   id: string;
@@ -46,6 +48,6 @@ export function renderHeader(active: string): HTMLElement {
     if (f.id === active) a.setAttribute('aria-current', 'page');
     nav.appendChild(a);
   }
-  header.append(brand, nav);
+  header.append(brand, nav, themeControl());
   return header;
 }

@@ -5,6 +5,7 @@
 import './style.css';
 import { VizDevice, VizEngineSDK } from 'viz-engine-sdk';
 import { FAMILIES, renderHeader } from './families';
+import { bindTheme } from './theme';
 
 declare global {
   interface Window {
@@ -184,7 +185,7 @@ async function main() {
       try {
         const sdk = await VizEngineSDK.create(canvas, { device, locale: 'en-US' });
         PREVIEWS[id]?.(sdk);
-        sdk.render();
+        bindTheme(sdk);
       } catch (err) {
         console.error(`[examples] ${id} preview failed`, err);
       }
