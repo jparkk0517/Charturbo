@@ -385,18 +385,19 @@ async function runCompare(id: CompareId) {
   return {
     lib,
     scenario: id,
-    backend: lib === 'viz' ? gl : lib === 'plotly' ? 'webgl' : lib === 'chartgpu' ? 'webgpu' : lib === 'scichart' || lib === 'highcharts' ? 'webgl' : 'canvas2d',
+    backend: adapter.backend?.() ?? (lib === 'viz' ? gl : lib === 'plotly' ? 'webgl' : lib === 'chartgpu' ? 'webgpu' : lib === 'highcharts' ? 'webgl' : 'canvas2d'),
     interaction: adapter.zoomable ? 'range-api' : 'hover-sweep',
     genMs: Math.round(genMs),
     initMs: Math.round(initMs),
     ttff,
+    methodologyVersion: 2,
     memory: { ...mem, wasmBytes: stats?.wasmMemoryBytes ?? null, gpuBytes: stats?.gpuBytes ?? null },
     steady,
     hover,
   };
 }
 
-/** Graph physics step per frame (fixed: every library simulates the same time per frame) */
+/** Fixed step for the matched viz/three engines; other libraries use their own integrators. */
 const GRAPH_DT = 0.016;
 /** Camera orbit over the steady phase: half a turn, driven by elapsed time (not frame count) */
 const GRAPH_ORBIT = Math.PI;
@@ -405,8 +406,8 @@ const GRAPH_ORBIT = Math.PI;
  * 3D graph comparison (bench/graph.ts): cold = first dataset load + first presented frame on a
  * fresh engine (three.js compiles its shaders here; viz builds its pipelines at engine creation,
  * i.e. in initMs); TTFF = warm reload of the same buffers
- * + first presented frame; steady = Barnes-Hut step + buffer sync + draw every frame while the
- * camera orbits; memory after the steady phase (simulation state live) and a forced GC.
+ * + first presented frame; steady = adapter-specific layout + buffer sync + draw.
+ * deck.gl is render-only; cosmos is 2D without orbit. Memory follows the steady phase and GC.
  */
 async function runGraph(id: GraphId) {
   const graphLib = lib as GraphLib;
@@ -421,13 +422,17 @@ async function runGraph(id: GraphId) {
   const tInit = performance.now();
   const g = await createGraphAdapter(graphLib, card, W, H);
   const initMs = performance.now() - tInit;
-  const load = () => void g.adapter.loadRawDataset!(raw);
+  const load = async () => {
+    g.adapter.loadRawDataset!(raw);
+    await g.loaded?.();
+  };
   phase('cold');
   const c0 = performance.now();
-  load();
+  await load();
   await committed();
   const coldMs = performance.now() - c0;
   const ttff = await timeRenders(load);
+  const physicsValidation = g.validatePhysics?.();
   const physics: number[] = [];
   const render: number[] = [];
   let lastP = 0;
@@ -445,7 +450,9 @@ async function runGraph(id: GraphId) {
     nodes: g.adapter.nodeCount(),
     edges: g.adapter.edgeCount(),
     backend: g.backend(),
-    interaction: 'physics+orbit',
+    interaction: graphLib === 'deckgl' ? 'render+orbit' : graphLib === 'cosmos' ? '2d-layout' : 'physics+orbit',
+    methodologyVersion: 2,
+    physicsValidation,
     genMs: Math.round(genMs),
     initMs: Math.round(initMs),
     coldMs: Math.round(coldMs * 100) / 100,

@@ -342,6 +342,27 @@ sdk.dispose();         // 이벤트 해제, 오버레이 DOM 제거, WASM 메모
 ```
 기본 팔레트는 각 테마 배경에 대해 색각 이상 구분 검증을 통과한 8색 순서입니다 (`VIZ_THEMES`).
 
+커스텀 테마는 기존 테마를 펼친 뒤 필요한 토큰을 덮어씁니다. GPU 색 토큰에도 CSS 색 문자열을 사용할 수 있습니다.
+
+```ts
+sdk.setTheme('light');
+sdk.setTheme({
+  ...sdk.getTheme(),
+  name: 'brand',
+  surface: '#faf6ed',
+  palette: ['#3182f6', '#14b8a6', '#f59e0b'],
+  textPrimary: '#14213d',
+  fontFamily: 'system-ui, sans-serif',
+});
+sdk.renderBarChart([
+  { label: 'A', value: 32, color: '#3182f6' },
+  { label: 'B', value: 18, color: '#14b8a6' },
+], { orientation: 'horizontal', cornerRadius: 8, labels: true });
+sdk.render();
+```
+
+`setTheme`은 배경·텍스트·격자·툴팁과 차트별 테마 스타일을 갱신합니다. 선·막대 등에서 이미 전달한 시리즈/항목 색이나 스타일도 바꾸려면 새 옵션으로 `render*Chart()`를 호출하고 `render()`합니다. [벤치마크 페이지](https://jparkk0517.github.io/VizEngineSDK/benchmarks.html)는 이 방식으로 4개 테마·강조색·팔레트·글꼴·모서리·라벨 설정과 SVG 내보내기를 제공합니다. 미드나이트·페이퍼는 예제의 커스텀 테마이며 SDK의 내장 문자열 테마는 `'light'`와 `'dark'`입니다.
+
 #### 초기화 · 이벤트 · 범위 · 색 · 로캘
 ```ts
 if (!(await VizEngineSDK.isSupported())) showFallback();   // WebGPU 어댑터 또는 WebGL2 폴백

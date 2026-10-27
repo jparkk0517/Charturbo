@@ -17,8 +17,8 @@
  *  - cosmos.gl (Graph): WebGL2 GPU force-directed layout (2D only). Forces are a custom
  *    repulsion + spring model on the GPU, different from the Barnes-Hut 3D model used by viz and
  *    three.js. Camera orbit is not applicable; `rotateCamera` is a no-op.
- *  - 3d-force-graph (ForceGraph3D): three.js + d3-force-3d physics (not Barnes-Hut); uses its
- *    own bundled three.js (0.186.x, different from the workspace three 0.170.x). The RAF loop is
+ *  - 3d-force-graph (ForceGraph3D): three.js + d3-force-3d (Barnes-Hut many-body force,
+ *    different constants / integrator from viz). The RAF loop is
  *    paused after data load; `tickFrame()` on the inner ThreeForceGraph advances the simulation
  *    one step and updates the scene meshes, then three.js renders.
  */
@@ -50,6 +50,8 @@ export function graphData(s: GraphSpec): RawGraphData {
 
 export interface GraphBench {
   adapter: EngineAdapter;
+  loaded?(): Promise<void>;
+  validatePhysics?(): { ticks: number; movedNodes: number };
   backend(): 'webgpu' | 'webgl2';
   /** WebAssembly memory (viz only) */
   wasmBytes(): number | null;
@@ -316,14 +318,19 @@ async function createCosmosBench(card: HTMLElement, w: number, h: number): Promi
 
 // ---------------------------------------------------------------------------
 // 3d-force-graph adapter
-// Wraps ForceGraph3D which bundles three.js 0.186 + d3-force-3d simulation
-// (not Barnes-Hut; different physics than viz/three.js). The RAF loop is paused
-// immediately so tick() drives physics+render manually: fg.tickFrame() advances
+// Wraps ForceGraph3D with the workspace three.js + d3-force-3d simulation.
+// The RAF loop is paused; the scene's ThreeForceGraph.tickFrame() advances
 // one d3 simulation step and syncs mesh positions; fg.renderer().render() draws.
 // Camera is kept on the same spherical orbit (yaw 0.4 rad, pitch 0.3 rad,
 // distance 220) as the other graph adapters.
 // ---------------------------------------------------------------------------
 async function createForceGraph3dBench(card: HTMLElement, w: number, h: number): Promise<GraphBench> {
+  type Node = { id: number; x: number; y: number; z: number };
+  type InnerGraph = {
+    tickFrame(): void;
+    onFinishUpdate(): () => void;
+    onFinishUpdate(fn: () => void): void;
+  };
   const { default: ForceGraph3D } = await import('3d-force-graph') as unknown as {
     default: new (el: HTMLElement, config?: Record<string, unknown>) => {
       width(w: number): unknown;
@@ -333,7 +340,7 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
       cameraPosition(pos?: { x?: number; y?: number; z?: number }, lookAt?: { x: number; y: number; z: number }, ms?: number): { x: number; y: number; z: number };
       d3ReheatSimulation(): unknown;
       renderer(): { render(scene: unknown, camera: unknown): void; domElement: HTMLCanvasElement };
-      scene(): unknown;
+      scene(): { traverse(fn: (object: unknown) => void): void };
       camera(): unknown;
       cooldownTicks(n: number): unknown;
       cooldownTime(ms: number): unknown;
@@ -342,6 +349,8 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
       nodeRelSize(r: number): unknown;
       nodeResolution(r: number): unknown;
       d3Force(name: string, force?: unknown): unknown;
+      d3AlphaMin(n: number): unknown;
+      onEngineTick(fn: () => void): unknown;
       _destructor?(): void;
     };
   };
@@ -351,9 +360,10 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
   card.appendChild(div);
 
   const fg = new ForceGraph3D(div, { controlType: 'orbit' });
-  // Prevent the library from auto-running warmup ticks or cooling down on its own
-  fg.cooldownTicks(0);
-  fg.cooldownTime(0);
+  // Disable cooling, not physics. Only the benchmark calls tickFrame.
+  fg.cooldownTicks(Infinity);
+  fg.cooldownTime(Infinity);
+  fg.d3AlphaMin(0);
   fg.warmupTicks(0);
   fg.numDimensions(3);
   fg.nodeRelSize(1);
@@ -362,6 +372,24 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
   fg.height(h);
   // Park the animation loop — we drive frames manually
   fg.pauseAnimation();
+  // three-render-objects attaches its objects in a debounced update.
+  let inner: InnerGraph | undefined;
+  for (let attempt = 0; attempt < 100 && !inner; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    fg.scene().traverse((object) => {
+      const candidate = object as Partial<InnerGraph>;
+      if (typeof candidate.tickFrame === 'function' && typeof candidate.onFinishUpdate === 'function') inner = candidate as InnerGraph;
+    });
+  }
+  // tickFrame is intentionally not a ForceGraph3D public method. Guard the scene integration
+  // and verify actual simulation callbacks / movement, rather than silently measuring reheat.
+  if (!inner) throw new Error('3d-force-graph: ThreeForceGraph scene object not found');
+  const forceGraph = inner;
+  const finishUpdate = forceGraph.onFinishUpdate();
+  let pendingLoad = Promise.resolve();
+  let ticks = 0;
+  let currentNodes: Node[] = [];
+  fg.onEngineTick(() => { ticks++; });
 
   // Initial orbit camera: distance 220, yaw 0.4 rad, pitch 0.3 rad (same as three.js adapter)
   let yaw = 0.4;
@@ -403,20 +431,29 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
         links.push({ source: edges[i * 2], target: edges[i * 2 + 1] });
       }
 
+      currentNodes = nodes;
+      pendingLoad = new Promise<void>((resolve) => {
+        forceGraph.onFinishUpdate(() => {
+          finishUpdate();
+          // Meshes are created at the origin. Sync the seeded positions and links before
+          // the first draw, without advancing physics (the cooled tick still syncs meshes).
+          fg.cooldownTicks(0);
+          forceGraph.tickFrame();
+          fg.cooldownTicks(Infinity);
+          fg.d3ReheatSimulation();
+          updateCamera();
+          fg.renderer().render(fg.scene(), fg.camera());
+          resolve();
+        });
+      });
       fg.graphData({ nodes, links });
-      // The kapsule debounce fires in ~1 ms; give it a tick to build scene objects
-      // (this is synchronous after the timeout, so the caller awaits committed() after us)
-      updateCamera();
-      fg.renderer().render(fg.scene(), fg.camera());
       return performance.now() - t0;
     },
 
     tick(_dt: number, simulatePhysics: boolean): import('../src/adapters/engine-adapter').EngineStepTiming {
       const t0 = performance.now();
       if (simulatePhysics) {
-        // tickFrame() is not exposed; use d3ReheatSimulation to advance one step
-        // The internal d3 simulation's alpha naturally decays; we reheat it slightly to keep it running
-        fg.d3ReheatSimulation();
+        forceGraph.tickFrame();
       }
       const phys = performance.now() - t0;
       const t1 = performance.now();
@@ -446,5 +483,19 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
     edgeCount: () => loadedEdgeCount,
   };
 
-  return { adapter, backend: () => 'webgl2', wasmBytes: () => null, gpuBytes: () => null };
+  return {
+    adapter, backend: () => 'webgl2', wasmBytes: () => null, gpuBytes: () => null,
+    loaded: () => pendingLoad,
+    validatePhysics() {
+      const before = currentNodes.map(({ x, y, z }) => [x, y, z]);
+      const startTicks = ticks;
+      adapter.tick(0.016, true);
+      if (currentNodes.some((n) => !Number.isFinite(n.x) || !Number.isFinite(n.y) || !Number.isFinite(n.z))) {
+        throw new Error('3d-force-graph: non-finite node positions');
+      }
+      const movedNodes = currentNodes.filter((n, i) => n.x !== before[i][0] || n.y !== before[i][1] || n.z !== before[i][2]).length;
+      if (ticks - startTicks !== 1 || !movedNodes) throw new Error('3d-force-graph: physics did not advance exactly one tick');
+      return { ticks: ticks - startTicks, movedNodes };
+    },
+  };
 }

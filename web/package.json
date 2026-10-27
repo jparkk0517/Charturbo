@@ -158,7 +158,8 @@
     "prepack": "npm run build:lib",
     "prepublishOnly": "node scripts/check-release-metadata.mjs",
     "bench": "node bench/run-bench.mjs",
-    "bench:charts": "node bench/readme-charts.mjs"
+    "bench:charts": "node bench/readme-charts.mjs",
+    "bench:report:check": "node bench/check-report.mjs"
   },
   "peerDependencies": {
     "react": ">=18",

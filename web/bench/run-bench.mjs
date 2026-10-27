@@ -270,7 +270,7 @@ function markdown(meta, ours, compare) {
   lines.push('');
   lines.push(`${meta.date} · ${meta.machine.cpu} · ${mb(meta.machine.memBytes)} MB RAM · ${meta.machine.os} · ${meta.chrome}`);
   lines.push(`WebGPU adapter: ${meta.gpu.webgpu ? Object.values(meta.gpu.webgpu).filter(Boolean).join(' / ') : 'none'} · WebGL2: ${meta.gpu.webgl2 ?? 'none'}`);
-  lines.push(`reps ${meta.reps} (+${meta.warmup} warmup) · steady phase ${meta.duration} ms · canvas 960x540 CSS px @ DPR 1 · idle rAF interval median ${ms(meta.idle?.interval?.median)} ms`);
+  lines.push(`Base run: reps ${meta.reps} (+${meta.warmup} warmup) · steady phase ${meta.duration} ms · canvas 960x540 CSS px @ DPR 1 · idle rAF interval median ${ms(meta.idle?.interval?.median)} ms. Merged comparisons use the per-scenario conditions below.`);
   lines.push('');
   if (ours.length) {
     lines.push('## viz-engine-sdk scenarios');
@@ -297,11 +297,18 @@ function markdown(meta, ours, compare) {
   if (compare.length) {
     lines.push('## Cross-library comparison');
     lines.push('');
-    lines.push('Same seeded data for every library. Line / scatter steady phase: identical zoom-in / pan / zoom-out window schedule set through each library\'s range API (time-based, 1% minimum window). bar-10k: hover sweep. viz runs on WebGPU here.');
+    lines.push('Same seeded data. Line / scatter: time-based zoom / pan via range APIs (1% minimum window); ChartGPU changes x only, including scatter. bar-10k: hover sweep. TTFF excludes engine initialization; SciChart methodology v2 includes data clear + append into wasm on every timed render.');
+    lines.push('');
+    lines.push('Per-entry measurement metadata in results.json records date, version, repetitions and duration. Older merged runs may have different conditions; this is not a uniform ranking.');
     lines.push('');
     const ids = [...new Set(compare.map((r) => r.scenario))];
     for (const id of ids) {
       lines.push(`### ${id}`);
+      lines.push('');
+      for (const r of compare.filter((c) => c.scenario === id)) {
+        const m = r.measurement;
+        if (m) lines.push(`- ${r.lib} ${m.version}: ${m.date}, ${m.chrome}, requested ${m.reps} reps (actual ${r.result?.ttff?.frame?.n ?? 'failed'}), ${m.duration} ms steady.`);
+      }
       lines.push('');
       if (isGraph(id)) {
         graphTable(lines, meta, compare.filter((c) => c.scenario === id));
@@ -330,7 +337,7 @@ function markdown(meta, ours, compare) {
 function graphTable(lines, meta, runs) {
   const first = runs.find((r) => r.ok)?.result;
   if (first) {
-    lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over ${meta.duration} ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC. deck.gl has no layout engine (static positions, render only); cosmos.gl is 2D (GPU force layout, z dropped, no orbit); 3d-force-graph runs d3-force-3d, not Barnes-Hut.`);
+    lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / three use matching 3D Barnes-Hut models. deck.gl: render only, no physics. cosmos.gl: 2D GPU layout, no orbit. 3d-force-graph: d3-force-3d (Barnes-Hut many-body, different forces / integrator); methodology v2 waits for scene updates and validates one tick plus node movement. Physics / render are CPU submission times, not GPU execution time. See per-entry measurement metadata for duration / repetitions.`);
     lines.push('');
   }
   lines.push('| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |');
@@ -361,10 +368,10 @@ function mergeInto(file, meta, ours, compare) {
     }
     return out;
   };
-  const partial = { filter: FILTER ?? null, date: meta.date, chrome: meta.chrome, reps: meta.reps, warmup: meta.warmup, duration: meta.duration, quick: meta.quick, idle: meta.idle, ms: meta.ms };
+  const partial = { filter: FILTER ?? null, libs: [...new Set(compare.map((r) => r.lib))], date: meta.date, chrome: meta.chrome, reps: meta.reps, warmup: meta.warmup, duration: meta.duration, quick: meta.quick, idle: meta.idle, ms: meta.ms };
   const touched = new Set(compare.map((r) => r.lib));
   if (ours.length) touched.add('viz');
-  const partialRuns = [...(prev.meta.partialRuns ?? []).filter((p) => p.filter !== partial.filter), partial];
+  const partialRuns = [...(prev.meta.partialRuns ?? []), partial];
   return {
     // Versions of the libraries this run measured are current; the others stay as recorded
     meta: { ...prev.meta, versions: { ...prev.meta.versions, ...Object.fromEntries([...touched].map((l) => [l, meta.versions[l]])) }, partialRuns },
@@ -542,6 +549,12 @@ async function main() {
       ms: Date.now() - t0,
     };
     fs.mkdirSync(path.dirname(OUT_STEM), { recursive: true });
+    for (const entry of [...ours, ...compare]) {
+      entry.measurement = {
+        date: meta.date, chrome: meta.chrome, reps: REPS, warmup: WARMUP, duration: DURATION,
+        version: meta.versions[entry.lib ?? 'viz'],
+      };
+    }
     const all = MERGE && fs.existsSync(MERGE) ? mergeInto(MERGE, meta, ours, compare) : { meta, ours, compare };
     fs.writeFileSync(`${OUT_STEM}.json`, JSON.stringify(all, null, 2));
     fs.writeFileSync(`${OUT_STEM}.md`, markdown(all.meta, all.ours, all.compare));

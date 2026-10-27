@@ -26,6 +26,7 @@ export interface Domain {
 }
 
 export interface LibAdapter {
+  backend?(): string;
   /** Full render of the dataset (creates / re-creates the chart); resolves once drawn */
   render(): Promise<void>;
   /** Shows the data window (y ignored by line / bar charts); the library redraws on its own */
@@ -439,14 +440,13 @@ async function scichartAdapter(card: HTMLElement, d: CompareData, w: number, h: 
   // Scatter gets an explicit y window (zoom schedule); line / bar keep y fitted to the visible data
   sciChartSurface.yAxes.add(new sc.NumericAxis(wasmContext, { autoRange: d.scatter ? sc.EAutoRange.Never : sc.EAutoRange.Always }));
 
-  // XyDataSeries takes number[] | Float64Array (copied into wasm memory once, not timed)
+  // Input conversion is preparation; copying the data into the engine is timed on every render.
   const xs = d.line ? d.xs! : d.scatter ? Float64Array.from(d.scatter.x) : Float64Array.from(d.bars!.values, (_, i) => i);
   const ys = Float64Array.from(d.line ?? d.scatter?.y ?? d.bars!.values);
   const dataSeries = new sc.XyDataSeries(wasmContext, {
     dataIsSortedInX: !d.scatter,
     containsNaN: false,
   });
-  dataSeries.appendRange(xs, ys);
 
   if (d.line) {
     sciChartSurface.renderableSeries.add(
@@ -470,7 +470,10 @@ async function scichartAdapter(card: HTMLElement, d: CompareData, w: number, h: 
 
   return {
     zoomable: !d.bars,
+    backend: () => sc.SciChartSurfaceBase.debugWasmWebGPU().webGpu ? 'webgpu' : 'webgl2',
     async render() {
+      dataSeries.clear();
+      dataSeries.appendRange(xs, ys);
       xAxis.visibleRange = new sc.NumberRange(d.domain.x0, d.domain.x1);
       if (d.scatter) yAxis.visibleRange = new sc.NumberRange(d.domain.y0, d.domain.y1);
       const drawn = sciChartSurface.nextStateRender();

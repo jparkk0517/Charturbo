@@ -35,6 +35,10 @@ export function renderHeader(active: string): HTMLElement {
   brand.className = 'brand';
   brand.textContent = 'viz-engine-sdk examples';
   const nav = document.createElement('nav');
+  const benchmarks = document.createElement('a');
+  benchmarks.href = './benchmarks.html';
+  benchmarks.textContent = 'Benchmarks';
+  nav.appendChild(benchmarks);
   for (const f of FAMILIES) {
     const a = document.createElement('a');
     a.href = `./${f.id}.html`;
