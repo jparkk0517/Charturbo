@@ -40,12 +40,14 @@ WebGPU가 없는 브라우저에서는 WebGL2로 자동 전환됩니다.
   <img src="docs/assets/bench-fps-light.svg" alt="VizEngineSDK로 그린 줌·팬 및 막대 hover 중 FPS 비교. 60 Hz 환경, 개별 수치는 연결된 비교 페이지의 표 참조." width="880">
 </picture>
 
-그래프는 **작업 조건별로** 읽어야 합니다. viz·three.js는 같은 3D Barnes-Hut 힘 모델, deck.gl은 물리 없는 렌더, cosmos.gl은 2D GPU 레이아웃, 3d-force-graph는 다른 d3-force-3d 힘 모델입니다. 이들의 FPS를 동일 작업의 종합 순위로 해석하지 않습니다. 시간 초과는 해당 어댑터·설정에서의 결과입니다.
+그래프는 **작업 조건별로** 읽어야 합니다. viz·VizEngine GPU·three.js는 같은 3D Barnes-Hut 힘 모델입니다. VizEngine GPU는 GPU 반발력 + CPU 적분·공간 인덱스의 하이브리드 방식이며 물리 시간에 GPU 왕복을 포함합니다. deck.gl은 물리 없는 렌더, cosmos.gl은 2D GPU 레이아웃, 3d-force-graph는 다른 d3-force-3d 힘 모델입니다. 이들의 FPS를 동일 작업의 종합 순위로 해석하지 않습니다. 시간 초과는 해당 어댑터·설정에서의 결과입니다.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/bench-graph-dark.svg">
-  <img src="docs/assets/bench-graph-light.svg" alt="노드 10k·100k의 FPS, 물리 CPU 호출 시간, 첫 프레임 시간. deck.gl은 렌더만, cosmos.gl은 2D이며 다른 물리 엔진과 작업 조건이 다름." width="880">
+  <img src="docs/assets/bench-graph-light.svg" alt="노드 10k·100k의 FPS, 물리 시간, 첫 프레임 시간. VizEngine GPU는 GPU 왕복 포함, deck.gl은 렌더만, cosmos.gl은 2D로 작업 조건이 다름." width="880">
 </picture>
+
+Apple M1 측정에서 하이브리드 GPU 물리는 10k 노드 **60 FPS**, 100k 노드 **19.6 FPS**였습니다(개선 전 CPU: 43.8 / 3.5 FPS). `await sdk.stepPhysicsAsync(0.016)` 후 `sdk.render()`로 사용하며, WebGL2에서는 CPU로 폴백합니다. 동기 `stepPhysics()`는 CPU 경로입니다.
 
 측정 방법, 각 라이브러리 설정, 전체 표와 한계는 [docs/BENCHMARKS.md](docs/BENCHMARKS.md)에 있습니다. 직접 돌려 보려면 `cd web && npm run bench`.
 

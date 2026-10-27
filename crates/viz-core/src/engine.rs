@@ -61,6 +61,18 @@ struct ScenePackKey {
 /// Consecutive calm layout steps (~0.5 s at 60 fps) before auto-sleep engages.
 pub const SLEEP_CALM_STEPS: u32 = 30;
 
+pub enum GpuPhysicsRequest {
+    Immediate(f32),
+    Pending(u32, crate::renderer::gpu_repulsion::GpuReadback),
+}
+
+struct PendingPhysics {
+    ticket: u32,
+    revision: u64,
+    config: ForceConfig,
+    dt: f32,
+}
+
 /// Share of the view `fit_to_view` fills (0.9 = 5 % margin on each side).
 const FIT_VIEW_MARGIN: f32 = 0.9;
 
@@ -97,6 +109,8 @@ pub struct VisualizationEngine {
     /// Last frame of the chart `clear_chart` removed: the next chart of the same kind / shape
     /// tweens from it
     chart_anim_prev: Option<AnimSnapshot>,
+    physics_ticket: u32,
+    pending_physics: Option<PendingPhysics>,
 }
 
 impl VisualizationEngine {
@@ -133,6 +147,8 @@ impl VisualizationEngine {
             index_dirty: false,
             chart_animation: None,
             chart_anim_prev: None,
+            physics_ticket: 0,
+            pending_physics: None,
         }
     }
 
@@ -203,6 +219,48 @@ impl VisualizationEngine {
         }
         self.ensure_spatial_index();
         self.simulator.step(&mut self.dataset, dt);
+        self.finish_physics_step(scene_ke)
+    }
+
+    /// GPU work holds a snapshot, never a borrow of the engine across an await.
+    pub fn request_gpu_physics(&mut self, dt: f32) -> Result<GpuPhysicsRequest, String> {
+        self.pending_physics = None;
+        if !self.renderer.supports_gpu_physics() || !self.graph_visible || self.dataset.node_count() == 0
+            || (self.auto_sleep_enabled && self.sleeping) || !dt.is_finite() || dt <= 0.0 {
+            return Ok(GpuPhysicsRequest::Immediate(self.step_physics(dt)));
+        }
+        self.ensure_spatial_index();
+        let Some(snapshot) = self.simulator.spatial_index().repulsion_snapshot() else {
+            return Ok(GpuPhysicsRequest::Immediate(self.step_physics(dt)));
+        };
+        let config = self.simulator.force_config();
+        let readback = self.renderer.gpu_repulsion(&snapshot, config)?;
+        self.physics_ticket = self.physics_ticket.wrapping_add(1).max(1);
+        self.pending_physics = Some(PendingPhysics {
+            ticket: self.physics_ticket, revision: self.dataset.revision(), config, dt,
+        });
+        Ok(GpuPhysicsRequest::Pending(self.physics_ticket, readback))
+    }
+
+    pub fn complete_gpu_physics(&mut self, ticket: u32, forces: &[f32]) -> Result<f32, &'static str> {
+        if self.pending_physics.as_ref().map(|p| p.ticket) != Some(ticket) {
+            return Err("GPU physics request was superseded");
+        }
+        let pending = self.pending_physics.take().unwrap();
+        // Revisions are globally unique, including after replacement by same-sized data.
+        if !self.graph_visible || self.dataset.revision() != pending.revision || self.simulator.force_config() != pending.config {
+            return Err("Graph changed while GPU physics was running; result discarded");
+        }
+        if !self.simulator.step_with_repulsion(&mut self.dataset, pending.dt, forces) {
+            return Err("Invalid GPU repulsion result");
+        }
+        let scene_ke = self.scene.step_physics(pending.dt);
+        Ok(self.finish_physics_step(scene_ke))
+    }
+
+    pub fn supports_gpu_physics(&self) -> bool { self.renderer.supports_gpu_physics() }
+
+    fn finish_physics_step(&mut self, scene_ke: f32) -> f32 {
         let ke = self
             .simulator
             .kinetic_energy()

@@ -9,7 +9,7 @@
 //   npm run bench -- --quick         smoke run (2 reps, 1 s, no 10M / 5M / 4096² scenarios)
 //   options: --filter=<substring>[,<substring>...]  --backend=webgpu,webgl2
 //            --libs=viz,uplot,echarts,chartjs,plotly,chartgpu,scichart,highcharts (charts)
-//                   ,three,deckgl,cosmos,forcegraph3d (graph)
+//                   ,vizgpu,three,deckgl,cosmos,forcegraph3d (graph)
 //            --reps=N  --warmup=N  --duration=ms  --no-compare  --compare-only  --no-ours
 //            --chrome=<path> (or CHROME_PATH)  --out=<file stem> (default bench/out/results)
 //            --shots (PNG of every finished page in bench/out/shots/)  --verbose (page console)
@@ -44,16 +44,14 @@ const REPS = Number(option('reps') ?? (QUICK ? 2 : 5));
 const WARMUP = Number(option('warmup') ?? 1);
 const DURATION = Number(option('duration') ?? (QUICK ? 1000 : 3000));
 const BACKENDS = (option('backend') ?? 'webgpu,webgl2').split(',').filter((b) => b === 'webgpu' || b === 'webgl2');
-const ALL_GRAPH_LIBS = ['viz', 'three', 'deckgl', 'cosmos', 'forcegraph3d'];
+const ALL_GRAPH_LIBS = ['viz', 'vizgpu', 'three', 'deckgl', 'cosmos', 'forcegraph3d'];
 /** Graph-only libraries: never run on the chart scenarios */
 const GRAPH_ONLY = new Set(ALL_GRAPH_LIBS.filter((l) => l !== 'viz'));
 const LIBS = (option('libs') ?? 'viz,uplot,echarts,chartjs,plotly,chartgpu,scichart,highcharts').split(',');
-/** Libraries of the 3D graph scenarios: all when --libs is unset, else only when it names a graph-only library */
+/** Libraries of the graph scenarios; --libs=viz also supports a CPU-only graph run. */
 const GRAPH_LIBS = !option('libs')
   ? ALL_GRAPH_LIBS
-  : LIBS.some((l) => GRAPH_ONLY.has(l))
-    ? ALL_GRAPH_LIBS.filter((l) => LIBS.includes(l))
-    : [];
+  : ALL_GRAPH_LIBS.filter((l) => LIBS.includes(l));
 const isGraph = (id) => id.startsWith('graph-');
 const RUN_OURS = !flag('compare-only') && !flag('no-ours');
 const RUN_COMPARE = !flag('no-compare');
@@ -337,7 +335,7 @@ function markdown(meta, ours, compare) {
 function graphTable(lines, meta, runs) {
   const first = runs.find((r) => r.ok)?.result;
   if (first) {
-    lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / three use matching 3D Barnes-Hut models. deck.gl: render only, no physics. cosmos.gl: 2D GPU layout, no orbit. 3d-force-graph: d3-force-3d (Barnes-Hut many-body, different forces / integrator); methodology v2 waits for scene updates and validates one tick plus node movement. Physics / render are CPU submission times, not GPU execution time. See per-entry measurement metadata for duration / repetitions.`);
+    lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / vizgpu / three use matching 3D Barnes-Hut models. vizgpu is opt-in hybrid GPU repulsion with CPU springs/integration/index: physics is wall time INCLUDING upload, GPU completion and readback. Other physics / render values are CPU execution/submission times, NOT GPU execution time. deck.gl: render only. cosmos.gl: 2D GPU layout, no orbit; methodology v3 pauses automatic simulation so each frame executes exactly one explicit step (v2 ran two). 3d-force-graph: d3-force-3d with different forces/integrator; v2+ waits for scene updates and validates one tick plus movement. See per-entry methodology and conditions; these are different workloads.`);
     lines.push('');
   }
   lines.push('| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |');
@@ -549,6 +547,7 @@ async function main() {
       ms: Date.now() - t0,
     };
     fs.mkdirSync(path.dirname(OUT_STEM), { recursive: true });
+    meta.versions.vizgpu = meta.versions.viz;
     for (const entry of [...ours, ...compare]) {
       entry.measurement = {
         date: meta.date, chrome: meta.chrome, reps: REPS, warmup: WARMUP, duration: DURATION,

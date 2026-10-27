@@ -14,7 +14,7 @@ try {
     await browser.evaluate(`(() => { const s = document.querySelector('#scenario'); s.value = '${scenario}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await browser.wait('window.__benchmark.ready === true');
     assert.equal(await browser.evaluate('window.__benchmark.error'), undefined);
-    assert.equal(await browser.evaluate('document.querySelectorAll("tbody tr").length'), scenario.startsWith('graph') ? 5 : 8);
+    assert.equal(await browser.evaluate('document.querySelectorAll("tbody tr").length'), scenario.startsWith('graph') ? 6 : 8);
     assert.equal(await browser.evaluate('document.querySelectorAll(".chart-host canvas").length'), scenario.startsWith('graph') ? 3 : 2);
   }
   for (const theme of ['dark', 'midnight', 'paper', 'light']) {

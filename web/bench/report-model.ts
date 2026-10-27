@@ -28,9 +28,9 @@ export interface Results {
   compare: Entry[];
 }
 export const CHART_LIBS = ['viz', 'uplot', 'echarts', 'chartjs', 'plotly', 'chartgpu', 'scichart', 'highcharts'];
-export const GRAPH_LIBS = ['viz', 'three', 'deckgl', 'cosmos', 'forcegraph3d'];
+export const GRAPH_LIBS = ['viz', 'vizgpu', 'three', 'deckgl', 'cosmos', 'forcegraph3d'];
 export const LIB_NAMES: Record<string, string> = {
-  viz: 'VizEngineSDK', uplot: 'uPlot', echarts: 'ECharts', chartjs: 'Chart.js', plotly: 'Plotly',
+  viz: 'VizEngineSDK', vizgpu: 'VizEngine GPU', uplot: 'uPlot', echarts: 'ECharts', chartjs: 'Chart.js', plotly: 'Plotly',
   chartgpu: 'ChartGPU', scichart: 'SciChart', highcharts: 'Highcharts', three: 'three.js',
   deckgl: 'deck.gl', cosmos: 'cosmos.gl', forcegraph3d: '3d-force-graph',
 };
@@ -45,13 +45,13 @@ export const SCENARIOS = [
 export const METRICS: Record<Metric, { title: string; unit: string; hint: string }> = {
   ttff: { title: '데이터 전달 → 첫 프레임', unit: 'ms', hint: '짧을수록 좋음 · 초기화 제외' },
   fps: { title: '상호작용 중 프레임 속도', unit: 'fps', hint: '높을수록 좋음 · 60 Hz 환경' },
-  physics: { title: '프레임당 물리 / 제출 시간', unit: 'ms', hint: 'CPU 측정 · GPU 실행 시간 제외' },
+  physics: { title: '프레임당 물리 / 제출 시간', unit: 'ms', hint: 'CPU/제출 시간 · VizEngine GPU는 GPU 왕복 포함' },
 };
 export const formatValue = (n: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(n);
 
 export function workload(lib: string, scenario: string): string {
   if (!scenario.startsWith('graph')) return lib === 'chartgpu' && scenario === 'scatter-1m' ? 'x축만 줌·팬' : scenario === 'bar-10k' ? 'hover' : '줌·팬';
-  return ({ viz: '3D 물리 + 회전', three: '3D 물리 + 회전', deckgl: '렌더만 + 회전', cosmos: '2D GPU 레이아웃', forcegraph3d: '3D d3 물리 + 회전' } as Record<string, string>)[lib] ?? '';
+  return ({ viz: '3D 물리 + 회전', vizgpu: '3D hybrid GPU 물리 + 회전', three: '3D 물리 + 회전', deckgl: '렌더만 + 회전', cosmos: '2D GPU 레이아웃', forcegraph3d: '3D d3 물리 + 회전' } as Record<string, string>)[lib] ?? '';
 }
 
 /** Failed / missing / invalid measurements are not converted to zero-length bars. */
@@ -61,6 +61,8 @@ export function metricValue(entry: Entry | undefined, metric: Metric): { value: 
   const r = entry.result;
   if (entry.lib === 'scichart' && metric === 'ttff' && (r.methodologyVersion ?? 1) < 2) return { value: null, status: '재측정 필요: 데이터 복사 제외' };
   if (entry.lib === 'forcegraph3d' && (!r.physicsValidation || r.physicsValidation.ticks !== 1 || r.physicsValidation.movedNodes < 1)) return { value: null, status: '재측정 필요: 물리 미검증' };
+  if (entry.lib === 'vizgpu' && (r.physicsValidation?.ticks !== 1 || !(r.physicsValidation.movedNodes > 0))) return { value: null, status: '재측정 필요: 물리 미검증' };
+  if (entry.lib === 'cosmos' && ((r.methodologyVersion ?? 1) < 3 || r.physicsValidation?.ticks !== 1 || !(r.physicsValidation.movedNodes > 0))) return { value: null, status: '재측정 필요: 중복 물리 실행' };
   if (metric === 'physics' && entry.lib === 'deckgl') return { value: null, status: '해당 없음: 물리 없음' };
   const value = metric === 'ttff' ? r.ttff.frame.median : metric === 'fps' ? r.steady.fps : r.steady.physics?.median;
   return typeof value === 'number' && Number.isFinite(value) && value >= 0

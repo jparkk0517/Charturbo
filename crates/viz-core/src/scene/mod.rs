@@ -1,12 +1,13 @@
 use crate::renderer::{EdgeVertexRaw, MeshDraw, MeshInstanceRaw, MeshVertexRaw, SceneLightUniformRaw};
 use crate::spatial::Ray;
-use collision::{Collider, Contact};
+use collision::Collider;
 use glam::{Mat3, Mat4, Quat, Vec3};
 use std::f32::consts::{PI, TAU};
 
 mod collision;
 #[cfg(test)]
 mod collision_tests;
+mod dynamics;
 
 /// Primitive 3D shape types supported natively by the scene engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +129,7 @@ impl Default for Material {
 pub struct RigidBody {
     pub body_type: BodyType,
     pub velocity: Vec3,
+    /// World-space angular velocity in radians per second.
     pub angular_velocity: Vec3,
     pub mass: f32,
     pub restitution: f32,
@@ -790,7 +792,7 @@ impl SceneWorld {
         if !self.rigid_physics_enabled || self.objects.is_empty() {
             return 0.0;
         }
-        if !dt.is_finite() {
+        if !dt.is_finite() || dt <= 0.0 {
             return 0.0;
         }
         let clamped_dt = dt.clamp(0.001, 0.05);
@@ -805,21 +807,39 @@ impl SceneWorld {
         }
         self.touch();
 
-        // 1. Integrate Dynamic bodies (gravity + velocity) and Kinematic bodies (velocity only)
+        // Small substeps keep contact torques stable as an object tips onto a new face.
+        let steps = (clamped_dt / (1.0 / 120.0)).ceil() as usize;
+        let sub_dt = clamped_dt / steps as f32;
+        for _ in 0..steps {
+            self.step_rigid_bodies(sub_dt);
+        }
+        self.objects
+            .iter()
+            .filter(|o| o.body.body_type == BodyType::Dynamic && o.transform.parent_id.is_none())
+            .map(dynamics::kinetic_energy)
+            .sum()
+    }
+
+    fn step_rigid_bodies(&mut self, dt: f32) {
+        // Integrate world-space angular velocity using quaternion composition; Euler-angle
+        // derivatives are not angular velocity when multiple axes rotate together.
         for obj in &mut self.objects {
             if obj.transform.parent_id.is_some() {
                 continue;
             }
             match obj.body.body_type {
                 BodyType::Dynamic => {
-                    obj.body.velocity += self.gravity * clamped_dt;
-                    obj.body.velocity *= 0.995; // subtle air damping
+                    obj.body.velocity += self.gravity * dt;
+                    obj.body.velocity *= 0.995_f32.powf(dt * 60.0);
                 }
                 BodyType::Kinematic => {}
                 BodyType::Static => continue,
             }
-            obj.transform.position += obj.body.velocity * clamped_dt;
-            obj.transform.euler_radians += obj.body.angular_velocity * clamped_dt;
+            obj.transform.position += obj.body.velocity * dt;
+            let rotation = (Quat::from_scaled_axis(obj.body.angular_velocity * dt)
+                * obj.transform.rotation_quat()).normalize();
+            let (y, x, z) = rotation.to_euler(glam::EulerRot::YXZ);
+            obj.transform.euler_radians = Vec3::new(x, y, z);
         }
 
         // 2. Resolve collisions of Dynamic bodies against all other bodies with oriented shapes
@@ -837,6 +857,14 @@ impl SceneWorld {
             dynamic.push(o.body.body_type == BodyType::Dynamic && o.transform.parent_id.is_none());
             group.push(self.root_index(i));
         }
+        let mut motions: Vec<dynamics::Motion> = self.objects.iter().enumerate()
+            .map(|(i, obj)| {
+                let root = group[i];
+                dynamics::Motion::new(
+                    obj, &self.objects[root], world[i].w_axis.truncate(),
+                    world[root].w_axis.truncate(), dynamic[i],
+                )
+            }).collect();
         self.world_scratch = world;
         let mut boxes = Vec::with_capacity(len);
         collision::aabbs(&colliders, BROADPHASE_MARGIN, &mut boxes);
@@ -845,21 +873,41 @@ impl SceneWorld {
         collision::sweep_pairs(&boxes, &dynamic, &group, &mut order, &mut pairs);
         self.order_scratch = order;
 
-        let rest_speed = self.gravity.length() * clamped_dt * 2.0 + 0.05;
-        for _ in 0..SOLVER_ITERATIONS {
-            for &(i, j) in &pairs {
-                if let Some(c) = collision::collide(&colliders[i], &colliders[j]) {
-                    self.resolve_contact(i, j, dynamic[i], dynamic[j], c, rest_speed, &mut colliders);
-                }
+        let rest_speed = self.gravity.length() * dt * 2.0 + 0.05;
+        let mut constraints = Vec::new();
+        for &(i, j) in &pairs {
+            if let Some(c) = collision::collide(&colliders[i], &colliders[j]) {
+                dynamics::Constraint::append(&mut constraints, i, j, &c, &motions, &self.objects, rest_speed);
+            }
+        }
+        // Accumulated impulses support resting manifolds and bound friction by the normal
+        // impulse. Restitution targets are computed once, not reapplied on every iteration.
+        for _ in 0..VELOCITY_SOLVER_ITERATIONS {
+            for c in &mut constraints {
+                c.solve(&mut motions);
+            }
+        }
+        for (i, motion) in motions.iter().enumerate() {
+            if dynamic[i] {
+                self.objects[i].body.velocity = motion.linear;
+                self.objects[i].body.angular_velocity = motion.angular;
             }
         }
 
-        // Compute total kinetic energy of dynamic scene bodies
-        self.objects
-            .iter()
-            .filter(|o| o.body.body_type == BodyType::Dynamic)
-            .map(|o| 0.5 * o.body.mass * o.body.velocity.length_squared())
-            .sum()
+        // Split positional correction from velocity impulses so overlap removal does not
+        // inject energy into spin. Re-evaluate penetration as stacks are separated.
+        for _ in 0..SOLVER_ITERATIONS {
+            for &(i, j) in &pairs {
+                if let Some(c) = collision::collide(&colliders[i], &colliders[j]) {
+                    let (a, b) = (motions[i].inv_mass, motions[j].inv_mass);
+                    let correction = c.normal * (c.depth / (a + b));
+                    self.objects[i].transform.position -= correction * a;
+                    self.objects[j].transform.position += correction * b;
+                    colliders[i].center -= correction * a;
+                    colliders[j].center += correction * b;
+                }
+            }
+        }
     }
 
     /// Index of the top-most ancestor of `idx` (itself when unparented).
@@ -871,66 +919,6 @@ impl SceneWorld {
             }
         }
         idx
-    }
-
-    /// Separates one contact (`normal` from `i` to `j`): positional correction split by inverse
-    /// mass, then a restitution impulse if the bodies approach. Against non-dynamic bodies the
-    /// tangential velocity is damped by friction; any contact damps spin the same way.
-    #[allow(clippy::too_many_arguments)]
-    fn resolve_contact(
-        &mut self,
-        i: usize,
-        j: usize,
-        a_dyn: bool,
-        b_dyn: bool,
-        contact: Contact,
-        rest_speed: f32,
-        colliders: &mut [Collider],
-    ) {
-        let (normal, pen) = (contact.normal, contact.depth);
-        let restitution = (self.objects[i].body.restitution * self.objects[j].body.restitution).sqrt();
-        let friction = (self.objects[i].body.friction * self.objects[j].body.friction).sqrt();
-        let damp = (1.0 - friction).clamp(0.02, 0.35);
-        let bounce = |approach: f32| if approach < rest_speed { 0.0 } else { restitution };
-
-        if a_dyn != b_dyn {
-            // One dynamic body pushed out along `out` from an immovable one
-            let (k, out) = if a_dyn { (i, -normal) } else { (j, normal) };
-            self.objects[k].transform.position += out * pen;
-            colliders[k].center += out * pen;
-            let body = &mut self.objects[k].body;
-            let approach = -body.velocity.dot(out);
-            if approach > 0.0 {
-                body.velocity += out * ((1.0 + bounce(approach)) * approach);
-                let tangent_v = body.velocity - out * body.velocity.dot(out);
-                body.velocity -= tangent_v * damp;
-                body.angular_velocity -= body.angular_velocity * damp;
-            }
-            return;
-        }
-
-        // Both dynamic
-        let inv_a = 1.0 / self.objects[i].body.mass;
-        let inv_b = 1.0 / self.objects[j].body.mass;
-        let total_inv = inv_a + inv_b;
-        let (move_a, move_b) = (normal * (pen * inv_a / total_inv), normal * (pen * inv_b / total_inv));
-        self.objects[i].transform.position -= move_a;
-        self.objects[j].transform.position += move_b;
-        colliders[i].center -= move_a;
-        colliders[j].center += move_b;
-
-        let rel_v = self.objects[j].body.velocity - self.objects[i].body.velocity;
-        let vel_along_normal = rel_v.dot(normal);
-        if vel_along_normal < 0.0 {
-            let j_impulse = -(1.0 + bounce(-vel_along_normal)) * vel_along_normal / total_inv;
-            let impulse_vec = normal * j_impulse;
-            self.objects[i].body.velocity -= impulse_vec * inv_a;
-            self.objects[j].body.velocity += impulse_vec * inv_b;
-            for k in [i, j] {
-                let body = &mut self.objects[k].body;
-                body.angular_velocity -= body.angular_velocity * damp;
-            }
-        }
     }
 
     /// Monotonic revision bumped by every change that affects packed geometry or colors.
@@ -1249,6 +1237,7 @@ pub struct PackedScene<'a> {
 
 /// Sequential contact passes per physics step (lets stacks settle without sinking).
 const SOLVER_ITERATIONS: usize = 4;
+const VELOCITY_SOLVER_ITERATIONS: usize = 12;
 
 /// Broad-phase AABB growth so contacts created by positional corrections are still candidates.
 const BROADPHASE_MARGIN: f32 = 0.02;

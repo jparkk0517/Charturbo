@@ -1,4 +1,5 @@
 import { VizEngineSDK } from 'viz-engine-sdk';
+import { bindSceneDesign } from '../../scene-design';
 
 export const meta = {
   title: 'Materials · lighting · custom mesh',
@@ -43,12 +44,12 @@ export default async function mount(host: HTMLElement) {
   sdk.setCameraPose([0, 75, 135], [0, 10, 0]);
 
   const lights = { ambient: true, directional: true, point: true };
-  const applyLights = () =>
+  const appearance = bindSceneDesign(sdk, (brightness) =>
     sdk.setLighting({
-      ambientIntensity: lights.ambient ? 0.28 : 0.02,
-      directionalIntensity: lights.directional ? 0.9 : 0,
-      pointIntensity: lights.point ? 0.9 : 0,
-    });
+      ambientIntensity: lights.ambient ? 0.28 * brightness : 0,
+      directionalIntensity: lights.directional ? 0.9 * brightness : 0,
+      pointIntensity: lights.point ? 0.9 * brightness : 0,
+    }));
   for (const key of ['ambient', 'directional', 'point'] as const) {
     const button = toolbar.appendChild(document.createElement('button'));
     button.textContent = `${key} light`;
@@ -56,10 +57,9 @@ export default async function mount(host: HTMLElement) {
     button.onclick = () => {
       lights[key] = !lights[key];
       button.setAttribute('aria-pressed', String(lights[key]));
-      applyLights();
+      appearance.refresh();
     };
   }
-  applyLights();
 
   // Built-in orbit (drag), pan (Shift / right drag) and zoom (wheel)
   const detach = sdk.enableNodeInteractions(canvas, { builtInTooltip: false, focusOnDoubleClick: false });
@@ -75,5 +75,5 @@ export default async function mount(host: HTMLElement) {
     frame = requestAnimationFrame(tick);
   };
   tick();
-  return { sdk, dispose: () => (cancelAnimationFrame(frame), detach(), sdk.dispose()) };
+  return { sdk, dispose: () => (cancelAnimationFrame(frame), appearance.dispose(), detach(), sdk.dispose()) };
 }

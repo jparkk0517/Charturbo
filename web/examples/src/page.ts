@@ -37,11 +37,19 @@ async function main() {
   intro.querySelector('h1')!.textContent = family?.title ?? familyId;
   intro.querySelector('p')!.textContent = family?.description ?? '';
   mainEl.appendChild(intro);
+  if (familyId === 'scene') {
+    const { mountSceneDesignControls } = await import('./scene-design');
+    mountSceneDesignControls(mainEl);
+  }
 
   const paths = Object.keys(modules)
     .filter((p) => p.startsWith(`./demos/${familyId}/`))
     .sort();
   const results: NonNullable<Window['__demos']> = [];
+  const disposers: Array<() => void> = [];
+  window.addEventListener('pagehide', (event) => {
+    if (!event.persisted) disposers.forEach((dispose) => dispose());
+  });
   await Promise.all(
     paths.map(async (path) => {
       const id = path.split('/').pop()!.replace(/\.tsx?$/, '');
@@ -72,7 +80,11 @@ async function main() {
       // Keep file order in the DOM regardless of load order
       card.style.order = String(paths.indexOf(path));
       try {
-        await mod.default(host);
+        const demo = await mod.default(host);
+        if (demo && typeof demo === 'object' && 'dispose' in demo && typeof demo.dispose === 'function') {
+          const dispose = demo.dispose.bind(demo);
+          disposers.push(dispose);
+        }
         results.push({ id, ok: true });
       } catch (err) {
         console.error(`[examples] ${id} failed`, err);

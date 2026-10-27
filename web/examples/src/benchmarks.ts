@@ -42,8 +42,8 @@ main.innerHTML = `
   <section class="notes"><h2>비교 조건을 함께 읽어주세요</h2><ul>
     <li>TTFF는 엔진 초기화 이후 데이터 전달부터 첫 프레임까지입니다. 라이브러리별 재생성·재사용 방식이 다릅니다.</li>
     <li>ChartGPU 산점도는 x축만 이동합니다. SciChart는 데이터 복사를 포함한 수정 측정만 TTFF에 표시합니다.</li>
-    <li>viz·three.js는 같은 3D 힘 모델, deck.gl은 렌더만, cosmos.gl은 2D GPU 레이아웃, 3d-force-graph는 다른 d3 힘 모델입니다.</li>
-    <li>물리 시간은 CPU 호출 시간입니다. GPU 실행 시간과 같지 않습니다. 시간 초과·미지원·미측정은 0점으로 표시하지 않습니다.</li>
+    <li>viz·VizEngine GPU·three.js는 같은 3D 힘 모델입니다. VizEngine GPU는 GPU 반발력 + CPU 적분·공간 인덱스의 하이브리드 방식입니다. deck.gl은 렌더만, cosmos.gl은 2D, 3d-force-graph는 다른 d3 힘 모델입니다.</li>
+    <li>VizEngine GPU의 물리 시간은 업로드·GPU 완료·리드백·CPU 적분을 포함한 경과 시간이며, 나머지는 CPU 실행/제출 시간입니다. cosmos v3는 프레임당 한 스텝을 검증합니다. 시간 초과·미지원·미측정은 0점으로 표시하지 않습니다.</li>
   </ul></section>
   <section class="data-section"><h2>측정 원본</h2><div class="table-wrap"><table><caption>라이브러리별 수치, 조건 및 실패 사유</caption><thead><tr><th>라이브러리</th><th>TTFF (ms)</th><th>FPS</th><th>물리 (ms)</th><th>작업 / 렌더러</th><th>측정 조건</th><th>상태</th></tr></thead><tbody></tbody></table></div></section>
   <footer><span id="environment"></span><span>차트: VizEngineSDK · WebGPU / WebGL2 · SVG export</span></footer>`;

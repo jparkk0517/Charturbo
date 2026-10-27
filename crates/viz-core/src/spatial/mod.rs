@@ -141,8 +141,35 @@ pub struct SpatialBody {
     pub mass: f32,
 }
 
+/// GPU force traversal input; both records match the WGSL storage layouts (32 bytes).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuForceCell {
+    pub com_mass: [f32; 4],
+    pub size_sq: f32,
+    pub escape: u32,
+    pub body: u32,
+    pub pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuForceBody {
+    pub position_mass: [f32; 4],
+    pub id: u32,
+    pub next: u32,
+    pub pad: [u32; 2],
+}
+
+pub struct RepulsionSnapshot {
+    pub cells: Vec<GpuForceCell>,
+    pub bodies: Vec<GpuForceBody>,
+}
+
 /// Abstraction for 3D spatial indexing, decoupling physics & picking from concrete tree data structures.
 pub trait SpatialIndex {
+    /// Optional immutable snapshot for GPU repulsion. CPU query APIs stay authoritative.
+    fn repulsion_snapshot(&self) -> Option<RepulsionSnapshot> { None }
     /// Rebuilds the spatial index from a slice of bodies.
     fn rebuild(&mut self, bodies: &[SpatialBody]);
 
@@ -224,8 +251,20 @@ pub struct OctreeSpatialIndex {
     cells: Vec<OctreeCell>,
     bodies: Vec<SpatialBody>,
     next_in_leaf: Vec<Option<u32>>,
+    /// Read-only DFS layout for the hot force traversal. Spatial queries retain the octree.
+    force_cells: Vec<ForceCell>,
     /// Largest drawn body radius (pick AABBs are expanded by it)
     max_body_radius: f32,
+}
+
+/// Compact, stackless traversal: descend to the next record, or skip to `escape`.
+/// COM and squared width are computed once per rebuild, rather than per target/cell pair.
+struct ForceCell {
+    center_of_mass: Vec3,
+    mass: f32,
+    size_sq: f32,
+    escape: u32,
+    body: Option<u32>,
 }
 
 /// Traversal stacks hold 96 cells; depth 13 needs at most 7 * 13 + 1 = 92 entries.
@@ -278,6 +317,7 @@ impl OctreeSpatialIndex {
             cells: Vec::with_capacity(4096),
             bodies: Vec::with_capacity(2048),
             next_in_leaf: Vec::with_capacity(2048),
+            force_cells: Vec::new(),
         }
     }
 
@@ -290,6 +330,7 @@ impl OctreeSpatialIndex {
             cells: Vec::new(),
             bodies: Vec::new(),
             next_in_leaf: Vec::new(),
+            force_cells: Vec::new(),
         }
     }
 
@@ -325,6 +366,24 @@ impl OctreeSpatialIndex {
         self.insert_body(child_idx, body_idx, depth + 1);
     }
 
+    fn compile_force_cell(&mut self, index: usize) {
+        let cell = &self.cells[index];
+        let children = cell.children;
+        let slot = self.force_cells.len();
+        self.force_cells.push(ForceCell {
+            center_of_mass: cell.mass_weighted_sum / cell.total_mass,
+            mass: cell.total_mass,
+            size_sq: (cell.half_size * 2.0).powi(2),
+            escape: 0,
+            body: cell.body_index,
+        });
+        // Same order as the old LIFO traversal, preserving floating-point force accumulation.
+        for child in children.into_iter().rev().filter(|&c| c != 0) {
+            self.compile_force_cell(child as usize);
+        }
+        self.force_cells[slot].escape = self.force_cells.len() as u32;
+    }
+
     #[inline]
     fn ensure_child(&mut self, cell_idx: usize, octant: usize) -> usize {
         let existing = self.cells[cell_idx].children[octant];
@@ -355,8 +414,22 @@ impl Default for OctreeSpatialIndex {
 }
 
 impl SpatialIndex for OctreeSpatialIndex {
+    fn repulsion_snapshot(&self) -> Option<RepulsionSnapshot> {
+        Some(RepulsionSnapshot {
+            cells: self.force_cells.iter().map(|c| GpuForceCell {
+                com_mass: [c.center_of_mass.x, c.center_of_mass.y, c.center_of_mass.z, c.mass],
+                size_sq: c.size_sq, escape: c.escape, body: c.body.unwrap_or(u32::MAX), pad: 0,
+            }).collect(),
+            bodies: self.bodies.iter().enumerate().map(|(i, b)| GpuForceBody {
+                position_mass: [b.position.x, b.position.y, b.position.z, b.mass],
+                id: b.id, next: self.next_in_leaf[i].unwrap_or(u32::MAX), pad: [0; 2],
+            }).collect(),
+        })
+    }
+
     fn rebuild(&mut self, bodies: &[SpatialBody]) {
         self.cells.clear();
+        self.force_cells.clear();
         self.bodies.clear();
         self.bodies.extend_from_slice(bodies);
         self.next_in_leaf.clear();
@@ -385,6 +458,7 @@ impl SpatialIndex for OctreeSpatialIndex {
         for i in 0..bodies.len() {
             self.insert_body(0, i as u32, 0);
         }
+        self.compile_force_cell(0);
     }
 
     fn compute_repulsion(
@@ -413,19 +487,15 @@ impl SpatialIndex for OctreeSpatialIndex {
 
         let theta_sq = theta * theta;
         let mut total_force = Vec3::ZERO;
-        let mut stack = [0u32; 96];
-        let mut sp = 1usize;
-        stack[0] = 0;
-
-        while sp > 0 {
-            sp -= 1;
-            let cell = &self.cells[stack[sp] as usize];
-            if cell.total_mass <= 0.0 {
+        let mut index = 0;
+        while index < self.force_cells.len() {
+            let cell = &self.force_cells[index];
+            if cell.mass <= 0.0 {
+                index = cell.escape as usize;
                 continue;
             }
-
-            if !cell.is_internal {
-                let mut cur = cell.body_index;
+            if cell.body.is_some() {
+                let mut cur = cell.body;
                 while let Some(b_idx) = cur {
                     let body = &self.bodies[b_idx as usize];
                     if body.id != target_id {
@@ -434,29 +504,24 @@ impl SpatialIndex for OctreeSpatialIndex {
                     }
                     cur = self.next_in_leaf[b_idx as usize];
                 }
+                index = cell.escape as usize;
                 continue;
             }
 
-            let com = cell.mass_weighted_sum / cell.total_mass;
-            let delta = target_pos - com;
+            let delta = target_pos - cell.center_of_mass;
             let dist_sq = delta.length_squared();
-            let size = cell.half_size * 2.0;
 
             // Note: with theta > 1/sqrt(3) a cell containing the target can in theory pass this
             // test (target and COM in opposite corners). It never occurred in 92M accepted cells
             // on a 50k-node layout, while guarding it cost 5-45% of the step, so it is not checked.
-            if (size * size) < theta_sq * dist_sq {
+            if cell.size_sq < theta_sq * dist_sq {
                 let eff_dist_sq = dist_sq + softening;
                 let inv_dist = eff_dist_sq.sqrt().recip();
-                let force_mag = repulsion_strength * cell.total_mass / eff_dist_sq;
+                let force_mag = repulsion_strength * cell.mass / eff_dist_sq;
                 total_force += delta * (inv_dist * force_mag);
+                index = cell.escape as usize;
             } else {
-                for &child_idx in &cell.children {
-                    if child_idx != 0 && sp < stack.len() {
-                        stack[sp] = child_idx;
-                        sp += 1;
-                    }
-                }
+                index += 1;
             }
         }
 
@@ -827,5 +892,58 @@ mod tests {
     fn octree_depth_is_clamped_to_the_traversal_stack() {
         let tree = OctreeSpatialIndex::new(40);
         assert!(tree.max_depth <= MAX_OCTREE_DEPTH);
+    }
+
+    #[test]
+    fn compiled_traversal_preserves_forces_across_rebuilds_and_coincident_leaves() {
+        // Reference traversal reads the spatial octree, never the compiled force records.
+        fn reference(tree: &OctreeSpatialIndex, target: SpatialBody, theta: f32) -> Vec3 {
+            let mut stack = vec![0usize];
+            let mut force = Vec3::ZERO;
+            while let Some(i) = stack.pop() {
+                let c = &tree.cells[i];
+                if c.total_mass <= 0.0 { continue; }
+                if !c.is_internal {
+                    let mut next = c.body_index;
+                    while let Some(j) = next {
+                        let b = &tree.bodies[j as usize];
+                        if b.id != target.id {
+                            force += pair_repulsion(target.id, target.position, b, 25.0, 1.5);
+                        }
+                        next = tree.next_in_leaf[j as usize];
+                    }
+                } else {
+                    let delta = target.position - c.mass_weighted_sum / c.total_mass;
+                    let d2 = delta.length_squared();
+                    if (c.half_size * 2.0).powi(2) < theta * theta * d2 {
+                        let softened = d2 + 1.5;
+                        force += delta * (softened.sqrt().recip() * (25.0 * c.total_mass / softened));
+                    } else {
+                        stack.extend(c.children.iter().filter(|&&c| c != 0).map(|&c| c as usize));
+                    }
+                }
+            }
+            force
+        }
+        let mut rng = DeterministicRng::new(83);
+        let mut tree = OctreeSpatialIndex::default();
+        for count in [513, 23, 1024, 1] {
+            let bodies: Vec<_> = (0..count).map(|id| SpatialBody {
+                id,
+                position: if id % 7 == 0 { Vec3::ZERO } else {
+                    Vec3::new(rng.next_range(-80.0, 80.0), rng.next_range(-8.0, 8.0), rng.next_range(-8.0, 8.0))
+                },
+                mass: rng.next_range(0.1, 4.0),
+            }).collect();
+            tree.rebuild(&bodies);
+            for body in bodies.iter().step_by(13) {
+                for theta in [0.25, 0.75, 1.2] {
+                    let actual = tree.compute_repulsion(body.id, body.position, theta, 25.0, 1.5);
+                    assert_eq!(actual, reference(&tree, *body, theta));
+                }
+            }
+        }
+        tree.rebuild(&[]);
+        assert_eq!(tree.compute_repulsion(0, Vec3::ZERO, 0.75, 25.0, 1.5), Vec3::ZERO);
     }
 }

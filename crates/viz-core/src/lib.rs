@@ -277,6 +277,25 @@ impl WasmVizEngine {
         self.inner.step_physics(dt)
     }
 
+    pub fn supports_gpu_physics(&self) -> bool { self.inner.supports_gpu_physics() }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn request_gpu_physics(&mut self, dt: f32) -> Result<js_sys::Promise, JsValue> {
+        match self.inner.request_gpu_physics(dt).map_err(|e| JsValue::from_str(&e))? {
+            engine::GpuPhysicsRequest::Immediate(energy) => {
+                let response = js_sys::Array::new();
+                response.push(&0.into());
+                response.push(&energy.into());
+                Ok(js_sys::Promise::resolve(&JsValue::from(response)))
+            }
+            engine::GpuPhysicsRequest::Pending(ticket, readback) => Ok(readback.into_promise(ticket)),
+        }
+    }
+
+    pub fn complete_gpu_physics(&mut self, ticket: u32, forces: &[f32]) -> Result<f32, JsValue> {
+        self.inner.complete_gpu_physics(ticket, forces).map_err(JsValue::from_str)
+    }
+
     /// Auto-sleep for the graph layout. `sleep_threshold` is the MEAN kinetic energy per free
     /// (unpinned) node, `0.5 * mass * speed^2`, so the same value works at any node count; the
     /// layout sleeps after 30 consecutive steps below it and wakes on any edit / `wake_up`.

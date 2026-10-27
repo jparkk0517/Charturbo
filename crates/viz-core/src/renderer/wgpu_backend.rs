@@ -163,6 +163,7 @@ pub struct WgpuRenderBackend {
     clear_color: wgpu::Color,
     /// Upload / frame counters of `stats` (byte totals are computed on demand)
     counters: RenderStats,
+    gpu_physics: Option<super::gpu_repulsion::GpuRepulsion>,
 }
 
 /// GPU buffers of one annotation layer (see `ChartAnnotationLayer`).
@@ -459,9 +460,7 @@ impl WgpuRenderBackend {
             .await
             .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
 
-        // Keep downlevel limits so the same pipeline code works on WebGL2 when that feature is on.
-        let limits = wgpu::Limits::downlevel_webgl2_defaults()
-            .using_resolution(adapter.limits());
+        let limits = super::gpu_context::device_limits(&adapter);
 
         let (device, queue) = adapter
             .request_device(
@@ -735,6 +734,7 @@ impl WgpuRenderBackend {
                 a: 1.0,
             },
             counters: RenderStats::default(),
+            gpu_physics: None,
         }
     }
 
@@ -1122,6 +1122,16 @@ fn draw_quads<'a>(rpass: &mut wgpu::RenderPass<'a>, pipeline: &'a wgpu::RenderPi
 }
 
 impl RenderBackend for WgpuRenderBackend {
+    fn supports_gpu_physics(&self) -> bool {
+        self.device.limits().max_compute_workgroups_per_dimension > 0
+    }
+
+    fn gpu_repulsion(&mut self, snapshot: &crate::spatial::RepulsionSnapshot, config: crate::physics::ForceConfig) -> Result<super::gpu_repulsion::GpuReadback, String> {
+        if !self.supports_gpu_physics() { return Err("GPU physics requires WebGPU".into()); }
+        self.gpu_physics.get_or_insert_with(|| super::gpu_repulsion::GpuRepulsion::new(&self.device))
+            .submit(&self.device, &self.queue, snapshot, config)
+    }
+
     fn sync_graph(&mut self, nodes: &[NodeInstanceRaw], opaque_nodes: usize, edge_vertices: &[EdgeVertexRaw]) {
         let max = self.max_buffer_bytes;
         self.nodes.upload(&self.device, &self.queue, nodes, max);
@@ -1393,7 +1403,8 @@ impl RenderBackend for WgpuRenderBackend {
         let layers = [&self.annotations_below, &self.annotations_above, &self.brush, &self.navigator, &self.navigator_window];
         let gpu_bytes = arrays.iter().map(|a| a.capacity_bytes).sum::<u64>()
             + layers.iter().map(|l| l.fills.capacity_bytes + l.lines.capacity_bytes + l.markers.capacity_bytes).sum::<u64>()
-            + self.heatmap.texture_bytes();
+            + self.heatmap.texture_bytes()
+            + self.gpu_physics.as_ref().map_or(0, |g| g.bytes());
         RenderStats {
             gpu_bytes,
             series_segments: self.chart_series.len + self.chart_series_dashed.len,

@@ -98,10 +98,12 @@ fn stacked_rotated_boxes_touch_each_other_and_the_floor() {
 }
 
 #[test]
-fn sphere_rests_on_a_tilted_box_surface() {
-    let mut scene = floor_scene();
+fn sphere_rolls_without_slipping_on_a_tilted_box_surface() {
+    // A long isolated ramp: rolling travels much farther than the old velocity damping,
+    // so the floor / ramp edge must not interrupt the contact being measured.
+    let mut scene = SceneWorld::new();
     let tilt = 0.35f32;
-    let ramp = scene.add_primitive(PrimitiveKind::Box, Vec3::new(0.0, 2.0, 0.0), Vec3::new(30.0, 1.0, 30.0), [0.5; 4], BodyType::Static);
+    let ramp = scene.add_primitive(PrimitiveKind::Box, Vec3::new(0.0, 2.0, 0.0), Vec3::new(100.0, 1.0, 30.0), [0.5; 4], BodyType::Static);
     scene.find_object_mut(ramp).unwrap().transform.euler_radians = Vec3::new(0.0, 0.0, tilt);
     let ball = add_dynamic(&mut scene, PrimitiveKind::Sphere, Vec3::new(0.0, 5.0, 0.0), Vec3::splat(2.0), Vec3::ZERO);
     let start_x = scene.find_object(ball).unwrap().transform.position.x;
@@ -118,8 +120,178 @@ fn sphere_rests_on_a_tilted_box_surface() {
         let dist = (c - top_point).dot(up);
         assert!((dist - 1.0).abs() < EPS, "step {step}: ball center {dist} above the slope");
     }
-    // Rotated +z tilts the surface down towards -x: the ball slides downhill, never uphill
-    assert!(scene.find_object(ball).unwrap().transform.position.x < start_x);
+    let obj = scene.find_object(ball).unwrap();
+    assert!(obj.transform.position.x < start_x);
+    assert!(obj.body.angular_velocity.z > 1.0, "the ball must acquire spin from friction");
+    let up = scene.world_matrix_of(ramp).y_axis.truncate().normalize();
+    let surface_velocity = obj.body.velocity + obj.body.angular_velocity.cross(-up);
+    assert!(surface_velocity.length() < 0.05, "rolling contact slips: {surface_velocity:?}");
+}
+
+#[test]
+fn off_center_impact_transfers_spin_and_conserves_momentum() {
+    for offset in [0.0, 0.6, -0.6] {
+        let mut scene = SceneWorld::new();
+        scene.gravity = Vec3::ZERO;
+        let box_id = add_dynamic(&mut scene, PrimitiveKind::Box, Vec3::ZERO, Vec3::splat(2.0), Vec3::ZERO);
+        let ball = add_dynamic(&mut scene, PrimitiveKind::Sphere, Vec3::new(-1.4, offset, 0.0), Vec3::ONE, Vec3::ZERO);
+        for (id, mass) in [(box_id, 3.0), (ball, 1.0)] {
+            let body = &mut scene.find_object_mut(id).unwrap().body;
+            body.mass = mass;
+            body.friction = 0.0;
+            body.restitution = 1.0;
+        }
+        scene.find_object_mut(ball).unwrap().body.velocity = Vec3::X * 6.0;
+        // One substep, so only the documented linear air drag precedes the impact.
+        let incoming = 6.0 * 0.995_f32.sqrt();
+        let energy = scene.step_physics(1.0 / 120.0);
+        let a = scene.find_object(box_id).unwrap();
+        let b = scene.find_object(ball).unwrap();
+        assert!((a.body.velocity * 3.0 + b.body.velocity - Vec3::X * incoming).length() < 1e-4);
+        // Box Iz = m*(width^2 + height^2)/12 = 2, sphere has no frictional spin.
+        let angular_momentum = a.transform.position.cross(a.body.velocity * 3.0)
+            + b.transform.position.cross(b.body.velocity) + a.body.angular_velocity * 2.0;
+        assert!((angular_momentum.z + offset * incoming).abs() < 1e-4, "L = {angular_momentum:?}");
+        assert!((energy - 0.5 * incoming * incoming).abs() < 1e-3, "elastic impact energy {energy}");
+        if offset == 0.0 {
+            assert!(a.body.angular_velocity.length() < 1e-5, "centered impact must not create spin");
+        } else {
+            assert!(a.body.angular_velocity.z * offset < -0.1, "off-center impact must spin the box");
+        }
+        assert!(b.body.angular_velocity.length() < 1e-5);
+    }
+}
+
+#[test]
+fn tilted_box_tips_onto_a_face_from_zero_spin() {
+    let mut scene = floor_scene();
+    let id = add_dynamic(&mut scene, PrimitiveKind::Box, Vec3::new(0.0, 3.0, 0.0), Vec3::new(3.0, 1.0, 1.0), Vec3::new(0.0, 0.0, 0.45));
+    let mut max_spin = 0.0_f32;
+    for _ in 0..360 {
+        scene.step_physics(DT);
+        max_spin = max_spin.max(scene.find_object(id).unwrap().body.angular_velocity.length());
+    }
+    let obj = scene.find_object(id).unwrap();
+    assert!(max_spin > 0.5, "floor contact must create torque");
+    let up = obj.transform.rotation_quat() * Vec3::Y;
+    assert!(up.dot(Vec3::Y).abs() > 0.99, "box should settle on its broad face: {up:?}");
+    assert!(obj.body.angular_velocity.length() < 0.05);
+}
+
+#[test]
+fn floor_friction_converts_sliding_to_rolling_but_frictionless_floor_does_not() {
+    for friction in [0.0, 0.85] {
+        let mut scene = floor_scene();
+        let id = add_dynamic(&mut scene, PrimitiveKind::Sphere, Vec3::ZERO, Vec3::splat(2.0), Vec3::ZERO);
+        let body = &mut scene.find_object_mut(id).unwrap().body;
+        body.velocity = Vec3::X * 8.0;
+        body.friction = friction;
+        body.restitution = 0.0;
+        run(&mut scene, 60);
+        let body = scene.find_object(id).unwrap().body;
+        if friction == 0.0 {
+            assert!(body.angular_velocity.length() < 1e-6);
+        } else {
+            assert!(body.angular_velocity.z < -1.0);
+            assert!((body.velocity + body.angular_velocity.cross(-Vec3::Y)).length() < 0.02);
+        }
+    }
+}
+
+#[test]
+fn spin_uses_world_axes_and_contributes_to_kinetic_energy() {
+    let mut scene = SceneWorld::new();
+    scene.gravity = Vec3::ZERO;
+    let id = add_dynamic(&mut scene, PrimitiveKind::Sphere, Vec3::ZERO, Vec3::splat(2.0), Vec3::new(0.5, 0.8, -0.3));
+    let omega = Vec3::new(1.5, -2.0, 0.7);
+    scene.find_object_mut(id).unwrap().body.angular_velocity = omega;
+    let initial = scene.find_object(id).unwrap().transform.rotation_quat();
+    let energy = scene.step_physics(DT);
+    let obj = scene.find_object(id).unwrap();
+    let expected = Quat::from_scaled_axis(omega * DT) * initial;
+    assert!(obj.transform.rotation_quat().dot(expected).abs() > 0.99999);
+    // Solid sphere: I = 2/5*m*r^2; generated mass = 8 and radius = 1.
+    assert!((energy - 0.5 * 3.2 * omega.length_squared()).abs() < 1e-4);
+}
+
+#[test]
+fn kinematic_surface_transfers_motion_through_contact_friction() {
+    let mut scene = SceneWorld::new();
+    let floor = scene.add_primitive(PrimitiveKind::Box, Vec3::new(0.0, -1.0, 0.0), Vec3::new(30.0, 1.0, 30.0), [0.3; 4], BodyType::Kinematic);
+    scene.find_object_mut(floor).unwrap().body.velocity = Vec3::X * 2.0;
+    let ball = add_dynamic(&mut scene, PrimitiveKind::Sphere, Vec3::ZERO, Vec3::ONE, Vec3::ZERO);
+    run(&mut scene, 30);
+    let body = scene.find_object(ball).unwrap().body;
+    assert!(body.velocity.x > 0.1 && body.angular_velocity.z > 0.1);
+    let contact_velocity = body.velocity + body.angular_velocity.cross(-Vec3::Y * 0.5);
+    assert!((contact_velocity.x - 2.0).abs() < 0.02, "contact velocity {contact_velocity:?}");
+    assert_eq!(scene.find_object(floor).unwrap().body.velocity, Vec3::X * 2.0);
+}
+
+#[test]
+fn contact_response_rotates_with_an_anisotropic_body() {
+    let impact = |euler: Vec3| {
+        let mut scene = SceneWorld::new();
+        scene.gravity = Vec3::ZERO;
+        let box_id = add_dynamic(&mut scene, PrimitiveKind::Box, Vec3::ZERO, Vec3::new(2.0, 3.0, 1.0), euler);
+        let rotation = scene.find_object(box_id).unwrap().transform.rotation_quat();
+        let ball = add_dynamic(&mut scene, PrimitiveKind::Sphere, rotation * Vec3::new(-1.4, 0.6, 0.0), Vec3::ONE, Vec3::ZERO);
+        for id in [box_id, ball] {
+            scene.find_object_mut(id).unwrap().body.friction = 0.0;
+        }
+        scene.find_object_mut(ball).unwrap().body.velocity = rotation * Vec3::X * 6.0;
+        scene.step_physics(1.0 / 120.0);
+        (rotation, scene.find_object(box_id).unwrap().body)
+    };
+    let (_, original) = impact(Vec3::ZERO);
+    let (rotation, rotated) = impact(Vec3::new(0.4, 0.7, -0.2));
+    assert!((rotated.velocity - rotation * original.velocity).length() < 1e-4);
+    assert!((rotated.angular_velocity - rotation * original.angular_velocity).length() < 1e-4);
+}
+
+#[test]
+fn offset_box_face_impact_generates_spin_without_spurious_centered_spin() {
+    for offset in [0.0, 0.7, -0.7] {
+        let mut scene = SceneWorld::new();
+        scene.gravity = Vec3::ZERO;
+        let target = add_dynamic(&mut scene, PrimitiveKind::Box, Vec3::ZERO, Vec3::ONE, Vec3::ZERO);
+        let striker = add_dynamic(&mut scene, PrimitiveKind::Box, Vec3::new(-0.95, offset, 0.0), Vec3::ONE, Vec3::ZERO);
+        for id in [target, striker] {
+            let body = &mut scene.find_object_mut(id).unwrap().body;
+            body.friction = 0.0;
+            body.restitution = 0.0;
+        }
+        scene.find_object_mut(striker).unwrap().body.velocity = Vec3::X * 5.0;
+        let energy = scene.step_physics(1.0 / 120.0);
+        let body = scene.find_object(target).unwrap().body;
+        if offset == 0.0 {
+            assert!(body.angular_velocity.length() < 1e-4, "symmetric manifold: {:?}", body.angular_velocity);
+        } else {
+            assert!(body.angular_velocity.z * offset < -0.1, "offset manifold: {:?}", body.angular_velocity);
+        }
+        assert!(energy < 12.5, "inelastic impact must not add energy");
+    }
+}
+
+#[test]
+fn obb_contacts_have_finite_manifolds_for_random_orientations() {
+    let mut rng = DeterministicRng::new(381);
+    for _ in 0..1000 {
+        let mut make_box = || {
+            let r = Mat3::from_quat(Quat::from_euler(glam::EulerRot::XYZ, rng.next_range(-3.0, 3.0), rng.next_range(-3.0, 3.0), rng.next_range(-3.0, 3.0)));
+            Collider {
+                center: Vec3::new(rng.next_range(-1.0, 1.0), rng.next_range(-1.0, 1.0), rng.next_range(-1.0, 1.0)),
+                shape: Shape::Obb { axes: [r.x_axis, r.y_axis, r.z_axis], half: Vec3::new(1.0, 0.6, 0.3) },
+            }
+        };
+        let (a, b) = (make_box(), make_box());
+        if let Some(c) = collision::collide(&a, &b) {
+            assert!(!c.points.is_empty() && c.points.len() <= 8, "{c:?}");
+            assert!(c.points.iter().all(|p| p.is_finite()));
+            let reverse = collision::collide(&b, &a).unwrap();
+            assert!((c.normal + reverse.normal).length() < 1e-4);
+        }
+    }
 }
 
 #[test]

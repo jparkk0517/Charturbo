@@ -19,7 +19,7 @@ npm run bench:charts -- bench/out/results.json --out=bench/out/report
 npm run bench:report:check    # 시나리오·테마·스타일·SVG·모바일 브라우저 검증
 ```
 
-실패·미지원·미측정은 0으로 바꾸지 않고 이름과 사유를 표시합니다. 이전 SciChart TTFF(데이터 복사 제외), 물리 실행이 검증되지 않은 이전 3d-force-graph 결과는 그래프에서 제외하고 재측정 필요로 표시합니다.
+실패·미지원·미측정은 0으로 바꾸지 않고 이름과 사유를 표시합니다. 이전 SciChart TTFF(데이터 복사 제외), 물리 실행이 검증되지 않은 이전 3d-force-graph 결과, cosmos v2의 중복 물리 실행 결과는 그래프에서 제외하고 재측정 필요로 표시합니다.
 
 ## 1. 재현 방법
 
@@ -179,15 +179,16 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
 
 ## 6. 그래프 측정 방법과 초기 기록
 
-`graph-10k`, `graph-100k` 시나리오(`bench/graph.ts`, `main.ts`의 `runGraph`). 아래 수치 표·해석은 2026-10-26의 viz/three.js 초기 기록입니다. 5개 엔진의 최신 수치와 실패 사유는 [자동 생성 표](bench/results.md#graph-10k)를 참고하세요.
+`graph-10k`, `graph-100k` 시나리오(`bench/graph.ts`, `main.ts`의 `runGraph`). 아래 초기 수치 표·해석은 2026-10-26의 viz/three.js 기록입니다. CPU/GPU를 구분한 6개 비교 행의 최신 수치와 실패 사유는 [자동 생성 표](bench/results.md#graph-10k)를 참고하세요.
 
 ### 방법
 - **데이터**: 데모 앱의 시드 생성기(`GraphDatasetTS.generateSeeded`, xorshift, seed 42) — 노드 N, 엣지 2N(80%는 같은 군집 안), 군집 8개, 반경 100 공간. 생성은 측정 제외. 두 엔진 모두 같은 TypedArray 버퍼를 `loadRawDataset`으로 받습니다.
 - **엔진**: 데모 비교 화면이 쓰는 어댑터를 **그대로** 사용(`src/adapters/rust-wgpu-adapter.ts`, `src/adapters/three-js-adapter.ts`, 물리는 `src/three-engine/octree-physics.ts`). 벤치용 튜닝은 하지 않았습니다. 추가 비교 어댑터는 `bench/graph.ts`에만 존재합니다(`EngineAdapter` 인터페이스 구현).
   - viz: Rust Barnes-Hut(wasm, 단일 스레드) + WebGPU, 노드는 구 빌보드 임포스터(사각형 1개), 엣지는 선.
+  - vizgpu: 같은 3D Barnes-Hut 모델·데이터·렌더러. GPU에서 반발력을 계산하고 매 스텝 CPU로 리드백해 스프링·적분·공간 인덱스를 갱신하는 **하이브리드** 경로(`stepPhysicsAsync`). GPU 상주 시뮬레이션은 아닙니다.
   - three.js: 같은 알고리즘의 JS Barnes-Hut 옥트리 + `InstancedMesh`(8×6 분할 구, `MeshLambertMaterial`) 노드 + `LineSegments` 엣지, WebGL2(ANGLE Metal).
   - deck.gl: `ScatterplotLayer`(노드) + `LineLayer`(엣지), `OrbitView`, WebGL2. **레이아웃 엔진 없음** — 노드는 `loadRawDataset`의 초기 위치에 고정. `tick()`은 재드로우만 합니다. 순수 GPU 렌더 비용을 측정합니다.
-  - cosmos.gl: WebGL2 GPU 힘 기반 레이아웃, **2D 전용**. 입력 좌표의 z를 버리고 x·y만 사용. `enableRenderLoop: false`로 RAF 루프를 끄고 `step()` + `renderOneFrame()`으로 프레임을 수동 구동. 알고리즘이 viz/three.js의 Barnes-Hut 3D와 다릅니다(GPU 반발력 + 스프링, d3 계열 아님).
+  - cosmos.gl: WebGL2 GPU 힘 기반 레이아웃, **2D 전용**. 입력 좌표의 z를 버리고 x·y만 사용. `enableRenderLoop: false`와 `pause()`를 함께 적용하고 `step()` + `renderOneFrame()`으로 프레임을 수동 구동. v3부터 물리 1회·유한 좌표 이동·렌더만 할 때 좌표 불변을 검증합니다. 이전 v2는 `renderOneFrame()`에서도 물리가 실행되어 프레임당 두 스텝이었습니다. 알고리즘이 viz/three.js의 Barnes-Hut 3D와 다릅니다(GPU 반발력 + 스프링, d3 계열 아님).
   - 3d-force-graph: d3-force-3d 레이아웃(다체 반발력은 Barnes-Hut, viz와 힘·적분 방식은 다름), three.js 0.186 + WebGL2. RAF를 중단하고 scene의 `ThreeForceGraph.tickFrame()` + `renderer().render()`로 수동 구동합니다. 최상위 공개 API에는 `tickFrame()`이 없으므로 scene 객체를 검사하고, 없으면 측정을 실패시킵니다.
 - **같은 조건 (viz · three.js)**: 힘 모델과 상수(반발 25, 스프링 0.08 / 휴지 길이 8, 중심 인력 0.03, 감쇠 0.88, θ 0.75, softening 1.5, 최대 속도 60, 옥트리 최대 깊이 10), 프레임당 dt 0.016 고정, 카메라(거리 220, yaw 0.4, pitch 0.3, fov 45), 960×540 캔버스 @ DPR 1, 자동 sleep 꺼짐.
 - **deck.gl 조건**: 같은 초기 위치 데이터를 `loadRawDataset`으로 전달하고 고정(물리 없음). `OrbitView`의 `rotationOrbit`은 도(°) 단위, zoom 초기값 1. 카메라 거리 개념 없음(줌 레벨로 대체).
@@ -198,6 +199,39 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
   2. `TTFF` = 같은 버퍼 다시 로드(위치 초기화) + 첫 프레임 표시, 워밍업 1회 후 5회 중앙값. 60 Hz로 양자화됩니다.
   3. 정상상태 3초: 매 프레임 `tick(0.016, true)`(Barnes-Hut 한 스텝 + 버퍼 동기화 + 그리기)와 경과 시간 기준 카메라 궤도 회전(3초에 반 바퀴). `물리` = 스텝 시간, `렌더` = 동기화 + 드로우 제출 시간(GPU 실행은 비동기라 포함되지 않음 — 프레임 간격에 반영). **fps가 기준 지표**입니다. 프레임 작업이 16.7 ms를 조금 넘으면 rAF 간격이 16.7 / 33.3 ms로 번갈아 나와 중앙값이 16.7 ms로 보일 수 있습니다(viz 10k).
   4. 메모리: 정상상태 뒤 강제 GC 후 JS 힙, wasm 메모리(viz), UA 메모리.
+
+`vizgpu`는 정상상태 루프에서 비동기 스텝을 **완료까지 기다린 뒤** 렌더합니다. 물리 시간은 스냅샷 생성·업로드·GPU 완료·리드백·CPU 스프링/적분·인덱스 재구축을 모두 포함한 경과 시간입니다. 나머지 행의 CPU 실행/제출 시간과 범위가 다릅니다. GPU 컴퓨트 파이프라인은 첫 물리 호출에서 지연 생성되므로, 렌더만 하는 init/cold/TTFF에는 포함되지 않습니다. 정상상태 직전 검증 스텝에서 이 비용을 지불합니다. `reps=5`는 TTFF 반복 수이며 정상상태 FPS/물리 시간은 한 번의 3초 실행에서 측정합니다.
+
+### 2026-10-27 개선: CPU 탐색 + 하이브리드 GPU
+
+같은 Apple M1 / Chrome 156 / 60 Hz 환경, seed 42, 3초 정상상태 실행입니다. 전후 실행은 순차 측정이며 반복 라운드 통합 수치가 아닙니다.
+
+| 노드 / 엣지 | 개선 전 CPU 물리 ms / FPS | 개선 후 CPU 물리 ms / FPS | 하이브리드 GPU 물리 ms / FPS |
+|---|---|---|---|
+| 10k / 20k | 21.48 / 43.8 | 17.74 / 52.7 | **6.23 / 60.0** |
+| 100k / 200k | 310.30 / 3.5 | 285.76 / 3.7 | **41.87 / 19.6** |
+
+- CPU는 질량 중심을 재구축 시 캐시하고, 작은 DFS 레코드와 escape 인덱스로 스택 없이 탐색합니다. 기존 탐색 순서·결과가 동일함을 회귀 테스트로 확인했습니다. 별도 CPU 직후 실행은 10k 17.71 ms / 52.4 FPS, 100k 272.28 ms / 3.9 FPS였습니다.
+- 하이브리드 물리는 개선 전 대비 10k 약 **3.4배**, 100k 약 **7.4배** 빠릅니다. 100k FPS는 약 **5.6배**입니다. CPU 트리 재구축·적분, 매 스텝 리드백, 렌더 업로드 비용은 남아 있습니다.
+- 수정 cosmos(v3)는 10k 60 FPS, 100k 55.4 FPS였습니다. 2D와 다른 힘 근사·적분을 사용하므로 3D 동일 품질 비교는 아닙니다. GPU 실행을 포함하지 않는 cosmos의 물리 제출 시간(3.52 / 1.51 ms)을 하이브리드 왕복 시간과 직접 비교하면 안 됩니다.
+- 실제 GPU/WASM에서 CPU와 비교: 동일 위치에 겹친 노드·핀을 포함해 64개/8스텝(exact), 1k/16, 10k/8, 100k/3에서 최대 좌표 오차는 각각 0, 0.00000382, 0.00000763, 0.0000611이었습니다. 비동기 완료 뒤 피킹, 오래된 결과 거부, 동시 호출, dispose, sleep, 공유 장치, WebGL2 폴백도 검증했습니다.
+- 현재 결과는 `bench/results.json`에 병합됩니다. 전후 원본은 로컬 `web/bench/out/graph-before.json`, `graph-cpu-after.json`, `graph-after.json`입니다.
+
+```ts
+// 한 스텝씩 완료를 기다립니다. 렌더링은 호출자가 제어합니다.
+const gpuAvailable = sdk.supportsGpuPhysics();
+await sdk.stepPhysicsAsync(0.016); // WebGL2는 CPU 폴백
+sdk.render();
+```
+
+`stepPhysics()`는 계속 CPU 경로입니다. GPU 작업 중 데이터·힘 설정 변경은 결과 적용 시 거부되며, 카메라 변경·렌더링은 가능합니다. 각 비동기 호출을 기다린 뒤 다음 스텝을 시작하세요. GPU 버퍼/dispatch 한도를 넘으면 Promise가 거부됩니다. 기본 full WASM 빌드는 WebGL2 폴백을 유지하며, WebGPU-only 빌드만 `--no-default-features`를 사용합니다.
+
+```bash
+cd web
+npm run wasm:build
+npm run bench:physics:check
+npm run bench -- --filter=graph --compare-only --libs=viz,vizgpu,cosmos --backend=webgpu --reps=5 --warmup=1 --duration=3000 --out=bench/out/graph-after
+```
 
 ### graph-10k (노드 10,000 · 엣지 20,000)
 
@@ -226,7 +260,7 @@ three.js 쪽은 데모 비교 화면의 구현을 손대지 않고 썼습니다.
 - 노드 지오메트리가 다릅니다: viz는 사각형 임포스터, three.js는 80 삼각형 구 메시(`SphereGeometry(1, 8, 6)`, Lambert 조명). 100k에서 three.js가 GPU에 더 많은 삼각형을 보냅니다. 여기서 프레임 시간은 물리가 지배하므로 영향은 작지만, 렌더만 비교할 때는 `THREE.Points` + 스프라이트 셰이더가 더 가까운 비교입니다.
 - 알고리즘의 세부 차이(성능 영향은 무시할 수준): Rust는 감쇠를 `damping^(dt·60)`(dt 0.016에서 0.88^0.96)으로, JS는 스텝마다 0.88을 그대로 곱합니다. Rust 옥트리는 최대 깊이에서 겹친 노드를 연결 리스트로 유지하고 JS는 버립니다. three.js 어댑터의 `tick`은 운동 에너지 O(N) 합산을 `물리` 시간에 포함합니다(100k에서 약 1 ms).
 - 화면 색이 다릅니다(three.js는 sRGB 출력 변환과 Lambert 조명, 배경색). 성능과는 무관합니다.
-- viz 물리는 wasm 단일 스레드(SIMD · 스레드 없음)입니다. GPU 컴퓨트 물리가 아닙니다.
+- 동기 viz 물리는 wasm 단일 스레드(SIMD · 스레드 없음)입니다. 선택적 `vizgpu`만 GPU 컴퓨트 반발력을 사용합니다.
 
 ## 7. 이번 작업의 병목 수정 (전 → 후)
 

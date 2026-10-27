@@ -191,7 +191,7 @@ function scheduleWindow(p: number, d: Domain, xy: boolean): Domain {
  * rAF loop for `DURATION` ms: `step(p, frame)` runs at the start of each frame. Frame interval
  * = rAF delta; work = time spent in `step`; dropped = intervals beyond one 60 Hz vsync.
  */
-async function frameLoop(step: (p: number, frame: number) => void) {
+async function frameLoop(step: (p: number, frame: number) => void | Promise<void>) {
   phase('steady');
   await signal('steady-start');
   const intervals: number[] = [];
@@ -209,7 +209,8 @@ async function frameLoop(step: (p: number, frame: number) => void) {
     const p = (t - t0) / DURATION;
     if (p >= 1) break;
     const w0 = performance.now();
-    step(p, k++);
+    const pending = step(p, k++);
+    if (pending) await pending;
     work.push(performance.now() - w0);
   }
   await signal('steady-end');
@@ -411,7 +412,7 @@ const GRAPH_ORBIT = Math.PI;
  */
 async function runGraph(id: GraphId) {
   const graphLib = lib as GraphLib;
-  if (!(graphLib === 'viz' || graphLib === 'three' || graphLib === 'deckgl' || graphLib === 'cosmos' || graphLib === 'forcegraph3d')) {
+  if (!(graphLib === 'viz' || graphLib === 'vizgpu' || graphLib === 'three' || graphLib === 'deckgl' || graphLib === 'cosmos' || graphLib === 'forcegraph3d')) {
     throw new Error(`unsupported: ${lib} has no graph renderer`);
   }
   const spec = graphSpec(id);
@@ -432,16 +433,19 @@ async function runGraph(id: GraphId) {
   await committed();
   const coldMs = performance.now() - c0;
   const ttff = await timeRenders(load);
-  const physicsValidation = g.validatePhysics?.();
+  const physicsValidation = await g.validatePhysics?.();
   const physics: number[] = [];
   const render: number[] = [];
   let lastP = 0;
   const steady = await frameLoop((p) => {
     g.adapter.rotateCamera((p - lastP) * GRAPH_ORBIT, 0);
     lastP = p;
-    const t = g.adapter.tick(GRAPH_DT, true);
-    physics.push(t.physicsTimeMs);
-    render.push(t.renderTimeMs);
+    const record = (t: import('../src/adapters/engine-adapter').EngineStepTiming) => {
+      physics.push(t.physicsTimeMs);
+      render.push(t.renderTimeMs);
+    };
+    if (g.tickAsync) return g.tickAsync(GRAPH_DT, true).then(record);
+    record(g.adapter.tick(GRAPH_DT, true));
   });
   const mem = await memory();
   return {
@@ -451,7 +455,8 @@ async function runGraph(id: GraphId) {
     edges: g.adapter.edgeCount(),
     backend: g.backend(),
     interaction: graphLib === 'deckgl' ? 'render+orbit' : graphLib === 'cosmos' ? '2d-layout' : 'physics+orbit',
-    methodologyVersion: 2,
+    methodologyVersion: 3,
+    physicsTiming: graphLib === 'vizgpu' ? 'wall-time including GPU readback, CPU integration and index rebuild' : 'CPU execution/submission only',
     physicsValidation,
     genMs: Math.round(genMs),
     initMs: Math.round(initMs),

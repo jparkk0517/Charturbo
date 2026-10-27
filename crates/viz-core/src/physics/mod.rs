@@ -3,7 +3,7 @@ use crate::spatial::{SpatialBody, SpatialIndex};
 use glam::Vec3;
 
 /// Configuration parameters for 3D Force-Directed graph & embedding layout simulation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ForceConfig {
     pub repulsion_strength: f32,
     pub spring_stiffness: f32,
@@ -52,6 +52,8 @@ impl ForceConfig {
 /// Strategy trait for graph/embedding layout simulation.
 pub trait LayoutSimulator {
     fn step(&mut self, dataset: &mut GraphDataset, dt: f32);
+    /// Integrate a GPU repulsion result (xyzw per node), using the same CPU springs/integrator.
+    fn step_with_repulsion(&mut self, _dataset: &mut GraphDataset, _dt: f32, _forces: &[f32]) -> bool { false }
     /// Kinetic energy after the last `step`, if the simulator tracks it (saves an O(N) pass).
     fn kinetic_energy(&self) -> Option<f32> {
         None
@@ -69,6 +71,7 @@ pub struct ForceDirectedSimulator<S: SpatialIndex> {
     scratch_bodies: Vec<SpatialBody>,
     scratch_forces: Vec<Vec3>,
     last_kinetic_energy: f32,
+    supplied_repulsion: bool,
 }
 
 impl<S: SpatialIndex> ForceDirectedSimulator<S> {
@@ -79,6 +82,7 @@ impl<S: SpatialIndex> ForceDirectedSimulator<S> {
             scratch_bodies: Vec::new(),
             scratch_forces: Vec::new(),
             last_kinetic_energy: 0.0,
+            supplied_repulsion: false,
         }
     }
 
@@ -104,6 +108,16 @@ impl<S: SpatialIndex> ForceDirectedSimulator<S> {
 }
 
 impl<S: SpatialIndex> LayoutSimulator for ForceDirectedSimulator<S> {
+    fn step_with_repulsion(&mut self, dataset: &mut GraphDataset, dt: f32, forces: &[f32]) -> bool {
+        if forces.len() != dataset.node_count() * 4 || !forces.iter().all(|v| v.is_finite()) { return false; }
+        self.scratch_forces.clear();
+        self.scratch_forces.extend(forces.chunks_exact(4).map(|v| Vec3::new(v[0], v[1], v[2])));
+        self.supplied_repulsion = true;
+        self.step(dataset, dt);
+        self.supplied_repulsion = false;
+        true
+    }
+
     fn step(&mut self, dataset: &mut GraphDataset, dt: f32) {
         let node_count = dataset.node_count();
         // Large frame gaps (tab switch) must not explode the integration
@@ -117,19 +131,21 @@ impl<S: SpatialIndex> LayoutSimulator for ForceDirectedSimulator<S> {
         if self.scratch_bodies.len() != node_count {
             self.populate_and_rebuild_index(dataset);
         }
-        self.scratch_forces.clear();
-        self.scratch_forces.resize(node_count, Vec3::ZERO);
+        if !self.supplied_repulsion {
+            self.scratch_forces.clear();
+            self.scratch_forces.resize(node_count, Vec3::ZERO);
+        }
 
         // 2. Compute Barnes-Hut repulsive forces + center gravity
         let cfg = self.config;
         for (i, body) in self.scratch_bodies.iter().enumerate() {
-            let rep = self.spatial_index.compute_repulsion(
+            let rep = if self.supplied_repulsion { self.scratch_forces[i] } else { self.spatial_index.compute_repulsion(
                 body.id,
                 body.position,
                 cfg.theta,
                 cfg.repulsion_strength,
                 cfg.softening,
-            );
+            ) };
             let gravity = -body.position * cfg.center_gravity * body.mass;
             self.scratch_forces[i] = rep + gravity;
         }

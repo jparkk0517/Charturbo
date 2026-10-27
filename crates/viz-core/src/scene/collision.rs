@@ -2,8 +2,8 @@
 //!
 //! Shapes per primitive:
 //! - Box / custom mesh: oriented box (OBB) of the local bounds.
-//! - Cylinder: OBB of its bounds. Exact for flat contacts (upright, stacked, lying on a face);
-//!   a cylinder on its side rests on its bounding box and does not roll.
+//! - Cylinder: OBB of its bounds. Angular response is supported, but its curved surface is
+//!   still approximated by a box (so a cylinder tumbles rather than rolling smoothly).
 //! - Sphere: sphere of radius `0.5 * max world scale` (non-uniform scale is not an ellipsoid).
 //! - Plane: one-sided solid slab under its local `y = 0` surface, as deep as it is half wide, so
 //!   fast bodies cannot tunnel through and resting bodies sit exactly on the surface.
@@ -30,10 +30,12 @@ pub(crate) struct Collider {
 
 /// Contact between `a` and `b`: `normal` is a unit vector pointing from `a` to `b`, `depth` > 0
 /// is how far they must separate along it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Contact {
     pub normal: Vec3,
     pub depth: f32,
+    /// World-space contact manifold, midway between the two penetrating surfaces.
+    pub points: Vec<Vec3>,
 }
 
 impl Collider {
@@ -88,7 +90,7 @@ pub(crate) fn collide(a: &Collider, b: &Collider) -> Option<Contact> {
                 return None;
             }
             let normal = if dist > 1e-6 { d / dist } else { Vec3::Y };
-            Some(Contact { normal, depth })
+            Some(Contact { normal, depth, points: vec![a.center + normal * (ra - depth * 0.5)] })
         }
         (Shape::Obb { axes, half }, Shape::Sphere { radius }) => {
             obb_sphere(a.center, &axes, half, b.center, radius)
@@ -114,7 +116,11 @@ fn obb_sphere(bc: Vec3, axes: &[Vec3; 3], half: Vec3, sc: Vec3, radius: f32) -> 
         let dist = d.length();
         if dist > 1e-6 {
             let depth = radius - dist;
-            return (depth > 0.0).then(|| Contact { normal: d / dist, depth });
+            return (depth > 0.0).then(|| Contact {
+                normal: d / dist,
+                depth,
+                points: vec![closest - d / dist * (depth * 0.5)],
+            });
         }
     }
     // Center inside (or on) the box: push out through the nearest face
@@ -127,7 +133,9 @@ fn obb_sphere(bc: Vec3, axes: &[Vec3; 3], half: Vec3, sc: Vec3, radius: f32) -> 
         2
     };
     let sign = if local[i] >= 0.0 { 1.0 } else { -1.0 };
-    Some(Contact { normal: axes[i] * sign, depth: radius + gap[i] })
+    let normal = axes[i] * sign;
+    let depth = radius + gap[i];
+    Some(Contact { normal, depth, points: vec![sc + normal * (gap[i] - depth * 0.5)] })
 }
 
 /// Separating-axis test over the 15 OBB axes; the contact is the axis of least penetration.
@@ -140,7 +148,9 @@ fn obb_obb(ac: Vec3, aa: &[Vec3; 3], ha: Vec3, bc: Vec3, ba: &[Vec3; 3], hb: Vec
     };
     let mut best_depth = f32::INFINITY;
     let mut best_axis = Vec3::Y;
-    for &axis in aa.iter().chain(ba.iter()) {
+    let mut face = 0;
+    let mut edge = None;
+    for (i, &axis) in aa.iter().chain(ba.iter()).enumerate() {
         let depth = overlap_on(axis);
         if depth <= 0.0 {
             return None;
@@ -148,11 +158,12 @@ fn obb_obb(ac: Vec3, aa: &[Vec3; 3], ha: Vec3, bc: Vec3, ba: &[Vec3; 3], hb: Vec
         if depth < best_depth {
             best_depth = depth;
             best_axis = axis;
+            face = i;
         }
     }
     let face_depth = best_depth;
-    for ea in aa {
-        for eb in ba {
+    for (i, ea) in aa.iter().enumerate() {
+        for (j, eb) in ba.iter().enumerate() {
             let c = ea.cross(*eb);
             let len = c.length();
             if len < 1e-3 {
@@ -166,11 +177,78 @@ fn obb_obb(ac: Vec3, aa: &[Vec3; 3], ha: Vec3, bc: Vec3, ba: &[Vec3; 3], hb: Vec
             if depth < best_depth && depth < face_depth * EDGE_AXIS_BIAS {
                 best_depth = depth;
                 best_axis = axis;
+                edge = Some((i, j));
             }
         }
     }
     let normal = if d.dot(best_axis) < 0.0 { -best_axis } else { best_axis };
-    Some(Contact { normal, depth: best_depth })
+    let points = if let Some((i, j)) = edge {
+        // The supporting edges, not arbitrary corners, determine the torque arm.
+        let a = support_edge(ac, aa, ha, normal, i);
+        let b = support_edge(bc, ba, hb, -normal, j);
+        vec![closest_edge_midpoint(a, b)]
+    } else if face < 3 {
+        face_contacts(ac, aa, ha, face, normal, bc, ba, hb)
+    } else {
+        face_contacts(bc, ba, hb, face - 3, -normal, ac, aa, ha)
+    };
+    Some(Contact { normal, depth: best_depth, points })
+}
+
+/// Clip the incident face to the four side planes of the reference face. Multiple contact
+/// points let a flat box support its weight without introducing an arbitrary corner torque.
+#[allow(clippy::too_many_arguments)]
+fn face_contacts(rc: Vec3, ra: &[Vec3; 3], rh: Vec3, face: usize, n: Vec3,
+                 ic: Vec3, ia: &[Vec3; 3], ih: Vec3) -> Vec<Vec3> {
+    let incident = (0..3).max_by(|&a, &b| ia[a].dot(n).abs().total_cmp(&ia[b].dot(n).abs())).unwrap();
+    let center = ic - ia[incident] * ih[incident] * ia[incident].dot(n).signum();
+    let u = ia[(incident + 1) % 3] * ih[(incident + 1) % 3];
+    let v = ia[(incident + 2) % 3] * ih[(incident + 2) % 3];
+    let mut polygon = vec![center - u - v, center + u - v, center + u + v, center - u + v];
+    for axis in 0..3 {
+        if axis == face { continue; }
+        for sign in [-1.0, 1.0] {
+            let side = ra[axis] * sign;
+            let input = std::mem::take(&mut polygon);
+            if input.is_empty() { break; }
+            let mut prev = *input.last().unwrap();
+            let mut prev_d = (prev - rc).dot(side) - rh[axis];
+            for curr in input {
+                let curr_d = (curr - rc).dot(side) - rh[axis];
+                if (prev_d <= 0.0) != (curr_d <= 0.0) {
+                    polygon.push(prev + (curr - prev) * (prev_d / (prev_d - curr_d)));
+                }
+                if curr_d <= 0.0 { polygon.push(curr); }
+                prev = curr;
+                prev_d = curr_d;
+            }
+        }
+    }
+    let plane = rc + n * rh[face];
+    polygon.into_iter().filter_map(|p| {
+        let separation = (p - plane).dot(n);
+        (separation <= 1e-5).then_some(p - n * separation * 0.5)
+    }).collect()
+}
+
+fn support_edge(c: Vec3, axes: &[Vec3; 3], half: Vec3, n: Vec3, edge: usize) -> (Vec3, Vec3) {
+    let mut center = c;
+    for i in 0..3 {
+        if i != edge { center += axes[i] * half[i] * axes[i].dot(n).signum(); }
+    }
+    (center - axes[edge] * half[edge], center + axes[edge] * half[edge])
+}
+
+fn closest_edge_midpoint(a: (Vec3, Vec3), b: (Vec3, Vec3)) -> Vec3 {
+    let u = a.1 - a.0;
+    let v = b.1 - b.0;
+    let w = a.0 - b.0;
+    let (uu, vv, uv, uw, vw) = (u.dot(u), v.dot(v), u.dot(v), u.dot(w), v.dot(w));
+    let denom = uu * vv - uv * uv;
+    let mut s = if denom > 1e-12 { ((uv * vw - vv * uw) / denom).clamp(0.0, 1.0) } else { 0.0 };
+    let t = ((uv * s + vw) / vv.max(1e-12)).clamp(0.0, 1.0);
+    s = ((uv * t - uw) / uu.max(1e-12)).clamp(0.0, 1.0);
+    (a.0 + u * s + b.0 + v * t) * 0.5
 }
 
 /// World AABB `(min, max)` of each collider, grown by `margin`.

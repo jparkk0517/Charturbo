@@ -139,36 +139,40 @@ Per-entry measurement metadata in results.json records date, version, repetition
 
 ### graph-10k
 
-- viz 0.1.0: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
+- viz 0.1.0: 2026-10-27T03:47:31.638Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 - three 0.186.1: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 - deckgl 9.3.11: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
-- cosmos 3.5.1: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
+- cosmos 3.5.1: 2026-10-27T03:47:31.638Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 - forcegraph3d 1.80.1: 2026-10-27T03:20:48.712Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
+- vizgpu 0.1.0: 2026-10-27T03:47:31.638Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 
-10,000 nodes, 20,000 edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / three use matching 3D Barnes-Hut models. deck.gl: render only, no physics. cosmos.gl: 2D GPU layout, no orbit. 3d-force-graph: d3-force-3d (Barnes-Hut many-body, different forces / integrator); methodology v2 waits for scene updates and validates one tick plus node movement. Physics / render are CPU submission times, not GPU execution time. See per-entry measurement metadata for duration / repetitions.
+10,000 nodes, 20,000 edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / vizgpu / three use matching 3D Barnes-Hut models. vizgpu is opt-in hybrid GPU repulsion with CPU springs/integration/index: physics is wall time INCLUDING upload, GPU completion and readback. Other physics / render values are CPU execution/submission times, NOT GPU execution time. deck.gl: render only. cosmos.gl: 2D GPU layout, no orbit; methodology v3 pauses automatic simulation so each frame executes exactly one explicit step (v2 ran two). 3d-force-graph: d3-force-3d with different forces/integrator; v2+ waits for scene updates and validates one tick plus movement. See per-entry methodology and conditions; these are different workloads.
 
 | library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| viz 0.1.0 | webgpu | 17.0 | 12.4 | 16.8 (16.8) | 7.0 | 16.7 / 33.3 / 33.3 | 43.5 | 50/131 | 21.8 (22.5) | 0.9 (1.2) | 23.1 | 8.9 | 7.1 | 15.8 |
+| viz 0.1.0 | webgpu | 31.0 | 13.1 | 17.2 (18.3) | 5.3 | 16.7 / 33.3 / 33.3 | 52.7 | 22/158 | 17.7 (18.7) | 1.0 (1.2) | 19.1 | 9.0 | 7.6 | 15.9 |
 | three 0.186.1 | webgl2 | 126 | 119 | 15.8 (17.8) | 19.4 | 50.0 / 66.7 / 83.3 | 20.2 | 120/60 | 47.2 (52.4) | 0.8 (1.7) | 50.3 | 29.4 | - | 49.9 |
 | deckgl 9.3.11 | webgl2 | 105 | 26.3 | 19.7 (21.4) | 3.3 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 0.0 (0.0) | 1.2 (1.6) | 2.3 | 22.0 | - | 53.3 |
-| cosmos 3.5.1 | webgl2 | 75.0 | 119 | 16.7 (17.5) | 32.0 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 2.5 (3.1) | 2.5 (3.2) | 5.5 | 23.4 | - | 40.4 |
+| cosmos 3.5.1 | webgl2 | 100 | 124 | 16.8 (18.6) | 11.8 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 3.5 (4.4) | 0.2 (0.3) | 3.9 | 23.4 | - | 40.4 |
 | forcegraph3d 1.80.1 | webgl2 | 241 | 334 | 1919 (1941) | 1915 | 133 / 150 / 150 | 7.3 | 165/22 | 123 (128) | 18.4 (31.6) | 142 | 119.6 | - | 159.1 |
+| vizgpu 0.1.0 | webgpu | 23.0 | 13.4 | 16.8 (17.2) | 5.1 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 6.2 (7.1) | 1.0 (1.4) | 3.6 | 9.1 | 7.6 | 16.0 |
 
 ### graph-100k
 
-- viz 0.1.0: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
+- viz 0.1.0: 2026-10-27T03:47:31.638Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 - three 0.186.1: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 - deckgl 9.3.11: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
-- cosmos 3.5.1: 2026-10-27T03:15:02.515Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
+- cosmos 3.5.1: 2026-10-27T03:47:31.638Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 - forcegraph3d 1.80.1: 2026-10-27T03:20:48.712Z, Chrome/156.0.8078.48, requested 5 reps (actual failed), 3000 ms steady.
+- vizgpu 0.1.0: 2026-10-27T03:47:31.638Z, Chrome/156.0.8078.48, requested 5 reps (actual 5), 3000 ms steady.
 
-100,000 nodes, 200,000 edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / three use matching 3D Barnes-Hut models. deck.gl: render only, no physics. cosmos.gl: 2D GPU layout, no orbit. 3d-force-graph: d3-force-3d (Barnes-Hut many-body, different forces / integrator); methodology v2 waits for scene updates and validates one tick plus node movement. Physics / render are CPU submission times, not GPU execution time. See per-entry measurement metadata for duration / repetitions.
+100,000 nodes, 200,000 edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / vizgpu / three use matching 3D Barnes-Hut models. vizgpu is opt-in hybrid GPU repulsion with CPU springs/integration/index: physics is wall time INCLUDING upload, GPU completion and readback. Other physics / render values are CPU execution/submission times, NOT GPU execution time. deck.gl: render only. cosmos.gl: 2D GPU layout, no orbit; methodology v3 pauses automatic simulation so each frame executes exactly one explicit step (v2 ran two). 3d-force-graph: d3-force-3d with different forces/integrator; v2+ waits for scene updates and validates one tick plus movement. See per-entry methodology and conditions; these are different workloads.
 
 | library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| viz 0.1.0 | webgpu | 19.0 | 43.0 | 20.7 (22.5) | 41.1 | 317 / 333 / 333 | 3.4 | 183/10 | 316 (339) | 5.5 (7.1) | 323 | 13.9 | 63.0 | 20.8 |
+| viz 0.1.0 | webgpu | 19.0 | 58.5 | 30.9 (31.9) | 40.5 | 283 / 317 / 317 | 3.7 | 184/11 | 286 (317) | 6.1 (7.8) | 296 | 14.0 | 72.6 | 20.9 |
 | three 0.186.1 | webgl2 | 43.0 | 76.1 | 44.9 (48.3) | 75.0 | 1133 / 1167 / 1167 | 1.1 | 205/3 | 1148 (1152) | 21.1 (22.4) | 1160 | 117.7 | - | 138.2 |
 | deckgl 9.3.11 | webgl2 | 51.0 | 26.6 | 18.4 (20.2) | 6.7 | 16.7 / 16.7 / 16.7 | 60 | 0/180 | 0.0 (0.0) | 1.3 (1.6) | 2.4 | 35.2 | - | 66.5 |
-| cosmos 3.5.1 | webgl2 | 45.0 | 553 | 75.3 (101) | 120 | 33.3 / 33.3 / 33.3 | 33.5 | 80/100 | 3.6 (4.3) | 3.3 (3.8) | 7.1 | 61.3 | - | 78.3 |
+| cosmos 3.5.1 | webgl2 | 49.0 | 179 | 66.3 (109) | 76.0 | 16.7 / 33.3 / 33.3 | 55.4 | 14/166 | 1.5 (3.7) | 0.2 (0.5) | 2.5 | 61.3 | - | 78.3 |
 | forcegraph3d | - | FAILED: timeout after 300 s (page was in phase "ttff") |  |  |  |  |  |  |  |  |  |  |  |  |
+| vizgpu 0.1.0 | webgpu | 18.0 | 54.2 | 27.1 (31.2) | 42.9 | 50.0 / 66.7 / 66.7 | 19.6 | 122/58 | 41.9 (50.0) | 5.9 (6.8) | 30.2 | 14.0 | 72.6 | 21.0 |

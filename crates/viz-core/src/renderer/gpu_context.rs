@@ -271,7 +271,7 @@ impl GpuContext {
     }
 
     async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), String> {
-        let limits = wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
+        let limits = device_limits(adapter);
         adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -285,6 +285,17 @@ impl GpuContext {
             .await
             .map_err(|e| format!("Failed to request device: {e:?}"))
     }
+}
+
+/// Compute is available on WebGPU, while the WebGL2 fallback retains downlevel limits.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn device_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
+    let base = if adapter.get_info().backend == wgpu::Backend::Gl {
+        wgpu::Limits::downlevel_webgl2_defaults()
+    } else {
+        wgpu::Limits::default()
+    };
+    base.using_resolution(adapter.limits())
 }
 
 #[cfg(test)]

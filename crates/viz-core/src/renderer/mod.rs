@@ -4,6 +4,7 @@ use bytemuck::{Pod, Zeroable};
 
 mod fill_style;
 pub mod gpu_context;
+pub mod gpu_repulsion;
 mod heatmap;
 pub mod shader;
 mod stats;
@@ -465,6 +466,10 @@ impl InstancePacker {
 /// The engine only calls the `sync_*` methods when the corresponding data changed, so backends
 /// keep the last uploaded buffers and redraw them as-is.
 pub trait RenderBackend {
+    fn supports_gpu_physics(&self) -> bool { false }
+    fn gpu_repulsion(&mut self, _snapshot: &crate::spatial::RepulsionSnapshot, _config: crate::physics::ForceConfig) -> Result<gpu_repulsion::GpuReadback, String> {
+        Err("GPU physics requires a WebGPU device".into())
+    }
     /// Node instances (`opaque_nodes` leading opaque ones, then translucent) and graph edges.
     fn sync_graph(
         &mut self,

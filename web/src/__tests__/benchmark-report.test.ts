@@ -33,7 +33,18 @@ describe('benchmark report measurement integrity', () => {
   it('retains every applicable library, including missing and unsupported ones', () => {
     const data = { compare: [valid()] } as Results;
     expect(rowsFor(data, 'bar-10k', 'fps')).toHaveLength(8);
-    expect(rowsFor(data, 'graph-100k', 'fps')).toHaveLength(5);
+    expect(rowsFor(data, 'graph-100k', 'fps')).toHaveLength(6);
     expect(rowsFor(data, 'line-1m-1s', 'fps').filter((r) => r.value !== null)).toHaveLength(1);
+  });
+  it('rejects cosmos double-step measurements and unvalidated GPU measurements', () => {
+    const cosmos = valid('cosmos');
+    cosmos.result!.physicsValidation = { ticks: 1, movedNodes: 100 };
+    cosmos.result!.methodologyVersion = 2;
+    expect(metricValue(cosmos, 'fps').value).toBeNull();
+    cosmos.result!.methodologyVersion = 3;
+    expect(metricValue(cosmos, 'fps').value).toBe(0);
+    cosmos.result!.physicsValidation.ticks = 2;
+    expect(metricValue(cosmos, 'fps').value).toBeNull();
+    expect(metricValue(valid('vizgpu'), 'fps').value).toBeNull();
   });
 });

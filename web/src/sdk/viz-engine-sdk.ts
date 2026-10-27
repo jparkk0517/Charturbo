@@ -1055,6 +1055,7 @@ export interface ObjectMaterialDescriptor {
 export interface ObjectPhysicsDescriptor {
   bodyType?: RigidBodyType;
   velocity?: Vec3Tuple;
+  /** World-space angular velocity [wx, wy, wz], in radians per second. */
   angularVelocity?: Vec3Tuple;
   mass?: number;
   restitution?: number;
@@ -1072,6 +1073,7 @@ export interface PrimitiveObjectDescriptor {
   emissive?: number;
   bodyType?: RigidBodyType;
   velocity?: Vec3Tuple;
+  /** Initial world-space spin in radians per second; collisions and friction also generate spin. */
   angularVelocity?: Vec3Tuple;
   mass?: number;
   restitution?: number;
@@ -1092,6 +1094,7 @@ export interface CustomMeshObjectDescriptor {
   emissive?: number;
   bodyType?: RigidBodyType;
   velocity?: Vec3Tuple;
+  /** Initial world-space spin in radians per second; physics uses the mesh's bounding box. */
   angularVelocity?: Vec3Tuple;
   mass?: number;
   restitution?: number;
@@ -1169,6 +1172,9 @@ export interface WasmVizEngineBackend extends AnimationBackend, ZoomBackend, Ren
   import_positions(positions: Float32Array): void;
   warmup(ticks: number, dt: number): number;
   step_physics(dt: number): number;
+  supports_gpu_physics?(): boolean;
+  request_gpu_physics?(dt: number): Promise<[number, Float32Array | number]>;
+  complete_gpu_physics?(ticket: number, forces: Float32Array): number;
   set_auto_sleep(enabled: boolean, sleepThreshold: number): void;
   is_sleeping(): boolean;
   wake_up(): void;
@@ -2208,6 +2214,8 @@ function encodeLayoutPreset(mode: LayoutPresetMode): number {
  */
 export class VizEngineSDK {
   private readonly backend: WasmVizEngineBackend;
+  private physicsPending = false;
+  private disposed = false;
   private forceOptions: ForceOptions = { ...DEFAULT_SDK_FORCE_OPTIONS };
   private objectRecords = new Map<number, SceneObjectRecord>();
   private nodeMetadataMap = new Map<number, NodeMetadata>();
@@ -2643,6 +2651,32 @@ export class VizEngineSDK {
 
   stepPhysics(dt = 0.016): number {
     return this.backend.step_physics(dt);
+  }
+
+  /** Whether this device supports the opt-in hybrid GPU graph solver. */
+  supportsGpuPhysics(): boolean {
+    return !this.disposed && !!this.backend.supports_gpu_physics?.();
+  }
+
+  /**
+   * Opt-in hybrid graph step: GPU Barnes-Hut repulsion, CPU springs/integration and spatial
+   * index. Includes asynchronous GPU readback; after await, picking/export see current positions.
+   * Uses CPU physics on WebGL2/older backends. The synchronous stepPhysics() stays CPU-only.
+   * Await each step before starting another. Data/force edits during GPU work reject the stale
+   * result; camera movement and rendering can continue. Does not render automatically.
+   */
+  async stepPhysicsAsync(dt = 0.016): Promise<number> {
+    if (this.disposed) throw new Error('Engine is disposed');
+    if (this.physicsPending) throw new Error('A physics step is already pending');
+    if (!this.backend.request_gpu_physics || !this.backend.complete_gpu_physics) return this.stepPhysics(dt);
+    this.physicsPending = true;
+    try {
+      const [ticket, result] = await this.backend.request_gpu_physics(dt);
+      if (this.disposed) throw new Error('Engine was disposed during GPU physics');
+      return ticket === 0 ? result as number : this.backend.complete_gpu_physics(ticket, result as Float32Array);
+    } finally {
+      this.physicsPending = false;
+    }
   }
 
   render(): void {
@@ -5436,6 +5470,8 @@ export class VizEngineSDK {
 
   /** Detaches every interaction, removes overlay DOM, and releases the WASM engine. */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     leaveSyncGroup(this);
     this.stopAutoResize?.();
     this.stopAutoResize = null;

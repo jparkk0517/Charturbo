@@ -32,7 +32,7 @@ export async function createReportChart(host: HTMLElement, device: VizDevice, da
     const rows = rowsFor(data, scenario, metric).filter((r) => r.value !== null);
     sdk.renderBarChart(rows.map((r, i) => ({
       label: r.label, value: r.value!,
-      color: r.lib === 'viz' ? next.accent : next.colorful ? COLORS[(i + 1) % COLORS.length] : next.theme === 'light' || next.theme === 'paper' ? '#94a3b8' : '#7d8da8',
+      color: r.lib === 'viz' || r.lib === 'vizgpu' ? next.accent : next.colorful ? COLORS[(i + 1) % COLORS.length] : next.theme === 'light' || next.theme === 'paper' ? '#94a3b8' : '#7d8da8',
       attributes: { unit: METRICS[metric].unit, workload: workload(r.lib, scenario), measurement: conditions(r.entry) },
     })), {
       orientation: 'horizontal', cornerRadius: next.radius, legend: false,
@@ -74,7 +74,7 @@ export async function exportReport(data: Results, group: Group, design: Design, 
   ];
   const text = (x: number, y: number, label: string, size = 12, color = theme.textSecondary) => `<text x="${x}" y="${y}" font-family="${escape(design.font)}" font-size="${size}" fill="${color}">${escape(label)}</text>`;
   parts.push(text(24, 35, 'VIZ ENGINE SDK / BENCHMARK', 11, design.accent), text(24, 65, title, 23, theme.textPrimary));
-  parts.push(text(24, 90, group === 'graph' ? 'viz·three: 3D 물리 / deck.gl: 렌더만 / cosmos: 2D / 3d-force-graph: d3 물리' : '같은 시드 데이터 · 초기화 제외 · 산점도 ChartGPU는 x축만 이동'));
+  parts.push(text(24, 90, group === 'graph' ? 'viz: CPU / VizEngine GPU: 3D hybrid / three: 3D / deck.gl: 렌더만 / cosmos: 2D / force-graph: d3' : '같은 시드 데이터 · 초기화 제외 · 산점도 ChartGPU는 x축만 이동'));
   const host = document.createElement('div');
   Object.assign(host.style, { position: 'fixed', left: '-10000px', top: '0', width: `${panelWidth}px`, height: `${chartHeight}px` });
   document.body.append(host);
@@ -101,7 +101,7 @@ export async function exportReport(data: Results, group: Group, design: Design, 
       else parts.push(text(x + 16, y + 75, '표시할 유효한 측정값 없음', 12));
       const unavailable = rows.filter((r) => r.value === null);
       unavailable.forEach((r, i) => parts.push(text(x, y + chartHeight + 48 + i * 15, `${r.label}: ${r.status}`, 10)));
-      if (!unavailable.length) parts.push(text(x, y + chartHeight + 48, METRICS[panel.metric].hint, 10));
+      parts.push(text(x, y + chartHeight + 48 + unavailable.length * 15, METRICS[panel.metric].hint, 10));
     }
   } finally { host.remove(); }
   const measurements = data.compare.map((r) => r.measurement).filter((m) => !!m);

@@ -1,9 +1,10 @@
 import { VizEngineSDK, type RgbaTuple } from 'viz-engine-sdk';
+import { bindSceneDesign } from '../../scene-design';
 
 export const meta = {
   title: 'Rigid-body drop with raycast picking',
   description:
-    'Dynamic boxes, spheres and cylinders fall under gravity and collide with a static floor and steps (oriented-box SAT contacts, sort-and-sweep broadphase, restitution). Click an object: a ray from the camera returns the object and the hit point. Drag orbits, Shift + drag pans, wheel zooms.',
+    'Bodies start without spin: off-center impacts make them rotate, and friction makes spheres roll. Boxes use oriented contact manifolds; cylinders use box-shaped colliders. Click to pick. Drag orbits, Shift + drag pans, wheel zooms.',
   height: 460,
 };
 
@@ -39,10 +40,11 @@ export default async function mount(host: HTMLElement) {
         roughness: shape === 'sphere' ? 0.25 : 0.6,
         bodyType: 'dynamic',
         restitution: 0.35,
-        angularVelocity: [Math.random() - 0.5, Math.random() - 0.5, 0],
+        rotation: [0, 0, (Math.random() - 0.5) * 0.8],
       });
     }
     status.textContent = `${sdk.objectCount()} objects`;
+    appearance.refresh();
   };
   const reset = () => {
     dropped = 0;
@@ -66,6 +68,11 @@ export default async function mount(host: HTMLElement) {
     button.onclick = run;
   }
   toolbar.appendChild(status);
+  const appearance = bindSceneDesign(sdk, (brightness) => sdk.setLighting({
+    ambientIntensity: 0.3 * brightness,
+    directionalIntensity: brightness,
+    pointIntensity: 0.5 * brightness,
+  }));
 
   // Built-in orbit / pan / zoom; a click (press + release within 5 px) casts a ray into the scene
   const detach = sdk.enableNodeInteractions(canvas, {
@@ -89,5 +96,5 @@ export default async function mount(host: HTMLElement) {
   };
   reset();
   tick();
-  return { sdk, dispose: () => (cancelAnimationFrame(frame), detach(), sdk.dispose()) };
+  return { sdk, dispose: () => (cancelAnimationFrame(frame), appearance.dispose(), detach(), sdk.dispose()) };
 }

@@ -159,7 +159,8 @@
     "prepublishOnly": "node scripts/check-release-metadata.mjs",
     "bench": "node bench/run-bench.mjs",
     "bench:charts": "node bench/readme-charts.mjs",
-    "bench:report:check": "node bench/check-report.mjs"
+    "bench:report:check": "node bench/check-report.mjs",
+    "bench:physics:check": "node bench/check-gpu-physics.mjs"
   },
   "peerDependencies": {
     "react": ">=18",

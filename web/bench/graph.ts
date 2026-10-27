@@ -29,7 +29,7 @@ import type { RawGraphData } from '../src/sdk/viz-engine-sdk';
 
 export const GRAPH_IDS = ['graph-10k', 'graph-100k'] as const;
 export type GraphId = (typeof GRAPH_IDS)[number];
-export type GraphLib = 'viz' | 'three' | 'deckgl' | 'cosmos' | 'forcegraph3d';
+export type GraphLib = 'viz' | 'vizgpu' | 'three' | 'deckgl' | 'cosmos' | 'forcegraph3d';
 
 export interface GraphSpec {
   nodes: number;
@@ -51,7 +51,8 @@ export function graphData(s: GraphSpec): RawGraphData {
 export interface GraphBench {
   adapter: EngineAdapter;
   loaded?(): Promise<void>;
-  validatePhysics?(): { ticks: number; movedNodes: number };
+  validatePhysics?(): { ticks: number; movedNodes: number } | Promise<{ ticks: number; movedNodes: number }>;
+  tickAsync?(dt: number, simulate: boolean): Promise<import('../src/adapters/engine-adapter').EngineStepTiming>;
   backend(): 'webgpu' | 'webgl2';
   /** WebAssembly memory (viz only) */
   wasmBytes(): number | null;
@@ -70,16 +71,37 @@ export async function createGraphAdapter(lib: GraphLib, card: HTMLElement, w: nu
   Object.assign(canvas.style, { width: `${w}px`, height: `${h}px`, display: 'block' });
   card.appendChild(canvas);
 
-  if (lib === 'viz') {
+  if (lib === 'viz' || lib === 'vizgpu') {
     const { RustWgpuAdapter } = await import('../src/adapters/rust-wgpu-adapter');
     // Empty engine: the dataset arrives through loadRawDataset like on the three.js side
     const adapter = await RustWgpuAdapter.create(canvas, 42, 0, 0, 1);
+    if (lib === 'vizgpu' && !adapter.sdk.supportsGpuPhysics()) throw new Error('unsupported: hybrid GPU physics requires WebGPU');
+    const tickAsync = async (dt: number, simulate: boolean) => {
+      const start = performance.now();
+      const kineticEnergy = simulate ? await adapter.sdk.stepPhysicsAsync(dt) : 0;
+      const physicsEnd = performance.now();
+      adapter.sdk.render();
+      const end = performance.now();
+      return { physicsTimeMs: physicsEnd - start, renderTimeMs: end - physicsEnd, totalTimeMs: end - start, kineticEnergy };
+    };
     const gl = !!canvas.getContext('webgl2');
     return {
       adapter,
       backend: () => (gl ? 'webgl2' : 'webgpu'),
       wasmBytes: () => adapter.sdk.getRenderStats()?.wasmMemoryBytes ?? null,
       gpuBytes: () => adapter.sdk.getRenderStats()?.gpuBytes ?? null,
+      tickAsync: lib === 'vizgpu' ? tickAsync : undefined,
+      async validatePhysics() {
+        const before = adapter.sdk.exportPositions();
+        if (lib === 'vizgpu') await tickAsync(0.016, true); else adapter.tick(0.016, true);
+        const after = adapter.sdk.exportPositions();
+        let movedNodes = 0;
+        for (let i = 0; i < after.length; i += 3) {
+          if (after[i] !== before[i] || after[i + 1] !== before[i + 1] || after[i + 2] !== before[i + 2]) movedNodes++;
+        }
+        if (!after.every(Number.isFinite) || !movedNodes) throw new Error('viz: physics must move finite nodes');
+        return { ticks: 1, movedNodes };
+      },
     };
   }
 
@@ -208,7 +230,8 @@ async function createDeckGlBench(card: HTMLElement, w: number, h: number): Promi
 // loadRawDataset are projected to the x–y plane (z discarded). Forces: GPU
 // repulsion + spring (different algorithm from the Barnes-Hut 3D model used by
 // viz and three.js). rotateCamera is a no-op; zoomCamera uses setZoomLevel.
-// enableRenderLoop:false — tick() drives each frame manually via step()+renderOneFrame().
+// Paused simulation + enableRenderLoop:false: step() advances physics, renderOneFrame()
+// only draws. Without pause(), renderOneFrame() would run a second simulation step.
 // ---------------------------------------------------------------------------
 async function createCosmosBench(card: HTMLElement, w: number, h: number): Promise<GraphBench> {
   const { Graph } = await import('@cosmos.gl/graph') as unknown as {
@@ -219,6 +242,8 @@ async function createCosmosBench(card: HTMLElement, w: number, h: number): Promi
       setLinks(links: Float32Array): void;
       render(alpha?: number, transitionDuration?: number): void;
       step(): void;
+      pause(): void;
+      getPointPositions(): number[];
       renderOneFrame(): void;
       fitView(duration?: number): void;
       setZoomLevel(value: number): void;
@@ -230,7 +255,7 @@ async function createCosmosBench(card: HTMLElement, w: number, h: number): Promi
   Object.assign(div.style, { width: `${w}px`, height: `${h}px`, display: 'block' });
   card.appendChild(div);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let ticks = 0;
   const graphRaw = new Graph(div, {
     enableSimulation: true,
     enableRenderLoop: false,
@@ -245,11 +270,13 @@ async function createCosmosBench(card: HTMLElement, w: number, h: number): Promi
     fitViewOnInit: false,
     enableZoom: false,
     enableDrag: false,
+    onSimulationTick: () => { ticks++; },
   });
   // Widen to the interface we declared so call sites typecheck without further casts
   type CosmosGraph = InstanceType<typeof Graph>;
   const graph = graphRaw as CosmosGraph;
   await graph.ready;
+  graph.pause();
 
   let loadedNodeCount = 0;
   let loadedEdgeCount = 0;
@@ -282,6 +309,7 @@ async function createCosmosBench(card: HTMLElement, w: number, h: number): Promi
       graph.setLinks(Float32Array.from(edges));
 
       graph.render(1, 0);
+      graph.pause();
       graph.renderOneFrame();
       return performance.now() - t0;
     },
@@ -313,7 +341,29 @@ async function createCosmosBench(card: HTMLElement, w: number, h: number): Promi
     edgeCount: () => loadedEdgeCount,
   };
 
-  return { adapter, backend: () => 'webgl2', wasmBytes: () => null, gpuBytes: () => null };
+  return {
+    adapter, backend: () => 'webgl2', wasmBytes: () => null, gpuBytes: () => null,
+    validatePhysics() {
+      const before = graph.getPointPositions();
+      const startTicks = ticks;
+      adapter.tick(0.016, true);
+      const after = graph.getPointPositions();
+      const physicsTicks = ticks - startTicks;
+      adapter.tick(0.016, false);
+      const drawn = graph.getPointPositions();
+      if (ticks - startTicks !== physicsTicks || drawn.some((p, i) => p !== after[i])) {
+        throw new Error('cosmos.gl: render-only frame advanced physics');
+      }
+      let movedNodes = 0;
+      for (let i = 0; i < loadedNodeCount; i++) {
+        if (after[2 * i] !== before[2 * i] || after[2 * i + 1] !== before[2 * i + 1]) movedNodes++;
+      }
+      if (after.length !== loadedNodeCount * 2 || !after.every(Number.isFinite) || physicsTicks !== 1 || !movedNodes) {
+        throw new Error('cosmos.gl: physics must advance exactly one tick with finite node movement');
+      }
+      return { ticks: physicsTicks, movedNodes };
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
