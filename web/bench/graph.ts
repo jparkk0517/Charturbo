@@ -95,8 +95,8 @@ export async function createGraphAdapter(lib: GraphLib, card: HTMLElement, w: nu
 // rotateCamera updates the OrbitViewState (degrees); zoomCamera changes zoom.
 // ---------------------------------------------------------------------------
 async function createDeckGlBench(card: HTMLElement, w: number, h: number): Promise<GraphBench> {
-  const { default: Deck, OrbitView } = await import('@deck.gl/core') as unknown as {
-    default: typeof import('@deck.gl/core').Deck;
+  const { Deck, OrbitView } = await import('@deck.gl/core') as unknown as {
+    Deck: typeof import('@deck.gl/core').Deck;
     OrbitView: typeof import('@deck.gl/core').OrbitView;
   };
   const { ScatterplotLayer, LineLayer } = await import('@deck.gl/layers') as unknown as {
