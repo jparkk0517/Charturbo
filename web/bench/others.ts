@@ -16,7 +16,7 @@ import { VizEngineSDK } from '../src/index';
 import type { CompareId } from './ours';
 import * as gen from './data';
 
-export type LibName = 'viz' | 'uplot' | 'echarts' | 'chartjs' | 'plotly';
+export type LibName = 'viz' | 'uplot' | 'echarts' | 'chartjs' | 'plotly' | 'chartgpu' | 'scichart' | 'highcharts';
 
 export interface Domain {
   x0: number;
@@ -92,6 +92,12 @@ export async function createAdapter(lib: LibName, card: HTMLElement, data: Compa
       return chartjsAdapter(card, data, w, h);
     case 'plotly':
       return plotlyAdapter(card, data, w, h);
+    case 'chartgpu':
+      return chartgpuAdapter(card, data, w, h);
+    case 'scichart':
+      return scichartAdapter(card, data, w, h);
+    case 'highcharts':
+      return highchartsAdapter(card, data, w, h);
   }
 }
 
@@ -338,6 +344,220 @@ async function chartjsAdapter(card: HTMLElement, d: CompareData, w: number, h: n
     },
     hoverTarget: () => canvas,
     destroy: () => chart?.destroy(),
+  };
+}
+
+/**
+ * ChartGPU adapter — WebGPU-native charting library (MIT, no key required).
+ * Uses `setZoomRange(start, end)` for the x-axis window: ChartGPU's zoom API is percent of the
+ * data domain ([0, 100]), so absolute x values are converted on every setWindow call. Its zoom is
+ * x-only, so scatter shows the full window (the y half of the schedule is not applied).
+ * Bar charts use `type: 'bar'` with category-type x-axis and integer category indices.
+ */
+async function chartgpuAdapter(card: HTMLElement, d: CompareData, w: number, h: number): Promise<LibAdapter> {
+  const { createChart } = await import('chartgpu');
+  const el = document.createElement('div');
+  Object.assign(el.style, { width: `${w}px`, height: `${h}px` });
+  card.appendChild(el);
+  const grid = { left: 64, right: 24, top: 36, bottom: 36 };
+  const dataZoom = [{ type: 'inside' as const, xAxisIndex: 0 }];
+
+  let chart: Awaited<ReturnType<typeof createChart>> | null = null;
+  const build = async () => {
+    chart?.dispose();
+    if (d.line) {
+      chart = await createChart(el, {
+        animation: false,
+        grid,
+        xAxis: { type: 'value' as const, min: d.domain.x0, max: d.domain.x1 },
+        yAxis: { type: 'value' as const },
+        dataZoom,
+        series: [{ type: 'line' as const, data: { x: d.xs!, y: d.line }, color: COLOR, sampling: 'lttb', lineStyle: { width: 1 } }],
+      });
+    } else if (d.scatter) {
+      chart = await createChart(el, {
+        animation: false,
+        grid,
+        xAxis: { type: 'value' as const },
+        yAxis: { type: 'value' as const },
+        dataZoom,
+        series: [{ type: 'scatter' as const, data: { x: d.scatter.x, y: d.scatter.y }, color: COLOR, symbolSize: 3 }],
+      });
+    } else {
+      // Bar: category axis with integer indices as categories
+      const n = d.bars!.values.length;
+      const xs = new Float32Array(n);
+      for (let i = 0; i < n; i++) xs[i] = i;
+      chart = await createChart(el, {
+        animation: false,
+        grid,
+        xAxis: { type: 'category' as const },
+        yAxis: { type: 'value' as const },
+        series: [{ type: 'bar' as const, data: { x: xs, y: d.bars!.values }, color: COLOR }],
+      });
+    }
+  };
+
+  return {
+    zoomable: !d.bars,
+    async render() {
+      await build();
+    },
+    setWindow(win) {
+      if (!chart) return;
+      const span = d.domain.x1 - d.domain.x0;
+      chart.setZoomRange((100 * (win.x0 - d.domain.x0)) / span, (100 * (win.x1 - d.domain.x0)) / span);
+    },
+    hoverTarget: () => el.querySelector('canvas'),
+    destroy: () => chart?.dispose(),
+  };
+}
+
+/**
+ * SciChart adapter — WebGL2/WebGPU canvas-based charting library (community watermark, no key needed).
+ * WASM files are served from the local node_modules `_wasm/` directory via Vite's static asset
+ * serving. The shared wasm context is used so all bench runs in a session share one context.
+ * scatter uses `XyScatterRenderableSeries` with a 3px `SquarePointMarker`;
+ * bar uses `FastColumnRenderableSeries` with relative `dataPointWidth: 0.8`.
+ */
+async function scichartAdapter(card: HTMLElement, d: CompareData, w: number, h: number): Promise<LibAdapter> {
+  const sc = await import('scichart');
+  // Point wasm loader at the files Vite serves from /node_modules/scichart/_wasm/
+  sc.SciChartSurface.configure({
+    wasmUrl: '/node_modules/scichart/_wasm/scichart.wasm',
+    wasmNoSimdUrl: '/node_modules/scichart/_wasm/scichart-nosimd.wasm',
+  });
+  // Community license: shows a watermark; no key required for evaluation
+  sc.SciChartSurface.UseCommunityLicense();
+
+  const div = document.createElement('div');
+  Object.assign(div.style, { width: `${w}px`, height: `${h}px` });
+  card.appendChild(div);
+
+  const { sciChartSurface, wasmContext } = await sc.SciChartSurface.create(div);
+  sciChartSurface.xAxes.add(new sc.NumericAxis(wasmContext, { autoRange: sc.EAutoRange.Never }));
+  // Scatter gets an explicit y window (zoom schedule); line / bar keep y fitted to the visible data
+  sciChartSurface.yAxes.add(new sc.NumericAxis(wasmContext, { autoRange: d.scatter ? sc.EAutoRange.Never : sc.EAutoRange.Always }));
+
+  // XyDataSeries takes number[] | Float64Array (copied into wasm memory once, not timed)
+  const xs = d.line ? d.xs! : d.scatter ? Float64Array.from(d.scatter.x) : Float64Array.from(d.bars!.values, (_, i) => i);
+  const ys = Float64Array.from(d.line ?? d.scatter?.y ?? d.bars!.values);
+  const dataSeries = new sc.XyDataSeries(wasmContext, {
+    dataIsSortedInX: !d.scatter,
+    containsNaN: false,
+  });
+  dataSeries.appendRange(xs, ys);
+
+  if (d.line) {
+    sciChartSurface.renderableSeries.add(
+      new sc.FastLineRenderableSeries(wasmContext, { dataSeries, stroke: COLOR, strokeThickness: 1, resamplingMode: sc.EResamplingMode.MinMax })
+    );
+  } else if (d.scatter) {
+    sciChartSurface.renderableSeries.add(
+      new sc.XyScatterRenderableSeries(wasmContext, {
+        dataSeries,
+        pointMarker: new sc.SquarePointMarker(wasmContext, { width: 3, height: 3, fill: COLOR, stroke: COLOR }),
+      })
+    );
+  } else {
+    sciChartSurface.renderableSeries.add(
+      new sc.FastColumnRenderableSeries(wasmContext, { dataSeries, fill: COLOR, stroke: COLOR, dataPointWidth: 0.8 })
+    );
+  }
+
+  const xAxis = sciChartSurface.xAxes.get(0);
+  const yAxis = sciChartSurface.yAxes.get(0);
+
+  return {
+    zoomable: !d.bars,
+    async render() {
+      xAxis.visibleRange = new sc.NumberRange(d.domain.x0, d.domain.x1);
+      if (d.scatter) yAxis.visibleRange = new sc.NumberRange(d.domain.y0, d.domain.y1);
+      const drawn = sciChartSurface.nextStateRender();
+      sciChartSurface.invalidateElement();
+      await drawn;
+    },
+    setWindow(win) {
+      xAxis.visibleRange = new sc.NumberRange(win.x0, win.x1);
+      if (d.scatter) yAxis.visibleRange = new sc.NumberRange(win.y0, win.y1);
+      sciChartSurface.invalidateElement();
+    },
+    hoverTarget: () => div.querySelector('canvas'),
+    destroy: () => sciChartSurface.delete(),
+  };
+}
+
+/**
+ * Highcharts adapter: SVG charting library plus the Boost module (WebGL) for large series.
+ * Boost kicks in above `boostThreshold` points; `useGPUTranslations` + `usePreallocated` are the
+ * documented large-data settings. Data goes in as [x, y] tuples (Boost's fastest input besides
+ * plain y arrays). Bars use `type: 'column'`. Commercial license; evaluation use needs no key.
+ */
+async function highchartsAdapter(card: HTMLElement, d: CompareData, w: number, h: number): Promise<LibAdapter> {
+  // ESM build: importing the boost module registers it on the shared Highcharts namespace
+  const { default: Highcharts } = await import('highcharts/esm/highcharts.js');
+  await import('highcharts/esm/modules/boost.js');
+
+  const el = document.createElement('div');
+  Object.assign(el.style, { width: `${w}px`, height: `${h}px` });
+  card.appendChild(el);
+
+  const BOOST_THRESHOLD = 5000;
+  let hc: ReturnType<typeof Highcharts.chart> | null = null;
+
+  const build = () => {
+    hc?.destroy();
+    if (d.line) {
+      const data = Array.from({ length: d.line.length }, (_, i) => [d.xs![i], d.line![i]] as [number, number]);
+      hc = Highcharts.chart(el, {
+        chart: { animation: false, width: w, height: h },
+        title: { text: undefined },
+        legend: { enabled: false },
+        credits: { enabled: false },
+        boost: { enabled: true, useGPUTranslations: true, usePreallocated: true },
+        xAxis: { min: d.domain.x0, max: d.domain.x1 },
+        yAxis: { title: { text: undefined } },
+        series: [{ type: 'line', data, color: COLOR, lineWidth: 1, marker: { enabled: false }, boostThreshold: BOOST_THRESHOLD }],
+      });
+    } else if (d.scatter) {
+      const data = Array.from({ length: d.scatter.x.length }, (_, i) => [d.scatter!.x[i], d.scatter!.y[i]] as [number, number]);
+      hc = Highcharts.chart(el, {
+        chart: { animation: false, width: w, height: h },
+        title: { text: undefined },
+        legend: { enabled: false },
+        credits: { enabled: false },
+        boost: { enabled: true, useGPUTranslations: true, usePreallocated: true },
+        xAxis: { title: { text: undefined } },
+        yAxis: { title: { text: undefined } },
+        series: [{ type: 'scatter', data, color: COLOR, marker: { radius: 1.5 }, boostThreshold: BOOST_THRESHOLD }],
+      });
+    } else {
+      hc = Highcharts.chart(el, {
+        chart: { animation: false, type: 'column', width: w, height: h },
+        title: { text: undefined },
+        legend: { enabled: false },
+        credits: { enabled: false },
+        boost: { enabled: true },
+        xAxis: { categories: d.bars!.labels },
+        yAxis: { title: { text: undefined } },
+        series: [{ type: 'column', data: Array.from(d.bars!.values), color: COLOR, boostThreshold: BOOST_THRESHOLD }],
+      });
+    }
+  };
+
+  return {
+    zoomable: true,
+    async render() {
+      build();
+      await frame();
+    },
+    setWindow(win) {
+      if (!hc) return;
+      hc.xAxis[0].setExtremes(win.x0, win.x1, !d.scatter, false);
+      if (d.scatter) hc.yAxis[0].setExtremes(win.y0, win.y1, true, false);
+    },
+    hoverTarget: () => el.querySelector('.highcharts-plot-background') ?? el,
+    destroy: () => hc?.destroy(),
   };
 }
 

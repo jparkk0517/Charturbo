@@ -1,14 +1,14 @@
 /**
  * Benchmark page (`npm run bench`, bench/run-bench.mjs drives it over the DevTools Protocol):
- * `index.html?scenario=<id>&lib=<viz|uplot|echarts|chartjs|plotly|three>&backend=webgpu|webgl2
- * &reps=N&warmup=W&duration=ms` runs one scenario in a fresh page and publishes
- * `window.__bench` (`{ done, ok, result | error }`).
+ * `index.html?scenario=<id>&lib=<viz|uplot|echarts|chartjs|plotly|chartgpu|scichart|highcharts
+ * |three|deckgl|cosmos|forcegraph3d>&backend=webgpu|webgl2&reps=N&warmup=W&duration=ms` runs one
+ * scenario in a fresh page and publishes `window.__bench` (`{ done, ok, result | error }`).
  *
  * Phases: data generation (not timed) -> library init -> W warmup + N timed full renders
  * (time to first frame) -> N GPU-synced renders (pixel read-back) -> memory snapshot after GC ->
  * steady phase (zoom / pan schedule, hover sweep or streaming over `duration` ms) -> hover
  * latency probe. `backend=webgl2` hides `navigator.gpu` so wgpu falls back to WebGL2.
- * 3D graph scenarios (`graph-*`, viz vs three) run `runGraph` instead (physics + orbit).
+ * 3D graph scenarios (`graph-*`) run `runGraph` instead (physics + orbit).
  */
 
 import { VizEngineSDK } from '../src/index';
@@ -18,7 +18,7 @@ import type { Domain, LibAdapter, LibName } from './others';
 import { COMPARE_IDS, OUR_SCENARIOS } from './ours';
 import type { CompareId, Interaction, OurScenario } from './ours';
 import { GRAPH_IDS, createGraphAdapter, graphData, graphSpec } from './graph';
-import type { GraphId } from './graph';
+import type { GraphId, GraphLib } from './graph';
 
 const q = new URLSearchParams(location.search);
 const scenarioId = q.get('scenario') ?? '';
@@ -385,7 +385,7 @@ async function runCompare(id: CompareId) {
   return {
     lib,
     scenario: id,
-    backend: lib === 'viz' ? gl : lib === 'plotly' ? 'webgl' : 'canvas2d',
+    backend: lib === 'viz' ? gl : lib === 'plotly' ? 'webgl' : lib === 'chartgpu' ? 'webgpu' : lib === 'scichart' || lib === 'highcharts' ? 'webgl' : 'canvas2d',
     interaction: adapter.zoomable ? 'range-api' : 'hover-sweep',
     genMs: Math.round(genMs),
     initMs: Math.round(initMs),
@@ -409,14 +409,17 @@ const GRAPH_ORBIT = Math.PI;
  * camera orbits; memory after the steady phase (simulation state live) and a forced GC.
  */
 async function runGraph(id: GraphId) {
-  if (lib !== 'viz' && (lib as string) !== 'three') throw new Error(`unsupported: ${lib} has no 3D graph renderer`);
+  const graphLib = lib as GraphLib;
+  if (!(graphLib === 'viz' || graphLib === 'three' || graphLib === 'deckgl' || graphLib === 'cosmos' || graphLib === 'forcegraph3d')) {
+    throw new Error(`unsupported: ${lib} has no graph renderer`);
+  }
   const spec = graphSpec(id);
   const tGen = performance.now();
   const raw = graphData(spec);
   const genMs = performance.now() - tGen;
   phase('init');
   const tInit = performance.now();
-  const g = await createGraphAdapter(lib as 'viz' | 'three', card, W, H);
+  const g = await createGraphAdapter(graphLib, card, W, H);
   const initMs = performance.now() - tInit;
   const load = () => void g.adapter.loadRawDataset!(raw);
   phase('cold');

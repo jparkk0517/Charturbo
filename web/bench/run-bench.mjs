@@ -7,14 +7,17 @@
 //
 //   npm run bench                    full run (5 reps, 3 s steady phase)
 //   npm run bench -- --quick         smoke run (2 reps, 1 s, no 10M / 5M / 4096² scenarios)
-//   options: --filter=<substring>[,<substring>...]  --backend=webgpu,webgl2  --libs=viz,uplot,echarts,chartjs,plotly,three
+//   options: --filter=<substring>[,<substring>...]  --backend=webgpu,webgl2
+//            --libs=viz,uplot,echarts,chartjs,plotly,chartgpu,scichart,highcharts (charts)
+//                   ,three,deckgl,cosmos,forcegraph3d (graph)
 //            --reps=N  --warmup=N  --duration=ms  --no-compare  --compare-only  --no-ours
 //            --chrome=<path> (or CHROME_PATH)  --out=<file stem> (default bench/out/results)
 //            --shots (PNG of every finished page in bench/out/shots/)  --verbose (page console)
 //            --merge=<results.json>: merge this run's entries into an existing results file (same
 //              scenario + lib / backend replaced, the rest and its meta kept; this run's conditions
 //              are appended to meta.partialRuns) and rewrite its .json + .md
-//   3D graph scenarios (graph-10k, graph-100k) compare viz with three.js only (bench/graph.ts):
+//   3D graph scenarios (graph-10k, graph-100k) compare viz with three.js, deck.gl, cosmos.gl and
+//   3d-force-graph (bench/graph.ts):
 //            npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json
 //            --rewrite-md=<results.json>: only regenerate the matching .md from that file
 
@@ -41,9 +44,16 @@ const REPS = Number(option('reps') ?? (QUICK ? 2 : 5));
 const WARMUP = Number(option('warmup') ?? 1);
 const DURATION = Number(option('duration') ?? (QUICK ? 1000 : 3000));
 const BACKENDS = (option('backend') ?? 'webgpu,webgl2').split(',').filter((b) => b === 'webgpu' || b === 'webgl2');
-const LIBS = (option('libs') ?? 'viz,uplot,echarts,chartjs,plotly').split(',');
-/** Libraries of the 3D graph scenarios (viz vs three.js): only when --libs is unset or names three */
-const GRAPH_LIBS = !option('libs') || LIBS.includes('three') ? ['viz', 'three'].filter((l) => !option('libs') || LIBS.includes(l)) : [];
+const ALL_GRAPH_LIBS = ['viz', 'three', 'deckgl', 'cosmos', 'forcegraph3d'];
+/** Graph-only libraries: never run on the chart scenarios */
+const GRAPH_ONLY = new Set(ALL_GRAPH_LIBS.filter((l) => l !== 'viz'));
+const LIBS = (option('libs') ?? 'viz,uplot,echarts,chartjs,plotly,chartgpu,scichart,highcharts').split(',');
+/** Libraries of the 3D graph scenarios: all when --libs is unset, else only when it names a graph-only library */
+const GRAPH_LIBS = !option('libs')
+  ? ALL_GRAPH_LIBS
+  : LIBS.some((l) => GRAPH_ONLY.has(l))
+    ? ALL_GRAPH_LIBS.filter((l) => LIBS.includes(l))
+    : [];
 const isGraph = (id) => id.startsWith('graph-');
 const RUN_OURS = !flag('compare-only') && !flag('no-ours');
 const RUN_COMPARE = !flag('no-compare');
@@ -316,11 +326,11 @@ function markdown(meta, ours, compare) {
   return lines.join('\n');
 }
 
-/** 3D graph scenario table (viz vs three.js; see bench/graph.ts). */
+/** 3D graph scenario table (viz vs three.js, deck.gl, cosmos.gl, 3d-force-graph; see bench/graph.ts). */
 function graphTable(lines, meta, runs) {
   const first = runs.find((r) => r.ok)?.result;
   if (first) {
-    lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over ${meta.duration} ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC.`);
+    lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation (viz builds its GPU pipelines here; three.js compiles its shaders at the first render, i.e. inside cold). Cold = first load + first presented frame on a fresh engine; TTFF = warm reload of the same buffers + presented frame. Steady = rAF interval over ${meta.duration} ms with one Barnes-Hut step (dt 0.016) + draw per frame while the camera orbits half a turn; physics / render = per-frame step / sync+draw-submit time (GPU work is asynchronous, see the frame interval). Memory after the steady phase and a forced GC. deck.gl has no layout engine (static positions, render only); cosmos.gl is 2D (GPU force layout, z dropped, no orbit); 3d-force-graph runs d3-force-3d, not Barnes-Hut.`);
     lines.push('');
   }
   lines.push('| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |');
@@ -394,7 +404,7 @@ async function main() {
     logLevel: 'warn',
     clearScreen: false,
     // Comparison libraries pre-bundled up front: no optimizer reload mid-run
-    optimizeDeps: { entries: ['bench/index.html'], include: ['uplot', 'echarts', 'chart.js', 'plotly.js-gl2d-dist-min', 'three'] },
+    optimizeDeps: { entries: ['bench/index.html'], include: ['uplot', 'echarts', 'chart.js', 'plotly.js-gl2d-dist-min', 'three', 'chartgpu', 'scichart', 'highcharts/esm/highcharts.js', 'highcharts/esm/modules/boost.js', '@deck.gl/core', '@deck.gl/layers', '@cosmos.gl/graph', '3d-force-graph'] },
     server: {
       host: '127.0.0.1',
       port: vitePort,
@@ -504,7 +514,7 @@ async function main() {
     const compare = [];
     if (RUN_COMPARE) {
       for (const id of ids.compare.filter(pick)) {
-        for (const lib of isGraph(id) ? GRAPH_LIBS : LIBS.filter((l) => l !== 'three')) {
+        for (const lib of isGraph(id) ? GRAPH_LIBS : LIBS.filter((l) => !GRAPH_ONLY.has(l))) {
           const tr = Date.now();
           const r = await runPage(cdpPort, `${base}?${q({ scenario: id, lib, compare: '1', backend: 'webgpu' })}`, `compare-${id}-${lib}`);
           compare.push({ scenario: id, lib, ...r });
@@ -528,7 +538,7 @@ async function main() {
       warmup: WARMUP,
       duration: DURATION,
       quick: QUICK,
-      versions: { uplot: versionOf('uplot'), echarts: versionOf('echarts'), chartjs: versionOf('chart.js'), plotly: versionOf('plotly.js-gl2d-dist-min'), three: versionOf('three'), viz: JSON.parse(fs.readFileSync(path.join(WEB, 'package.json'), 'utf8')).version },
+      versions: { uplot: versionOf('uplot'), echarts: versionOf('echarts'), chartjs: versionOf('chart.js'), plotly: versionOf('plotly.js-gl2d-dist-min'), three: versionOf('three'), chartgpu: versionOf('chartgpu'), scichart: versionOf('scichart'), highcharts: versionOf('highcharts'), deckgl: versionOf('@deck.gl/core'), cosmos: versionOf('@cosmos.gl/graph'), forcegraph3d: versionOf('3d-force-graph'), viz: JSON.parse(fs.readFileSync(path.join(WEB, 'package.json'), 'utf8')).version },
       ms: Date.now() - t0,
     };
     fs.mkdirSync(path.dirname(OUT_STEM), { recursive: true });

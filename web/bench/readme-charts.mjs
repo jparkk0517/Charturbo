@@ -21,10 +21,16 @@ const LIBS = [
   { id: 'echarts', label: 'ECharts' },
   { id: 'chartjs', label: 'Chart.js' },
   { id: 'plotly', label: 'Plotly' },
+  { id: 'chartgpu', label: 'ChartGPU' },
+  { id: 'scichart', label: 'SciChart' },
+  { id: 'highcharts', label: 'Highcharts' },
 ];
 const GRAPH_LIBS = [
   { id: 'viz', label: 'viz-engine-sdk' },
   { id: 'three', label: 'three.js' },
+  { id: 'deckgl', label: 'deck.gl' },
+  { id: 'cosmos', label: 'cosmos.gl' },
+  { id: 'forcegraph3d', label: '3d-force-graph' },
 ];
 const SCENARIOS = [
   { id: 'line-1m-1s', label: '선 1M 포인트' },

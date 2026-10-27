@@ -383,7 +383,7 @@ pub struct GpuPipelines {
 /// hidden GL canvas, copied into this engine's 2D canvas after every frame.
 enum PresentTarget {
     Surface(wgpu::Surface<'static>),
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
     Blit {
         gl: Rc<crate::renderer::gpu_context::SharedGlCanvas>,
         ctx2d: web_sys::CanvasRenderingContext2d,
@@ -437,8 +437,12 @@ impl WgpuRenderBackend {
         let width = canvas.width().max(1);
         let height = canvas.height().max(1);
 
+        #[cfg(feature = "webgl")]
+        let backends = wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL;
+        #[cfg(not(feature = "webgl"))]
+        let backends = wgpu::Backends::BROWSER_WEBGPU;
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
+            backends,
             ..Default::default()
         });
 
@@ -455,6 +459,7 @@ impl WgpuRenderBackend {
             .await
             .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
 
+        // Keep downlevel limits so the same pipeline code works on WebGL2 when that feature is on.
         let limits = wgpu::Limits::downlevel_webgl2_defaults()
             .using_resolution(adapter.limits());
 
@@ -482,32 +487,45 @@ impl WgpuRenderBackend {
     /// from the context's cache; buffers start compact.
     #[cfg(target_arch = "wasm32")]
     pub fn from_context(ctx: &Rc<GpuContext>, canvas: web_sys::HtmlCanvasElement) -> Result<Self, String> {
-        use wasm_bindgen::JsCast;
         let width = canvas.width().max(1);
         let height = canvas.height().max(1);
-        let (target, config) = match &ctx.gl {
-            None => {
-                let surface = ctx
-                    .instance
-                    .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-                    .map_err(|e| format!("Failed to create wgpu surface: {e:?}"))?;
-                let config = surface_config(&surface, &ctx.adapter, width, height)?;
-                surface.configure(&ctx.device, &config);
-                (PresentTarget::Surface(surface), config)
+        #[cfg(feature = "webgl")]
+        let (target, config) = {
+            use wasm_bindgen::JsCast;
+            match &ctx.gl {
+                None => {
+                    let surface = ctx
+                        .instance
+                        .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+                        .map_err(|e| format!("Failed to create wgpu surface: {e:?}"))?;
+                    let config = surface_config(&surface, &ctx.adapter, width, height)?;
+                    surface.configure(&ctx.device, &config);
+                    (PresentTarget::Surface(surface), config)
+                }
+                Some(gl) => {
+                    let ctx2d: web_sys::CanvasRenderingContext2d = canvas
+                        .get_context("2d")
+                        .ok()
+                        .flatten()
+                        .and_then(|c| c.dyn_into().ok())
+                        .ok_or_else(|| {
+                            "Failed to create wgpu surface: WebGL2 shared device needs a canvas without another context (2d)"
+                                .to_string()
+                        })?;
+                    let config = wgpu::SurfaceConfiguration { width, height, ..gl.base_config.clone() };
+                    (PresentTarget::Blit { gl: gl.clone(), ctx2d }, config)
+                }
             }
-            Some(gl) => {
-                let ctx2d: web_sys::CanvasRenderingContext2d = canvas
-                    .get_context("2d")
-                    .ok()
-                    .flatten()
-                    .and_then(|c| c.dyn_into().ok())
-                    .ok_or_else(|| {
-                        "Failed to create wgpu surface: WebGL2 shared device needs a canvas without another context (2d)"
-                            .to_string()
-                    })?;
-                let config = wgpu::SurfaceConfiguration { width, height, ..gl.base_config.clone() };
-                (PresentTarget::Blit { gl: gl.clone(), ctx2d }, config)
-            }
+        };
+        #[cfg(not(feature = "webgl"))]
+        let (target, config) = {
+            let surface = ctx
+                .instance
+                .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+                .map_err(|e| format!("Failed to create wgpu surface: {e:?}"))?;
+            let config = surface_config(&surface, &ctx.adapter, width, height)?;
+            surface.configure(&ctx.device, &config);
+            (PresentTarget::Surface(surface), config)
         };
         let pipes = ctx.pipelines.get_or_build(config.format, || GpuPipelines::new(&ctx.device, config.format));
         let mut backend = Self::assemble(target, ctx.device.clone(), ctx.queue.clone(), config, &pipes, true);
@@ -743,7 +761,7 @@ impl WgpuRenderBackend {
     fn acquire_frame(&self) -> Option<wgpu::SurfaceTexture> {
         let surface = match &self.target {
             PresentTarget::Surface(s) => s,
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
             PresentTarget::Blit { gl, .. } => {
                 gl.ensure_size(&self.device, &self.config);
                 &gl.surface
@@ -753,7 +771,7 @@ impl WgpuRenderBackend {
             Ok(tex) => Some(tex),
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 surface.configure(&self.device, &self.config);
-                #[cfg(target_arch = "wasm32")]
+                #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
                 if let PresentTarget::Blit { gl, .. } = &self.target {
                     gl.invalidate();
                 }
@@ -766,7 +784,7 @@ impl WgpuRenderBackend {
     /// After `present`: the WebGL2 shared canvas holds this frame until the task ends, so it is
     /// copied into the engine's 2D canvas now.
     fn finish_frame(&self) {
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
         if let PresentTarget::Blit { gl, ctx2d } = &self.target {
             let (w, h) = (self.config.width as f64, self.config.height as f64);
             ctx2d.clear_rect(0.0, 0.0, w, h);
@@ -1396,7 +1414,7 @@ impl RenderBackend for WgpuRenderBackend {
         // The WebGL2 shared canvas is resized lazily, right before this engine's next frame
         match &self.target {
             PresentTarget::Surface(surface) => surface.configure(&self.device, &self.config),
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
             PresentTarget::Blit { .. } => {}
         }
         self.depth_view = Self::create_depth_view(&self.device, width, height);

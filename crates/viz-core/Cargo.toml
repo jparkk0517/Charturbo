@@ -6,6 +6,13 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["webgl"]
+# WebGL2 fallback (wgpu GLES backend + WGSL -> GLSL translation): ~58% of the wasm. The
+# WebGPU-only build (`--no-default-features`) drops it; its WebGL2 requests fail with
+# "No suitable GPU adapter found" and the SDK loads the full build instead.
+webgl = ["wgpu/webgl"]
+
 [dependencies]
 bytemuck = { version = "1.18", features = ["derive"] }
 glam = { version = "0.29", features = ["bytemuck"] }
@@ -13,7 +20,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
-wgpu = { version = "24", features = ["webgl"] }
+wgpu = "24"
 
 [dependencies.web-sys]
 version = "0.3"

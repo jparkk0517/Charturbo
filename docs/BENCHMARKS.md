@@ -1,6 +1,6 @@
 # 성능 벤치마크 (viz-engine-sdk)
 
-이 문서는 `web/bench/` 하네스로 측정한 viz-engine-sdk(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly(scattergl)와의 차트 비교, three.js와의 3D 그래프 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
+이 문서는 `web/bench/` 하네스로 측정한 viz-engine-sdk(Rust + WebGPU/WebAssembly)의 성능 수치와 측정 방법, 그리고 uPlot · ECharts · Chart.js · Plotly · ChartGPU · SciChart · Highcharts와의 차트 비교, three.js · deck.gl · cosmos.gl · 3d-force-graph와의 3D 그래프 비교 결과를 정리합니다. 수치는 아래 환경 한 대에서 측정한 값이며, **다른 머신 · 브라우저 · 디스플레이에서는 달라집니다.** 같은 명령으로 직접 재현할 수 있습니다.
 
 - 원본 결과: [`docs/bench/results.json`](bench/results.json), [`results.md`](bench/results.md) (이 문서의 수치). 다시 측정하면 `web/bench/out/`에 새로 생기고(git 제외), `npm run bench:charts -- bench/out/results.json`으로 README 차트를 다시 그릴 수 있습니다
 - 측정일: 2026-10-26
@@ -16,7 +16,11 @@ npm run bench -- --filter=line-1m,scatter --backend=webgpu --no-compare
 npm run bench -- --compare-only --libs=viz,uplot
 npm run bench -- --shots     # 각 페이지 스크린샷(web/bench/out/shots/) — 라이브러리가 실제로 그렸는지 확인용
 npm run bench -- --profile   # 페이지별 CPU 프로파일 + self time 상위 함수
-# 3D 그래프(viz vs three.js)만 다시 측정해 커밋된 결과에 병합 (~30초)
+# 새 차트 라이브러리만 스모크 테스트
+npm run bench -- --quick --no-ours --libs=chartgpu,scichart,highcharts --out=bench/out/smoke
+# 새 그래프 라이브러리만 스모크 테스트
+npm run bench -- --quick --no-ours --filter=graph-10k --libs=viz,deckgl,cosmos,forcegraph3d --out=bench/out/smoke
+# 3D 그래프(viz vs three.js 등)만 다시 측정해 커밋된 결과에 병합 (~30초)
 npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && npm run bench:charts
 ```
 
@@ -35,7 +39,7 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
 | 캔버스 | 960×540 CSS px, DPR 1 (`deviceScaleFactor: 1`) |
 | 프레임 주기 | 60 Hz (작업 없는 rAF 간격 중앙값 16.7 ms) |
 | Node | v22.23.3 |
-| 비교 대상 | uPlot 1.6.32, ECharts 6.1.0, Chart.js 4.6.1, plotly.js-gl2d-dist-min 4.1.2, three.js 0.170.0 (3D 그래프) |
+| 비교 대상 | uPlot 1.6.32, ECharts 6.1.0, Chart.js 4.6.1, plotly.js-gl2d-dist-min 4.1.2, three.js 0.170.0 (3D 그래프), ChartGPU 0.4.0, SciChart 6.0.14, Highcharts 13.1.1, deck.gl 9.3.x, cosmos.gl 3.5.x, 3d-force-graph 1.80.x |
 
 ## 3. 측정 방법
 
@@ -67,6 +71,9 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
 | ECharts | canvas 렌더러, `animation: false`, 타입 배열 데이터, 선 `sampling: 'lttb'`, 산점도/막대 `large: true`, `inside` dataZoom |
 | Chart.js | `parsing: false`, `normalized: true`, `animation: false`, 선은 decimation 플러그인(`min-max`), `pointRadius: 0`(선) / 1.5(산점도). `{x, y}` 객체 배열은 측정 전 1회만 생성 |
 | Plotly | `scattergl`(WebGL) trace, gl2d 번들. 막대 trace가 없어 bar-10k는 제외 |
+| ChartGPU | WebGPU 전용, `createChart` + ECharts 스타일 옵션, `animation: false`, 타입 배열 `{ x, y }` 데이터. 선: `type: 'line'`, `sampling: 'lttb'`. 산점도: `type: 'scatter'`, `symbolSize: 3`. 막대: 카테고리 축 + `type: 'bar'`(zoom 없음, hover 스윕). 창 이동은 `inside` dataZoom + `setZoomRange(start%, end%)` — 인수는 [0, 100] 퍼센트(절대 x 값을 도메인 대비 비율로 변환). **zoom이 x축 전용**이라 산점도 스케줄의 y 창은 적용되지 않습니다 |
+| SciChart | WebAssembly + WebGL2(`SciChartSurface.configure({ wasmUrl, wasmNoSimdUrl })`). `UseCommunityLicense()`(워터마크 표시, 키 불필요). 선: `FastLineRenderableSeries` + `EResamplingMode.MinMax`. 산점도: `XyScatterRenderableSeries` + y축 `EAutoRange.Never`(명시적 범위). 선/막대: y축 `EAutoRange.Always`. 막대: `FastColumnRenderableSeries`. 창 이동: `nextStateRender()`(promise 획득) → `invalidateElement()` → `await` 순서. macOS에서 localStorage `IS_WEB_GPU` 키로 WebGPU 자동 선택 |
+| Highcharts | ESM 빌드(`highcharts/esm/highcharts.js`) + Boost 모듈 side-effect import(`highcharts/esm/modules/boost.js`). 데이터는 `[x, y]` 튜플 배열(Boost 고속 경로). 막대는 `type: 'column'`. `boostThreshold: 5000`(5k 포인트 초과 시 GPU), `useGPUTranslations: true`, `usePreallocated: true`. 창 이동: `xAxis.setExtremes(lo, hi, redraw, false)`, 산점도는 y축도 동일 |
 
 - `렌더 호출`의 범위가 라이브러리마다 다릅니다: viz는 엔진을 재사용하고 데이터만 다시 넘기며, uPlot / Chart.js는 매 회 차트를 파괴 후 새로 만들고, Plotly는 `purge` + `newPlot`입니다. 엔진/라이브러리 초기화 시간은 별도(`initMs`)입니다.
 - 모든 라이브러리는 같은 패딩(좌 64 / 우 24 / 상 36 / 하 36 px)과 1 px 선, 같은 색을 씁니다. 툴팁은 각 라이브러리 기본 hover 동작을 켠 상태입니다.
@@ -152,16 +159,22 @@ npm run bench -- --filter=graph --no-ours --merge=../docs/bench/results.json && 
 - **JS 힙**: 선 1M/10M에서 viz와 uPlot은 비슷합니다(입력 Float32Array 자체가 대부분). ECharts / Chart.js는 10M에서 470~530 MB.
 - viz의 GPU 메모리는 UA 메모리에 포함되지 않습니다(`GPU MB` 열 참고).
 
-## 6. 결과: 3D 그래프 — viz vs three.js
+## 6. 결과: 3D 그래프 — viz vs three.js · deck.gl · cosmos.gl · 3d-force-graph
 
 `graph-10k`, `graph-100k` 시나리오(`bench/graph.ts`, `main.ts`의 `runGraph`). 측정일 2026-10-26, 위와 같은 머신 · Chrome · 반복 횟수(5회 + 워밍업 1, 정상상태 3초).
 
 ### 방법
 - **데이터**: 데모 앱의 시드 생성기(`GraphDatasetTS.generateSeeded`, xorshift, seed 42) — 노드 N, 엣지 2N(80%는 같은 군집 안), 군집 8개, 반경 100 공간. 생성은 측정 제외. 두 엔진 모두 같은 TypedArray 버퍼를 `loadRawDataset`으로 받습니다.
-- **엔진**: 데모 비교 화면이 쓰는 어댑터를 **그대로** 사용(`src/adapters/rust-wgpu-adapter.ts`, `src/adapters/three-js-adapter.ts`, 물리는 `src/three-engine/octree-physics.ts`). 벤치용 튜닝은 하지 않았습니다.
+- **엔진**: 데모 비교 화면이 쓰는 어댑터를 **그대로** 사용(`src/adapters/rust-wgpu-adapter.ts`, `src/adapters/three-js-adapter.ts`, 물리는 `src/three-engine/octree-physics.ts`). 벤치용 튜닝은 하지 않았습니다. 추가 비교 어댑터는 `bench/graph.ts`에만 존재합니다(`EngineAdapter` 인터페이스 구현).
   - viz: Rust Barnes-Hut(wasm, 단일 스레드) + WebGPU, 노드는 구 빌보드 임포스터(사각형 1개), 엣지는 선.
   - three.js: 같은 알고리즘의 JS Barnes-Hut 옥트리 + `InstancedMesh`(8×6 분할 구, `MeshLambertMaterial`) 노드 + `LineSegments` 엣지, WebGL2(ANGLE Metal).
-- **같은 조건**: 힘 모델과 상수(반발 25, 스프링 0.08 / 휴지 길이 8, 중심 인력 0.03, 감쇠 0.88, θ 0.75, softening 1.5, 최대 속도 60, 옥트리 최대 깊이 10), 프레임당 dt 0.016 고정, 카메라(거리 220, yaw 0.4, pitch 0.3, fov 45), 960×540 캔버스 @ DPR 1, 자동 sleep 꺼짐.
+  - deck.gl: `ScatterplotLayer`(노드) + `LineLayer`(엣지), `OrbitView`, WebGL2. **레이아웃 엔진 없음** — 노드는 `loadRawDataset`의 초기 위치에 고정. `tick()`은 재드로우만 합니다. 순수 GPU 렌더 비용을 측정합니다.
+  - cosmos.gl: WebGL2 GPU 힘 기반 레이아웃, **2D 전용**. 입력 좌표의 z를 버리고 x·y만 사용. `enableRenderLoop: false`로 RAF 루프를 끄고 `step()` + `renderOneFrame()`으로 프레임을 수동 구동. 알고리즘이 viz/three.js의 Barnes-Hut 3D와 다릅니다(GPU 반발력 + 스프링, d3 계열 아님).
+  - 3d-force-graph: d3-force-3d 레이아웃(Barnes-Hut 아님), three.js 0.186(라이브러리 내장) + WebGL2. RAF 루프는 생성 직후 `pauseAnimation()`으로 중단하고 `tickFrame()` + `renderer().render()`로 수동 구동. 체인 메서드가 `unknown`을 반환하므로 각 호출은 별도 문장으로 작성.
+- **같은 조건 (viz · three.js)**: 힘 모델과 상수(반발 25, 스프링 0.08 / 휴지 길이 8, 중심 인력 0.03, 감쇠 0.88, θ 0.75, softening 1.5, 최대 속도 60, 옥트리 최대 깊이 10), 프레임당 dt 0.016 고정, 카메라(거리 220, yaw 0.4, pitch 0.3, fov 45), 960×540 캔버스 @ DPR 1, 자동 sleep 꺼짐.
+- **deck.gl 조건**: 같은 초기 위치 데이터를 `loadRawDataset`으로 전달하고 고정(물리 없음). `OrbitView`의 `rotationOrbit`은 도(°) 단위, zoom 초기값 1. 카메라 거리 개념 없음(줌 레벨로 대체).
+- **cosmos.gl 조건**: 같은 초기 x·y 좌표(z 버림). `spaceSize: 4096`, `simulationRepulsion: 1`, `simulationLinkSpring: 1`, `simulationGravity: 0.25`, `simulationDecay: 1000`, `simulationFriction: 0.85`. 2D라 카메라 회전 없음(`rotateCamera` no-op).
+- **3d-force-graph 조건**: 같은 노드·엣지 데이터. d3-force-3d 기본 힘(charge -60, link, center)으로 구동(viz/three.js 상수와 다름). `cooldownTicks: 0`, `cooldownTime: 0`, `warmupTicks: 0`으로 자동 시뮬레이션 비활성화. 카메라는 viz/three.js와 같은 구면 좌표(거리 220, yaw 0.4, pitch 0.3).
 - **단계**:
   1. `초기화` = 엔진 생성(viz는 여기서 GPU 파이프라인을 모두 만듭니다). `cold` = 새 엔진에서 첫 데이터 로드 + 첫 프레임 표시(1회 측정). three.js는 셰이더를 첫 렌더에서 컴파일하므로 그 비용이 `cold`에 들어가고, viz는 `초기화`에 들어갑니다. 그래서 cold만 따로 비교하면 viz에 유리하고, `초기화 + cold`로 보는 편이 공정합니다(10k: 47.6 vs 123.8 ms, 100k: 86.5 vs 124.3 ms; three.js 초기화에는 모듈 동적 import도 포함).
   2. `TTFF` = 같은 버퍼 다시 로드(위치 초기화) + 첫 프레임 표시, 워밍업 1회 후 5회 중앙값. 60 Hz로 양자화됩니다.
@@ -229,5 +242,8 @@ three.js 쪽은 데모 비교 화면의 구현을 손대지 않고 썼습니다.
 - 라이브러리 비교의 `렌더 호출`은 범위가 다릅니다(위 3절). 각 라이브러리는 문서화된 대용량 설정을 썼지만 모든 튜닝을 다 해본 것은 아닙니다(예: uPlot 산점도의 quadtree, ECharts `progressive` 조정, Chart.js 산점도 decimation 없음). 개선 제안은 `bench/others.ts`에 반영하면 됩니다.
 - Plotly line-10m은 300초 타임아웃으로 실패, bar-10k는 gl2d 번들에 막대가 없어 제외했습니다.
 - 3D 그래프 비교는 엔진 전체(데이터 구조 + 물리 + 렌더)의 비교입니다. three.js 자체의 렌더 성능 비교가 아니며, three.js 쪽 구현의 핸디캡은 6절에 적었습니다. graph-100k의 three.js 정상상태는 3초 동안 2 프레임뿐이라 fps 0.8은 거친 값입니다.
+- 추가 그래프 라이브러리는 viz/three.js와 **같은 작업을 하지 않습니다**: deck.gl은 물리 없이 렌더만(`물리` 0 ms), cosmos.gl은 2D GPU 레이아웃(z 버림, 카메라 회전 없음), 3d-force-graph는 d3-force-3d(다른 힘 모델과 상수). fps를 그대로 비교하지 말고 `물리` / `렌더` 열을 나눠 보세요.
+- 새 차트 라이브러리: ChartGPU는 WebGPU 전용이고 zoom이 x축만 지원해 산점도의 y 창이 빠집니다. SciChart 커뮤니티 라이선스는 워터마크를 그리고, macOS에서는 WebGPU를 자동 선택할 수 있습니다(`렌더러` 열 확인). Highcharts는 상용 라이선스(평가 용도는 키 불필요)이며 Boost는 5k 포인트 초과 시리즈에만 적용됩니다.
+- 새 라이브러리(ChartGPU · SciChart · Highcharts · deck.gl · cosmos.gl · 3d-force-graph)의 측정 결과는 아직 `docs/bench/results.json`에 없습니다. 위 재현 명령으로 `web/bench/out/`에 측정한 뒤 `--merge`로 합치면 됩니다.
 - 메모리: JS 힙은 GC 후 값, wasm 메모리는 줄어들지 않으므로 워밍업 포함 피크입니다. GPU 바이트는 viz 엔진이 할당한 용량이며 드라이버 오버헤드는 포함하지 않습니다.
 - 전/후 비교의 노이즈: 같은 시나리오 반복 간 렌더 호출 편차는 대략 ±5%, 드롭 프레임은 ±수 프레임입니다.

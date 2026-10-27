@@ -8,11 +8,14 @@
 //! Presentation per backend:
 //! - WebGPU: every canvas gets its own `GPUCanvasContext` configured with the shared device, so
 //!   N canvases cost N surfaces and one device.
-//! - WebGL2: a GL context can only present to its own canvas, so the device renders every engine
-//!   into one hidden shared canvas (resized to the engine's size when it differs) and copies the
-//!   finished frame into the engine's canvas with a 2D `drawImage` in the same task (the GL
-//!   drawing buffer is still intact before compositing). Engine canvases therefore use a `2d`
-//!   context: one WebGL2 context serves any number of charts.
+//! - WebGL2 (built with the `webgl` feature): a GL context can only present to its own canvas, so
+//!   the device renders every engine into one hidden shared canvas (resized to the engine's size
+//!   when it differs) and copies the finished frame into the engine's canvas with a 2D
+//!   `drawImage` in the same task (the GL drawing buffer is still intact before compositing).
+//!   Engine canvases therefore use a `2d` context: one WebGL2 context serves any number of charts.
+//!
+//! The WebGPU-only build (`--no-default-features`) omits the WebGL2 fallback; its requests fail
+//! with "No suitable GPU adapter found" and the SDK loads the full build instead.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -20,10 +23,11 @@ use std::rc::Rc;
 /// Backend the caller asks for (`WasmGpuDevice::create`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackendPreference {
-    /// WebGPU when an adapter is available, else WebGL2
+    /// WebGPU when an adapter is available, else WebGL2 (if built with `webgl`)
     #[default]
     Auto,
     WebGpu,
+    #[cfg(feature = "webgl")]
     WebGl2,
 }
 
@@ -31,6 +35,7 @@ impl BackendPreference {
     pub fn from_u8(v: u8) -> Self {
         match v {
             1 => Self::WebGpu,
+            #[cfg(feature = "webgl")]
             2 => Self::WebGl2,
             _ => Self::Auto,
         }
@@ -38,12 +43,18 @@ impl BackendPreference {
 
     /// WebGPU is tried first.
     pub fn tries_webgpu(self) -> bool {
-        self != Self::WebGl2
+        #[cfg(feature = "webgl")]
+        return self != Self::WebGl2;
+        #[cfg(not(feature = "webgl"))]
+        return true;
     }
 
     /// WebGL2 is tried (first, or after WebGPU found no adapter).
     pub fn tries_webgl2(self) -> bool {
-        self != Self::WebGpu
+        #[cfg(feature = "webgl")]
+        return self != Self::WebGpu;
+        #[cfg(not(feature = "webgl"))]
+        return false;
     }
 }
 
@@ -51,6 +62,7 @@ impl BackendPreference {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuBackendKind {
     WebGpu,
+    #[cfg(feature = "webgl")]
     WebGl2,
 }
 
@@ -58,13 +70,17 @@ impl GpuBackendKind {
     pub fn name(self) -> &'static str {
         match self {
             Self::WebGpu => "webgpu",
+            #[cfg(feature = "webgl")]
             Self::WebGl2 => "webgl2",
         }
     }
 
     /// Engines present through the shared canvas + 2D copy (one GL context for every canvas).
     pub fn presents_via_shared_canvas(self) -> bool {
-        self == Self::WebGl2
+        #[cfg(feature = "webgl")]
+        return self == Self::WebGl2;
+        #[cfg(not(feature = "webgl"))]
+        return false;
     }
 }
 
@@ -102,7 +118,7 @@ impl<K: PartialEq + Copy, V> KeyedCache<K, V> {
 }
 
 /// Hidden canvas the WebGL2 device renders into before each engine copies its frame out.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) struct SharedGlCanvas {
     pub(crate) surface: wgpu::Surface<'static>,
     pub(crate) canvas: web_sys::HtmlCanvasElement,
@@ -112,7 +128,7 @@ pub(crate) struct SharedGlCanvas {
     configured: std::cell::Cell<(u32, u32)>,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl SharedGlCanvas {
     /// Configures the shared surface at `config`'s size unless it already is.
     pub(crate) fn ensure_size(&self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
@@ -139,7 +155,7 @@ pub struct GpuContext {
     pub(crate) queue: wgpu::Queue,
     pub(crate) kind: GpuBackendKind,
     pub(crate) pipelines: KeyedCache<wgpu::TextureFormat, super::wgpu_backend::GpuPipelines>,
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
     pub(crate) gl: Option<Rc<SharedGlCanvas>>,
 }
 
@@ -172,10 +188,19 @@ impl GpuContext {
                 Err(e) => return Err(e),
             }
         }
-        Self::new_webgl2().await.map(Rc::new).map_err(|e| match webgpu_error {
-            Some(w) => format!("{e} (WebGPU: {w})"),
-            None => e,
-        })
+        #[cfg(feature = "webgl")]
+        {
+            Self::new_webgl2().await.map(Rc::new).map_err(|e| match webgpu_error {
+                Some(w) => format!("{e} (WebGPU: {w})"),
+                None => e,
+            })
+        }
+        #[cfg(not(feature = "webgl"))]
+        {
+            // Unreachable: tries_webgpu() is always true without webgl, so WebGPU is always
+            // tried and its error returns above. Keep a defensive fallback for the type checker.
+            Err(webgpu_error.unwrap_or_else(|| "No suitable GPU adapter found".to_string()))
+        }
     }
 
     async fn new_webgpu() -> Result<Self, String> {
@@ -200,10 +225,12 @@ impl GpuContext {
             queue,
             kind: GpuBackendKind::WebGpu,
             pipelines: KeyedCache::default(),
+            #[cfg(feature = "webgl")]
             gl: None,
         })
     }
 
+    #[cfg(feature = "webgl")]
     async fn new_webgl2() -> Result<Self, String> {
         use wasm_bindgen::JsCast;
         let canvas: web_sys::HtmlCanvasElement = web_sys::window()
@@ -289,13 +316,21 @@ mod tests {
         assert_eq!(BackendPreference::from_u8(0), BackendPreference::Auto);
         assert_eq!(BackendPreference::from_u8(9), BackendPreference::Auto);
         let auto = BackendPreference::Auto;
-        assert!(auto.tries_webgpu() && auto.tries_webgl2());
+        assert!(auto.tries_webgpu());
+        #[cfg(feature = "webgl")]
+        assert!(auto.tries_webgl2());
+        #[cfg(not(feature = "webgl"))]
+        assert!(!auto.tries_webgl2());
         let gpu = BackendPreference::from_u8(1);
         assert!(gpu.tries_webgpu() && !gpu.tries_webgl2());
-        let gl = BackendPreference::from_u8(2);
-        assert!(!gl.tries_webgpu() && gl.tries_webgl2());
-        assert!(GpuBackendKind::WebGl2.presents_via_shared_canvas());
         assert!(!GpuBackendKind::WebGpu.presents_via_shared_canvas());
-        assert_eq!((GpuBackendKind::WebGpu.name(), GpuBackendKind::WebGl2.name()), ("webgpu", "webgl2"));
+        assert_eq!(GpuBackendKind::WebGpu.name(), "webgpu");
+        #[cfg(feature = "webgl")]
+        {
+            let gl = BackendPreference::from_u8(2);
+            assert!(!gl.tries_webgpu() && gl.tries_webgl2());
+            assert!(GpuBackendKind::WebGl2.presents_via_shared_canvas());
+            assert_eq!(GpuBackendKind::WebGl2.name(), "webgl2");
+        }
     }
 }
