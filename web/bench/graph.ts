@@ -331,7 +331,7 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
       graphData(data: { nodes: { id: number; x: number; y: number; z: number }[]; links: { source: number; target: number }[] }): unknown;
       pauseAnimation(): unknown;
       cameraPosition(pos?: { x?: number; y?: number; z?: number }, lookAt?: { x: number; y: number; z: number }, ms?: number): { x: number; y: number; z: number };
-      tickFrame(): unknown;
+      d3ReheatSimulation(): unknown;
       renderer(): { render(scene: unknown, camera: unknown): void; domElement: HTMLCanvasElement };
       scene(): unknown;
       camera(): unknown;
@@ -413,7 +413,11 @@ async function createForceGraph3dBench(card: HTMLElement, w: number, h: number):
 
     tick(_dt: number, simulatePhysics: boolean): import('../src/adapters/engine-adapter').EngineStepTiming {
       const t0 = performance.now();
-      if (simulatePhysics) fg.tickFrame();
+      if (simulatePhysics) {
+        // tickFrame() is not exposed; use d3ReheatSimulation to advance one step
+        // The internal d3 simulation's alpha naturally decays; we reheat it slightly to keep it running
+        fg.d3ReheatSimulation();
+      }
       const phys = performance.now() - t0;
       const t1 = performance.now();
       fg.renderer().render(fg.scene(), fg.camera());
