@@ -415,6 +415,7 @@ impl ChartState {
     #[allow(unreachable_patterns)]
     pub fn svg_support(&self) -> SvgSupport {
         match &self.kind {
+            ChartKind::Scientific3D(_) => SvgSupport::Raster,
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) if l.layout.view == ChartViewMode::Flat => SvgSupport::Vector,
             ChartKind::Line(_) | ChartKind::Area(_) => SvgSupport::Raster,
             ChartKind::Bar(b) if b.layout.view == ChartViewMode::Flat => SvgSupport::Vector,

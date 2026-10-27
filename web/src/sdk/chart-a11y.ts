@@ -14,6 +14,7 @@ import { businessA11yModel, isBusinessKind } from './chart-business';
 import type { A11yCustomModel } from './chart-business-util';
 import { hierarchyA11yModel } from './chart-hierarchy';
 import { sparseTooltip, type SparseMeta } from './chart-sparse';
+import { scientificA11yModel, type Scientific3DMeta } from './chart-scientific3d';
 import type {
   ChartOhlc,
   ChartTooltipContext,
@@ -44,7 +45,7 @@ export interface A11ySeries {
   band?: { lower: ArrayLike<number>; upper: ArrayLike<number> };
 }
 
-export type A11yChartKind = 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey';
+export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey';
 
 /** Pie slices (focus: `series` 0, `index` = displayed slice; point id = slice index). */
 export interface A11yPieData {
@@ -296,6 +297,7 @@ export function buildA11yModel(
   };
 
   if (m.kind === 'treemap' || m.kind === 'sunburst' || m.kind === 'sankey') return hierarchyA11yModel(m, common);
+  if (m.kind === 'scientific3d') return scientificA11yModel(m as unknown as Scientific3DMeta, common);
 
   if (m.kind === 'line') {
     const values = (Array.isArray(m.values) ? m.values : []) as ArrayLike<number>[];
@@ -1868,6 +1870,7 @@ export class ChartA11y {
     wrap.style.display = 'block';
     Object.assign(wrap.style, { color: theme.textPrimary, fontFamily: theme.fontFamily });
     const kindLabel = {
+      scientific3d: model.custom?.kindLabel ?? '3D',
       line: 'Line',
       bar: 'Bar',
       'bar-multi': 'Bar',

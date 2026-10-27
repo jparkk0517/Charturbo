@@ -163,7 +163,7 @@ impl ChartState {
                 // Waterfalls follow a synced category cursor like bars
                 ChartKind::Waterfall(w) => bar_at_x(&w.bar, x),
                 ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) => None,
-                ChartKind::Hierarchy(_) => None,
+                ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
             }
         } else {
             None
@@ -195,7 +195,7 @@ impl ChartState {
             ChartKind::Combo(c) => c.xs.get(item.index as usize).copied(),
             ChartKind::Waterfall(_) => Some(item.index as f64),
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) => None,
-            ChartKind::Hierarchy(_) => None,
+            ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
         }
     }
 }

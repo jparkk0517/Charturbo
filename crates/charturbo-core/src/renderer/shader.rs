@@ -655,6 +655,7 @@ fn vs_fill(v: FillVertex) -> FillOut {
 
 @fragment
 fn fs_fill(in: FillOut) -> @location(0) vec4<f32> {
+    if (in.color.a <= 0.0) { discard; }
     return in.color;
 }
 "#;

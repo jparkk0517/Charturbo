@@ -15,12 +15,13 @@
 3. **독립 OHLC:** `renderOhlcChart`, WASM `set_ohlc_chart`, Rust `CandleMode::Ohlc`. 선분·doji·gap·거래량·스타일·LOD·hover·SVG, React/Vue·접근성·CSV 및 5만 bar 예제. 확대 구간 마지막 bar의 End 키 tooltip 누락 수정.
 4. **독립 Band:** `renderBandChart`, WASM/Rust `set_band_series`, React/Vue `type="band"`. 교차 보존·fill-only·paired gap·connectNulls·dual-edge LOD·범위 기반 hover/XY brush·경계 marker·키보드·CSV·SVG·10만 쌍 및 교차 예제.
 5. **독립 ErrorBar·Impulse:** `renderErrorBarChart`·`renderImpulseChart`, WASM/Rust setter, React/Vue dispatch. 독립 줄기·캡·마커, 절대/상대/비대칭·단측 오차, 수평 경계 X-domain·확대 유지, baseline, 실제 geometry hover·XY brush·키보드·CSV·SVG·예제 3개. SDK/native/프레임워크 실패 테스트부터 구현했다.
+6. **PointCloud3D·Surface3D 기본 경로:** 독립 `Scientific3D` native chart, depth-test/write fills·billboards, XYZ cloud·Y-up row-major surface·hole·colormap·wireframe·lighting. SDK 공개 API·React/Vue·원본 XYZ 접근성/CSV·ray-hit 툴팁·SVG raster fallback·예제 3개. TDD로 투명 표면 hit 제거, resize orbit 보존, 외곽 축 라벨까지 검증했다. 아래 후속 계약은 아직 남아 있다.
 
 ## 다음 작업
 
-1. **PointCloud3D·Surface3D**의 ChartGPU v0.4.0 계약을 로컬 `web/node_modules/chartgpu/dist/`에서 확인하고 기존 scene/scatter/3D 렌더 구현 범위와 비교한다.
-2. 차트별 실패 테스트를 먼저 추가하고 Rust → WASM → SDK → React/Vue·접근성·export·예제로 연결한다.
-3. 관련 테스트·타입 검사·빌드 및 실제 WebGPU/WebGL2 렌더를 검증한다.
+1. **3D 후속 계약:** 로컬 `web/node_modules/chartgpu/dist/config/types.d.ts`와 비교해 cloud append·surface 부분 갱신/streaming을 TDD로 구현한다. 현재 공개 render API는 전체 교체다.
+2. 3D axes 범위·aspect, orthographic, contours, 투명 geometry 깊이 정렬/합성 및 대용량 hit-test 가속을 진행한다. 현재 각 축 독립 정규화·전체 점/셀 순회다.
+3. 관련 SDK·React/Vue·접근성·export·예제 및 실제 WebGPU/WebGL2 회귀를 검증한다.
 4. 이후 Density·주석 편집·차트 간 연결 분석을 진행한다. 기존 구현 범위를 먼저 확인한다.
 5. 전체 기능 동등성 검증·성능 비교·공식 사이트 콘텐츠 완성과 배포를 진행한다.
 
@@ -43,9 +44,18 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 - 두 sparse 차트는 전체 render API로 갱신한다. SDK/native 단일 채널 set/append는 거부한다.
 - Sparse hover는 실제 활성 줄기·캡·마커에서 가장 가까운 한 샘플을 반환한다. line의 shared index-hover와 같지 않으며 현재 모든 샘플을 검사한다.
 - Sparse XY brush는 데이터 단위 줄기/경계 교차를 검사하며 CSS 캡 폭은 포함하지 않는다. 전체 ChartGPU 동등성·대용량 성능 검증 완료를 의미하지 않는다.
+- 3D는 `Scientific3DMeta.kind='scientific3d'`, 공개 mode는 `'pointCloud3d'|'surface3d'`. raw Float32 XYZ와 각 축 `[-60,60]` 렌더 좌표를 분리하며 실제 단위 종횡비는 보존하지 않는다.
+- Cloud size는 CSS px 지름, surface 높이는 `y[row * columns + column]`. 비유한 꼭짓점이 있는 셀은 전체 hole. wireframe은 셀 내부의 ray hit를 허용한다.
+- WASM `set_chart_3d(xyz, colors, offsets, styles, shapes)`에서 offsets는 terminal sentinel 포함, styles는 시리즈별 size/lighting/wireframe, shapes는 columns/rows (cloud=0/0). 최대 400만 샘플.
+- `chart_3d_hit`는 raw XYZ·cell column/row다. 포인터는 보간된 surface 교차점, 키보드는 원본 정점을 사용한다. SVG는 raster fallback. brush·sync는 연결하지 않았다.
+- 투명도 0은 렌더·선택에서 제외한다. 반투명 geometry는 depth-write하지만 정렬하지 않으므로 정확한 다중 투명면 합성은 미완료다. 전체 ChartGPU 기능 동등성 완료로 표시하지 않는다.
 
 ## 주요 파일
 
+- `crates/charturbo-core/src/chart/scientific3d.rs`, `scientific3d_tests.rs`: 3D geometry·axes·picking·native 회귀
+- `crates/charturbo-core/src/lib_scientific3d.rs`, `renderer/wgpu_backend.rs`: WASM packed contract·전용 depth pipeline
+- `web/src/sdk/chart-scientific3d.ts`, `web/src/__tests__/scientific3d.test.ts`: 타입·검증·metadata·tooltip·접근성
+- `web/examples/src/demos/scientific3d/`: cloud·surface·wireframe 예제
 - `crates/charturbo-core/src/chart/sparse.rs`: ErrorBar·Impulse geometry·hover·brush·setter
 - `crates/charturbo-core/src/chart/linestyle.rs`: Band geometry·LOD, sparse extent·렌더 분기·native 회귀 테스트
 - `crates/charturbo-core/src/chart/line.rs`, `brush.rs`: Band 범위 hit-test·선택·marker
@@ -63,14 +73,15 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 
 ## 마지막 검증 결과
 
-아래는 ErrorBar·Impulse 단계 완료 시 결과다.
+아래는 3D 기본 경로 완료 시 결과다.
 
-- TS: 48파일 / 442테스트 통과.
-- Rust: 단위 394통과 / 1 ignored, 통합 1통과.
+- TS: 49파일 / 453테스트 통과.
+- Rust: 단위 401통과 / 1 ignored, 통합 1통과.
 - 타입 검사·기본/WebGPU 전용 WASM·라이브러리·examples 빌드 및 `git diff --check` 성공.
-- `npm run test:visual -- --strict --filter=sparse`: fixture 3종 × WebGPU/WebGL2 × canvas/full = 12개 모두 픽셀 차이 0%. 최초 기준 이미지 없음 실패 후 실제 렌더를 확인하고 신규 sparse baseline만 생성했다.
-- 실제 선 계열 예제 10개, 신규 3종 접근성 이름·End 키 tooltip, 390px 모바일·스크린샷 확인. 브라우저 runtime exception 없음.
-- 이전 Band 시각 회귀 4개도 해당 단계에서 픽셀 차이 0%였으며 이번에는 sparse fixture를 검증했다.
+- `npm run test:visual -- --strict --filter=scientific3d`: fixture 3종 × WebGPU/WebGL2 × canvas/full = 12개 모두 픽셀 차이 0%. 실제 렌더 검토 후 신규 3D baseline만 생성했다.
+- 공통 fill shader 변경 관련 기존 `--filter=area` 회귀 4개도 픽셀 차이 0%.
+- 실제 3D 예제 3개, 접근성 이름·End 키 XYZ tooltip, 390px 모바일, CSV·SVG embedded PNG·PNG·PDF를 확인했다. 브라우저 runtime exception 없음.
+- 이전 sparse 12개·Band 4개 시각 회귀는 각 단계에서 통과했으며 이번에는 3D·Area fixture를 검증했다.
 
 대표 명령 (npm 명령은 `web/`에서):
 
@@ -83,20 +94,20 @@ npm run wasm:webgpu
 npm run build:lib
 npm run build:lib:webgpu
 npm run examples:build
-npm run test:visual -- --strict --filter=sparse
+npm run test:visual -- --strict --filter=scientific3d
 ```
 
 ## 작업 트리·실행 환경 주의점
 
-- 마지막 확인 시 모든 변경은 미커밋. commit/push/배포하지 않았다. 새 채팅은 `git status`로 현재 상태부터 확인한다.
-- 시작 전부터 대규모 `VizEngineSDK` → `Charturbo` 이름 변경과 untracked Rust crate·핵심 SDK 사용자 작업이 있었다. 전체 diff를 이번 작업으로 간주하거나 되돌리지 않는다.
+- 리브랜딩·ErrorBar·Impulse까지 `27a30d6`으로 `origin/main`에 푸시했다. 이번 3D 단계는 별도 후속 커밋으로 저장한다. 새 채팅은 `git status`·`git log`로 최종 커밋/푸시 상태를 확인한다.
 - 이전 데모 서버 주소: `http://127.0.0.1:5310/`. 새 채팅에서는 실행 여부 확인 필요.
 - Band 데모: `/line.html#06-band`, `/line.html#07-band-crossing`.
 - ErrorBar·Impulse 데모: `/line.html#08-error-bars`, `/line.html#09-error-horizontal`, `/line.html#10-impulse`.
+- 3D 데모: `/scientific3d.html`.
 - Paseo 브라우저 호스트 timeout은 headless Chrome CDP로 우회했다.
-- 임시 브라우저 검증 스크립트: `/private/var/folders/9r/d6q96w4117zcz3_hkrc1zyrw0000gn/T/opencode/check-charturbo-sparse.mjs` (이전 `check-charturbo-band.mjs`도 참고 가능).
-- 마지막 스크린샷: 같은 임시 디렉터리의 `sparse-yT29LH/`. 임시 파일은 영구 보존을 보장하지 않는다.
+- 임시 브라우저 검증 스크립트: `/private/var/folders/9r/d6q96w4117zcz3_hkrc1zyrw0000gn/T/opencode/check-charturbo-scientific3d.mjs` (이전 sparse·band 스크립트도 참고 가능).
+- 마지막 스크린샷: 같은 임시 디렉터리의 `scientific3d-qmG1XD/`. 임시 파일은 영구 보존을 보장하지 않는다.
 
 ## 새 채팅 시작 문구
 
-> `docs/HANDOFF.md`를 읽고 Charturbo 개발을 이어가자. 다음 작업은 PointCloud3D·Surface3D다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.
+> `docs/HANDOFF.md`를 읽고 Charturbo 개발을 이어가자. PointCloud3D·Surface3D 기본 경로는 구현했으며 다음 작업은 3D streaming·부분 갱신 계약이다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.

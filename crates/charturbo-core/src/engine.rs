@@ -535,7 +535,7 @@ impl VisualizationEngine {
         // Keep the plot filling the (resized) canvas
         let css = self.css_size();
         if let Some(chart) = self.chart.as_ref() {
-            chart.frame_camera(&mut self.camera, css);
+            if !chart.is_scientific3d() { chart.frame_camera(&mut self.camera, css); }
         }
     }
 
@@ -574,6 +574,16 @@ impl VisualizationEngine {
     // -------------------------------------------------------------------------
     // Native charts
     // -------------------------------------------------------------------------
+
+    pub fn set_scientific3d(&mut self, series: Vec<crate::chart::Scientific3DSeries>) -> Result<usize, String> {
+        let chart = ChartState::new_scientific3d(series)?;
+        let n = chart.point_count();
+        self.begin_chart();
+        let css = self.css_size();
+        chart.frame_camera(&mut self.camera, css);
+        self.chart = Some(chart);
+        Ok(n)
+    }
 
     /// Replaces graph content with a line chart and frames the camera on it.
     pub fn set_line_chart(&mut self, series: Vec<LineSeries>, layout: LineLayout) -> usize {
@@ -1423,6 +1433,17 @@ mod tests {
         let mut engine = VisualizationEngine::new(ds, sim, cam, renderer);
         engine.resize(1600, 900);
         (engine, state)
+    }
+
+    #[test]
+    fn scientific3d_resize_preserves_orbit_pose() {
+        let ds = GraphDataset::generate_seeded(&DatasetConfig { node_count: 0, edge_count: 0, ..Default::default() });
+        let (mut engine, _) = mock_engine(ds);
+        engine.set_scientific3d(vec![]).unwrap();
+        engine.rotate_camera(0.4, 0.2);
+        let eye = engine.camera.eye_position();
+        engine.resize(390, 600);
+        assert!((engine.camera.eye_position() - eye).length() < 1e-4);
     }
 
     #[test]

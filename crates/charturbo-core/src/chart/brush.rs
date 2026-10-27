@@ -414,7 +414,7 @@ impl ChartState {
             ChartKind::Combo(_) => {}
             // No brush on the business charts (the SDK never starts one there)
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => {}
-            ChartKind::Hierarchy(_) => {}
+            ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => {}
         }
         sel
     }

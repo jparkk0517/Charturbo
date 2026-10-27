@@ -126,6 +126,9 @@ pub struct WgpuRenderBackend {
     bar_pipeline: wgpu::RenderPipeline,
     marker_pipeline: wgpu::RenderPipeline,
     fill_pipeline: wgpu::RenderPipeline,
+    marker_3d_pipeline: wgpu::RenderPipeline,
+    fill_3d_pipeline: wgpu::RenderPipeline,
+    depth_3d: bool,
     /// Fills without depth test (annotation bands above the series)
     fill_overlay_pipeline: wgpu::RenderPipeline,
     point_pipeline: wgpu::RenderPipeline,
@@ -375,6 +378,8 @@ pub struct GpuPipelines {
     bar_pipeline: wgpu::RenderPipeline,
     marker_pipeline: wgpu::RenderPipeline,
     fill_pipeline: wgpu::RenderPipeline,
+    marker_3d_pipeline: wgpu::RenderPipeline,
+    fill_3d_pipeline: wgpu::RenderPipeline,
     fill_overlay_pipeline: wgpu::RenderPipeline,
     point_pipeline: wgpu::RenderPipeline,
     heatmap_pipeline: wgpu::RenderPipeline,
@@ -699,6 +704,9 @@ impl WgpuRenderBackend {
             bar_pipeline: p.bar_pipeline,
             marker_pipeline: p.marker_pipeline,
             fill_pipeline: p.fill_pipeline,
+            marker_3d_pipeline: p.marker_3d_pipeline,
+            fill_3d_pipeline: p.fill_3d_pipeline,
+            depth_3d: false,
             fill_overlay_pipeline: p.fill_overlay_pipeline,
             point_pipeline: p.point_pipeline,
             heatmap_pipeline: p.heatmap_pipeline,
@@ -992,6 +1000,16 @@ impl GpuPipelines {
                 depth_compare: DEPTH_TEST,
             },
         );
+        let marker_3d_pipeline = create_pipeline(device, format, PipelineSpec {
+            label: "chart-3d-markers", layout: &pipeline_layout, shader: &marker_shader,
+            vs: "vs_marker", fs: "fs_marker", buffers: &[layout_of::<ChartMarkerRaw>(Instance, &ATTRS_4)],
+            topology: TriangleList, depth_write: true, depth_compare: DEPTH_TEST,
+        });
+        let fill_3d_pipeline = create_pipeline(device, format, PipelineSpec {
+            label: "chart-3d-fills", layout: &fill_pipeline_layout, shader: &fill_shader,
+            vs: "vs_fill", fs: "fs_fill", buffers: &[layout_of::<ChartFillRaw>(Vertex, &ATTRS_2)],
+            topology: TriangleList, depth_write: true, depth_compare: DEPTH_TEST,
+        });
         let fill_overlay_pipeline = create_pipeline(
             device,
             format,
@@ -1063,6 +1081,8 @@ impl GpuPipelines {
             bar_pipeline,
             marker_pipeline,
             fill_pipeline,
+            marker_3d_pipeline,
+            fill_3d_pipeline,
             fill_overlay_pipeline,
             point_pipeline,
             heatmap_pipeline,
@@ -1176,6 +1196,7 @@ impl RenderBackend for WgpuRenderBackend {
     }
 
     fn sync_chart(&mut self, layers: &ChartLayers<'_>) {
+        self.depth_3d = layers.depth_3d;
         self.series_clip = layers.series_clip;
         let written = chart_layer_bytes(layers);
         self.counters.chart_upload_bytes = written;
@@ -1316,11 +1337,11 @@ impl RenderBackend for WgpuRenderBackend {
                 rpass.set_scissor_rect(x, y, w, h);
             }
             draw_quads(&mut rpass, &self.bar_pipeline, cam, &self.chart_bars);
-            draw_fills(&mut rpass, &self.fill_pipeline, fill, &self.chart_fills);
+            draw_fills(&mut rpass, if self.depth_3d { &self.fill_3d_pipeline } else { &self.fill_pipeline }, fill, &self.chart_fills);
             draw_quads(&mut rpass, &self.segment_pipeline, cam, &self.chart_series);
             // Dashed series strokes, then series point markers over the strokes
             draw_quads(&mut rpass, &self.dash_segment_pipeline, cam, &self.chart_series_dashed);
-            draw_quads(&mut rpass, &self.marker_pipeline, cam, &self.chart_series_markers);
+            draw_quads(&mut rpass, if self.depth_3d { &self.marker_3d_pipeline } else { &self.marker_pipeline }, cam, &self.chart_series_markers);
             draw_quads(&mut rpass, &self.point_pipeline, &self.point_bind_group, &self.chart_points);
             if self.point_emphasis && self.chart_points.len > 0 {
                 // Second pass (vertices 6..12): only the emphasized series, on top

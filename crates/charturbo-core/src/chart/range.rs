@@ -56,7 +56,7 @@ impl ChartState {
             // Category index / x of the padded combo domain
             ChartKind::Combo(c) => Some(range_of_window(line_x_domain(&c.line), c.line.window)),
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => None,
-            ChartKind::Hierarchy(_) => None,
+            ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
         }
     }
 

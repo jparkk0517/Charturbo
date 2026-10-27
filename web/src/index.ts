@@ -205,3 +205,4 @@ export {
   type LineNullPolicy,
   type LineStyleInput,
 } from './sdk/chart-linestyle';
+export type { PointCloud3DData, PointCloud3DSeries, Surface3DGridData, Surface3DSeries, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions } from './sdk/chart-scientific3d';

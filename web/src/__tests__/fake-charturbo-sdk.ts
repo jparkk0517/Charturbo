@@ -61,6 +61,8 @@ export class FakeSDK {
   renderBandChart = this.spy('renderBandChart');
   renderErrorBarChart = this.spy('renderErrorBarChart');
   renderImpulseChart = this.spy('renderImpulseChart');
+  renderPointCloud3D = this.spy('renderPointCloud3D');
+  renderSurface3D = this.spy('renderSurface3D');
   renderBarChart = this.spy('renderBarChart');
   renderGroupedBarChart = this.spy('renderGroupedBarChart');
   renderScatterChart = this.spy('renderScatterChart');

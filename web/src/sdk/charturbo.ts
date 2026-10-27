@@ -1,4 +1,6 @@
 import initWasm, { WasmCharturboEngine } from '../wasm-pkg/charturbo_core';
+import { encodePointCloud3D, encodeSurface3D, validateScientific3DOptions, scientificSample, scientificTooltip, type Scientific3DMeta, type EncodedScientific3D, type Scientific3DChartOptions, type PointCloud3DSeries, type Surface3DSeries } from './chart-scientific3d';
+export type { PointCloud3DData, PointCloud3DSeries, Surface3DGridData, Surface3DSeries, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions } from './chart-scientific3d';
 import { createTouchGestures, isGesturePointer, type TouchInteractionOptions } from './chart-gestures';
 import { createCameraControls, resolveCameraControls, type CameraControlOptions } from './camera-controls';
 export type { CameraControlOptions } from './camera-controls';
@@ -837,6 +839,7 @@ export interface ChartTooltipItem {
 export interface ChartTooltipContext {
   /** `'combo'`: bar / line / area series of a combo chart (items = every series at the category) */
   chartType:
+    | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
     | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey';
   /**
@@ -870,6 +873,7 @@ export interface ChartTooltipContext {
   xLabel: string;
   /** Data coordinates of the hovered scatter point */
   point?: { x: number; y: number };
+  point3d?: { x: number; y: number; z: number; column?: number; row?: number };
   /**
    * One entry per series at the hovered x (line index mode, stacked bars) or the single hovered
    * point / bar (nearest mode, single / grouped bars)
@@ -1257,6 +1261,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_graph_visible?(visible: boolean): void;
   move_camera_local?(forwardDelta: number, rightDelta: number, upDelta: number): void;
   rotate_camera_look?(deltaYaw: number, deltaPitch: number): void;
+  set_chart_3d?(xyz: Float32Array, colors: Float32Array, offsets: Uint32Array, styles: Float32Array, shapes: Uint32Array): number;
+  chart_3d_hit?(): Float32Array;
   set_camera_pose?(
     eyeX: number,
     eyeY: number,
@@ -2044,6 +2050,7 @@ interface CandleChartMeta {
 }
 
 type ChartMeta =
+  | Scientific3DMeta
   | LineChartMeta
   | BarChartMeta
   | MultiBarChartMeta
@@ -2067,7 +2074,7 @@ function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
 
 /** Brush selection kind of a chart mode (`null`: no brush, e.g. pies and hierarchy charts). */
 function selectionKind(mode: Charturbo['chartMode']): CharturboSelection['kind'] | null {
-  return mode === null || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' ? null : mode;
+  return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' ? null : mode;
 }
 
 function rgbaToCss(c: RgbaTuple): string {
@@ -2268,6 +2275,7 @@ export class Charturbo {
   private graphVisibleState = true;
   /** Set by chart renderers; switches tooltip / click handling from graph to chart semantics. */
   private chartMode:
+    | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
     | BusinessChartMeta['kind'] | 'treemap' | 'sunburst' | 'sankey' | null = null;
   private chartMeta: ChartMeta | null = null;
@@ -3071,7 +3079,13 @@ export class Charturbo {
     let series = 0;
     let metadata: NodeMetadata;
     let color: RgbaTuple;
-    if (meta.kind === 'line') {
+    if (meta.kind === 'scientific3d') {
+      const p = scientificSample(meta, id);
+      if (!p) return null;
+      series = p.series; color = p.color;
+      metadata = { label: `${meta.names[series]} #${p.index}`, category: meta.names[series], tags: [meta.mode],
+        attributes: { series: meta.names[series], x: p.point[0], y: p.point[1], z: p.point[2] } };
+    } else if (meta.kind === 'line') {
       while (series + 1 < meta.offsets.length && meta.offsets[series + 1] <= id) series++;
       const index = id - meta.offsets[series];
       const point = this.lineSample(meta, series, index);
@@ -3773,6 +3787,10 @@ export class Charturbo {
         </div>`
         )
         .join('');
+      if (ctx.point3d) {
+        const p = ctx.point3d;
+        return `<div>${esc(ctx.xLabel)}</div>${rows}<div>X ${esc(num(p.x))} · Y ${esc(num(p.y))} · Z ${esc(num(p.z))}</div>`;
+      }
       if (ctx.ohlc) {
         const o = ctx.ohlc;
         const fy = escFmt(yFmt);
@@ -3899,6 +3917,7 @@ export class Charturbo {
       if (!meta || !hit || hit.length < 3) return null;
       const count = hit[2];
       if (count < 1) return null;
+      if (meta.kind === 'scientific3d') return scientificTooltip(meta, hit[6], this.getNodeDetails(hit[6]), this.backend.chart_3d_hit?.());
       if (meta.kind === 'candle') return this.candleTooltip(meta, hit[4]);
       if (meta.kind === 'heatmap') return this.heatmapTooltip(meta, hit);
       if (meta.kind === 'box') return this.boxTooltip(meta, hit);
@@ -5878,7 +5897,12 @@ export class Charturbo {
         axis === 0
           ? p.formatX(value, granAt < 0 ? 0 : a[granAt + k])
           : (resolveFormat(opts.format, this.chartLocale()) ?? ((v: number) => formatTickValue(v, this.chartLocale())))(value);
-      if (axis === 0) {
+      if (this.chartMeta?.kind === 'scientific3d') {
+        el.textContent = `${axis === 0 ? 'X' : axis === 1 ? 'Y' : 'Z'} ${Number(value.toPrecision(3)).toLocaleString(this.chartLocale(), { maximumSignificantDigits: 3 })}`;
+        el.style.left = `${x + (axis === 1 || axis === 0 ? -8 : 8)}px`;
+        el.style.top = `${y + (axis === 1 ? 0 : 8)}px`;
+        el.style.transform = axis === 1 ? 'translate(-100%, -50%)' : axis === 0 ? 'translate(-100%, 0)' : 'translate(0, 0)';
+      } else if (axis === 0) {
         el.style.left = `${x}px`;
         el.style.top = `${y + 6}px`;
         el.style.transform = 'translate(-50%, 0)';
@@ -6199,6 +6223,43 @@ export class Charturbo {
   /** Independent stems from each series baseline to its samples, with optional tip markers. */
   renderImpulseChart(series: ImpulseSeriesDescriptor[], options?: ImpulseChartOptions): { totalPoints: number; seriesCount: number } {
     return this.renderSparse(encodeImpulses(series, options), options);
+  }
+
+  /** Independent XYZ billboards with depth-tested orbit navigation. */
+  renderPointCloud3D(series: PointCloud3DSeries[], options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {
+    return this.renderScientific3D(encodePointCloud3D(series, this.theme.palette), options);
+  }
+
+  /** Y-up row-major height grids; nonfinite vertices make cell holes. */
+  renderSurface3D(series: Surface3DSeries[], options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {
+    return this.renderScientific3D(encodeSurface3D(series, this.theme.palette), options);
+  }
+
+  private renderScientific3D(e: EncodedScientific3D, options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {
+    validateScientific3DOptions(options);
+    if (!this.backend.set_chart_3d) throw new Error('3D chart: backend does not support scientific charts');
+    this.clearScene();
+    this.clearSelection();
+    this.setRigidPhysics(false);
+    this.setGraphVisible(true);
+    this.setHelpers({ showGrid: false, showAxes: false });
+    this.backend.set_chart_3d(e.xyz, e.colors, e.offsets, e.styles, e.shapes);
+    this.chartMode = e.meta.mode;
+    this.chartMeta = e.meta;
+    this.flatCameraView = false;
+    this.chartGrid = options?.grid;
+    this.chartGridShown = options?.showGrid ?? true;
+    this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(this.chartGrid)));
+    this.chartHover = { ...options?.hover, mode: 'nearest' };
+    this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover(this.chartHover)));
+    e.meta.visible.forEach((v, i) => this.backend.set_chart_series_visible?.(i, v));
+    const opt = typeof options?.legend === 'boolean' ? { show: options.legend } : options?.legend;
+    const legend = { show: opt?.show ?? e.meta.names.length > 1, toggle: opt?.toggle ?? true, emphasize: opt?.emphasize ?? true };
+    this.chartPresentation = { title: options?.title, description: options?.description, xAxis: {}, yAxis: {}, legend,
+      navigable: false, formatX: v => formatTickValue(v, this.chartLocale()) };
+    if (options?.camera) this.setCameraPose(options.camera.eye, options.camera.target ?? [0, 0, 0]);
+    this.rebuildChartOverlay();
+    return { pointCount: e.xyz.length / 3, seriesCount: e.meta.names.length };
   }
 
   private renderSparse(sparse: EncodedSparse, options?: LineChartOptions): { totalPoints: number; seriesCount: number } {
@@ -6929,6 +6990,7 @@ export class Charturbo {
   private a11yChartTooltip(hit: Float64Array): ChartTooltipContext | null {
     const meta = this.chartMeta;
     if (!meta || hit.length < 7 || hit[2] < 1) return null;
+    if (meta.kind === 'scientific3d') return scientificTooltip(meta, hit[6], this.getNodeDetails(hit[6]));
     if (meta.kind === 'candle') return this.candleTooltip(meta, hit[4]);
     if (meta.kind === 'heatmap') return this.heatmapTooltip(meta, hit);
     if (meta.kind === 'box') return this.boxTooltip(meta, hit);

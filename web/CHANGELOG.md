@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — PointCloud3D · Surface3D 기본 경로
+
+- `renderPointCloud3D`·`renderSurface3D`, React/Vue `type="pointCloud3d"`·`type="surface3d"`를 추가했습니다.
+- XYZ billboard와 Y-up row-major surface를 전용 깊이 처리로 렌더링합니다. scalar 색상, grid hole, wireframe, 조명, 시리즈 가시성·강조, orbit/pan/zoom을 지원합니다.
+- 원본 XYZ 툴팁·키보드·CSV, surface ray intersection, SVG raster fallback, 예제 3개와 WebGPU/WebGL2 fixture를 연결했습니다. 투명도 0 표면의 선택·렌더와 resize 시 카메라 초기화를 수정했습니다.
+- 전체 교체 API를 제공하며 streaming·contours·orthographic·정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
+
 ### 추가 — 독립 ErrorBar · Impulse
 
 - `renderErrorBarChart`·`renderImpulseChart`, React/Vue `type="errorBar"`·`type="impulse"`를 추가했습니다.

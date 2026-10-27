@@ -12,6 +12,7 @@ mod lib_hierarchy;
 mod lib_timezone;
 mod lib_barstyle;
 mod lib_linestyle;
+mod lib_scientific3d;
 mod lib_combo;
 mod lib_animation;
 mod lib_svg;

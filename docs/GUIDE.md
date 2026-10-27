@@ -43,6 +43,32 @@
 
 ---
 
+## PointCloud3D / Surface3D
+
+`renderPointCloud3D`·`renderSurface3D`는 `{ pointCount, seriesCount }`를 반환합니다. Y-up 좌표를 사용하며 원본 XYZ와 렌더 좌표를 분리합니다. 각 축의 전체 데이터 범위를 `[-60, 60]`으로 독립 정규화하므로 실제 단위의 종횡비를 보존하지 않습니다. 내부 좌표는 Float32 정밀도입니다.
+
+```ts
+sdk.renderPointCloud3D([
+  { name: 'Scan', data: new Float32Array([0, 1, 2, 3, 4, 5]), size: 5 },
+  { name: 'Reference', data: [{ x: 1, y: 2, z: 3 }], color: '#ff9933', size: 10 },
+], { title: 'XYZ cloud', legend: true });
+
+sdk.renderSurface3D([{
+  name: 'Height',
+  data: { columns: 3, rows: 2, xStart: -1, xStep: 1, zStart: 0, zStep: 2,
+    y: [0, 1, 0, 1, 2, 1] },
+  colormap: 'viridis', lighting: 0.65,
+}], { title: 'Y-up surface', showGrid: true });
+sdk.enableNodeInteractions(canvas, { autoRender: true });
+```
+
+- Cloud 입력: interleaved `Float32Array`·`Float64Array`, `[x,y,z][]`, `{x,y,z}[]`, 또는 같은 길이의 `{x: ArrayLike, y: ArrayLike, z: ArrayLike}`. `null`·비유한 좌표는 원본 ID를 유지하는 gap입니다. `size`는 CSS px 지름(기본 3), `colorBy: { values, colormap?, min?, max? }`로 scalar 색상을 지정합니다.
+- Surface 입력: `y[row * columns + column]`. 가로·세로 각각 2 이상, 유한한 시작점과 0이 아닌 step이 필요하며 음수 step도 지원합니다. 비유한 꼭짓점이 하나라도 있으면 해당 셀 전체가 hole입니다. `wireframe` 기본 false, `lighting`은 0..1, 기본 0.65입니다. `colormap`은 `'viridis'`·`'magma'`, `yMin/yMax`는 색상 범위입니다. 명시적 `color`만 지정하면 단색을 사용합니다.
+- 공통 시리즈 옵션: `name`, `visible`, `color`, `opacity`. 차트 옵션: `title`, `description`, `legend`, `grid`, `showGrid`, `hover`, `camera: { eye, target? }`. 카메라는 정규화된 렌더 공간의 perspective orbit이며 resize 후 회전·팬·거리를 보존합니다.
+- 포인터 cloud 선택은 허용 반경 내 전면 샘플입니다. Surface는 삼각형 ray intersection으로 `point3d: {x,y,z,column,row}`를 반환합니다. Wireframe도 셀 내부를 선택합니다. 키보드·CSV는 보간하지 않은 원본 정점 XYZ를 제공합니다. SVG는 raster fallback, 이미지/PDF는 현재 3D 화면을 사용합니다.
+- React/Vue `type="pointCloud3d"`·`type="surface3d"`, 예제 `/scientific3d.html`. 전체 데이터를 해당 render API에 다시 전달하여 갱신합니다. 최대 400만 샘플이며 현재 hover는 전체 점/셀을 검사합니다.
+- 이 단계는 기본 3D 차트 경로입니다. 부분 갱신/streaming, contours, orthographic, 사용자 축 범위·aspect, 3D brush·sync, 정확한 다중 투명면 합성은 후속 범위입니다. 반투명 geometry는 depth-write하지만 깊이 정렬하지 않습니다. 전체 ChartGPU v0.4.0 기능 동등성 완료를 뜻하지 않습니다.
+
 ## 독립 ErrorBar / Impulse 차트
 
 두 API는 `{ totalPoints, seriesCount }`를 반환합니다. 각 샘플을 독립적으로 그리므로 선 M4 데시메이션이나 이웃 샘플 연결을 적용하지 않습니다.

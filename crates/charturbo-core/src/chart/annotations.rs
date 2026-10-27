@@ -583,7 +583,7 @@ impl ChartState {
             // Waterfalls map data like bars (category index, value)
             ChartKind::Waterfall(w) => bar_frame(&w.bar),
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) => None,
-            ChartKind::Hierarchy(_) => None,
+            ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
         }
     }
 

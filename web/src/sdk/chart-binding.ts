@@ -39,9 +39,12 @@ import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
 import type { CharturboEventMap } from './chart-events';
 import type { ErrorBarSeriesDescriptor, ErrorBarChartOptions, ImpulseSeriesDescriptor, ImpulseChartOptions } from './chart-sparse';
+import type { PointCloud3DSeries, Surface3DSeries, Scientific3DChartOptions } from './chart-scientific3d';
 
 /** Data / options of each chart `type` (bar: an item array, or grouped / stacked series). */
 export interface CharturboChartSpecMap {
+  pointCloud3d: { data: PointCloud3DSeries[]; options: Scientific3DChartOptions };
+  surface3d: { data: Surface3DSeries[]; options: Scientific3DChartOptions };
   line: { data: LineSeriesDescriptor[]; options: LineChartOptions };
   area: { data: LineSeriesDescriptor[]; options: AreaChartOptions };
   band: { data: BandSeriesDescriptor[]; options: BandChartOptions };
@@ -137,6 +140,12 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'impulse':
       sdk.renderImpulseChart(data as ImpulseSeriesDescriptor[], options as ImpulseChartOptions);
+      break;
+    case 'pointCloud3d':
+      sdk.renderPointCloud3D(data as PointCloud3DSeries[], options as Scientific3DChartOptions);
+      break;
+    case 'surface3d':
+      sdk.renderSurface3D(data as Surface3DSeries[], options as Scientific3DChartOptions);
       break;
     case 'bar':
       if (Array.isArray(data)) sdk.renderBarChart(data as BarChartItemDescriptor[], options as BarChartOptions);

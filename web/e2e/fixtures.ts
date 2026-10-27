@@ -129,6 +129,26 @@ const lineFixture = (name: string, theme: FixtureTheme): Fixture => ({
 
 export const FIXTURES: Fixture[] = [
   {
+    name: 'scientific3d-cloud', theme: 'dark',
+    render: ctx => single(ctx, sdk => {
+      const rand = mulberry32(23), data = new Float32Array(1800);
+      for (let i = 0; i < 600; i++) data.set([rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1], i * 3);
+      sdk.renderPointCloud3D([{ name: 'Scan', data, size: 5, color: firstColor(ctx) },
+        { name: 'Reference', data: [[0, 0, -1], [0, 0, 1]], size: 16, color: '#ff9933' }], { title: 'XYZ cloud', legend: false });
+    }),
+  },
+  ...[false, true].map(wireframe => ({
+    name: `scientific3d-surface${wireframe ? '-wire' : ''}`, theme: 'light' as const,
+    render: (ctx: FixtureContext) => single(ctx, sdk => {
+      const y = Float32Array.from({ length: 17 * 17 }, (_, i) => {
+        const x = i % 17 - 8, z = Math.floor(i / 17) - 8;
+        return x * x + z * z < 5 ? NaN : Math.sin(x / 3) * Math.cos(z / 3);
+      });
+      sdk.renderSurface3D([{ name: 'Height', data: { columns: 17, rows: 17, xStart: -8, xStep: 1, zStart: -8, zStep: 1, y }, wireframe }],
+        { title: wireframe ? 'Wireframe' : 'Surface with hole' });
+    }),
+  })),
+  {
     name: 'sparse-error-bar', theme: 'dark',
     render: ctx => single(ctx, sdk => {
       sdk.renderErrorBarChart([

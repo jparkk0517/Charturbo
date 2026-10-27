@@ -43,6 +43,11 @@ mod scatter;
 mod shape;
 mod sparkline;
 mod sparse;
+mod scientific3d;
+pub use scientific3d::Scientific3DSeries;
+use scientific3d::Scientific3D;
+#[cfg(test)]
+mod scientific3d_tests;
 mod svg;
 mod sunburst;
 mod sync;
@@ -458,6 +463,7 @@ pub(crate) fn lighten(c: [f32; 4], amount: f32) -> [f32; 4] {
 
 #[derive(Debug, Clone)]
 enum ChartKind {
+    Scientific3D(Scientific3D),
     Line(LineChart),
     Area(AreaChart),
     Bar(BarChart),
@@ -641,6 +647,7 @@ impl ChartState {
     /// Frames the camera so the plot fills the canvas (`css` size) minus the padding.
     pub fn frame_camera(&self, camera: &mut OrbitCamera, css: (f32, f32)) {
         match &self.kind {
+            ChartKind::Scientific3D(c) => c.frame_camera(camera),
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => l.frame_camera(camera, css, &self.frame_padding()),
             ChartKind::Bar(b) => b.frame_camera(camera, css, &self.padding),
             ChartKind::Scatter(s) => s.frame_camera(camera, css, &self.padding),
@@ -668,6 +675,7 @@ impl ChartState {
     /// Number of series (line series, or bar series; 1 for a plain bar chart).
     pub fn series_count(&self) -> usize {
         match &self.kind {
+            ChartKind::Scientific3D(c) => c.series.len(),
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => l.series.len(),
             ChartKind::Bar(b) => b.series_count,
             ChartKind::Scatter(s) => s.visible.len(),
@@ -686,6 +694,9 @@ impl ChartState {
     /// to the visible extent; bar stacks / groups are re-laid out without the hidden series.
     pub fn set_series_visible(&mut self, series: usize, visible: bool, scene: &mut SceneWorld) {
         let changed = match &mut self.kind {
+            ChartKind::Scientific3D(c) => {
+                if let Some(v) = c.visible.get_mut(series) { let changed = *v != visible; *v = visible; self.dirty.series |= changed; self.dirty.fills |= changed; changed } else { false }
+            }
             ChartKind::Line(l) => match l.visible.get_mut(series) {
                 Some(v) if *v != visible => {
                     *v = visible;
@@ -784,6 +795,7 @@ impl ChartState {
 
     pub fn series_visible(&self, series: usize) -> bool {
         match &self.kind {
+            ChartKind::Scientific3D(c) => c.visible.get(series).copied().unwrap_or(false),
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => l.visible.get(series).copied().unwrap_or(false),
             ChartKind::Bar(b) => b.visible.get(series).copied().unwrap_or(false),
             ChartKind::Scatter(s) => s.visible.get(series).copied().unwrap_or(false),
@@ -801,6 +813,7 @@ impl ChartState {
     /// Emphasizes one series (others fade) or clears emphasis with `None` (legend hover).
     pub fn set_emphasis(&mut self, series: Option<usize>) {
         match &mut self.kind {
+            ChartKind::Scientific3D(c) => { c.emphasis = series; self.dirty.series = true; self.dirty.fills = true; }
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => {
                 let series = series.filter(|&i| i < l.series.len());
                 if l.emphasis != series {
@@ -982,6 +995,7 @@ impl ChartState {
         // A manual y zoom (zoom.rs) is dropped too
         self.clear_y_zoom();
         let changed = match &mut self.kind {
+            ChartKind::Scientific3D(_) => false,
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => std::mem::replace(&mut l.window, (0.0, 1.0)) != (0.0, 1.0),
             ChartKind::Scatter(s) => {
                 let before = (s.window_x, s.window_y);
@@ -1008,6 +1022,7 @@ impl ChartState {
     /// Current x zoom window in normalized `[0, 1]` (line / scatter charts; bars return `(0, 1)`).
     pub fn x_window(&self) -> (f32, f32) {
         match &self.kind {
+            ChartKind::Scientific3D(_) => (0., 1.),
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => l.window,
             ChartKind::Bar(_) | ChartKind::Box(_) => (0.0, 1.0),
             ChartKind::Pie(_) => (0.0, 1.0),
@@ -1197,6 +1212,7 @@ impl ChartState {
 
     pub fn point_count(&self) -> usize {
         match &self.kind {
+            ChartKind::Scientific3D(c) => c.len(),
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => (0..l.series.len()).map(|s| l.len(s)).sum(),
             ChartKind::Bar(b) => b.values.len(),
             ChartKind::Scatter(s) => s.len(),
@@ -1290,6 +1306,7 @@ impl ChartState {
     /// Value and world position of a data point by global id.
     pub fn sample(&self, global_id: u32) -> Option<(u32, u32, f32, Vec3)> {
         match &self.kind {
+            ChartKind::Scientific3D(c) => c.sample(global_id),
             ChartKind::Line(l) => {
                 let s = l.offsets.iter().rposition(|&o| o <= global_id)?;
                 let i = (global_id - l.offsets[s]) as usize;
@@ -1362,6 +1379,7 @@ impl ChartState {
             return self.hover_candle(view, scene, ndc);
         }
         let result = match &self.kind {
+            ChartKind::Scientific3D(c) => c.hover(view, ndc, &self.hover_style),
             ChartKind::Line(l) => l.hover(view, ndc, &self.hover_style),
             ChartKind::Area(a) => a.hover(view, ndc, &self.hover_style),
             ChartKind::Bar(b) => b.hover(view, scene, ndc),
@@ -1445,6 +1463,11 @@ impl ChartState {
             }
         }
         match &self.kind {
+            ChartKind::Scientific3D(c) => {
+                if self.dirty.series || self.dirty.fills { c.build(&mut self.fills, &mut self.series, &mut self.styled.markers); self.dirty.fills = true; self.dirty.series = true; }
+                if self.dirty.underlay { c.grid(&self.frame_style, &mut self.underlay); }
+                if self.dirty.overlay { self.overlay.clear(); self.markers.clear(); }
+            }
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => {
                 if let Some(window) = l.view_window(view) {
                     let stale = match self.lod {
@@ -1568,6 +1591,7 @@ impl ChartState {
             // Lay out into scratch so the revision only bumps when labels actually move
             let mut axes = std::mem::take(&mut self.axes_scratch);
             match &self.kind {
+                ChartKind::Scientific3D(c) => c.axes(view, &mut axes),
                 ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => {
                     l.axes(view, &self.time_zone, &mut axes)
                 }
@@ -1592,6 +1616,7 @@ impl ChartState {
             self.axes_key = Some(key);
         }
         let mut series_clip = match &self.kind {
+            ChartKind::Scientific3D(_) => None,
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => l.clip_px(view),
             ChartKind::Bar(_) | ChartKind::Heatmap(_) | ChartKind::Box(_) => None,
             ChartKind::Pie(_) => None,
@@ -1624,6 +1649,7 @@ impl ChartState {
         let d = std::mem::take(&mut self.dirty);
         self.dirty.series = keep_series_dirty;
         ChartLayers {
+            depth_3d: matches!(self.kind, ChartKind::Scientific3D(_)),
             series_clip,
             underlay: d.underlay.then_some(self.underlay.as_slice()),
             bars: if anim.bars { Some(self.anim_bars()) } else { d.bars.then_some(self.bars.as_slice()) },
@@ -1678,6 +1704,7 @@ fn hovered_bar(hover: Option<&HoverResult>) -> Option<usize> {
 /// Layers that clear every chart buffer on the GPU (used when the chart is removed).
 pub fn empty_chart_layers() -> ChartLayers<'static> {
     ChartLayers {
+        depth_3d: false,
         series_clip: None,
         underlay: Some(&[]),
         bars: Some(&[]),

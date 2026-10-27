@@ -160,6 +160,8 @@ pub struct ChartAnnotationLayer<'a> {
 /// Chart layers to upload this frame; `None` keeps the previously uploaded GPU data untouched.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ChartLayers<'a> {
+    /// Scientific 3D fills and billboards depth-test and write depth.
+    pub depth_3d: bool,
     /// Scissor rect `[x, y, w, h]` (physical px) for bars, fills, series and points while zoomed;
     /// `None` = none
     pub series_clip: Option<[u32; 4]>,
