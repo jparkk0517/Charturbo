@@ -1,11 +1,13 @@
-//! Bar chart styling: horizontal orientation, error bars, and data-label anchors.
+//! Bar chart styling: horizontal orientation, error bars, background tracks, and data-label
+//! anchors.
 //!
 //! Orientation re-maps the bar layout (`BarChart::world`); error bars are drawn as segments with
-//! caps in the series layer and widen the value domain; data labels are laid out in CSS px from
+//! caps in the series layer and widen the value domain; background tracks are bar instances
+//! across the whole value axis, staged before the bars; data labels are laid out in CSS px from
 //! text sizes measured by the SDK (anchor, inside / outside, fit and collision tests here; the
 //! SDK only places DOM text at the anchors).
 
-use super::bar::{BarChart, BarMode};
+use super::bar::{BarChart, BarMode, BarSeg};
 use super::line::DIMMED_SERIES_ALPHA;
 use super::*;
 
@@ -58,8 +60,14 @@ impl Default for BarStyle {
 
 /// Depth of the error bars: over the bars (z = 0), under the hover overlay.
 const ERROR_Z: f32 = 0.05;
+/// Depth of the background tracks: behind the bars, over the gridlines (z = -0.5).
+const TRACK_Z: f32 = -0.02;
 /// Px kept between neighbouring labels in `Auto` mode.
 const LABEL_GAP_PX: f32 = 2.0;
+/// Px per upright category tick label along a vertical bar chart's x axis.
+const CATEGORY_TICK_PX: f32 = 88.0;
+/// Px across one rotated category label: its line box (14) plus the SDK's label gap (8).
+const ROTATED_TICK_PX: f32 = 22.0;
 
 impl BarStyle {
     /// `(minus, plus)` value-unit error of a value, `None` without one.
@@ -244,6 +252,80 @@ impl BarChart {
         }
     }
 
+    /// Background tracks (`background` set; 2D, not histograms): one per visible bar slot when
+    /// grouped, one per category stack otherwise, across the whole value axis with the bar's
+    /// width, side gap, and corner radius on its data end. Tracks of missing values stay.
+    pub(crate) fn build_tracks(&self, out: &mut Vec<ChartBarRaw>) {
+        let Some(color) = self.background else { return };
+        if self.layout.view != ChartViewMode::Flat || self.histogram.is_some() {
+            return;
+        }
+        let n = self.categories;
+        let vis: Vec<usize> = (0..self.series_count).filter(|&s| self.visible[s]).collect();
+        if vis.is_empty() {
+            return;
+        }
+        let (lo, hi) = (self.bottom, self.bottom + self.axis_lengths().1);
+        let gap = if self.mode == BarMode::Grouped && vis.len() > 1 { -self.gap_px } else { 0.0 };
+        let radius = self.layout.corner_radius_px;
+        // Missing / zero data: round the end the value axis extends to (up unless all negative)
+        let default_up = self.v_max > 0.0 || self.v_min >= 0.0;
+        let mut push = |x0: f32, x1: f32, up: bool| {
+            let (y0, y1) = if up { (lo, hi) } else { (hi, lo) };
+            let (rect, end) = self.bar_rect(&BarSeg { x0, x1, y0, y1, outer: true });
+            out.push(ChartBarRaw { rect, z_radius: [TRACK_Z, radius, end, gap], color });
+        };
+        let hw = self.bar_width * 0.5;
+        if self.mode == BarMode::Grouped {
+            let sub = self.bar_width / vis.len() as f32;
+            for (j, &s) in vis.iter().enumerate() {
+                for i in 0..n {
+                    let v = self.values[s * n + i];
+                    let x0 = self.slots[i].0 - hw + j as f32 * sub;
+                    push(x0, x0 + sub, if v > 0.0 { true } else if v < 0.0 { false } else { default_up });
+                }
+            }
+            return;
+        }
+        for i in 0..n {
+            let (mut pos, mut neg) = (false, false);
+            for &s in &vis {
+                let v = self.values[s * n + i];
+                pos |= v > 0.0;
+                neg |= v < 0.0;
+            }
+            let x = self.slots[i].0;
+            push(x - hw, x + hw, if pos { true } else if neg { false } else { default_up });
+        }
+    }
+
+    /// Number of background tracks `build_tracks` stages (before the bars).
+    pub(crate) fn track_count(&self) -> usize {
+        if self.background.is_none() || self.layout.view != ChartViewMode::Flat || self.histogram.is_some() {
+            return 0;
+        }
+        let vis = self.visible.iter().filter(|&&v| v).count();
+        match self.mode {
+            BarMode::Grouped => vis * self.categories,
+            _ if vis > 0 => self.categories,
+            _ => 0,
+        }
+    }
+
+    /// CSS px kept per category tick label on a vertical chart's x axis. Rotated labels are
+    /// parallel strips: neighbours `d` apart clear each other across the text when
+    /// `d * sin(a) >= line + gap`, or along it when `d * cos(a) >= 88` (the upright budget), so
+    /// the smaller of the two is the spacing (the SDK thins the shown labels by their real size).
+    pub(crate) fn category_tick_px(&self) -> f32 {
+        let a = self.category_label_deg.to_radians();
+        let (sin, cos) = (a.sin().abs(), a.cos().abs());
+        if sin < 1e-3 {
+            return CATEGORY_TICK_PX;
+        }
+        let across = ROTATED_TICK_PX / sin;
+        if cos < 1e-3 { across } else { across.min(CATEGORY_TICK_PX / cos) }
+    }
+
     /// Lays out the data labels of the visible bars / segments for `view` (see `BarLabelMode`).
     pub(crate) fn layout_labels(&self, view: &ChartView, out: &mut Vec<BarLabel>) {
         out.clear();
@@ -416,6 +498,28 @@ impl ChartState {
         true
     }
 
+    /// Background tracks of a 2D bar chart (not histograms): RGBA, `None` = none. They follow
+    /// the layout (zoom, resize, legend toggles) and are not hit targets. Returns false otherwise.
+    pub fn set_bar_background(&mut self, color: Option<[f32; 4]>) -> bool {
+        let ChartKind::Bar(b) = &mut self.kind else {
+            return false;
+        };
+        if b.layout.view != ChartViewMode::Flat || b.histogram.is_some() {
+            return false;
+        }
+        b.background = color;
+        self.dirty.bars = true;
+        true
+    }
+
+    /// Background tracks leading the staged bar layer (animations keep them in place).
+    pub(crate) fn bar_track_count(&self) -> usize {
+        match &self.kind {
+            ChartKind::Bar(b) => b.track_count(),
+            _ => 0,
+        }
+    }
+
     /// Data labels of a bar chart: options and the text size (`[w, h]` CSS px) of each value by
     /// global id (`NaN` = no label). Returns false without a bar chart.
     pub fn set_bar_labels(&mut self, opts: BarLabelOptions, sizes: Vec<[f32; 2]>) -> bool {
@@ -427,6 +531,23 @@ impl ChartState {
         b.labels.opts = opts;
         b.labels.sizes = sizes;
         b.labels.key = None;
+        true
+    }
+
+    /// Rotation (degrees) of the category tick labels of a vertical 2D bar chart (bars or
+    /// waterfall): category ticks are thinned by the rotated label footprint instead of the
+    /// upright one. Returns false otherwise (horizontal bars, histograms, 3D, other charts).
+    pub fn set_bar_axis_label_rotation(&mut self, deg: f32) -> bool {
+        let b = match &mut self.kind {
+            ChartKind::Bar(b) => b,
+            ChartKind::Waterfall(w) => &mut w.bar,
+            _ => return false,
+        };
+        if b.horizontal() || b.histogram.is_some() || b.layout.view != ChartViewMode::Flat {
+            return false;
+        }
+        b.category_label_deg = if deg.is_finite() { deg } else { 0.0 };
+        self.axes_key = None;
         true
     }
 
@@ -751,6 +872,167 @@ mod tests {
         // Same view, nothing changed: no new revision
         st.prepare_layers(&view(&cam));
         assert_eq!(st.bar_labels().unwrap().1, rev2);
+    }
+
+    const TRACK: [f32; 4] = [0.5, 0.5, 0.5, 0.2];
+
+    #[test]
+    fn background_tracks_span_the_value_axis_behind_every_bar() {
+        let (mut st, cam) = state(vec![10.0, -5.0, f32::NAN], 1, BarMode::Grouped, BarStyle::default());
+        let plain = st.prepare_layers(&view(&cam)).bars.unwrap().to_vec();
+        assert!(st.set_bar_background(Some(TRACK)));
+        let all = st.prepare_layers(&view(&cam)).bars.expect("bars re-uploaded").to_vec();
+        // One track per category (the missing value keeps its track), drawn first
+        assert_eq!(all.len(), 3 + plain.len());
+        assert_eq!(st.bar_track_count(), 3);
+        let (tracks, bars) = all.split_at(3);
+        assert_eq!(bars, &plain[..], "bars unchanged");
+        let b = bar(&st);
+        for (i, t) in tracks.iter().enumerate() {
+            // Whole plot height, the bar's slot width and corner radius, behind the bars
+            assert_eq!((t.rect[1], t.rect[3]), (-40.0, 40.0));
+            let half = b.bar_width * 0.5;
+            assert!((t.rect[0] - (b.slots[i].0 - half)).abs() < 1e-4 && (t.rect[2] - (b.slots[i].0 + half)).abs() < 1e-4);
+            assert!(t.z_radius[0] < 0.0);
+            assert_eq!((t.z_radius[1], t.z_radius[3]), (4.0, 0.0));
+            assert_eq!(t.color, TRACK);
+        }
+        // Rounded on the bar's data end: up, down (negative bar), up (missing, positive domain)
+        assert_eq!(tracks.iter().map(|t| t.z_radius[2]).collect::<Vec<_>>(), vec![1.0, -1.0, 1.0]);
+        // Hovering the empty track part above the bar still hits the category (column band)
+        let p = cam.project_to_ndc(Vec3::new(b.slots[0].0, 35.0, 0.0)).unwrap();
+        let mut scene = SceneWorld::new();
+        let hit = st.hover_at(&view(&cam), &mut scene, (p.x, p.y)).unwrap();
+        assert_eq!(hit.items[0].global_id, 0);
+        // A style change keeps the tracks; None removes them
+        assert!(st.set_bar_style(horizontal()));
+        assert_eq!(st.bar_track_count(), 3);
+        assert!(st.set_bar_background(None));
+        assert_eq!(st.prepare_layers(&view(&cam)).bars.unwrap().len(), plain.len());
+        assert_eq!(st.bar_track_count(), 0);
+    }
+
+    #[test]
+    fn grouped_tracks_follow_the_visible_bar_slots_and_stacks_get_one_per_category() {
+        let (mut st, cam) = state(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3, BarMode::Grouped, BarStyle::default());
+        st.set_bar_background(Some(TRACK));
+        let mut scene = SceneWorld::new();
+        st.set_series_visible(1, false, &mut scene);
+        let all = st.prepare_layers(&view(&cam)).bars.unwrap().to_vec();
+        // 2 visible series x 2 categories, each as wide as its bar with the same side gap
+        assert_eq!(st.bar_track_count(), 4);
+        assert_eq!(all.len(), 8);
+        let b = bar(&st);
+        let mut tracks = all[..4].to_vec();
+        let mut bars = all[4..].to_vec();
+        let key = |r: &ChartBarRaw| (r.rect[0] * 1000.0) as i64;
+        tracks.sort_by_key(key);
+        bars.sort_by_key(key);
+        for (t, r) in tracks.iter().zip(&bars) {
+            assert_eq!((t.rect[0], t.rect[2]), (r.rect[0], r.rect[2]));
+            assert_eq!((t.z_radius[1], t.z_radius[3]), (r.z_radius[1], r.z_radius[3]));
+            assert_eq!(r.z_radius[3], -b.gap_px);
+            assert_eq!((t.rect[1], t.rect[3]), (-40.0, 40.0));
+        }
+
+        // Stacked / percent: one full-width track per category stack
+        for mode in [BarMode::Stacked, BarMode::Percent] {
+            let (mut st, cam) = state(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3, mode, BarStyle::default());
+            st.set_bar_background(Some(TRACK));
+            let all = st.prepare_layers(&view(&cam)).bars.unwrap().to_vec();
+            assert_eq!(st.bar_track_count(), 2);
+            assert_eq!(all.len(), 2 + 6);
+            let b = bar(&st);
+            for (i, t) in all[..2].iter().enumerate() {
+                assert!((t.rect[2] - t.rect[0] - b.bar_width).abs() < 1e-4);
+                assert!((t.rect[0] + t.rect[2] - 2.0 * b.slots[i].0).abs() < 1e-4);
+                assert_eq!((t.z_radius[1], t.z_radius[3]), (4.0, 0.0));
+            }
+            // Every series hidden: no stack, no track
+            for s in 0..3 {
+                st.set_series_visible(s, false, &mut scene);
+            }
+            assert_eq!(st.prepare_layers(&view(&cam)).bars.unwrap().len(), 0);
+        }
+    }
+
+    #[test]
+    fn horizontal_tracks_span_the_plot_width() {
+        let (mut st, cam) = state(vec![10.0, -20.0], 1, BarMode::Grouped, horizontal());
+        st.set_bar_background(Some(TRACK));
+        let all = st.prepare_layers(&view(&cam)).bars.unwrap().to_vec();
+        assert_eq!(all.len(), 4);
+        for (t, r) in all[..2].iter().zip(&all[2..]) {
+            assert_eq!((t.rect[0], t.rect[2]), (-80.0, 80.0));
+            assert_eq!((t.rect[1], t.rect[3]), (r.rect[1], r.rect[3]), "same thickness as the bar");
+            assert_eq!(t.z_radius[2], r.z_radius[2], "rounded on the bar's data end");
+        }
+        // SVG export draws them (rounded paths before the bars)
+        let svg = st.export_svg(&view(&cam), 1000, "t").markup;
+        let bars = svg.split("data-layer=\"bars\">").nth(1).expect("bars layer").split("</g>").next().unwrap();
+        assert_eq!(bars.matches("<path").count(), 4, "{bars}");
+    }
+
+    #[test]
+    fn tracks_only_on_flat_bar_charts() {
+        let mut scene = SceneWorld::new();
+        let mut st = ChartState::new_bar(
+            vec![1.0, 2.0],
+            vec![[1.0; 4]],
+            BarLayout { view: ChartViewMode::Depth, ..layout() },
+            &mut scene,
+        );
+        assert!(!st.set_bar_background(Some(TRACK)));
+        let mut h = ChartState::new_histogram(&[1.0, 2.0, 3.0], &HistogramOptions::default(), [1.0; 4], layout(), 1.0, &mut scene);
+        assert!(!h.set_bar_background(Some(TRACK)));
+        assert_eq!(h.bar_track_count(), 0);
+    }
+
+    #[test]
+    fn rotated_label_boxes_anchor_and_fit_by_their_own_size() {
+        // 90° labels: the SDK sends each rotated box (line height across, text width along)
+        let (mut st, cam) = state(vec![100.0, 10.0], 1, BarMode::Grouped, BarStyle::default());
+        let opts = BarLabelOptions { mode: BarLabelMode::Show, position: BarLabelPosition::Outside, pad_px: 4.0 };
+        st.set_bar_labels(opts, vec![[14.0, 60.0], [14.0, 20.0]]);
+        st.prepare_layers(&view(&cam));
+        let out = st.bar_labels().unwrap().0.to_vec();
+        // Box bottom = bar top - pad, per label height
+        assert!((out[0].y_css + 30.0 - (bar_css(&st, &cam, 0)[1] - 4.0)).abs() < 1e-3);
+        assert!((out[1].y_css + 10.0 - (bar_css(&st, &cam, 1)[1] - 4.0)).abs() < 1e-3);
+        // Auto inside: the tall box does not fit the short bar and moves outside
+        let auto = BarLabelOptions { mode: BarLabelMode::Auto, position: BarLabelPosition::Inside, ..opts };
+        st.set_bar_labels(auto, vec![[14.0, 90.0], [14.0, 90.0]]);
+        st.prepare_layers(&view(&cam));
+        let out = st.bar_labels().unwrap().0.to_vec();
+        assert!(out.iter().find(|l| l.global == 0).unwrap().inside);
+        assert!(!out.iter().find(|l| l.global == 1).unwrap().inside);
+    }
+
+    #[test]
+    fn rotated_category_labels_thin_out_by_their_rotated_footprint() {
+        let values: Vec<f32> = (0..200).map(|i| i as f32).collect();
+        let (mut st, cam) = state(values, 1, BarMode::Grouped, BarStyle::default());
+        let cats = |st: &ChartState| st.axes().ticks.iter().filter(|k| k.axis == 0).map(|k| k.x_css).collect::<Vec<_>>();
+        st.prepare_layers(&view(&cam));
+        let upright = cats(&st);
+        assert!(upright.windows(2).all(|p| p[1] - p[0] >= 87.9));
+        // 90°: one line box + gap per label; the axes are re-laid out without a new view
+        assert!(st.set_bar_axis_label_rotation(90.0));
+        st.prepare_layers(&view(&cam));
+        let vertical = cats(&st);
+        assert!(vertical.len() > upright.len() * 3, "{} vs {}", vertical.len(), upright.len());
+        assert!(vertical.windows(2).all(|p| p[1] - p[0] >= 21.9));
+        // 45°: in between; 0° keeps the upright spacing
+        assert!(st.set_bar_axis_label_rotation(-45.0));
+        st.prepare_layers(&view(&cam));
+        let n45 = cats(&st).len();
+        assert!(n45 > upright.len() && n45 < vertical.len(), "{n45}");
+        assert!(st.set_bar_axis_label_rotation(0.0));
+        st.prepare_layers(&view(&cam));
+        assert_eq!(cats(&st).len(), upright.len());
+        // Horizontal bars (categories on y) ignore it
+        let (mut st, _) = state(vec![1.0, 2.0], 1, BarMode::Grouped, horizontal());
+        assert!(!st.set_bar_axis_label_rotation(90.0));
     }
 
     #[test]

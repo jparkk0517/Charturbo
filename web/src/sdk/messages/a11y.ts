@@ -52,6 +52,8 @@ const en = {
   columns: (n: number, count: string) => `${count} ${plural(n, 'column', 'columns')}`,
   emptyCells: (n: number, count: string) => `${count} ${plural(n, 'empty cell', 'empty cells')}`,
   slices: (n: number, count: string) => `${count} ${plural(n, 'slice', 'slices')}`,
+  /** Ring count of a multi-ring (nested) pie */
+  rings: (n: number, count: string) => `${count} ${plural(n, 'ring', 'rings')}`,
   candles: (n: number, count: string) => `${count} ${plural(n, 'candle', 'candles')}`,
   /** OHLC bars */
   bars: (n: number, count: string) => `${count} ${plural(n, 'bar', 'bars')}`,
@@ -209,6 +211,7 @@ const ko: A11yMessages = {
   columns: (_n, count) => `${count}열`,
   emptyCells: (_n, count) => `빈 셀 ${count}개`,
   slices: (_n, count) => `조각 ${count}개`,
+  rings: (_n, count) => `링 ${count}개`,
   candles: (_n, count) => `캔들 ${count}개`,
   bars: (_n, count) => `봉 ${count}개`,
   values: (_n, count) => `값 ${count}개`,
@@ -332,6 +335,7 @@ const zh: A11yMessages = {
   columns: (_n, count) => `${count} 列`,
   emptyCells: (_n, count) => `${count} 个空单元格`,
   slices: (_n, count) => `${count} 个扇区`,
+  rings: (_n, count) => `${count} 个环`,
   candles: (_n, count) => `${count} 根 K 线`,
   bars: (_n, count) => `${count} 根柱线`,
   values: (_n, count) => `${count} 个值`,

@@ -1,12 +1,14 @@
 /**
- * Bar chart styling binding: horizontal orientation, data labels and error bars. The engine owns
- * the geometry (bar_style.rs): orientation re-mapping, error bar segments and their share of the
- * value domain, label anchors with inside / outside fit tests and collision hiding (`'auto'`).
+ * Bar chart styling binding: horizontal orientation, data labels, error bars and background
+ * tracks. The engine owns the geometry (bar_style.rs): orientation re-mapping, error bar segments
+ * and their share of the value domain, background tracks across the value axis, label anchors
+ * with inside / outside fit tests and collision hiding (`'auto'`).
  * This module encodes the options, formats label text and measures it (the engine needs the
  * text boxes to test fit / collisions), and places DOM labels at the engine anchors.
  */
 import { parseColor, parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import { createFormatter } from './chart-format';
+import { labelRotation } from './chart-labels';
 import { textOn } from './chart-pie';
 import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
@@ -49,6 +51,12 @@ export interface BarLabelOptions {
   format?: ((value: number, ctx: BarLabelContext) => string) | string | Intl.NumberFormatOptions;
   /** Text color (default: theme secondary text outside, light / dark by bar luminance inside) */
   color?: ColorInput;
+  /**
+   * Text rotation in degrees, positive = anticlockwise like ECharts `label.rotate` (-90..90;
+   * default 0). The rotated text stays centered on its anchor; placement, the inside fit test and
+   * `'auto'` collision hiding use the rotated text's bounding box
+   */
+  rotate?: number;
 }
 
 /** Error of one value: symmetric `±e`, or `[minus, plus]`; `null` / `NaN` = none. */
@@ -64,11 +72,33 @@ export interface BarErrorBarStyle {
   cap?: number;
 }
 
+/**
+ * Background tracks: one muted bar behind every bar slot (grouped) or category stack (stacked /
+ * percent), spanning the whole value axis with the bar's width and corner radius (2D).
+ */
+export interface BarBackgroundOptions {
+  /** Track color (default: theme `baseline` at 20% alpha, the alpha of ECharts' default track) */
+  color?: ColorInput;
+  /** Alpha multiplier of the color, 0-1 (default 1) */
+  opacity?: number;
+}
+
+/** Resolved `background` option: explicit color (undefined = theme default) and opacity. */
+export interface BarBackgroundState {
+  color?: RgbaTuple;
+  opacity: number;
+}
+
+/** Alpha of the default track color (ECharts `backgroundStyle.color` default `rgba(180, 180, 180, 0.2)`). */
+const DEFAULT_TRACK_ALPHA = 0.2;
+
 interface ResolvedBarLabels {
   mode: 1 | 2;
   position: BarLabelPosition;
   format?: BarLabelOptions['format'];
   color?: RgbaTuple;
+  /** Degrees, positive = anticlockwise (0 = upright) */
+  rotate: number;
 }
 
 /** Bar styling state kept in the chart meta. */
@@ -101,6 +131,7 @@ export function resolveBarLabels(opt: boolean | 'auto' | BarLabelOptions | undef
     position: o.position && o.position in POSITION_CODES ? o.position : 'outside',
     format: o.format,
     color: parseOptionalColor(o.color),
+    rotate: labelRotation(o.rotate),
   };
 }
 
@@ -154,6 +185,21 @@ export function sendBarStyle(backend: WasmCharturboEngineBackend, state: BarStyl
     state.errorBar.width ?? NaN,
     state.errorBar.cap ?? NaN
   );
+}
+
+/** Normalizes the `background` option (`true` / object); null = no tracks. */
+export function resolveBarBackground(opt: boolean | BarBackgroundOptions | undefined): BarBackgroundState | null {
+  if (!opt) return null;
+  const o: BarBackgroundOptions = opt === true ? {} : opt;
+  const opacity = typeof o.opacity === 'number' && Number.isFinite(o.opacity) ? Math.min(1, Math.max(0, o.opacity)) : 1;
+  return { color: parseOptionalColor(o.color), opacity };
+}
+
+/** Uploads the track color (`set_chart_bar_background`); no-op on engines without it. */
+export function sendBarBackground(backend: WasmCharturboEngineBackend, state: BarBackgroundState, theme: CharturboTheme): void {
+  const b = theme.baseline;
+  const [r, g, bl, a] = state.color ?? [b[0], b[1], b[2], b[3] * DEFAULT_TRACK_ALPHA];
+  backend.set_chart_bar_background?.(Float32Array.of(r, g, bl, a * state.opacity));
 }
 
 /** Data the label text needs (values flat by bar id, as uploaded). */
@@ -229,16 +275,42 @@ export function measureLabel(text: string, fontFamily: string): number {
   return Math.ceil(text.length * BAR_LABEL_FONT_PX * 0.6) + 2;
 }
 
-/** Widest label (CSS px; 0 without labels): room reserved beside horizontal bars. */
-export function widestLabel(state: BarStyleState, fontFamily: string): number {
-  return state.labels ? state.texts.reduce((w, t) => (t ? Math.max(w, measureLabel(t, fontFamily)) : w), 0) : 0;
+/** `[width, height]` of the axis-aligned box of a `w x h` text rotated by `deg`. */
+export function rotatedBox(w: number, h: number, deg: number): [number, number] {
+  const a = (deg * Math.PI) / 180;
+  const [sin, cos] = [Math.abs(Math.sin(a)), Math.abs(Math.cos(a))];
+  return [w * cos + h * sin, w * sin + h * cos];
 }
 
-/** Uploads label options + measured text sizes (`set_bar_labels`); mode 0 clears them. */
+/** Box of one label text (rotated labels: the rotated text's bounding box). */
+function labelBox(state: BarStyleState, text: string, fontFamily: string): [number, number] {
+  return rotatedBox(measureLabel(text, fontFamily), BAR_LABEL_LINE_PX, state.labels?.rotate ?? 0);
+}
+
+/** Widest label box (CSS px; 0 without labels): room reserved beside horizontal bars. */
+export function widestLabel(state: BarStyleState, fontFamily: string): number {
+  return state.labels ? Math.ceil(state.texts.reduce((w, t) => (t ? Math.max(w, labelBox(state, t, fontFamily)[0]) : w), 0)) : 0;
+}
+
+/** Tallest label box (CSS px; 0 without labels): room reserved above rotated outside labels. */
+export function tallestLabel(state: BarStyleState, fontFamily: string): number {
+  return state.labels ? Math.ceil(state.texts.reduce((h, t) => (t ? Math.max(h, labelBox(state, t, fontFamily)[1]) : h), 0)) : 0;
+}
+
+/**
+ * Uploads label options + measured text sizes (`set_bar_labels`; rotated labels: one rotated box
+ * per label, `set_bar_label_boxes`); mode 0 clears them.
+ */
 export function sendBarLabels(backend: WasmCharturboEngineBackend, state: BarStyleState, fontFamily: string): void {
   const l = state.labels;
   if (!l) {
     backend.set_bar_labels?.(0, 0, new Float32Array(0), 0, NaN);
+    return;
+  }
+  if (l.rotate !== 0 && backend.set_bar_label_boxes) {
+    const boxes = state.texts.map((t) => (t ? labelBox(state, t, fontFamily) : [NaN, NaN]));
+    const [widths, heights] = [Float32Array.from(boxes, (b) => b[0]), Float32Array.from(boxes, (b) => b[1])];
+    backend.set_bar_label_boxes(l.mode, POSITION_CODES[l.position], widths, heights, NaN);
     return;
   }
   const widths = Float32Array.from(state.texts, (t) => (t ? measureLabel(t, fontFamily) : NaN));
@@ -248,7 +320,8 @@ export function sendBarLabels(backend: WasmCharturboEngineBackend, state: BarSty
 /**
  * DOM text of bar data labels: one element per engine anchor (box center), re-laid out only when
  * the engine's label revision changes (or after `invalidate`). Inside labels pick light / dark
- * text by the bar fill; outside labels use the theme's text token.
+ * text by the bar fill; outside labels use the theme's text token. Rotated text turns about its
+ * center, so it stays centered in the rotated box the engine placed.
  */
 export class BarLabelLayer {
   readonly root: HTMLDivElement;
@@ -277,6 +350,8 @@ export class BarLabelLayer {
     this.revision = a[0];
     const count = Math.min(a[1], Math.floor((a.length - 2) / 4));
     const fixed = this.state.labels?.color;
+    const rotate = this.state.labels?.rotate ?? 0;
+    const transform = rotate ? `translate(-50%, -50%) rotate(${-rotate}deg)` : 'translate(-50%, -50%)';
     let used = 0;
     for (let k = 0; k < count; k++) {
       const at = 2 + k * 4;
@@ -295,13 +370,13 @@ export class BarLabelLayer {
           fontWeight: '500',
           lineHeight: `${BAR_LABEL_LINE_PX}px`,
           fontVariantNumeric: 'tabular-nums',
-          transform: 'translate(-50%, -50%)',
         });
         this.root.appendChild(el);
         this.labels.push(el);
       }
       used++;
       el.textContent = text;
+      el.style.transform = transform;
       const inside = a[at + 3] !== 0;
       el.style.display = 'block';
       el.style.left = `${a[at + 1]}px`;

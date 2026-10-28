@@ -2,10 +2,14 @@
 //! uniform-grid spatial hash for O(1) nearest-point hover, axes and gridlines.
 
 use super::line::DIMMED_SERIES_ALPHA;
+use super::regression::TrendFit;
 use super::scale::{log_nice_domain, AxisScale};
 use super::finite::{max_f64, min_f64};
 use super::*;
-use crate::renderer::{ChartPointRaw, ChartPointStyleRaw, MAX_POINT_SERIES};
+use crate::renderer::{ChartPointRaw, ChartPointStyleRaw, MAX_POINT_SERIES, POINT_SHAPE_STRIDE};
+
+mod trend;
+pub use trend::ScatterTrendline;
 
 /// Point fill when neither per-point nor series colors are given.
 const DEFAULT_POINT_COLOR: [f32; 4] = [0.224, 0.529, 0.898, 1.0];
@@ -29,6 +33,23 @@ pub struct ScatterPoints {
     pub colors: Vec<[f32; 4]>,
     /// Color of each series id (wraps around when shorter than the id range)
     pub series_colors: Vec<[f32; 4]>,
+}
+
+/// Ripple (ECharts `effectScatter`) of flagged series: rings grow from the point to `scale`
+/// times its radius and fade out over `period_s`, `count` rings evenly phase-shifted, stroked
+/// (1.5 px) or filled at half strength.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RippleOptions {
+    pub period_s: f32,
+    pub scale: f32,
+    pub count: u32,
+    pub fill: bool,
+}
+
+impl Default for RippleOptions {
+    fn default() -> Self {
+        Self { period_s: 4.0, scale: 2.5, count: 3, fill: false }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,10 +171,35 @@ pub(crate) struct ScatterChart {
     /// beyond `MAX_POINT_SERIES` series, where they are baked into the packed points instead
     series_in_uniform: bool,
     pub(crate) emphasis: Option<usize>,
+    /// Shape code per series id (0 circle, 1 square, 2 diamond, 3 triangle; missing = circle)
+    shapes: Vec<u8>,
+    /// Jitter amplitude per axis in data units (scale space on log axes) and its seed
+    jitter: [f64; 2],
+    jitter_seed: u32,
+    /// Rippling series ids, the ripple and its clock (seconds)
+    ripple: Vec<bool>,
+    ripple_opts: RippleOptions,
+    effect_time_s: f32,
+    /// Trendlines with their fits, and the view they were last drawn for (scatter/trend.rs)
+    trendlines: Vec<(ScatterTrendline, TrendFit)>,
+    trend_key: Option<trend::TrendKey>,
     grid: PointGrid,
     max_radius_px: f32,
     /// x tick target for the current plot width (about one tick per 90 CSS px)
     x_tick_target: u32,
+}
+
+/// PCG hash of a u32 (Jarzynski & Olano 2020, "Hash Functions for GPU Rendering").
+fn pcg_hash(v: u32) -> u32 {
+    let state = v.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
+    let word = ((state >> ((state >> 28) + 4)) ^ state).wrapping_mul(277_803_737);
+    (word >> 22) ^ word
+}
+
+/// Deterministic uniform value in [-1, 1) for point `i`, axis `axis`, `seed`.
+fn jitter_unit(i: usize, axis: u32, seed: u32) -> f64 {
+    let h = pcg_hash((i as u32).wrapping_mul(2).wrapping_add(axis) ^ pcg_hash(seed));
+    h as f64 / 2_147_483_648.0 - 1.0
 }
 
 fn to_rgba8(c: [f32; 4]) -> [u8; 4] {
@@ -206,6 +252,14 @@ impl ScatterChart {
             visible: vec![true; series_count],
             series_in_uniform: series_count <= MAX_POINT_SERIES,
             emphasis: None,
+            shapes: Vec::new(),
+            jitter: [0.0; 2],
+            jitter_seed: 0,
+            ripple: Vec::new(),
+            ripple_opts: RippleOptions::default(),
+            effect_time_s: 0.0,
+            trendlines: Vec::new(),
+            trend_key: None,
             grid: PointGrid::default(),
             max_radius_px,
             x_tick_target: 5,
@@ -220,8 +274,16 @@ impl ScatterChart {
     fn layout_points(&mut self) {
         let (sx, sy) = (self.x_scale, self.y_scale);
         let (xs, ys) = (&self.xs, &self.ys);
+        let ([jx, jy], seed) = (self.jitter, self.jitter_seed);
+        // Jitter (ggplot2 geom_jitter): uniform offsets in [-amplitude, amplitude], fixed per point
         let u = |i: usize| {
-            let p = (sx.fwd(xs[i] as f64), sy.fwd(ys[i] as f64));
+            let mut p = (sx.fwd(xs[i] as f64), sy.fwd(ys[i] as f64));
+            if jx > 0.0 {
+                p.0 += jx * jitter_unit(i, 0, seed);
+            }
+            if jy > 0.0 {
+                p.1 += jy * jitter_unit(i, 1, seed);
+            }
             (p.0.is_finite() && p.1.is_finite()).then_some(p)
         };
         let (mut x_lo, mut x_hi, mut y_lo, mut y_hi) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
@@ -282,6 +344,59 @@ impl ScatterChart {
         self.series.get(i).copied().unwrap_or(0) as usize
     }
 
+    /// Sets the shape of each series id (unknown codes = circle). True when it changed.
+    pub(crate) fn set_shapes(&mut self, shapes: &[u8]) -> bool {
+        let shapes: Vec<u8> = shapes.iter().map(|&c| if c <= 3 { c } else { 0 }).collect();
+        let changed = shapes != self.shapes;
+        self.shapes = shapes;
+        changed
+    }
+
+    /// Sets the rippling series ids (`flags[id] != 0`) and the ripple (clamped: period >= 0.1 s,
+    /// scale 1..10, 1..8 rings). True when the points or the uniform changed.
+    pub(crate) fn set_ripple(&mut self, flags: &[u8], opts: RippleOptions) -> bool {
+        let ripple: Vec<bool> = flags.iter().map(|&f| f != 0).collect();
+        let clean = |v: f32, d: f32| if v.is_finite() { v } else { d };
+        let d = RippleOptions::default();
+        let opts = RippleOptions {
+            period_s: clean(opts.period_s, d.period_s).max(0.1),
+            scale: clean(opts.scale, d.scale).clamp(1.0, 10.0),
+            count: opts.count.clamp(1, 8),
+            fill: opts.fill,
+        };
+        let changed = ripple != self.ripple || opts != self.ripple_opts;
+        self.ripple = ripple;
+        self.ripple_opts = opts;
+        changed
+    }
+
+    /// Sets the jitter amplitude per axis (data units; scale space on log axes; <= 0 = none) and
+    /// its seed, re-laying out the points. True when it changed.
+    pub(crate) fn set_jitter(&mut self, x: f64, y: f64, seed: u32) -> bool {
+        let clean = |v: f64| if v.is_finite() { v.max(0.0) } else { 0.0 };
+        let jitter = [clean(x), clean(y)];
+        if jitter == self.jitter && seed == self.jitter_seed {
+            return false;
+        }
+        (self.jitter, self.jitter_seed) = (jitter, seed);
+        self.layout_points();
+        true
+    }
+
+    /// Some series ripples (the SDK keeps a frame clock running).
+    pub(crate) fn rippling(&self) -> bool {
+        self.ripple.iter().any(|&r| r)
+    }
+
+    /// Point slot channel: the series slot plus the series' shape and ripple flag (see
+    /// `POINT_SHAPE_STRIDE`).
+    #[inline]
+    fn packed_slot(&self, slot: f32, series: usize) -> f32 {
+        let shape = self.shapes.get(series).copied().unwrap_or(0) as f32;
+        let ripple = if self.ripple.get(series).copied().unwrap_or(false) { 4.0 } else { 0.0 };
+        slot + POINT_SHAPE_STRIDE * (shape + ripple)
+    }
+
     #[inline]
     fn radius(&self, i: usize) -> f32 {
         self.sizes.get(i).copied().unwrap_or(self.layout.radius_px)
@@ -311,7 +426,11 @@ impl ScatterChart {
         let mut style = ChartPointStyleRaw {
             transform: self.transform(),
             ring_color: hover.marker_ring_color,
-            params: [self.layout.ring_px.max(0.0), -1.0, 0.0, 0.0],
+            params: [self.layout.ring_px.max(0.0), -1.0, self.effect_time_s, 0.0],
+            effect: {
+                let o = self.ripple_opts;
+                [o.period_s, o.scale, o.count as f32, if o.fill { 1.0 } else { 0.0 }]
+            },
             ..Default::default()
         };
         if self.series_in_uniform {
@@ -444,7 +563,7 @@ impl ScatterChart {
                     alpha *= DIMMED_SERIES_ALPHA;
                 }
                 color[3] = alpha.round() as u8;
-                let slot = if baked { 0.0 } else { s as f32 };
+                let slot = self.packed_slot(if baked { 0.0 } else { s as f32 }, s);
                 out.push(ChartPointRaw {
                     center_radius: [(t[0] - 0.5) * w, (t[1] - 0.5) * h, slot, self.radius(i)],
                     color,
@@ -602,13 +721,72 @@ impl ScatterChart {
                 center_radius: [p.x, p.y, p.z, style.marker_radius_px.max(self.radius(i))],
                 fill: [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, 1.0],
                 ring: style.marker_ring_color,
-                params: [style.marker_ring_px, 0.0, 0.0, 0.0],
+                params: [style.marker_ring_px, self.shapes.get(self.series_of(i)).copied().unwrap_or(0) as f32, 0.0, 0.0],
             });
         }
     }
 
     pub(crate) fn frame_camera(&self, camera: &mut OrbitCamera, css: (f32, f32), padding: &ChartPadding) {
         frame_flat(camera, css, self.layout.width, self.layout.height, padding);
+    }
+}
+
+impl ChartState {
+    /// Shape per scatter series id (0 circle, 1 square, 2 diamond, 3 triangle); rebuilds the
+    /// points when it changed. False (no-op) for other charts.
+    pub fn set_scatter_shapes(&mut self, shapes: &[u8]) -> bool {
+        let ChartKind::Scatter(s) = &mut self.kind else {
+            return false;
+        };
+        let changed = s.set_shapes(shapes);
+        if changed {
+            self.dirty.points = true;
+            self.dirty.overlay = true;
+        }
+        changed
+    }
+
+    /// Jitter of the scatter points (see `ScatterChart::set_jitter`); rebuilds points, axes and
+    /// the hover grid when it changed. False for other charts.
+    pub fn set_scatter_jitter(&mut self, x: f64, y: f64, seed: u32) -> bool {
+        let ChartKind::Scatter(s) = &mut self.kind else {
+            return false;
+        };
+        let changed = s.set_jitter(x, y, seed);
+        if changed {
+            self.hover = None;
+            self.dirty = Dirty::all();
+            self.axes_key = None;
+        }
+        changed
+    }
+
+    /// Rippling scatter series ids (`flags[id] != 0`) and the ripple; rebuilds the points and the
+    /// point uniform when they changed. False for other charts.
+    pub fn set_scatter_ripple(&mut self, flags: &[u8], opts: RippleOptions) -> bool {
+        let ChartKind::Scatter(s) = &mut self.kind else {
+            return false;
+        };
+        let changed = s.set_ripple(flags, opts);
+        if changed {
+            self.dirty.points = true;
+            self.dirty.point_style = true;
+        }
+        changed
+    }
+
+    /// Ripple clock in seconds: only the point uniform changes. False (nothing to animate) when
+    /// no series ripples.
+    pub fn set_effect_time(&mut self, seconds: f32) -> bool {
+        let ChartKind::Scatter(s) = &mut self.kind else {
+            return false;
+        };
+        if !s.rippling() {
+            return false;
+        }
+        s.effect_time_s = if seconds.is_finite() { seconds } else { 0.0 };
+        self.dirty.point_style = true;
+        true
     }
 }
 
@@ -640,7 +818,7 @@ impl ScatterChart {
                 let mut color = self.colors[i];
                 let alpha = color[3] as f32 * opacity * if pass { 1.0 } else { DIMMED_SERIES_ALPHA };
                 color[3] = alpha.round() as u8;
-                let slot = if baked { 0.0 } else { s as f32 };
+                let slot = self.packed_slot(if baked { 0.0 } else { s as f32 }, s);
                 out.push(ChartPointRaw {
                     center_radius: [(t[0] - 0.5) * w, (t[1] - 0.5) * h, slot, self.radius(i)],
                     color,
@@ -699,6 +877,110 @@ mod tests {
         let p = chart.sample(i).unwrap().3;
         let n = cam.project_to_ndc(p).unwrap();
         (n.x, n.y)
+    }
+
+    #[test]
+    fn series_shapes_ride_in_the_slot_channel_and_export_as_paths() {
+        use crate::renderer::{point_shape, point_slot};
+        let mut chart = scatter(vec![0.0, 1.0, 2.0, 3.0], vec![0.0, 1.0, 2.0, 3.0], vec![0, 1, 2, 3]);
+        // Series 1 square, 2 diamond, 3 beyond the list: circle; unknown codes fall back to circles
+        assert!(chart.set_scatter_shapes(&[0, 1, 2]));
+        assert!(!chart.set_scatter_shapes(&[0, 1, 2]), "unchanged");
+        let cam = framed(&chart);
+        let pts = chart.prepare_layers(&view(&cam)).points.unwrap().to_vec();
+        let decoded: Vec<(usize, f32)> = pts.iter().map(|p| (point_slot(p.center_radius[2]), point_shape(p.center_radius[2]))).collect();
+        assert_eq!(decoded, vec![(0, 0.0), (1, 1.0), (2, 2.0), (3, 0.0)]);
+        chart.set_scatter_shapes(&[9, 3]);
+        let pts = chart.prepare_layers(&view(&cam)).points.unwrap().to_vec();
+        assert_eq!((point_shape(pts[0].center_radius[2]), point_shape(pts[1].center_radius[2])), (0.0, 3.0));
+        // Legend emphasis still finds the series slot under the shape bits
+        chart.set_emphasis(Some(1));
+        let style = chart.prepare_layers(&view(&cam)).point_style.unwrap();
+        assert_eq!(style.emphasized_slot(), Some(1));
+        // SVG: circles stay <circle>, other shapes are paths
+        chart.set_emphasis(None);
+        let svg = chart.export_svg(&view(&cam), 1000, "t").markup;
+        let points = &svg[svg.find("data-layer=\"points\"").expect("points layer")..];
+        assert_eq!(points.matches("<circle").count(), 3, "{points}");
+        assert_eq!(points.matches("<path d=\"M").count(), 1, "the triangle");
+    }
+
+    #[test]
+    fn ripple_series_carry_a_flag_and_time_only_touches_the_uniform() {
+        use crate::renderer::{point_ripple, point_shape, point_slot};
+        let mut chart = scatter(vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 2.0], vec![0, 1, 2]);
+        let cam = framed(&chart);
+        chart.prepare_layers(&view(&cam));
+        // No ripple: the clock is a no-op (no loop needed, nothing re-uploaded)
+        assert!(!chart.set_effect_time(1.0));
+        assert!(chart.prepare_layers(&view(&cam)).point_style.is_none());
+
+        chart.set_scatter_shapes(&[0, 3]);
+        let opts = RippleOptions { period_s: 2.0, scale: 3.0, count: 4, fill: true };
+        assert!(chart.set_scatter_ripple(&[0, 1], opts));
+        let layers = chart.prepare_layers(&view(&cam));
+        let pts = layers.points.unwrap().to_vec();
+        let style = layers.point_style.unwrap();
+        let decoded: Vec<(usize, f32, bool)> = pts.iter().map(|p| {
+            let z = p.center_radius[2];
+            (point_slot(z), point_shape(z), point_ripple(z))
+        }).collect();
+        assert_eq!(decoded, vec![(0, 0.0, false), (1, 3.0, true), (2, 0.0, false)]);
+        assert_eq!(style.effect, [2.0, 3.0, 4.0, 1.0]);
+        // The clock only rewrites the uniform
+        assert!(chart.set_effect_time(1.25));
+        let layers = chart.prepare_layers(&view(&cam));
+        assert!(layers.points.is_none());
+        assert_eq!(layers.point_style.unwrap().params[2], 1.25);
+        // Options are clamped; turning every series off stops the clock
+        let wild = RippleOptions { period_s: 0.0, scale: 50.0, count: 99, fill: false };
+        chart.set_scatter_ripple(&[1], wild);
+        let style = chart.prepare_layers(&view(&cam)).point_style.unwrap();
+        assert_eq!(style.effect, [0.1, 10.0, 8.0, 0.0]);
+        chart.set_scatter_ripple(&[], wild);
+        assert!(!chart.set_effect_time(2.0));
+    }
+
+    #[test]
+    fn jitter_spreads_points_deterministically_in_data_units() {
+        // Four categories, 50 points each, all on the same x
+        let xs: Vec<f32> = (0..200).map(|i| (i % 4) as f32).collect();
+        let ys: Vec<f32> = (0..200).map(|i| (i / 4) as f32).collect();
+        let mut chart = scatter(xs.clone(), ys.clone(), vec![]);
+        let before = inner(&chart).t.clone();
+        assert!(chart.set_scatter_jitter(0.3, 0.0, 7));
+        assert!(!chart.set_scatter_jitter(0.3, 0.0, 7), "unchanged");
+        let s = inner(&chart);
+        let (dx0, dx1) = s.x_domain;
+        let offsets: Vec<f64> = s.t.iter().zip(&xs).map(|(t, &x)| dx0 + t[0] as f64 * (dx1 - dx0) - x as f64).collect();
+        // Uniform in [-0.3, 0.3] (ggplot2 geom_jitter width), spread, y untouched
+        assert!(offsets.iter().all(|o| o.abs() <= 0.3 + 1e-4), "{offsets:?}");
+        let spread = offsets.iter().cloned().fold(f64::MIN, f64::max) - offsets.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(spread > 0.5, "spread {spread}");
+        let mean = offsets.iter().sum::<f64>() / offsets.len() as f64;
+        assert!(mean.abs() < 0.05, "centered: {mean}");
+        let (dy0, dy1) = s.y_domain;
+        assert!(s.t.iter().zip(&ys).all(|(t, &y)| (dy0 + t[1] as f64 * (dy1 - dy0) - y as f64).abs() < 1e-3));
+        // Same seed = same offsets; another seed differs
+        let mut again = scatter(xs.clone(), ys.clone(), vec![]);
+        again.set_scatter_jitter(0.3, 0.0, 7);
+        assert_eq!(inner(&again).t, s.t);
+        let mut other = scatter(xs.clone(), ys.clone(), vec![]);
+        other.set_scatter_jitter(0.3, 0.0, 8);
+        assert_ne!(inner(&other).t, s.t);
+        // Hover finds the jittered point and reports its real values
+        let cam = framed(&chart);
+        let v = view(&cam);
+        chart.prepare_layers(&v);
+        let mut scene = SceneWorld::new();
+        for i in [0u32, 57, 133] {
+            let hit = chart.hover_at(&v, &mut scene, ndc_of(&chart, &cam, i)).unwrap();
+            assert_eq!(hit.items[0].index, i);
+            assert_eq!(hit.items[0].value, ys[i as usize]);
+        }
+        // Off again: back to the exact positions
+        chart.set_scatter_jitter(0.0, 0.0, 7);
+        assert_eq!(inner(&chart).t, before);
     }
 
     #[test]

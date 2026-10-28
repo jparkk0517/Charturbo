@@ -53,6 +53,8 @@ const en = {
     `${title} color scale from ${lo} to ${hi}${mid !== undefined ? `, midpoint ${mid}` : ''}`,
   /** Default PDF document title */
   pdfTitle: 'Chart',
+  /** Default name of the `index`-th ring of a multi-ring pie (1-based) */
+  ringName: (index: number) => `Ring ${index}`,
   /** 3D chart kind names (summary, data table caption) */
   pointCloud3d: '3D point cloud',
   surface3d: '3D surface',
@@ -98,6 +100,7 @@ const ko: CoreMessages = {
   clickHint: '클릭하면 이웃 노드를 강조합니다',
   colorScale: (title, lo, hi, mid) => `${title} 색상 척도, ${lo}~${hi}${mid !== undefined ? `, 중간값 ${mid}` : ''}`,
   pdfTitle: '차트',
+  ringName: (index) => `링 ${index}`,
   pointCloud3d: '3D 포인트 클라우드',
   surface3d: '3D 곡면',
   samples: (_n, count) => `샘플 ${count}개`,
@@ -137,6 +140,7 @@ const zh: CoreMessages = {
   clickHint: '点击以高亮邻居节点',
   colorScale: (title, lo, hi, mid) => `${title}色阶，从 ${lo} 到 ${hi}${mid !== undefined ? `，中点 ${mid}` : ''}`,
   pdfTitle: '图表',
+  ringName: (index) => `环 ${index}`,
   pointCloud3d: '3D 点云',
   surface3d: '3D 曲面',
   samples: (_n, count) => `${count} 个样本`,

@@ -18,6 +18,46 @@ impl VisualizationEngine {
         }
     }
 
+    /// Shape per scatter series id (see `ChartState::set_scatter_shapes`).
+    pub fn set_chart_scatter_shapes(&mut self, shapes: &[u8]) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_scatter_shapes(shapes))
+    }
+
+    /// Rippling scatter series (see `ChartState::set_scatter_ripple`).
+    pub fn set_chart_scatter_ripple(&mut self, flags: &[u8], opts: crate::chart::RippleOptions) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_scatter_ripple(flags, opts))
+    }
+
+    /// Piecewise colors of a line / area series (see `ChartState::set_line_pieces`).
+    pub fn set_chart_line_pieces(&mut self, series: usize, pieces: Option<crate::chart::SeriesPieces>) -> Result<(), String> {
+        self.chart.as_mut().ok_or_else(|| "no chart".to_string())?.set_line_pieces(series, pieces)
+    }
+
+    /// Piece color of a drawn line / area sample (see `ChartState::line_piece_color`).
+    pub fn chart_line_piece_color(&self, series: usize, index: usize) -> Option<[f32; 4]> {
+        self.chart.as_ref()?.line_piece_color(series, index)
+    }
+
+    /// Scatter jitter (see `ChartState::set_scatter_jitter`).
+    pub fn set_chart_scatter_jitter(&mut self, x: f64, y: f64, seed: u32) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_scatter_jitter(x, y, seed))
+    }
+
+    /// Scatter trendlines (see `ChartState::set_scatter_trendlines`).
+    pub fn set_chart_scatter_trendlines(&mut self, lines: &[crate::chart::ScatterTrendline]) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_scatter_trendlines(lines))
+    }
+
+    /// Fits of the scatter trendlines (empty without a scatter chart).
+    pub fn chart_scatter_trend_fits(&self) -> Vec<crate::chart::TrendFit> {
+        self.chart.as_ref().map(|c| c.scatter_trend_fits()).unwrap_or_default()
+    }
+
+    /// Ripple clock (see `ChartState::set_effect_time`); false when nothing ripples.
+    pub fn set_chart_effect_time(&mut self, seconds: f32) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_effect_time(seconds))
+    }
+
     pub fn chart_animation(&self) -> Option<AnimationOptions> {
         self.chart_animation
     }

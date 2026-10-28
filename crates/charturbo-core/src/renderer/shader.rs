@@ -67,6 +67,30 @@ fn fs_node(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// GPU-resident layout state (`gpu_layout.rs`) for graph shaders that read positions on the GPU.
+const LAYOUT_STATE_WGSL: &str = "struct LayoutState { position_mass: vec4<f32>, velocity_pinned: vec4<f32> };
+@group(1) @binding(0) var<storage, read> layout_state: array<LayoutState>;
+";
+
+/// `NODE_BILLBOARD_WGSL` for a GPU-resident layout: `position_radius.x` holds the node index
+/// (an exact float below 2^24); the center comes from the layout buffer.
+pub fn node_billboard_resident_wgsl() -> String {
+    let src = NODE_BILLBOARD_WGSL.replace(
+        "let center = instance.position_radius.xyz;",
+        "let center = layout_state[u32(instance.position_radius.x)].position_mass.xyz;",
+    );
+    format!("{LAYOUT_STATE_WGSL}{src}")
+}
+
+/// `EDGE_LINE_WGSL` for a GPU-resident layout: `position_pad.x` holds the endpoint's node index.
+pub fn edge_line_resident_wgsl() -> String {
+    let src = EDGE_LINE_WGSL.replace(
+        "vec4<f32>(v.position_pad.xyz, 1.0)",
+        "vec4<f32>(layout_state[u32(v.position_pad.x)].position_mass.xyz, 1.0)",
+    );
+    format!("{LAYOUT_STATE_WGSL}{src}")
+}
+
 /// WGSL shader for single-draw-call translucent graph edges.
 pub const EDGE_LINE_WGSL: &str = r#"
 struct CameraUniform {
@@ -323,8 +347,28 @@ fn fs_segment(in: SegmentOut) -> @location(0) vec4<f32> {
 
 /// Screen-space circular markers with a separating ring (hover points).
 pub fn chart_marker_wgsl() -> String {
-    format!("{CHART_PRELUDE_WGSL}{CHART_MARKER_BODY_WGSL}")
+    format!("{CHART_PRELUDE_WGSL}{MARKER_SD_WGSL}{CHART_MARKER_BODY_WGSL}")
 }
+
+/// Signed distance of the marker / point shapes (shared by the marker and scatter point shaders).
+const MARKER_SD_WGSL: &str = r#"
+// Signed distance (px, < 0 inside) of a marker of size `r` at `p` (+y up). Shapes are scaled
+// to a similar visual weight as the circle of radius `r`.
+fn marker_sd(p: vec2<f32>, r: f32, shape: f32) -> f32 {
+    let a = abs(p);
+    if (shape > 2.5) {
+        // Equilateral triangle: circumradius 1.25 r, inradius 0.625 r
+        return max(-p.y, 0.8660254 * a.x + 0.5 * p.y) - 0.625 * r;
+    }
+    if (shape > 1.5) {
+        return (a.x + a.y - 1.2 * r) * 0.70710678;
+    }
+    if (shape > 0.5) {
+        return max(a.x, a.y) - 0.85 * r;
+    }
+    return length(p) - r;
+}
+"#;
 
 const CHART_MARKER_BODY_WGSL: &str = r#"
 struct MarkerInstance {
@@ -370,23 +414,6 @@ fn vs_marker(@builtin(vertex_index) vi: u32, inst: MarkerInstance) -> MarkerOut 
     out.ring = inst.ring;
     out.shape = inst.params.y;
     return out;
-}
-
-// Signed distance (px, < 0 inside) of a marker of size `r` at `p` (+y up). Shapes are scaled
-// to a similar visual weight as the circle of radius `r`.
-fn marker_sd(p: vec2<f32>, r: f32, shape: f32) -> f32 {
-    let a = abs(p);
-    if (shape > 2.5) {
-        // Equilateral triangle: circumradius 1.25 r, inradius 0.625 r
-        return max(-p.y, 0.8660254 * a.x + 0.5 * p.y) - 0.625 * r;
-    }
-    if (shape > 1.5) {
-        return (a.x + a.y - 1.2 * r) * 0.70710678;
-    }
-    if (shape > 0.5) {
-        return max(a.x, a.y) - 0.85 * r;
-    }
-    return length(p) - r;
 }
 
 @fragment
@@ -509,7 +536,7 @@ fn fs_dash(in: DashOut) -> @location(0) vec4<f32> {
 /// uniform, so points are uploaded only once. Vertices 0..6 draw the base pass, 6..12 the
 /// emphasized series on top (second draw call, only while a series is emphasized).
 pub fn chart_point_wgsl() -> String {
-    format!("{CHART_PRELUDE_WGSL}{CHART_POINT_BODY_WGSL}")
+    format!("{CHART_PRELUDE_WGSL}{MARKER_SD_WGSL}{CHART_POINT_BODY_WGSL}")
 }
 
 const CHART_POINT_BODY_WGSL: &str = r#"
@@ -517,8 +544,10 @@ struct PointStyle {
     // [sx, sy, tx, ty]: world xy = base xy * s + t
     transform: vec4<f32>,
     ring_color: vec4<f32>,
-    // [ring_width_css_px, emphasized_slot (< 0 = none), 0, 0]
+    // [ring_width_css_px, emphasized_slot (< 0 = none), effect_time_s, 0]
     params: vec4<f32>,
+    // Ripple: [period_s, scale, ring count, fill (1) / stroke (0)]
+    effect: vec4<f32>,
     // Alpha multiplier of series slot s at [s / 4][s % 4]; 0 = hidden
     series_alpha: array<vec4<f32>, 64>,
 };
@@ -527,7 +556,7 @@ struct PointStyle {
 var<uniform> point_style: PointStyle;
 
 struct PointInstance {
-    // [x, y, series_slot, radius_css_px]
+    // [x, y, series_slot + 256 * (shape + 4 * ripple), radius_css_px] (shape: see marker_sd)
     @location(0) center_radius: vec4<f32>,
     @location(1) color: vec4<f32>,
 };
@@ -538,6 +567,9 @@ struct PointOut {
     // (fill radius px, outer radius px)
     @location(1) radii: vec2<f32>,
     @location(2) color: vec4<f32>,
+    @location(3) shape: f32,
+    // Rippling rings behind the point (0 / 1)
+    @location(4) ripple: f32,
 };
 
 @vertex
@@ -547,7 +579,11 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
     );
     let corner = corners[vi % 6u];
-    let slot = min(u32(max(inst.center_radius.z, 0.0)), 255u);
+    let packed = max(inst.center_radius.z, 0.0);
+    let slot = min(u32(packed) % 256u, 255u);
+    let bits = floor(packed / 256.0);
+    let shape = bits % 4.0;
+    let ripple = select(0.0, 1.0, bits >= 4.0);
     let alpha = point_style.series_alpha[slot / 4u][slot % 4u];
     let emphasized = i32(slot) == i32(point_style.params.y);
     // Pass 0 skips the emphasized slot, pass 1 draws only it
@@ -560,6 +596,8 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
         out.local = vec2<f32>(0.0);
         out.radii = vec2<f32>(0.0);
         out.color = vec4<f32>(0.0);
+        out.shape = 0.0;
+        out.ripple = 0.0;
         return out;
     }
 
@@ -567,7 +605,11 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
     // Sub-pixel points still cover about one pixel
     let r = max(inst.center_radius.w * pr, 0.5);
     let outer = r + max(point_style.params.x, 0.0) * pr;
-    let ext = outer + 1.0;
+    // Diamonds / triangles reach past the radius (see marker_sd); ripples reach `scale` radii
+    var ext = select(outer, outer * 1.25, shape > 0.5) + 1.0;
+    if (ripple > 0.5) {
+        ext = max(ext, r * max(point_style.effect.y, 1.0) * select(1.0, 1.25, shape > 0.5) + 2.0 * pr + 1.0);
+    }
 
     let xy = inst.center_radius.xy * point_style.transform.xy + point_style.transform.zw;
     let c = to_clip(vec3<f32>(xy, 0.0));
@@ -577,22 +619,42 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
     out.local = corner * ext;
     out.radii = vec2<f32>(r, outer);
     out.color = vec4<f32>(inst.color.rgb, inst.color.a * min(alpha, 1.0));
+    out.shape = shape;
+    out.ripple = ripple;
     return out;
 }
 
 @fragment
 fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
-    let d = length(in.local);
-    let coverage = clamp(in.radii.y + 0.5 - d, 0.0, 1.0);
-    if (coverage <= 0.0) {
-        discard;
-    }
+    // Circles: 0.5 - (d - outer) and d - r + 0.5, as before the shapes
+    let coverage = clamp(0.5 - marker_sd(in.local, in.radii.y, in.shape), 0.0, 1.0);
     var c = in.color;
     if (in.radii.y > in.radii.x) {
         let ring = vec4<f32>(point_style.ring_color.rgb, point_style.ring_color.a * in.color.a);
-        c = mix(in.color, ring, clamp(d - in.radii.x + 0.5, 0.0, 1.0));
+        c = mix(in.color, ring, clamp(marker_sd(in.local, in.radii.x, in.shape) + 0.5, 0.0, 1.0));
     }
-    return vec4<f32>(c.rgb, c.a * coverage);
+    let a_point = c.a * coverage;
+    // Ripple rings behind the point: each grows to `scale` radii and fades over one period
+    var a_ripple = 0.0;
+    if (in.ripple > 0.5) {
+        let e = point_style.effect;
+        let n = u32(clamp(e.z, 1.0, 8.0));
+        let width = 1.5 * camera.viewport.z;
+        for (var k = 0u; k < n; k = k + 1u) {
+            let phase = fract(point_style.params.z / max(e.x, 0.1) + f32(k) / f32(n));
+            let sd = marker_sd(in.local, in.radii.x * (1.0 + (max(e.y, 1.0) - 1.0) * phase), in.shape);
+            let cov = select(clamp(0.5 * width + 0.5 - abs(sd), 0.0, 1.0), clamp(0.5 - sd, 0.0, 1.0) * 0.5, e.w > 0.5);
+            a_ripple = max(a_ripple, cov * (1.0 - phase));
+        }
+        a_ripple = a_ripple * in.color.a;
+    }
+    // Point over its rings (straight alpha "over")
+    let a = a_point + a_ripple * (1.0 - a_point);
+    if (a <= 0.0) {
+        discard;
+    }
+    let rgb = (c.rgb * a_point + in.color.rgb * a_ripple * (1.0 - a_point)) / a;
+    return vec4<f32>(rgb, a);
 }
 "#;
 
@@ -863,6 +925,14 @@ mod tests {
     }
 
     #[test]
+    fn resident_graph_shaders_read_positions_from_the_gpu_layout() {
+        for src in [node_billboard_resident_wgsl(), edge_line_resident_wgsl()] {
+            assert!(src.contains("var<storage, read> layout_state: array<LayoutState>"));
+            assert!(src.contains("layout_state[u32("), "positions must come from the layout buffer");
+        }
+    }
+
+    #[test]
     fn every_shader_parses_and_validates() {
         let sources = [
             ("node", NODE_BILLBOARD_WGSL.to_string()),
@@ -875,6 +945,8 @@ mod tests {
             ("chart-point", chart_point_wgsl()),
             ("chart-fill", chart_fill_wgsl()),
             ("chart-heatmap", chart_heatmap_wgsl()),
+            ("node-resident", node_billboard_resident_wgsl()),
+            ("edge-resident", edge_line_resident_wgsl()),
         ];
         for (name, src) in sources {
             let module = naga::front::wgsl::parse_str(&src)

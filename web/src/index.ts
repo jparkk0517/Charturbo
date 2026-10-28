@@ -85,6 +85,7 @@ export {
   type BarLabelContext,
   type BarErrorValue,
   type BarErrorBarStyle,
+  type BarBackgroundOptions,
   type ChartHoverStyle,
   type ChartGridStyle,
   type ChartAxisOptions,
@@ -94,6 +95,8 @@ export {
   type ChartAxisName,
   type ChartTimeGranularity,
   type ChartLegendOptions,
+  type ChartLegendPosition,
+  type ScatterSymbol,
   type ChartPaddingOptions,
   type CharturboTheme,
   type NodeHoverStyle,
@@ -101,6 +104,10 @@ export {
   type ChartTooltipContext,
   type ScatterChartData,
   type ScatterChartOptions,
+  type ScatterRippleOptions,
+  type ScatterTrendline,
+  type ScatterTrendlineFit,
+  type ScatterTrendlineType,
   type NodeMetadata,
   type NodeDetails,
   type NodeInteractionOptions,
@@ -123,7 +130,7 @@ export {
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';
-export { type PieChartData, type PieChartOptions, type PieLabelMode } from './sdk/chart-pie';
+export { type PieChartData, type PieChartOptions, type PieLabelMode, type PieRingData, type PieRingsData, type PieRoseMode } from './sdk/chart-pie';
 export {
   type ComboChartData,
   type ComboChartOptions,
@@ -157,6 +164,7 @@ export {
   type HierarchyNode,
   type SankeyChartData,
   type SankeyChartOptions,
+  type SankeyLevelOptions,
   type SankeyLinkInput,
   type SankeyNodeInput,
   type SunburstChartOptions,
@@ -203,6 +211,7 @@ export {
   type LineMarkerOptions,
   type LineMarkerShape,
   type LineNullPolicy,
+  type LinePiece,
   type LineStyleInput,
 } from './sdk/chart-linestyle';
 export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, Surface3DGridData, Surface3DSeries, Surface3DContourOptions, Surface3DUpdate, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions, Scientific3DAxisOptions, Scientific3DCameraOptions } from './sdk/chart-scientific3d';

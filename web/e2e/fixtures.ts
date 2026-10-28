@@ -301,6 +301,76 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // One track per grouped bar slot across the whole value axis; the negative bar's track
+    // rounds its bottom end
+    name: 'bar-background',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderGroupedBarChart(
+          {
+            categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+            series: [
+              { name: 'Web', values: [120, 200, 150, -40, 70] },
+              { name: 'App', values: [80, 130, NaN, 60, 110] },
+            ],
+          },
+          { title: 'Bar background', padding: PADDING, legend: false, background: true, cornerRadius: 6 }
+        );
+      }),
+  },
+  {
+    // Horizontal stacks: one track per category across the plot width, custom color
+    name: 'bar-background-horizontal',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderGroupedBarChart(
+          {
+            categories: ['North', 'South', 'East', 'West'],
+            series: [
+              { name: 'A', values: [30, 12, 25, 8] },
+              { name: 'B', values: [20, 18, 10, 14] },
+            ],
+          },
+          {
+            mode: 'stacked',
+            orientation: 'horizontal',
+            title: 'Horizontal background',
+            padding: PADDING,
+            legend: false,
+            background: { color: '#94a3b8', opacity: 0.18 },
+          }
+        );
+      }),
+  },
+  {
+    // Bar values rotated 90° from the base; long category names rotated 40° on the x axis
+    name: 'bar-label-rotation',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const categories = ['Northern Europe', 'Southern Europe', 'North America', 'South America', 'East Asia', 'Oceania'];
+        sdk.renderGroupedBarChart(
+          {
+            categories,
+            series: [
+              { name: 'Forest', values: [320, 332, 301, 390, 330, 280], color: firstColor(ctx) },
+              { name: 'Desert', values: [150, 232, 201, 190, 330, 360] },
+            ],
+          },
+          {
+            mode: 'grouped',
+            title: 'Label rotation',
+            padding: { ...PADDING, bottom: 84 },
+            legend: false,
+            labels: { rotate: 90, position: 'insideBase', format: (v, c) => `${v} ${c.seriesName}` },
+            axes: { x: { labelRotate: 40, format: (i) => categories[i] ?? '' } },
+          }
+        );
+      }),
+  },
+  {
     name: 'scatter',
     theme: 'dark',
     render: (ctx) =>
@@ -405,6 +475,64 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // y pieces cut the stroke exactly at 50 / 100 / 150; an x window recolors a dashed series
+    name: 'line-pieces',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const rand = mulberry32(23);
+        const aqi = Float32Array.from(walk(rand, 240, 6, 90), (v) => Math.max(5, v));
+        const base = Float32Array.from({ length: 240 }, (_, i) => 20 + 6 * Math.sin(i / 14));
+        sdk.renderLineChart(
+          [
+            {
+              name: 'AQI',
+              values: aqi,
+              lineWidth: 2.5,
+              color: firstColor(ctx),
+              pieces: [
+                { lte: 50, color: '#16a34a' },
+                { gt: 50, lte: 100, color: '#eab308' },
+                { gt: 100, lte: 150, color: '#f97316' },
+                { gt: 150, color: '#dc2626' },
+              ],
+            },
+            { name: 'Baseline', values: base, dash: [6, 3], piecesBy: 'x', pieces: [{ gte: 80, lt: 160, color: '#7c3aed' }] },
+          ],
+          { title: 'Pieces', padding: PADDING, legend: false }
+        );
+      }),
+  },
+  {
+    // x pieces clip a monotone area fill into vertical slabs; y pieces band an overlapping fill
+    name: 'area-pieces',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const x = Float64Array.from({ length: 121 }, (_, i) => i / 10);
+        const load = Float32Array.from(x, (v) => 40 + 25 * Math.sin(v * 0.9) + 8 * Math.sin(v * 3.1));
+        const low = Float32Array.from(x, (v) => 15 + 12 * Math.cos(v * 0.7));
+        sdk.renderAreaChart(
+          [
+            {
+              name: 'Load',
+              values: load,
+              x,
+              curve: 'monotone',
+              color: firstColor(ctx),
+              piecesBy: 'x',
+              pieces: [
+                { gte: 2, lte: 4, color: '#f59e0b' },
+                { gte: 7.5, lte: 9, color: '#ef4444' },
+              ],
+            },
+            { name: 'Reserve', values: low, x, pieces: [{ gt: 22, color: '#38bdf8' }] },
+          ],
+          { title: 'Area pieces', padding: PADDING, legend: false, fillOpacity: 0.45 }
+        );
+      }),
+  },
+  {
     name: 'line-yzoom',
     theme: 'dark',
     render: (ctx) =>
@@ -428,6 +556,127 @@ export const FIXTURES: Fixture[] = [
   boxFixture('violin', true),
   pieFixture('pie', 0),
   pieFixture('donut', 0.6),
+  pieFixture('pie-rose', 0.2, { rose: 'area' }),
+  {
+    // Strip plot: 4 categories x 60 points on the same x, jittered by +-0.3
+    name: 'scatter-jitter',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 240;
+        const x = Float32Array.from({ length: n }, (_, i) => i % 4);
+        const y = Float32Array.from({ length: n }, (_, i) => 50 + Math.sin(i * 1.7) * 12 + (i % 4) * 6);
+        const clusters = Uint16Array.from({ length: n }, (_, i) => i % 4);
+        sdk.renderScatterChart({ x, y, clusters }, { title: 'Jitter', pointRadius: 3.5, jitter: { x: 0.3 }, legend: false });
+      }),
+  },
+  {
+    // Linear fit of one series, exponential (dashed) + cubic fits of the other, clipped to the plot
+    name: 'scatter-trendline',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 120;
+        const x = Float32Array.from({ length: n }, (_, i) => (i >> 1) * 0.17);
+        const y = Float32Array.from({ length: n }, (_, i) =>
+          i % 2 ? 1.5 * Math.exp(0.3 * x[i]) * (1 + Math.sin(i * 2.3) * 0.15) : 4 + 1.6 * x[i] + Math.sin(i * 1.7) * 2.5
+        );
+        const clusters = Uint16Array.from({ length: n }, (_, i) => i % 2);
+        sdk.renderScatterChart(
+          { x, y, clusters },
+          {
+            title: 'Trendlines',
+            pointRadius: 3.5,
+            seriesNames: ['Linear', 'Growth'],
+            legend: { position: 'right' },
+            trendline: [
+              { type: 'linear', series: [0] },
+              { type: 'exponential', series: [1], dash: [6, 4] },
+              { type: 'polynomial', order: 3, series: [1], color: '#e11d48', width: 1.5 },
+            ],
+          }
+        );
+      }),
+  },
+  {
+    // Ripple rings frozen 1 s into the cycle around circles and triangles
+    name: 'scatter-ripple',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderScatterChart(
+          { x: [2, 5, 8, 3, 7], y: [3, 7, 4, 8, 2], clusters: [0, 0, 0, 1, 1] },
+          { title: 'Ripple', pointRadius: 7, seriesSymbols: ['circle', 'triangle'], ripple: { scale: 3, period: 3 } }
+        );
+        sdk.setEffectTime(1);
+      }),
+  },
+  {
+    // Four series, four symbols; the legend swatches follow
+    name: 'scatter-symbols',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 160;
+        const x = Float32Array.from({ length: n }, (_, i) => (i % 40) + (i >> 5) * 0.3);
+        const y = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.37) * 8 + (i % 4) * 6);
+        const clusters = Uint16Array.from({ length: n }, (_, i) => i % 4);
+        sdk.renderScatterChart(
+          { x, y, clusters },
+          {
+            title: 'Symbols',
+            pointRadius: 5,
+            seriesNames: ['circle', 'square', 'diamond', 'triangle'],
+            seriesSymbols: ['circle', 'square', 'diamond', 'triangle'],
+          }
+        );
+      }),
+  },
+  {
+    // Side legend column sized to the names; 14 entries page behind ‹ ›
+    name: 'legend-right-paged',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const labels = ['Search', 'Direct', 'Social', 'Email', 'Ads', 'Video', 'Partners', 'Affiliates', 'Podcasts', 'Events', 'Print', 'Radio', 'TV', 'Other'];
+        sdk.renderPieChart(
+          { labels, values: labels.map((_, i) => 40 - i * 2.5) },
+          { title: 'Legend right', donut: 0.5, maxSlices: false, labels: 'none', legend: { position: 'right' }, padding: { top: 36 } }
+        );
+      }),
+  },
+  {
+    // Bottom row: 12 series do not fit one row, the pager pages them
+    name: 'legend-bottom-paged',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const series = Array.from({ length: 12 }, (_, k) => ({
+          name: `Sensor ${String.fromCharCode(65 + k)}`,
+          values: Float32Array.from({ length: 200 }, (_, i) => Math.sin(i / 20 + k) * 10 + k * 3),
+        }));
+        sdk.renderLineChart(series, { title: 'Legend bottom', legend: { position: 'bottom' } });
+      }),
+  },
+  pieFixture('pie-half-donut', 0.55, { startAngle: -90, endAngle: 90 }),
+  pieFixture('pie-pad-angle', 0.5, { padAngle: 4 }),
+  pieFixture('pie-rounded', 0.5, { padAngle: 3, cornerRadius: 8 }),
+  {
+    name: 'pie-rings',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPieChart(
+          {
+            rings: [
+              { name: 'Channel', labels: ['Direct', 'Marketing', 'Search'], values: [1548, 775, 679] },
+              { name: 'Source', labels: ['Baidu', 'Direct', 'Email', 'Google', 'Bing'], values: [1048, 335, 310, 251, 147] },
+            ],
+          },
+          { title: 'Rings', legend: false, padding: { top: 36, right: 24, bottom: 24, left: 24 } }
+        );
+      }),
+  },
   {
     name: 'combo',
     theme: 'dark',
@@ -563,6 +812,20 @@ export const FIXTURES: Fixture[] = [
             colors: ctx.params.color ? [ctx.params.color] : undefined,
           }
         );
+      }),
+  },
+  {
+    name: 'sankey-vertical-gradient',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderSankey(energyFlows(), {
+          title: 'Vertical sankey',
+          orient: 'vertical',
+          linkColor: 'gradient',
+          levels: [{ column: 0, linkOpacity: 0.7 }, { column: 2, color: '#64748b' }],
+          padding: { top: 36, right: 12, bottom: 12, left: 12 },
+        });
       }),
   },
   {
@@ -768,7 +1031,11 @@ function hierarchyData() {
   };
 }
 
-function pieFixture(name: string, donut: number): Fixture {
+function pieFixture(
+  name: string,
+  donut: number,
+  extra: { rose?: 'radius' | 'area'; startAngle?: number; endAngle?: number; padAngle?: number; cornerRadius?: number } = {}
+): Fixture {
   return {
     name,
     theme: donut > 0 ? 'light' : 'dark',
@@ -777,8 +1044,9 @@ function pieFixture(name: string, donut: number): Fixture {
         sdk.renderPieChart(
           { labels: ['Search', 'Direct', 'Social', 'Email', 'Ads', 'Other'], values: [420, 260, 180, 90, 40, 25] },
           {
-            title: donut > 0 ? 'Donut' : 'Pie',
+            title: extra.rose ? 'Rose' : extra.endAngle !== undefined ? 'Half donut' : extra.cornerRadius ? 'Rounded donut' : extra.padAngle ? 'Padded donut' : donut > 0 ? 'Donut' : 'Pie',
             donut,
+            ...extra,
             sort: 'desc',
             labels: 'outside',
             legend: false,

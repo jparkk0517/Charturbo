@@ -310,6 +310,11 @@ impl GpuLayout {
         Ok(())
     }
 
+    /// Latest layout state (`GpuNodeState` per node) for drawing; valid once a state was written.
+    pub fn state(&self) -> Option<&wgpu::Buffer> {
+        (self.count > 0).then(|| &self.state[self.current].buffer)
+    }
+
     fn copy_state(&self, encoder: &mut wgpu::CommandEncoder, to: &wgpu::Buffer) {
         let bytes = u64::from(self.count) * 32;
         encoder.copy_buffer_to_buffer(&self.state[self.current].buffer, 0, to, 0, bytes);

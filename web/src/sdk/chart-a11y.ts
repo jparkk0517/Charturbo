@@ -16,6 +16,7 @@ import type { A11yCustomModel } from './chart-business-util';
 import { hierarchyA11yModel } from './chart-hierarchy';
 import { sparseTooltip, type SparseMeta } from './chart-sparse';
 import { scientificA11yModel, type Scientific3DMeta } from './chart-scientific3d';
+import { trendDescription, type ScatterTrendlineFit } from './chart-trendline';
 import type {
   ChartOhlc,
   ChartTooltipContext,
@@ -61,6 +62,14 @@ export interface A11yPieData {
   /** Displayed index of the "Other" slice (-1 = none) and the names it folds */
   otherSlice: number;
   otherMembers: string[];
+  /** Multi-ring pies: ring name per displayed slice (absent for a single pie) */
+  ring?: string[];
+}
+
+/** Slice name, prefixed with its ring in a multi-ring pie (`Source · Google`). */
+function pieLabel(p: A11yPieData, k: number): string {
+  const name = p.names[k] ?? `#${k + 1}`;
+  return p.ring ? `${p.ring[k]} · ${name}` : name;
 }
 
 /** Finite value extent of a heatmap and its empty (NaN) cell count. */
@@ -123,6 +132,8 @@ export interface A11yChartModel {
   /** Line: samples carry real x values (tooltip `x`) */
   hasX?: boolean;
   scatter?: A11yScatterData;
+  /** Scatter: sentences about the trendline fits (description) */
+  trendlines?: string[];
   heatmap?: A11yHeatmapData;
   /** Box plot groups (series = medians per category) */
   box?: A11yBoxData;
@@ -533,6 +544,8 @@ export function buildA11yModel(
     const other = (Array.isArray(m.other) ? m.other : []) as number[];
     const valueLabel = typeof m.valueLabel === 'string' && m.valueLabel ? m.valueLabel : t.value;
     const fmt = typeof m.format === 'function' ? (m.format as (v: number) => string) : null;
+    const ringNames = (Array.isArray(m.ringNames) ? m.ringNames : []) as string[];
+    const ringOf = (Array.isArray(m.ring) ? m.ring : []) as number[];
     const pie: A11yPieData = {
       names,
       values,
@@ -542,8 +555,9 @@ export function buildA11yModel(
       donut: Number(m.donut) > 0,
       otherSlice: (Array.isArray(m.sources) ? (m.sources as number[]) : []).indexOf(-1),
       otherMembers: other.map((i) => inputLabels[i] ?? itemName(i)),
+      ...(ringNames.length > 1 ? { ring: names.map((_, k) => ringNames[ringOf[k]] ?? '') } : {}),
     };
-    const label = (i: number) => names[i] ?? itemName(i);
+    const label = (i: number) => pieLabel(pie, i);
     return {
       kind: 'pie',
       ...common,
@@ -602,10 +616,12 @@ export function buildA11yModel(
     const clean = (v: number) => (data.f32 ? f32ToShortest(v) : v);
     const formatX = (x: number) => (formatXFn ? formatXFn(x) : num(x, 4));
     const pointId = (s: number, i: number) => scatterOrder(idx, data, s)[i] ?? -1;
+    const fits = (Array.isArray(m.trendlines) ? m.trendlines : []) as ScatterTrendlineFit[];
     return {
       kind: 'scatter',
       ...common,
       series,
+      trendlines: fits.map((fit) => trendDescription(fit, series[fit.series]?.name ?? `Series ${fit.series + 1}`, !(series[fit.series]?.visible ?? true))),
       length: data.length,
       scatter: data,
       xValue: (i, s = 0) => clean(Number(data.x[pointId(s, i)])),
@@ -865,13 +881,20 @@ function summaryBody(model: A11yChartModel): string {
     const shown = pieOrder(p);
     // Largest shares first (top 3)
     const top = [...shown].sort((a, b) => p.values[b] - p.values[a] || a - b).slice(0, 3);
-    const parts = top.map((k) => `${p.names[k]} ${percentText(model, p.percents[k])}`);
+    const parts = top.map((k) => `${pieLabel(p, k)} ${percentText(model, p.percents[k])}`);
     const more = shown.length - top.length;
     if (more > 0) parts.push(c.andMore(n(more)));
     const hidden = p.names.length - p.visible.filter(Boolean).length;
     const slices = t.slices(p.names.length, n(p.names.length));
+    // Several rings have one total each: percents are shares of the slice's ring
+    const rings = p.ring ? new Set(p.ring).size : 0;
     return t.sentence(
-      [p.donut ? t.chart.donut : t.chart.pie, hidden > 0 ? t.paren(slices, t.hiddenCount(n(hidden))) : slices, t.total(f(p.total))],
+      [
+        p.donut ? t.chart.donut : t.chart.pie,
+        ...(rings ? [t.rings(rings, n(rings))] : []),
+        hidden > 0 ? t.paren(slices, t.hiddenCount(n(hidden))) : slices,
+        ...(rings ? [] : [t.total(f(p.total))]),
+      ],
       parts
     );
   }
@@ -980,10 +1003,10 @@ export function buildChartDescription(model: A11yChartModel): string {
     if (st.empty > 0) out.push(t.sentence([t.emptyCells(st.empty, n(st.empty))]));
   } else if (model.kind === 'pie' && model.pie) {
     const p = model.pie;
-    p.names.forEach((name, k) => {
-      out.push(t.sliceLine(name, f(p.values[k]), p.visible[k] ? percentText(model, p.percents[k]) : c.hidden));
+    p.names.forEach((_, k) => {
+      out.push(t.sliceLine(pieLabel(p, k), f(p.values[k]), p.visible[k] ? percentText(model, p.percents[k]) : c.hidden));
     });
-    if (p.otherSlice >= 0) out.push(t.otherCombines(p.names[p.otherSlice], p.otherMembers.join(c.listSeparator)));
+    if (p.otherSlice >= 0) out.push(t.otherCombines(pieLabel(p, p.otherSlice), p.otherMembers.join(c.listSeparator)));
   } else if (model.kind === 'line' || model.kind === 'candle') {
     // Series may have different x arrays: the range spans every series
     const [x0, x1] = lineXExtent(model);
@@ -1036,6 +1059,7 @@ export function buildChartDescription(model: A11yChartModel): string {
     model.series.forEach((s) => {
       out.push(t.labelled(named(s), c.points(seriesLength(s), n(seriesLength(s)))));
     });
+    out.push(...(model.trendlines ?? []));
   } else {
     const st = seriesStats(model.series[0]?.values ?? []);
     if (model.xTitle) out.push(t.axisTitle(c.xAxis, model.xTitle));
@@ -1230,7 +1254,7 @@ export function pointAnnouncement(model: A11yChartModel, focus: A11yFocus): stri
     const p = model.pie;
     const order = pieOrder(p);
     const k = focus.index;
-    return at(t.slicePoint(p.names[k] ?? '', model.formatValue(p.values[k]), percentText(model, p.percents[k])), order.indexOf(k), order.length);
+    return at(t.slicePoint(pieLabel(p, k), model.formatValue(p.values[k]), percentText(model, p.percents[k])), order.indexOf(k), order.length);
   }
   if (model.kind === 'candle') {
     const v = (k: number) => model.formatValue(modelValue(model, k, focus.index));
@@ -2043,7 +2067,7 @@ export function tooltipContext(
       index: k,
       xLabel: name,
       items: [{ seriesName: name, value: p.values[k], color, nodeId: id, percent: p.percents[k] }],
-      slice: { label: name, value: p.values[k], percent: p.percents[k], ...members },
+      slice: { label: name, value: p.values[k], percent: p.percents[k], ...members, ...(p.ring ? { ring: p.ring[k] } : {}) },
       details: details(id),
     };
   }

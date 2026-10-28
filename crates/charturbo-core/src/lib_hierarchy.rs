@@ -3,7 +3,7 @@
 
 use crate::chart::{
     validate_sankey, ChartState, ColormapKind, HeatmapColormap, HierarchyColorBy, HierarchyStyle, SankeyAlign,
-    SankeyGraph, SankeyLinkColor, SankeyOptions, SunburstOptions, Tree, TreemapOptions,
+    SankeyGraph, SankeyLevel, SankeyLinkColor, SankeyOptions, SankeyOrient, SunburstOptions, Tree, TreemapOptions,
 };
 use crate::WasmCharturboEngine;
 use wasm_bindgen::prelude::*;
@@ -74,8 +74,10 @@ impl WasmCharturboEngine {
     /// >= 0) between `node_count` nodes; `columns`: empty or one per node (< 0 = computed);
     /// `groups`: empty or a color group per node (< 0 = none). Cycles are errors naming the node
     /// chain. `options`: `[node_width_px, node_padding_px, iterations, align (0 justify, 1 left,
-    /// 2 right, 3 center), link_color (0 source, 1 target, 2 neutral), link_opacity, labels,
-    /// label_line_px]`. Returns nodes + links.
+    /// 2 right, 3 center), link_color (0 source, 1 target, 2 neutral, 3 gradient), link_opacity,
+    /// labels, label_line_px, orient (0 horizontal, 1 vertical), label_width_px]`. `levels`: 6 per
+    /// level `[column, r, g, b, a (NaN = keep the node colors), link_opacity (NaN = default)]`.
+    /// Returns nodes + links.
     #[allow(clippy::too_many_arguments)]
     pub fn set_sankey_chart(
         &mut self,
@@ -86,6 +88,7 @@ impl WasmCharturboEngine {
         columns: &[i32],
         groups: &[i32],
         options: &[f64],
+        levels: &[f32],
     ) -> Result<usize, JsValue> {
         let graph = SankeyGraph {
             node_count: node_count as usize,
@@ -94,6 +97,16 @@ impl WasmCharturboEngine {
             values: values.to_vec(),
             columns: columns.to_vec(),
             groups: groups.to_vec(),
+            levels: levels
+                .as_chunks::<6>()
+                .0
+                .iter()
+                .map(|&[column, r, g, b, a, opacity]| SankeyLevel {
+                    column: column.max(0.0) as u32,
+                    color: [r, g, b, a].iter().all(|c| c.is_finite()).then_some([r, g, b, a]),
+                    link_opacity: opacity.is_finite().then_some(opacity),
+                })
+                .collect(),
         };
         validate_sankey(&graph).map_err(err)?;
         let d = SankeyOptions::default();
@@ -106,6 +119,8 @@ impl WasmCharturboEngine {
             link_opacity: opt_f32(options, 5, d.link_opacity),
             labels: opt_flag(options, 6, d.labels),
             label_line_px: opt_f32(options, 7, d.label_line_px),
+            orient: if opt_u32(options, 8, 0) == 1 { SankeyOrient::Vertical } else { SankeyOrient::Horizontal },
+            label_width_px: opt_f32(options, 9, d.label_width_px),
         };
         Ok(self.inner.set_chart_state(ChartState::new_sankey(graph, opts, HierarchyStyle::default())))
     }
@@ -243,12 +258,12 @@ impl WasmCharturboEngine {
         let Some(s) = self.inner.chart().and_then(|c| c.sankey()) else {
             return Vec::new();
         };
-        let (values, flows, layers, laid) = (s.node_values(), s.node_flows(), s.node_layers(), s.nodes());
+        let (values, flows, layers, laid) = (s.node_values(), s.node_flows(), s.node_layers(), s.node_rects_css());
         let mut out = Vec::with_capacity(values.len() * 8);
         for (v, &value) in values.iter().enumerate() {
             out.extend([layers[v] as f64, value, flows[v].0, flows[v].1]);
             match laid.get(v) {
-                Some(n) => out.extend([n.x0 as f64, n.y0 as f64, n.x1 as f64, n.y1 as f64]),
+                Some(r) => out.extend(r.map(|c| c as f64)),
                 None => out.extend([f64::NAN; 4]),
             }
         }

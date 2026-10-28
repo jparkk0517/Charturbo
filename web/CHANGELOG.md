@@ -25,6 +25,86 @@
 - 박스 플롯 백분위 수염 서수(`1th` → `1st`), OHLC 키보드 도움말과 데이터 표 제목(`OHLC chart data`), 파이 기타 항목 툴팁(`and 2 more`), 콤보 설명(`bars stacked to 100%`)을 고쳤습니다.
 - 콤보·선·막대 점의 `getNodeDetails().metadata.description`이 항상 한국어였던 문제를 고쳐 로캘을 따릅니다.
 
+### 추가 — 선 구간 색칠 · 막대 배경 · 라벨 회전 · 회귀선 (병렬 구현)
+
+- 선 · 영역 `pieces` / `piecesBy`(ECharts piecewise `visualMap`): 값 구간마다 색. 경계를 지나는 지점에서 선분을 잘라 색이 경계값에서 정확히 바뀌고, 영역은 경계 띠로 잘라 채웁니다. 예제 `line/12-pieces`, fixture `line-pieces` · `area-pieces`.
+- 막대 `background`(ECharts `showBackground`): 값 축 전체 길이의 배경 트랙. 기본은 테마 `baseline` × 0.2 알파. 예제 `bar/04-background`, fixture `bar-background` · `bar-background-horizontal`.
+- 막대 값 라벨 `labels.rotate`, x축 라벨 `axes.x.labelRotate`: 회전된 상자로 배치 · 충돌 판정 · 솎기를 하고 아래 여백이 늘어납니다. 회전한 카테고리 이름은 줄이지 않습니다. 예제 `bar/05-label-rotation`, fixture `bar-label-rotation`.
+- 산점도 `trendline`(ECharts ecStat): 선형 · 지수(y 가중 로그 최소제곱) · 로그 · 다항식(2~6차, Givens QR) 회귀선과 R², 범례 수식, `getScatterTrendlines()`. 예제 `scatter/06-trendline`, fixture `scatter-trendline`.
+- WASM 추가: `set_line_series_pieces`, `chart_line_piece_color`, `set_chart_bar_background`, `set_bar_label_boxes`, `set_bar_axis_label_rotation`, `set_chart_scatter_trendlines`, `chart_scatter_trend_fits`. 기존 시그니처는 그대로이며 SDK와 WASM을 함께 재빌드해야 합니다.
+
+### 수정
+
+- 배경 트랙 수가 다른 막대 차트로 바뀔 때 업데이트 애니메이션이 트랙과 막대를 짝지어 보간하던 문제: 트랙 수가 다르면 등장 애니메이션으로 그립니다.
+- 단일 시리즈 막대 · 폭포 차트에서 `legend.position` / `overflow`가 무시되던 문제.
+
+### 추가 — 산점도 지터
+
+- `ScatterChartOptions.jitter: { x, y, seed }`: ggplot2 `geom_jitter`처럼 데이터 단위 균등 오프셋으로 겹친 점을 흩뜨립니다. 점마다 고정(PCG 해시)이라 다시 그려도 같고, hover · 브러시가 흩뜨린 위치를 따르며 툴팁 · 표는 원래 값입니다.
+- WASM `set_chart_scatter_jitter(x, y, seed)`를 추가했습니다.
+- 예제 `scatter/05-jitter`, WebGPU/WebGL2 fixture `scatter-jitter`를 추가했습니다.
+
+### 추가 — 산점도 파동 효과
+
+- `ScatterChartOptions.ripple`(ECharts `effectScatter`): 선택한 시리즈의 점 뒤로 커지며 사라지는 고리(`period` · `scale` · `count` · `fill`). 점 셰이더가 그리고 매 프레임 점 uniform의 시간만 갱신합니다.
+- 파동이 보일 때만 도는 프레임 루프(`chart-effect.ts`)를 추가했습니다. 차트가 바뀌면 스스로 멈추고, `prefers-reduced-motion`이면 정지 프레임입니다. `sdk.setEffectTime(seconds | null)`로 특정 시점에 고정할 수 있습니다.
+- WASM `set_chart_scatter_ripple` · `set_chart_effect_time`을 추가했고 점 uniform이 1072 → 1088바이트가 되었습니다(`effect`). SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `scatter/04-ripple`, WebGPU/WebGL2 fixture `scatter-ripple`(1초 시점 고정)을 추가했습니다.
+
+### 추가 — 산점도 심볼 모양
+
+- `ScatterChartOptions.symbol` · `seriesSymbols`: 시리즈마다 원 · 사각형 · 마름모 · 삼각형 점. 모양은 점 인스턴스의 시리즈 슬롯 칸에 함께 실려 업로드 크기가 같고, 원은 이전과 같은 픽셀입니다.
+- hover 마커 · SVG 내보내기 · 범례 견본이 같은 모양을 씁니다.
+- WASM `set_chart_scatter_shapes(shapes)`를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `scatter/03-symbols`, WebGPU/WebGL2 fixture `scatter-symbols`를 추가했습니다.
+
+### 추가 — 범례 위치 · 페이지 넘김
+
+- `legend.position: 'top' | 'bottom' | 'left' | 'right'`: 범례를 플롯의 원하는 쪽에 두고 그쪽 여백을 잡습니다. 왼쪽 · 오른쪽은 가장 긴 이름에 맞춘 세로 열입니다.
+- `legend.overflow: 'scroll'`(기본): 한 줄(또는 한 열)에 들어가지 않는 항목은 ‹ n / m › 버튼으로 넘깁니다. 예전에는 줄바꿈된 범례가 플롯을 덮었습니다. `'wrap'`은 예전 동작입니다. 페이지 밖 항목은 `display: none`이라 포커스 · 내보내기에서 빠집니다.
+- 예제 `line/11-legend-paged`, WebGPU/WebGL2 fixture `legend-right-paged` · `legend-bottom-paged`를 추가했습니다.
+
+### 추가 — 생키 세로 방향 · 그라데이션 링크 · 단계 스타일
+
+- `SankeyChartOptions.orient: 'vertical'`: 같은 d3-sankey 배치를 흐름 좌표에서 계산하고 화면에서 x · y를 바꿉니다. hit test · 키보드 · 노드 사각형 · 라벨(막대 아래/위, 가운데 정렬)이 모두 따라갑니다.
+- `linkColor: 'gradient'`: 리본이 출발 노드 색에서 도착 노드 색으로 바뀝니다.
+- `levels: [{ column, color?, linkOpacity? }]`: 열마다 노드 색과 나가는 링크의 불투명도를 정합니다.
+- WASM `set_sankey_chart`의 `options`에 `orient` · `label_width_px`를 추가하고, 마지막 인자 `levels`(단계마다 6개 값)를 추가했습니다. 라벨 flags ±2는 세로 배치(아래/위)입니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `hierarchy/04-sankey-vertical`, WebGPU/WebGL2 fixture `sankey-vertical-gradient`를 추가했습니다.
+
+### 추가 — 파이 다중 고리 (중첩 파이)
+
+- `renderPieChart({ rings: [...] })`로 여러 고리를 그립니다. 퍼센트 · 각도 · "Other" 접기 · 라벨 방식은 고리별로 계산하며, 같은 이름의 조각은 고리를 넘어 색 · 범례 항목 · 강조를 공유합니다. React/Vue `type="pie"`도 같은 데이터를 받습니다.
+- 툴팁(`ctx.slice.ring`) · 데이터 표 · 키보드 안내에 고리 이름을 붙입니다. 요약은 고리 수를 말하고 합계는 생략합니다.
+- WASM `set_pie_chart`에 마지막 인자 `rings`(고리마다 6개 값) · `groups`(값마다 그룹 id)를 추가했고, `chart_pie_slices`는 조각마다 9개 값(마지막이 고리)을 돌려줍니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/06-nested`, WebGPU/WebGL2 fixture `pie-rings`를 추가했습니다.
+
+### 추가 — 파이 둥근 모서리
+
+- `PieChartOptions.cornerRadius`(CSS px)를 추가했습니다. 모서리 원은 안쪽으로 민 가장자리와 호에 접하며(d3-shape 작도), 얇은 조각·고리에서는 겹치지 않도록 줄어듭니다. 파이 중심은 뾰족하게 유지합니다.
+- 길이가 다른 두 경계선을 꼭짓점 손실 없이 잇는 삼각 분할을 추가했습니다. 기존 뾰족한 경로는 바뀌지 않았습니다(기존 pie·donut·sunburst·gauge 화면 차이 0%).
+- WASM `set_pie_chart`에 마지막 인자 `corner_radius_px`를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/05-pad-angle`을 `pie/05-rounded`(둥근 모서리 + 각도 간격)로 바꾸고, WebGPU/WebGL2 fixture `pie-rounded`를 추가했습니다.
+
+### 추가 — 파이 조각 각도 간격
+
+- `PieChartOptions.padAngle`(도, 기본 0, 최대 45)을 추가했습니다. 기존 2px 간격 위에 각도 간격을 더하며, 각도 · 퍼센트 · hit test는 바뀌지 않습니다.
+- WASM `set_pie_chart`에 마지막 인자 `pad_angle_deg`를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/05-pad-angle`, WebGPU/WebGL2 fixture `pie-pad-angle`를 추가했습니다.
+
+### 추가 — 파이 부분 원 (반 도넛)
+
+- `PieChartOptions.endAngle`을 추가했습니다. 조각이 `startAngle`~`endAngle` 범위를 `direction` 방향으로 나눠 가지며, 화면은 범위의 bbox에 맞춰 잡습니다. 생략하면 기존처럼 한 바퀴입니다.
+- WASM `set_pie_chart`에 마지막 인자 `end_angle_deg`(NaN = 한 바퀴)를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/04-half-donut`, WebGPU/WebGL2 fixture `pie-half-donut`를 추가했습니다.
+
+### 추가 — 파이 나이팅게일 로즈
+
+- `PieChartOptions.rose: 'radius' | 'area'`를 추가했습니다. 조각 넓이(도넛은 고리 넓이)가 값에 비례하도록 반지름을 정합니다. `'area'`는 같은 각도, `'radius'`는 비율 각도입니다. 퍼센트는 합계 대비 비율로 유지합니다.
+- hit test · 키보드 위치 · 안쪽 라벨 · 바깥 지시선 시작점이 조각마다의 반지름을 따릅니다. 로즈는 도넛 중앙 라벨이 기본으로 꺼집니다.
+- WASM `set_pie_chart`에 마지막 인자 `rose`(0 없음 · 1 radius · 2 area)를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/03-rose`, WebGPU/WebGL2 fixture `pie-rose`를 추가했습니다.
+
 ### 추가 — Surface3D 등고선
 
 - `Surface3DSeries.contours`(`show`·`levels`·`color`·`width`·`opacity`)를 ChartGPU v0.4.0 기본값·의미와 맞춰 추가했습니다. 개수 levels는 색상 범위 안쪽을 균등 분할하며 스트리밍 갱신마다 다시 계산합니다.

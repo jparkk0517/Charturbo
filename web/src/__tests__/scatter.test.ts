@@ -147,6 +147,56 @@ describe('Native scatter chart (SDK binding)', () => {
     expect(sdk.getNodeDetails(2)).toBeNull();
   });
 
+  it('symbols: one shape for every series, per-series overrides, none sent for plain circles', () => {
+    const { backend, calls } = mockBackend(4);
+    backend.set_chart_scatter_shapes = (s: Uint8Array) => {
+      (calls.set_chart_scatter_shapes ??= []).push([Array.from(s)]);
+      return true;
+    };
+    const sdk = Charturbo.fromBackend(backend);
+    const data = { x: [0, 1, 2, 3], y: [0, 1, 2, 3], clusters: [0, 1, 2, 3] };
+    sdk.renderScatterChart(data, { symbol: 'diamond', seriesSymbols: ['square', undefined, 'triangle'] });
+    // circle 0, square 1, diamond 2, triangle 3; series 3 takes the chart symbol
+    expect(calls.set_chart_scatter_shapes).toEqual([[[1, 2, 3, 2]]]);
+    sdk.renderScatterChart(data);
+    expect(calls.set_chart_scatter_shapes.at(-1)).toEqual([[]]);
+  });
+
+  it('ripple: flags the chosen series (all by default) and sends the ripple settings', () => {
+    const { backend, calls } = mockBackend(3);
+    backend.set_chart_scatter_ripple = (...args: unknown[]) => {
+      const [flags, ...rest] = args as [Uint8Array, ...unknown[]];
+      (calls.set_chart_scatter_ripple ??= []).push([Array.from(flags), ...rest]);
+      return true;
+    };
+    backend.set_chart_effect_time = () => false;
+    const sdk = Charturbo.fromBackend(backend);
+    const data = { x: [0, 1, 2], y: [0, 1, 2], clusters: [0, 1, 2] };
+    sdk.renderScatterChart(data, { ripple: { series: [2], period: 2, scale: 3, count: 4, fill: true } });
+    expect(calls.set_chart_scatter_ripple[0]).toEqual([[0, 0, 1], 2, 3, 4, true]);
+    sdk.renderScatterChart(data, { ripple: true });
+    expect(calls.set_chart_scatter_ripple[1]).toEqual([[1, 1, 1], NaN, NaN, 0, false]);
+    sdk.renderScatterChart(data);
+    expect(calls.set_chart_scatter_ripple[2][0]).toEqual([]);
+    // Frozen frame for screenshots: the clock stops at the given time
+    const times: number[] = [];
+    backend.set_chart_effect_time = (t: number) => (times.push(t), true);
+    sdk.setEffectTime(1.5);
+    expect(times).toEqual([1.5]);
+  });
+
+  it('jitter: amplitudes and seed go to the engine (zeros when off)', () => {
+    const { backend, calls } = mockBackend(1);
+    backend.set_chart_scatter_jitter = (...args: number[]) => ((calls.set_chart_scatter_jitter ??= []).push(args), true);
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.renderScatterChart({ x: [0, 0, 1], y: [1, 2, 3] }, { jitter: { x: 0.3, seed: 9 } });
+    sdk.renderScatterChart({ x: [0, 0, 1], y: [1, 2, 3] });
+    expect(calls.set_chart_scatter_jitter).toEqual([
+      [0.3, 0, 9],
+      [0, 0, 0],
+    ]);
+  });
+
   it('legend visibility / emphasis and x+y navigation are thin engine calls', () => {
     const { backend, calls } = mockBackend(3);
     const sdk = Charturbo.fromBackend(backend);

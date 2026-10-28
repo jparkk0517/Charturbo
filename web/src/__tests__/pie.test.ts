@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CHARTURBO_THEMES, Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { formatPercent, pieLabelSpace, pieMeta, textOn } from '../sdk/chart-pie';
+import { legendColumnWidth } from '../sdk/chart-legend';
 import {
   buildA11yModel,
   buildChartDescription,
@@ -100,8 +101,8 @@ class FakeEl {
 type Calls = Record<string, unknown[][]>;
 
 interface PieState {
-  /** Displayed slices: source (-1 = Other), value, visible */
-  slices: { source: number; value: number; visible: boolean }[];
+  /** Displayed slices: source (-1 = Other), value, visible, ring (default 0) */
+  slices: { source: number; value: number; visible: boolean; ring?: number }[];
   hit: Float64Array;
   hovered: number;
   labelsRev: number;
@@ -123,10 +124,12 @@ function mockBackend(calls: Calls, st: PieState): WasmCharturboEngineBackend {
     },
     set_chart_pie_style: record('set_chart_pie_style'),
     chart_pie_slices: () => {
-      const total = st.slices.reduce((s, x) => (x.visible ? s + x.value : s), 0);
+      // Percents of the visible total of the slice's ring
+      const total = (ring: number) => st.slices.reduce((s, x) => (x.visible && (x.ring ?? 0) === ring ? s + x.value : s), 0);
       const out: number[] = [];
       st.slices.forEach((s, k) => {
-        out.push(s.source, s.value, s.visible ? (s.value / total) * 100 : NaN, s.visible ? 1 : 0, k / 10, 0.5, 0.5, 1);
+        const ring = s.ring ?? 0;
+        out.push(s.source, s.value, s.visible ? (s.value / total(ring)) * 100 : NaN, s.visible ? 1 : 0, k / 10, 0.5, 0.5, 1, ring);
       });
       return new Float64Array(out);
     },
@@ -235,14 +238,18 @@ describe('Native pie chart (SDK binding)', () => {
       sort: 'desc',
       maxSlices: 4,
       startAngle: 90,
+      endAngle: -90,
+      padAngle: 3,
+      cornerRadius: 6,
       direction: 'counterclockwise',
       labels: 'outside',
       colors: [undefined, '#ff0000'],
+      rose: 'area',
       title: 'Traffic',
     });
     expect(res.sliceCount).toBe(4);
-    const [values, sort, max, start, clockwise, inner, labels, minAngle, line, sx, sy] = calls.set_pie_chart[0] as [
-      Float64Array, number, number, number, boolean, number, number, number, number, number, number,
+    const [values, sort, max, start, clockwise, inner, labels, minAngle, line, sx, sy, rose, end, pad, corner] = calls.set_pie_chart[0] as [
+      Float64Array, number, number, number, boolean, number, number, number, number, number, number, number, number, number, number,
     ];
     expect(values).toBeInstanceOf(Float64Array);
     expect(Array.from(values)).toEqual(DATA.values);
@@ -251,6 +258,10 @@ describe('Native pie chart (SDK binding)', () => {
     expect(line).toBe(16);
     expect(sx).toBeGreaterThanOrEqual(64);
     expect(sy).toBeGreaterThan(0);
+    expect(rose).toBe(2);
+    expect(end).toBe(-90);
+    expect(pad).toBe(3);
+    expect(corner).toBe(6);
 
     const [palette, colors, other, leader, surface] = calls.set_chart_pie_style[0] as Float32Array[];
     expect(palette.length).toBe(CHARTURBO_THEMES.dark.palette.length * 4);
@@ -270,7 +281,12 @@ describe('Native pie chart (SDK binding)', () => {
     // Folding off / no labels
     sdk.renderPieChart(DATA, { maxSlices: false, labels: 'none' });
     const second = calls.set_pie_chart[1];
-    expect([second[1], second[2], second[6], second[9], second[10]]).toEqual([0, 0, 0, 0, 0]);
+    expect([second[1], second[2], second[6], second[9], second[10], second[11]]).toEqual([0, 0, 0, 0, 0, 0]);
+    sdk.renderPieChart(DATA, { rose: 'radius' });
+    expect(calls.set_pie_chart[2][11]).toBe(1);
+    expect(Number.isNaN(calls.set_pie_chart[2][12])).toBe(true);
+    expect(calls.set_pie_chart[2][13]).toBe(0);
+    expect(calls.set_pie_chart[2][14]).toBe(0);
     // Theme switch re-sends the palette
     sdk.setTheme('light');
     const last = calls.set_chart_pie_style.at(-1) as Float32Array[];
@@ -364,6 +380,109 @@ describe('Native pie chart (SDK binding)', () => {
     expect(calls.set_chart_emphasis.at(-1)).toEqual([2]);
   });
 
+  it('legend position reserves its side; overflowing entries page with prev / next buttons', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, state()));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    const legendEl = () => container.querySelectorAll('.charturbo-sdk-chart-legend')[0];
+
+    sdk.renderPieChart(DATA, { maxSlices: 4, legend: { position: 'bottom' } });
+    expect(calls.set_chart_padding.at(-1)).toEqual([12, 16, 12 + 28, 12]);
+    expect([legendEl().style.bottom, legendEl().style.top]).toEqual(['6px', undefined]);
+
+    sdk.renderPieChart(DATA, { maxSlices: 4, legend: { position: 'right' } });
+    expect(calls.set_chart_padding.at(-1)).toEqual([12, 16 + legendColumnWidth(['Search', 'Direct', 'Social', 'Other']) + 8, 12, 12]);
+    expect([legendEl().style.right, legendEl().style.flexDirection]).toEqual(['8px', 'column']);
+
+    // The fake DOM measures every entry 800 px wide: one entry per page
+    sdk.renderPieChart(DATA, { maxSlices: 4 });
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
+    const [pager] = container.querySelectorAll('.charturbo-sdk-legend-pager');
+    expect(pager.style.display).toBe('flex');
+    expect(pager.textContent).toContain('1 / 4');
+    expect(items.map((i) => i.style.display)).toEqual(['inline-flex', 'none', 'none', 'none']);
+    const [prev, next] = container.querySelectorAll('.charturbo-sdk-legend-page');
+    expect(prev.attrs['aria-disabled']).toBe('true');
+    next.fire('click');
+    expect(items.map((i) => i.style.display)).toEqual(['none', 'inline-flex', 'none', 'none']);
+    expect(pager.textContent).toContain('2 / 4');
+    expect(prev.attrs['aria-disabled']).toBe('false');
+    expect(prev.attrs['aria-label']).toBe('Previous legend page');
+
+    // 'wrap': every entry stays, rows wrap, no pager
+    sdk.renderPieChart(DATA, { maxSlices: 4, legend: { overflow: 'wrap' } });
+    expect(legendEl().style.flexWrap).toBe('wrap');
+    expect(container.querySelectorAll('.charturbo-sdk-legend-pager')).toEqual([]);
+    expect(container.querySelectorAll('.charturbo-sdk-legend-item').every((i) => i.style.display !== 'none')).toBe(true);
+  });
+
+  it('rings: concatenated values, packed ring layout, name groups shared by legend, tooltip and table', () => {
+    const calls: Calls = {};
+    const st: PieState = {
+      ...state(),
+      slices: [
+        { source: 0, value: 3, visible: true, ring: 0 },
+        { source: 1, value: 1, visible: true, ring: 0 },
+        { source: 2, value: 1, visible: true, ring: 1 },
+        { source: 3, value: 1, visible: true, ring: 1 },
+        { source: 4, value: 2, visible: true, ring: 1 },
+      ],
+      labels: [],
+    };
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    const res = sdk.renderPieChart(
+      {
+        rings: [
+          { name: 'Channel', labels: ['Direct', 'Search'], values: [3, 1] },
+          { name: 'Source', labels: ['Direct', 'Google', 'Bing'], values: [1, 1, 2], radius: [0.6, 1], maxSlices: 3, sort: 'desc' },
+        ],
+      }
+    );
+    expect(res.sliceCount).toBe(5);
+    const args = calls.set_pie_chart[0];
+    expect(Array.from(args[0] as Float64Array)).toEqual([3, 1, 1, 1, 2]);
+    // [count, inner, outer, labels, maxSlices, sort] per ring: unset radii share the free band
+    // (with a gap), inner rings default to inside percents, the outermost to outside labels
+    const rings = Array.from(args[15] as Float32Array);
+    expect(rings.slice(0, 2)).toEqual([2, 0]);
+    expect(rings[2]).toBeCloseTo(0.47, 5);
+    expect(rings.slice(3)).toEqual([2, -1, 0, 3, 0.6000000238418579, 1, 1, 3, 1]);
+    expect(Array.from(args[16] as Uint32Array)).toEqual([0, 1, 0, 2, 3]);
+
+    // Legend: one entry per name; "Direct" toggles both rings
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
+    expect(items.map((i) => i.textContent)).toEqual(['Direct', 'Search', 'Google', 'Bing']);
+    items[0].fire('click');
+    expect(calls.set_chart_series_visible).toEqual([
+      [0, false],
+      [2, false],
+    ]);
+    expect(items[0].attrs['aria-pressed']).toBe('false');
+    items[0].fire('click');
+    items[2].fire('pointerenter');
+    expect(calls.set_chart_emphasis.at(-1)).toEqual([3]);
+
+    // Tooltip names the ring; percents are shares of the ring
+    const seen: (ChartTooltipContext | null)[] = [];
+    sdk.on('hover', (e) => seen.push(e.chart));
+    st.hit = new Float64Array([0, 0, 1, 3, 3, 1, 3]);
+    canvas.fire('pointermove', { buttons: 0, clientX: 300, clientY: 200 });
+    expect(seen.at(-1)!.slice).toEqual({ label: 'Google', value: 1, percent: 25, ring: 'Source' });
+    const tooltip = body.children.find((c) => c.className.includes('charturbo-sdk-node-tooltip'))!;
+    expect(tooltip.innerHTML).toContain('Source');
+
+    // Table rows carry the ring; the donut center (first ring total) is off unless asked for
+    expect(pieMeta({ rings: [{ labels: ['a'], values: [1] }] }, { donut: 0.5 }).center.show).toBe(false);
+    const model = (sdk as unknown as { a11y: { model(): ReturnType<typeof buildA11yModel> } }).a11y.model()!;
+    expect(buildDataTable(model).rows[3]).toEqual(['Source · Google', 1, 25]);
+    expect(buildChartSummary(model)).toContain('2 rings, 5 slices');
+    expect(container.querySelectorAll('.charturbo-sdk-pie-center')[0].style.display).toBe('none');
+
+    // Bad ring radii are rejected before reaching the engine
+    expect(() => sdk.renderPieChart({ rings: [{ labels: ['a'], values: [1], radius: [0.8, 0.4] }] })).toThrow(/radius/);
+  });
+
   it('a11y model: summary with top slices, table with percents, keyboard skips hidden slices', () => {
     const meta = {
       ...pieMeta(DATA, { donut: 0.5, valueLabel: 'Visits' }),
@@ -429,6 +548,9 @@ describe('Native pie chart (SDK binding)', () => {
     expect(pieMeta(DATA, { donut: 0.5 }).center).toEqual({ show: true, caption: 'Total' });
     expect(pieMeta(DATA, { donut: 0.5, centerLabel: 'Visits' }).center).toEqual({ show: true, caption: 'Visits' });
     expect(pieMeta(DATA, { donut: 0.5, centerLabel: false }).center.show).toBe(false);
+    // Rose holes are usually decorative: the center stays off unless asked for
+    expect(pieMeta(DATA, { donut: 0.2, rose: 'area' }).center.show).toBe(false);
+    expect(pieMeta(DATA, { donut: 0.2, rose: 'area', centerLabel: true }).center.show).toBe(true);
     expect(pieMeta(DATA, { donut: 3 }).donut).toBe(0.95);
   });
 });

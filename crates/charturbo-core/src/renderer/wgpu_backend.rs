@@ -2,7 +2,7 @@
 
 use crate::renderer::shader::{
     chart_bar_wgsl, chart_fill_wgsl, chart_line_wgsl, chart_marker_wgsl, chart_point_wgsl,
-    EDGE_LINE_WGSL, MESH_LIT_WGSL, NODE_BILLBOARD_WGSL,
+    EDGE_LINE_WGSL, MESH_LIT_WGSL, NODE_BILLBOARD_WGSL, edge_line_resident_wgsl, node_billboard_resident_wgsl,
 };
 use crate::renderer::{
     CameraUniformRaw, ChartAnnotationLayer, ChartBarRaw, ChartFillRaw, ChartFillStyleRaw, ChartLayers, ChartMarkerRaw, ChartPointRaw,
@@ -170,6 +170,11 @@ pub struct WgpuRenderBackend {
     /// Upload / frame counters of `stats` (byte totals are computed on demand)
     counters: RenderStats,
     gpu_physics: Option<super::gpu_layout::GpuLayout>,
+    /// Graph buffers hold node indexes into the GPU-resident layout (`sync_graph`)
+    graph_resident: bool,
+    /// Built on the first resident draw (WebGPU only: vertex-stage storage buffers)
+    resident_pipelines: Option<ResidentGraphPipelines>,
+    camera_bgl: wgpu::BindGroupLayout,
 }
 
 /// GPU buffers of one annotation layer (see `ChartAnnotationLayer`).
@@ -754,6 +759,9 @@ impl WgpuRenderBackend {
             },
             counters: RenderStats::default(),
             gpu_physics: None,
+            graph_resident: false,
+            resident_pipelines: None,
+            camera_bgl: p.camera_bgl.clone(),
         }
     }
 
@@ -852,7 +860,7 @@ impl GpuPipelines {
 
         // Fills: camera + emphasis uniform. Same bind group layout as the meshes / points but its own
         // pipeline layout: wgpu re-reads the shader's expected uniform sizes only when the layout
-        // object changes, so point (1072 B) -> fill (48 B) draws must not share one
+        // object changes, so point (1088 B) -> fill (48 B) draws must not share one
         let fill_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("chart-fill-pipeline-layout"),
             bind_group_layouts: &[&mesh_bind_group_layout],
@@ -1162,6 +1170,64 @@ fn draw_quads<'a>(rpass: &mut wgpu::RenderPass<'a>, pipeline: &'a wgpu::RenderPi
     rpass.draw(0..6, 0..array.len);
 }
 
+/// Node / edge pipelines reading positions from the GPU-resident layout (group 1, binding 0).
+struct ResidentGraphPipelines {
+    layout_bgl: wgpu::BindGroupLayout,
+    node: wgpu::RenderPipeline,
+    node_translucent: wgpu::RenderPipeline,
+    edge: wgpu::RenderPipeline,
+}
+
+impl ResidentGraphPipelines {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, camera_bgl: &wgpu::BindGroupLayout) -> Self {
+        use wgpu::PrimitiveTopology::{LineList, TriangleList};
+        use wgpu::VertexStepMode::{Instance, Vertex};
+        let layout_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("resident-layout-bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
+                count: None,
+            }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("resident-graph-pipeline-layout"), bind_group_layouts: &[camera_bgl, &layout_bgl], push_constant_ranges: &[],
+        });
+        let shader = |label, src: String| device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(src.into()) });
+        let (node_shader, edge_shader) = (shader("node-resident-shader", node_billboard_resident_wgsl()), shader("edge-resident-shader", edge_line_resident_wgsl()));
+        let node_buffers = [layout_of::<NodeInstanceRaw>(Instance, &ATTRS_2)];
+        let edge_buffers = [layout_of::<EdgeVertexRaw>(Vertex, &ATTRS_2)];
+        let node = |label, depth_write| create_pipeline(device, format, PipelineSpec {
+            label, layout: &layout, shader: &node_shader, vs: "vs_node", fs: "fs_node", buffers: &node_buffers,
+            topology: TriangleList, depth_write, depth_compare: DEPTH_TEST,
+        });
+        Self {
+            node: node("node-resident-opaque", true),
+            node_translucent: node("node-resident-translucent", false),
+            edge: create_pipeline(device, format, PipelineSpec {
+                label: "edge-resident-lines", layout: &layout, shader: &edge_shader, vs: "vs_edge", fs: "fs_edge", buffers: &edge_buffers,
+                topology: LineList, depth_write: false, depth_compare: DEPTH_TEST,
+            }),
+            layout_bgl,
+        }
+    }
+}
+
+impl WgpuRenderBackend {
+    /// Bind group of the current GPU layout state while the graph buffers hold node indexes.
+    fn resident_layout_bind(&mut self) -> Option<wgpu::BindGroup> {
+        if !self.graph_resident { return None; }
+        let state = self.gpu_physics.as_ref()?.state()?;
+        let (device, format, camera_bgl) = (&self.device, self.config.format, &self.camera_bgl);
+        let pipelines = self.resident_pipelines.get_or_insert_with(|| ResidentGraphPipelines::new(device, format, camera_bgl));
+        Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("resident-layout-bind"), layout: &pipelines.layout_bgl,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: state.as_entire_binding() }],
+        }))
+    }
+}
+
 impl RenderBackend for WgpuRenderBackend {
     fn supports_gpu_physics(&self) -> bool {
         self.device.limits().max_compute_workgroups_per_dimension > 0
@@ -1191,8 +1257,9 @@ impl RenderBackend for WgpuRenderBackend {
         self.gpu_physics.as_mut()?.take_sync()
     }
 
-    fn sync_graph(&mut self, nodes: &[NodeInstanceRaw], opaque_nodes: usize, edge_vertices: &[EdgeVertexRaw]) {
+    fn sync_graph(&mut self, resident: bool, nodes: &[NodeInstanceRaw], opaque_nodes: usize, edge_vertices: &[EdgeVertexRaw]) {
         let max = self.max_buffer_bytes;
+        self.graph_resident = resident;
         self.nodes.upload(&self.device, &self.queue, nodes, max);
         self.opaque_nodes = (opaque_nodes as u32).min(self.nodes.len);
         self.edges.upload(&self.device, &self.queue, edge_vertices, max);
@@ -1324,6 +1391,8 @@ impl RenderBackend for WgpuRenderBackend {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("charturbo-render-encoder"),
             });
+        // Resident graphs read positions from the current GPU layout buffer (ping-pong: per frame)
+        let resident_bind = self.resident_layout_bind();
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1407,18 +1476,28 @@ impl RenderBackend for WgpuRenderBackend {
                 draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &nav.lines);
             }
 
+            // Graph pipelines: CPU-packed positions, or node indexes into the resident layout
+            let resident = self.resident_pipelines.as_ref().zip(resident_bind.as_ref());
+            let (node, node_translucent, edge) = match resident {
+                Some((r, bind)) => {
+                    rpass.set_bind_group(1, bind, &[]);
+                    (&r.node, &r.node_translucent, &r.edge)
+                }
+                None => (&self.node_pipeline, &self.node_translucent_pipeline, &self.edge_pipeline),
+            };
+
             // 3. Opaque nodes write depth first, so edges are hidden only where a node is in front
             if self.opaque_nodes > 0 {
-                rpass.set_pipeline(&self.node_pipeline);
+                rpass.set_pipeline(node);
                 rpass.set_bind_group(0, cam, &[]);
                 rpass.set_vertex_buffer(0, self.nodes.slice());
                 rpass.draw(0..6, 0..self.opaque_nodes);
             }
 
             // 4. Graph edges and scene helper lines (depth-tested, no depth writes)
-            for lines in [&self.edges, &self.helper_lines] {
+            for (lines, pipeline) in [(&self.edges, edge), (&self.helper_lines, &self.edge_pipeline)] {
                 if lines.len > 0 {
-                    rpass.set_pipeline(&self.edge_pipeline);
+                    rpass.set_pipeline(pipeline);
                     rpass.set_bind_group(0, cam, &[]);
                     rpass.set_vertex_buffer(0, lines.slice());
                     rpass.draw(0..lines.len, 0..1);
@@ -1427,7 +1506,7 @@ impl RenderBackend for WgpuRenderBackend {
 
             // 5. Translucent nodes without depth writes
             if self.nodes.len > self.opaque_nodes {
-                rpass.set_pipeline(&self.node_translucent_pipeline);
+                rpass.set_pipeline(node_translucent);
                 rpass.set_bind_group(0, cam, &[]);
                 rpass.set_vertex_buffer(0, self.nodes.slice());
                 rpass.draw(0..6, self.opaque_nodes..self.nodes.len);

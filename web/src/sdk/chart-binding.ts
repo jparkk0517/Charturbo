@@ -28,7 +28,7 @@ import {
 } from './charturbo';
 import type { HeatmapChartData, HeatmapChartOptions } from './chart-heatmap';
 import type { BoxPlotData, BoxPlotOptions } from './chart-boxplot';
-import type { PieChartData, PieChartOptions } from './chart-pie';
+import type { PieChartData, PieChartOptions, PieRingsData } from './chart-pie';
 import type { ComboChartData, ComboChartOptions } from './chart-combo';
 import type { RadarChartData, RadarChartOptions } from './chart-radar';
 import type { GaugeChartData, GaugeChartOptions } from './chart-gauge';
@@ -60,7 +60,7 @@ export interface CharturboChartSpecMap {
   histogram: { data: Float32Array | number[]; options: HistogramChartOptions };
   heatmap: { data: HeatmapChartData; options: HeatmapChartOptions };
   box: { data: BoxPlotData; options: BoxPlotOptions };
-  pie: { data: PieChartData; options: PieChartOptions };
+  pie: { data: PieChartData | PieRingsData; options: PieChartOptions };
   /** Bars + lines + areas on one plot (`series[].type`), optional right y axis */
   combo: { data: ComboChartData; options: ComboChartOptions };
   radar: { data: RadarChartData; options: RadarChartOptions };
@@ -170,7 +170,7 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       sdk.renderBoxPlot(data as BoxPlotData, options as BoxPlotOptions);
       break;
     case 'pie':
-      sdk.renderPieChart(data as PieChartData, options as PieChartOptions);
+      sdk.renderPieChart(data as PieChartData | PieRingsData, options as PieChartOptions);
       break;
     case 'combo':
       sdk.renderComboChart(data as ComboChartData, options as ComboChartOptions);

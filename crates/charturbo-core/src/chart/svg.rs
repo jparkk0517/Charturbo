@@ -13,7 +13,7 @@
 //! the plot are culled and the rest are strided down to the mark budget (`truncated` is set).
 
 use super::*;
-use crate::renderer::{ChartAnnotationLayer, ChartDashSegmentRaw, ChartPointStyleRaw, MAX_POINT_SERIES};
+use crate::renderer::{point_shape, point_slot, ChartAnnotationLayer, ChartDashSegmentRaw, ChartPointStyleRaw};
 use std::fmt::Write;
 
 /// Default mark budget of `export_svg` (about 10-20 MB of markup).
@@ -345,7 +345,7 @@ impl Svg<'_> {
         let ring = style.params[0].max(0.0);
         let [bl, bt, bw, bh] = bounds;
         let place = |p: &ChartPointRaw| -> Option<((f32, f32), f32)> {
-            let slot = (p.center_radius[2].max(0.0) as usize).min(MAX_POINT_SERIES - 1);
+            let slot = point_slot(p.center_radius[2]);
             let alpha = style.slot_alpha(slot).min(1.0) * p.color[3] as f32 / 255.0;
             if alpha <= 0.0 {
                 return None;
@@ -367,7 +367,7 @@ impl Svg<'_> {
         for pass in 0..2 {
             let mut k = 0usize;
             for p in points {
-                let slot = p.center_radius[2].max(0.0) as usize;
+                let slot = point_slot(p.center_radius[2]);
                 if (emphasized == Some(slot)) != (pass == 1) {
                     continue;
                 }
@@ -380,7 +380,7 @@ impl Svg<'_> {
                 }
                 let fill = [p.color[0] as f32 / 255.0, p.color[1] as f32 / 255.0, p.color[2] as f32 / 255.0, alpha];
                 let rc = style.ring_color;
-                self.marker(c, p.center_radius[3], ring, 0.0, fill, [rc[0], rc[1], rc[2], rc[3] * alpha]);
+                self.marker(c, p.center_radius[3], ring, point_shape(p.center_radius[2]), fill, [rc[0], rc[1], rc[2], rc[3] * alpha]);
             }
         }
     }

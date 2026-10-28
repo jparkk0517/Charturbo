@@ -35,8 +35,10 @@ mod line;
 mod linestyle;
 mod navigator;
 mod pie;
+mod pieces;
 mod radar;
 mod range;
+mod regression;
 mod sankey;
 mod scale;
 mod scatter;
@@ -91,6 +93,7 @@ pub use linestyle::{
     AUTO_MARKER_MIN_PX, DEFAULT_BAND_OPACITY,
 };
 use linestyle::{StyleCtx, StyledSeries};
+pub use pieces::{ColorPiece, PieceDim, SeriesPieces};
 use navigator::Navigator;
 pub use time_zone::TimeZone;
 pub use navigator::{NavigatorHit, NavigatorOptions, NavigatorStyle, DEFAULT_NAVIGATOR_HEIGHT_PX};
@@ -105,18 +108,19 @@ pub use radar::{validate_radar, RadarGridShape, RadarLabel, RadarLayoutInfo, Rad
 use waterfall::WaterfallChart;
 pub use waterfall::{compute_waterfall, validate_waterfall, WaterfallItem, WaterfallKind, WaterfallOptions, WaterfallStyle};
 pub use pie::{
-    fold_slices, validate_pie, PieLabel, PieLabelMode, PieLayoutInfo, PieOptions, PieSlice, PieSort, PieStyle,
+    fold_slices, validate_pie, validate_pie_rings, PieLabel, PieLabelMode, PieLayoutInfo, PieOptions, PieRing, PieRose, PieSlice, PieSort, PieStyle,
     DEFAULT_PIE_MAX_SLICES, PIE_CHORD_ERROR_PX, PIE_EXPLODE_PX, PIE_GAP_PX,
 };
 use hierarchy::HierChart;
 pub use hierarchy::{HierarchyColorBy, HierarchyLabel, HierarchyLayoutInfo, HierarchyStyle, Tree, NO_PARENT};
 pub use sankey::{
-    validate_sankey, SankeyAlign, SankeyChart, SankeyGraph, SankeyLink, SankeyLinkColor, SankeyNode, SankeyOptions,
+    validate_sankey, SankeyAlign, SankeyChart, SankeyGraph, SankeyLevel, SankeyLink, SankeyLinkColor, SankeyNode, SankeyOptions, SankeyOrient,
 };
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
 pub use scale::{log_nice_domain, log_ticks, AxisScale, ScaleType};
-pub use scatter::{ScatterLayout, ScatterPoints};
+pub use regression::{fit_trend, TrendFit, TrendModel, MAX_TREND_ORDER};
+pub use scatter::{RippleOptions, ScatterLayout, ScatterPoints, ScatterTrendline};
 pub use sparkline::{SparklineMarks, SparklineSummary};
 pub use svg::{SvgExport, SvgSupport, SVG_DEFAULT_MAX_MARKS};
 pub use zoom::ZOOM_HISTORY_MAX;
@@ -407,6 +411,11 @@ impl ChartView<'_> {
 
 /// Head-on 2D framing: `width x height` world rect fills the canvas minus `padding` (CSS px).
 pub(crate) fn frame_flat(camera: &mut OrbitCamera, css: (f32, f32), width: f32, height: f32, padding: &ChartPadding) {
+    frame_flat_at(camera, css, (0.0, 0.0), width, height, padding);
+}
+
+/// `frame_flat` for a `width` x `height` world rect centered on `center` instead of the origin.
+pub(crate) fn frame_flat_at(camera: &mut OrbitCamera, css: (f32, f32), center: (f32, f32), width: f32, height: f32, padding: &ChartPadding) {
     let (w_css, h_css) = css;
     let [top, right, bottom, left] = *padding;
     let plot_w = (w_css - left - right).max(w_css * 0.2);
@@ -416,7 +425,7 @@ pub(crate) fn frame_flat(camera: &mut OrbitCamera, css: (f32, f32), width: f32, 
     let visible_h = h_css / s;
     let distance = camera.distance_for_visible_height(visible_h);
     // Shift the camera so the plot centre lands in the centre of the padded area
-    let target = Vec3::new(-(left - right) * 0.5 / s, -(bottom - top) * 0.5 / s, 0.0);
+    let target = Vec3::new(center.0 - (left - right) * 0.5 / s, center.1 - (bottom - top) * 0.5 / s, 0.0);
     camera.set_pose(target + Vec3::new(0.0, 0.0, distance), target);
 }
 
@@ -1457,6 +1466,10 @@ impl ChartState {
             if s.sync_view(view) {
                 self.dirty.underlay = true;
                 self.axes_key = None;
+            }
+            // Trendlines follow the zoom window, the scales, the camera and the legend
+            if s.build_trendlines(view, self.dirty.series, &mut self.series, &mut self.styled.dashed) {
+                self.dirty.series = true;
             }
         }
         if let ChartKind::Heatmap(h) = &mut self.kind {

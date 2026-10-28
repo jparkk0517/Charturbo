@@ -354,7 +354,7 @@ impl LineChart {
 
     /// Domain start relative to `x_origin`.
     #[inline]
-    fn x_shift(&self) -> f64 {
+    pub(crate) fn x_shift(&self) -> f64 {
         self.x_min - self.x_origin
     }
 
@@ -1018,7 +1018,7 @@ impl LineChart {
 
     /// World y of scale-space `u` on y axis `axis` (mirrored when reversed).
     #[inline]
-    fn y_world(&self, axis: u8, u: f32) -> f32 {
+    pub(crate) fn y_world(&self, axis: u8, u: f32) -> f32 {
         let (min, span, sign) = if axis == 0 {
             (self.y_min, self.y_span, self.y_scale.sign())
         } else {
@@ -1468,7 +1468,7 @@ impl LineChart {
                 for &y in ys.iter().take(if range.is_some() { 2 } else { 1 }) {
                     markers.push(ChartMarkerRaw {
                         center_radius: [p.x, y, p.z, style.marker_radius_px],
-                        fill: self.series[s].color,
+                        fill: self.piece_color(s, item.index as usize).unwrap_or(self.series[s].color),
                         ring: style.marker_ring_color,
                         params: [style.marker_ring_px, 0.0, 0.0, 0.0],
                     });

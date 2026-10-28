@@ -69,7 +69,7 @@ export type { ChartSvgOptions } from './chart-svg';
 import { readRenderStats, type RenderStatsBackend, type CharturboRenderStats } from './chart-stats';
 export type { RenderStatsBackend, CharturboRenderStats } from './chart-stats';
 import { canCopyImage, canvasToPdf, copyPngToClipboard } from './chart-pdf';
-import { thinCenteredLabels } from './chart-labels';
+import { labelRotation, rotatedLabelReserve, thinCenteredLabels, thinRotatedLabels, X_LABEL_LINE_PX } from './chart-labels';
 import {
   buildTimeZoneTable,
   intlTimeZone,
@@ -84,8 +84,11 @@ export type { BandSeriesDescriptor, BandChartOptions } from './chart-band';
 import { encodeErrors as encodeErrorBars, encodeImpulses, sparseTooltip, type ErrorBarSeriesDescriptor, type ErrorBarChartOptions, type ImpulseSeriesDescriptor, type ImpulseChartOptions, type EncodedSparse, type SparseMeta } from './chart-sparse';
 export type { ErrorBarSeriesDescriptor, ErrorBarChartOptions, ErrorBarMode, ErrorBarDirection, ImpulseSeriesDescriptor, ImpulseChartOptions } from './chart-sparse';
 import {
+  applyLinePieces,
   applyLineStyles,
+  encodeSeriesPieces,
   lineBandAt,
+  linePieceColor,
   numericSamples,
   streamedBand,
   validateLineBands,
@@ -99,6 +102,7 @@ export type {
   LineMarkerOptions,
   LineMarkerShape,
   LineNullPolicy,
+  LinePiece,
   LineStyleInput,
 } from './chart-linestyle';
 import {
@@ -179,8 +183,31 @@ import {
   type PieChartData,
   type PieChartMeta,
   type PieChartOptions,
+  type PieRingsData,
 } from './chart-pie';
-export type { PieChartData, PieChartOptions, PieLabelMode } from './chart-pie';
+import { EffectClock } from './chart-effect';
+import {
+  checkTrendlines,
+  decodeTrendFits,
+  encodeTrendlines,
+  trendLegendLabel,
+  type ScatterTrendline,
+  type ScatterTrendlineFit,
+} from './chart-trendline';
+export type { ScatterTrendline, ScatterTrendlineFit, ScatterTrendlineType } from './chart-trendline';
+import {
+  LEGEND_ROW_PX,
+  LEGEND_SIDE_GAP_PX,
+  LegendPager,
+  SCATTER_SYMBOL_CODES,
+  legendColumnWidth,
+  legendStyle,
+  symbolSwatch,
+  type ChartLegendPosition,
+  type ScatterSymbol,
+} from './chart-legend';
+export type { ChartLegendPosition, ScatterSymbol } from './chart-legend';
+export type { PieChartData, PieChartOptions, PieLabelMode, PieRingData, PieRingsData, PieRoseMode } from './chart-pie';
 import {
   comboMeta,
   comboPointMetadata,
@@ -264,6 +291,7 @@ export type {
   HierarchyNode,
   SankeyChartData,
   SankeyChartOptions,
+  SankeyLevelOptions,
   SankeyLinkInput,
   SankeyNodeInput,
   SunburstChartOptions,
@@ -281,10 +309,15 @@ import {
   encodeErrors,
   formatBarError,
   measureLabel,
+  resolveBarBackground,
   resolveBarLabels,
+  sendBarBackground,
   sendBarLabels,
   sendBarStyle,
+  tallestLabel,
   widestLabel,
+  type BarBackgroundOptions,
+  type BarBackgroundState,
   type BarErrorBarStyle,
   type BarErrorValue,
   type BarLabelOptions,
@@ -292,6 +325,7 @@ import {
   type BarStyleState,
 } from './chart-bar-style';
 export type {
+  BarBackgroundOptions,
   BarErrorBarStyle,
   BarErrorValue,
   BarLabelContext,
@@ -407,6 +441,15 @@ export interface LineSeriesDescriptor extends LineStyleInput {
    * shares the legend entry, tooltips show `lower – upper`, the data table adds its columns
    */
   band?: LineStyleInput['band'];
+  /**
+   * Piecewise colors (ECharts visualMap `pieces`): `[{ lte: 50, color: '#00e400' }, { gt: 50,
+   * lte: 100, color: '#ffde33' }, ...]`. The stroke switches color exactly where it crosses a
+   * bound (also when decimated, zoomed, streamed, dashed or curved); area fills are banded,
+   * markers, the hover marker and the tooltip swatch follow. Outside every piece: the series color
+   */
+  pieces?: LineStyleInput['pieces'];
+  /** Value the pieces test: `'y'` (default) or `'x'` (data x, or the sample index without `x`) */
+  piecesBy?: LineStyleInput['piecesBy'];
 }
 
 export interface LineChartOptions {
@@ -511,6 +554,12 @@ export interface BarChartOptions {
   /** Look of error bars (values come from `error` on items / series) */
   errorBars?: BarErrorBarStyle;
   /**
+   * Background tracks behind the bars, across the whole value axis (2D): `true` for the theme
+   * default or a color / opacity. Grouped bars get one per bar slot (hidden series drop theirs),
+   * stacked / percent bars one per category. Not hover targets
+   */
+  background?: boolean | BarBackgroundOptions;
+  /**
    * Legend. Multi-series: series toggle (re-stacks) / hover emphasis, shown for 2+ series in 2D.
    * Single series (on request, static): a key of the item `category` values (color of each
    * category's first bar) when items have categories, else one entry named `seriesName`
@@ -600,6 +649,13 @@ export interface ChartAxisOptions {
    * compiled once for the chart locale (time axes: the spec formats epoch ms as a number).
    */
   format?: ChartFormatSpec | ((value: number, granularity?: ChartTimeGranularity) => string);
+  /**
+   * Tick label rotation in degrees, positive = anticlockwise like ECharts `axisLabel.rotate`
+   * (-90..90; default 0). x axes only: rotated labels end at their tick (negative angles start
+   * there), are thinned by their rotated footprint, and grow the derived bottom padding (not an
+   * explicit `padding.bottom`)
+   */
+  labelRotate?: number;
 }
 
 /** x axis of a line chart. */
@@ -652,7 +708,25 @@ export interface ChartLegendOptions {
   toggle?: boolean;
   /** Hover fades the other series (default: true) */
   emphasize?: boolean;
+  /** Side of the plot (default `'top'`); `'left'` / `'right'` stack the entries in a column sized to the longest name */
+  position?: ChartLegendPosition;
+  /**
+   * Entries beyond one row (top / bottom) or column (left / right): `'scroll'` (default) pages
+   * them behind ‹ › buttons; `'wrap'` adds rows (top / bottom only; extra rows may cover the plot)
+   */
+  overflow?: 'scroll' | 'wrap';
 }
+
+/**
+ * Category tick text: names beyond 12 characters are shortened upright; rotated labels
+ * (`labelRotate`) keep the whole name, the reason to rotate them.
+ */
+function categoryText(name: string, rotate: number | undefined): string {
+  return rotate || name.length <= 12 ? name : `${name.slice(0, 11)}…`;
+}
+
+/** Legend settings of the active chart (defaults resolved, placement as given). */
+type ChartLegendState = { show: boolean; toggle: boolean; emphasize: boolean } & Pick<ChartLegendOptions, 'position' | 'overflow'>;
 
 /** Plot margins in CSS px; unspecified sides are derived from the title / legend / axes. */
 export interface ChartPaddingOptions {
@@ -865,7 +939,7 @@ export interface ChartTooltipContext {
   /** Hovered sankey link (`A → B`, share of A) or node (inflow / outflow) */
   flow?: ChartFlowTooltip;
   /** Hovered pie slice: share of the visible total (0-100); "Other" lists the folded names */
-  slice?: { label: string; value: number; percent: number; members?: string[] };
+  slice?: { label: string; value: number; percent: number; members?: string[]; ring?: string };
   /** Hovered heatmap cell and its axis labels */
   cell?: { row: number; col: number; xLabel: string; yLabel: string };
   /** Series `x` value of the primary hovered sample (line charts with `x` only) */
@@ -908,6 +982,19 @@ export interface ScatterChartData {
   colors?: Float32Array | number[];
 }
 
+export interface ScatterRippleOptions {
+  /** Series ids that ripple (default: every series) */
+  series?: number[];
+  /** Seconds per ring cycle (default 4) */
+  period?: number;
+  /** Outer ring radius / point radius (default 2.5, 1-10) */
+  scale?: number;
+  /** Rings at a time (default 3, 1-8) */
+  count?: number;
+  /** Filled rings instead of 1.5 px strokes (default false) */
+  fill?: boolean;
+}
+
 export interface ScatterChartOptions {
   /** Enter / update animation of this chart (default: the SDK setting, `setAnimation`) */
   animation?: ChartAnimationInput;
@@ -936,6 +1023,27 @@ export interface ScatterChartOptions {
   seriesColors?: ColorInput[];
   /** Point radius in CSS pixels when `sizes` is not given (default: 3) */
   pointRadius?: number;
+  /** Point symbol of every series (default `'circle'`) */
+  symbol?: ScatterSymbol;
+  /** Symbol per series id (missing entries: `symbol`); the legend swatches follow */
+  seriesSymbols?: (ScatterSymbol | undefined)[];
+  /**
+   * Rippling rings around the points (ECharts `effectScatter`; `true` = every series with the
+   * defaults). Keeps a frame loop running while shown: meant for highlighting a few points
+   */
+  ripple?: ScatterRippleOptions | boolean;
+  /**
+   * Spreads overlapping points (ggplot2 `geom_jitter`): uniform offsets in `[-x, x]` / `[-y, y]`
+   * data units (decades on log axes), fixed per point and `seed`. Tooltips, tables and exports
+   * keep the real values
+   */
+  jitter?: { x?: number; y?: number; seed?: number };
+  /**
+   * Regression trendlines (ECharts ecStat): least-squares fits of each chosen series, drawn
+   * across the visible x range beneath the points. The legend (shown by default with
+   * trendlines) lists each equation with its R²; fits are returned by `renderScatterChart`
+   */
+  trendline?: ScatterTrendline | ScatterTrendline[];
   /** Fill alpha multiplier; lower values reveal density (default: 0.85) */
   opacity?: number;
   /** Ring in the chart surface color around each point, CSS px (default: 1 with `sizes`, else 0) */
@@ -1442,6 +1550,18 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     gapPx: number,
     viewMode: number
   ): number;
+  /** Rippling scatter series flags, ripple period (s, NaN = 4), scale (NaN = 2.5), ring count (0 = 3), fill */
+  set_chart_scatter_ripple?(flags: Uint8Array, periodS: number, scale: number, count: number, fill: boolean): boolean;
+  /** Scatter jitter amplitude per axis (data units) and seed */
+  set_chart_scatter_jitter?(x: number, y: number, seed: number): boolean;
+  /** Scatter trendlines, 12 f64 each: series, model, order, RGBA, width, dash x4 (chart-trendline.ts) */
+  set_chart_scatter_trendlines?(lines: Float64Array): boolean;
+  /** Trendline fits, 11 f64 each: used, skipped, R², coefficient count, 7 coefficients */
+  chart_scatter_trend_fits?(): Float64Array;
+  /** Ripple clock (s): false when nothing ripples */
+  set_chart_effect_time?(seconds: number): boolean;
+  /** Symbol code per scatter series id (0 circle, 1 square, 2 diamond, 3 triangle); empty = circles */
+  set_chart_scatter_shapes?(shapes: Uint8Array): boolean;
   set_scatter_chart?(
     xs: Float32Array,
     ys: Float32Array,
@@ -1631,6 +1751,10 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   clear_line_series_band?(series: number): void;
   /** `[lower, upper]` of a series band at a live sample index, or empty */
   chart_line_band_at?(series: number, index: number): Float64Array;
+  /** Piecewise colors of a line / area series: by 0 = y / 1 = x, 8 floats per piece (chart-linestyle.ts / lib_pieces.rs) */
+  set_line_series_pieces?(series: number, by: number, pieces: Float64Array): void;
+  /** RGBA piece color of a live sample at its drawn position, or empty (series color) */
+  chart_line_piece_color?(series: number, index: number): Float32Array;
   /** `[count, first, last, min, max, firstIndex, lastIndex, minIndex, maxIndex, changePct]` or empty */
   chart_sparkline_summary?(): Float64Array;
   /** Combo chart (chart-combo.ts / lib_combo.rs): flat values, kinds 0 bar / 1 line / 2 area, axes 0 left / 1 right */
@@ -1663,7 +1787,7 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_box_outliers?(group: number): Float32Array;
   /** `[lo, hi, bandwidth, density * 128]` of a violin group */
   chart_box_kde?(group: number): Float64Array;
-  /** Pie / donut (chart-pie.ts): values >= 0; `maxSlices` < 0 = default, 0 = no folding; `labels` 0 none, 1 outside, 2 inside */
+  /** Pie / donut (chart-pie.ts): values >= 0; `maxSlices` < 0 = default, 0 = no folding; `labels` 0 none, 1 outside, 2 inside; `rose` 0 none, 1 radius, 2 area; `endAngleDeg` NaN = full turn; `padAngleDeg` gap between slices; `cornerRadiusPx` 0 = sharp; `rings` 6 per ring `[count, inner, outer, labels, maxSlices, sort]` (empty = single pie); `groups` one id per value (empty = per value) */
   set_pie_chart?(
     values: Float64Array,
     sort: number,
@@ -1675,7 +1799,13 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     labelMinAngleDeg: number,
     labelLinePx: number,
     labelSpaceX: number,
-    labelSpaceY: number
+    labelSpaceY: number,
+    rose: number,
+    endAngleDeg: number,
+    padAngleDeg: number,
+    cornerRadiusPx: number,
+    rings: Float32Array,
+    groups: Uint32Array
   ): number;
   /** RGBA floats: palette (display order), per-value colors (NaN = palette), other / leader / surface */
   set_chart_pie_style?(palette: Float32Array, colors: Float32Array, other: Float32Array, leader: Float32Array, surface: Float32Array): void;
@@ -1770,7 +1900,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     values: Float64Array,
     columns: Int32Array,
     groups: Int32Array,
-    options: Float64Array
+    options: Float64Array,
+    levels: Float32Array
   ): number;
   /** RGBA floats: palette, per-node colors (NaN = auto), other / surface / highlight; value colormap code */
   set_chart_hierarchy_style?(palette: Float32Array, colors: Float32Array, other: Float32Array, surface: Float32Array, highlight: Float32Array, colormap: number): void;
@@ -1806,8 +1937,14 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   ): boolean;
   /** Bar data labels: mode 0 off / 1 show / 2 auto, position code, text width per bar id (NaN = none), height, pad */
   set_bar_labels?(mode: number, position: number, widths: Float32Array, height: number, padPx: number): boolean;
+  /** `set_bar_labels` with one text box (`widths[id]` x `heights[id]`) per label */
+  set_bar_label_boxes?(mode: number, position: number, widths: Float32Array, heights: Float32Array, padPx: number): boolean;
+  /** Category tick label rotation (degrees) of a vertical 2D bar / waterfall chart */
+  set_bar_axis_label_rotation?(deg: number): boolean;
   /** `[revision, count, (bar id, x, y, inside) * count]` (CSS px, text box centers) */
   chart_bar_labels?(): Float64Array;
+  /** Bar background tracks: RGBA (empty = none); 2D bar charts only */
+  set_chart_bar_background?(color: Float32Array): boolean;
   /** Releases the WASM engine (wasm-bindgen) */
   free?(): void;
 }
@@ -1930,6 +2067,8 @@ interface ChartOverlay {
   colorbar?: HeatmapColorbarLayer;
   /** Pie slice labels / donut center (chart-pie.ts) */
   pie?: PieLabelLayer;
+  /** Pager of a one-row / one-column legend (chart-legend.ts) */
+  legendPager?: LegendPager;
   /** Treemap / sunburst / sankey labels, breadcrumb, sunburst center (chart-hierarchy.ts) */
   hierarchy?: HierarchyLabelLayer;
   /** Bar data labels (chart-bar-style.ts) */
@@ -1945,13 +2084,15 @@ interface ChartPresentation {
   yAxis: ChartAxisOptions;
   /** Right y axis (dual-axis 2D line charts only) */
   y2Axis?: ChartAxisOptions;
-  legend: Required<ChartLegendOptions>;
+  legend: ChartLegendState;
   /** 2D line chart: wheel / drag navigate the x axis */
   navigable: boolean;
   /** Scatter: navigation zooms / pans the y axis too */
   zoomY?: boolean;
   /** `granularity`: engine time-tick code (0 = not a time tick) */
   formatX: (value: number, granularity?: number) => string;
+  /** Category x axes: ticks are `0..count-1` (rotated labels size the bottom padding up front) */
+  xCategoryCount?: number;
   /** Author description for assistive tech (see chart-a11y.ts) */
   description?: string;
   /** Chart-level locale override (line `locale` option); else the SDK locale */
@@ -1989,6 +2130,8 @@ interface LineChartMeta {
   area?: 'overlap' | 'stacked' | 'percent';
   /** Range band arrays per series (`null` = none); tooltips read the engine's live copy */
   bands?: (LineBandMeta | null)[];
+  /** Series with piecewise colors (tooltip swatches ask the engine) */
+  pieces?: boolean[];
   standaloneBand?: boolean;
   sparse?: SparseMeta;
 }
@@ -2003,6 +2146,8 @@ interface BarChartMeta {
   values?: Float32Array;
   /** Orientation, labels, error bars (chart-bar-style.ts) */
   barStyle?: BarStyleState;
+  /** Background tracks (chart-bar-style.ts) */
+  barBackground?: BarBackgroundState;
   /** Static legend entry of a single-series chart */
   legendEntry?: { name: string; color: RgbaTuple };
 }
@@ -2021,6 +2166,8 @@ interface MultiBarChartMeta {
   viewMode: '2d' | '3d';
   /** Orientation, labels, error bars (chart-bar-style.ts) */
   barStyle?: BarStyleState;
+  /** Background tracks (chart-bar-style.ts) */
+  barBackground?: BarBackgroundState;
 }
 
 interface ScatterChartMeta {
@@ -2034,6 +2181,10 @@ interface ScatterChartMeta {
   series: Uint16Array | null;
   /** Per-point RGBA (`4 * N`) or null */
   pointColors: Float32Array | null;
+  /** Symbol per series id */
+  symbols: ScatterSymbol[];
+  /** Fits of the drawn trendlines (legend entries, accessible description) */
+  trendlines?: ScatterTrendlineFit[];
 }
 
 /** Candlestick chart: candle id = index; the OHLC arrays are the caller's (or converted copies). */
@@ -2319,6 +2470,10 @@ export class Charturbo {
   /** Range selector of the active 2D line / area chart (`null` = none) */
   private chartNavigator: { height: number } | null = null;
   private chartPadding: Required<ChartPaddingOptions> = { top: 16, right: 16, bottom: 32, left: 56 };
+  /** Room (CSS px) below the upright x label row that rotated x labels take */
+  private xLabelReserve = 0;
+  /** The bottom padding is derived (not given) and grows with the laid-out rotated x labels */
+  private xLabelReserveGrows = false;
   private chartHover: ChartHoverStyle | undefined;
   private chartGrid: ChartGridStyle | undefined;
   private chartGridShown = true;
@@ -2341,6 +2496,7 @@ export class Charturbo {
   private animationApplied: ResolvedAnimation | null = null;
   /** rAF loop while the engine animates (created on first use) */
   private animDriverRef: AnimationDriver | null = null;
+  private effectClockRef: EffectClock | null = null;
   /** Set by `enableNodeInteractions`: shows / hides the tooltip of a synced cursor hit */
   private syncTooltip: ((hit: Float64Array | null) => void) | null = null;
   /** Disconnects the `autoResize` observer */
@@ -2796,6 +2952,21 @@ export class Charturbo {
   /** Jumps a running chart animation to its final frame (call `render()` to show it). */
   finishAnimation(): void {
     this.animDriverRef?.finish();
+  }
+
+  /**
+   * Freezes continuous effects (the scatter ripple) at `seconds` into their cycle, e.g. for
+   * screenshots or exports; `null` restarts them.
+   */
+  setEffectTime(seconds: number | null): void {
+    if (seconds === null) return this.effectClock().start();
+    this.effectClockRef?.stop();
+    if (this.backend.set_chart_effect_time?.(seconds)) this.render();
+  }
+
+  /** Frame clock of the scatter ripple (chart-effect.ts). */
+  private effectClock(): EffectClock {
+    return (this.effectClockRef ??= new EffectClock(this.backend, () => this.render()));
   }
 
   private animDriver(): AnimationDriver {
@@ -4039,7 +4210,7 @@ export class Charturbo {
           items.push({
             seriesName: meta.names[series] ?? seriesName(series + 1),
             value: hit[at + 2],
-            color: rgbaToCss(meta.colors[series]),
+            color: rgbaToCss((meta.kind === 'line' ? linePieceColor(this.backend, meta.pieces, series, index) : undefined) ?? meta.colors[series]),
             nodeId,
             ...(band ? { band } : {}),
             ...(meta.kind === 'line' ? sparseTooltip(meta.sparse, series, index) : {}),
@@ -4903,6 +5074,8 @@ export class Charturbo {
       // Default error bar color / label font follow the theme
       const bars = this.chartMeta?.kind === 'bar' || this.chartMeta?.kind === 'bar-multi' ? this.chartMeta.barStyle : undefined;
       if (bars?.errMinus && !bars.errorBar.color) sendBarStyle(this.backend, bars, t);
+      const track = this.chartMeta?.kind === 'bar' || this.chartMeta?.kind === 'bar-multi' ? this.chartMeta.barBackground : undefined;
+      if (track && !track.color) sendBarBackground(this.backend, track, t);
       this.syncBarLabels();
       // Pie palette follows the theme (fixed display order)
       if (this.chartMeta?.kind === 'pie') {
@@ -5690,6 +5863,7 @@ export class Charturbo {
     this.stopAutoResize = null;
     this.rangeFrame.cancel();
     this.animDriverRef?.dispose();
+    this.effectClockRef?.stop();
     this.events.clear();
     for (const detach of [...this.disposers]) detach();
     this.disposers.clear();
@@ -5719,13 +5893,48 @@ export class Charturbo {
   private applyChartPadding(p: ChartPresentation, hasLegend: boolean, overrides?: ChartPaddingOptions): void {
     // Every 2D render passes here: invalid axis format specs throw from the render call, not later
     for (const a of [p.xAxis, p.yAxis, p.y2Axis]) resolveFormat(a?.format, this.chartLocale());
-    const top = 12 + (p.title ? 24 : 0) + (hasLegend ? 28 : 0);
-    const left = (p.yAxis.show === false ? 12 : 56) + (p.yAxis.title ? 20 : 0);
-    const bottom = (p.xAxis.show === false ? 12 : 30) + (p.xAxis.title ? 20 : 0);
-    const right = p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16;
+    // The legend takes a row above / below the plot, or a column beside it
+    const side = hasLegend ? (p.legend.position ?? 'top') : null;
+    const column = side === 'left' || side === 'right' ? legendColumnWidth(this.legendNames()) + LEGEND_SIDE_GAP_PX : 0;
+    const top = 12 + (p.title ? 24 : 0) + (side === 'top' ? LEGEND_ROW_PX : 0);
+    const left = (p.yAxis.show === false ? 12 : 56) + (p.yAxis.title ? 20 : 0) + (side === 'left' ? column : 0);
+    // Rotated x labels hang below the upright row: room for the known category labels (other
+    // axes grow it once their ticks are laid out, see updateChartOverlay)
+    const rotate = p.xAxis.show === false ? 0 : labelRotation(p.xAxis.labelRotate);
+    const font = this.theme.fontFamily;
+    const categories = rotate ? Array.from({ length: p.xCategoryCount ?? 0 }, (_, i) => p.formatX(i)) : [];
+    this.xLabelReserve = rotatedLabelReserve(
+      categories.map((c): [number, number] => [measureLabel(c, font), X_LABEL_LINE_PX]),
+      rotate
+    );
+    this.xLabelReserveGrows = rotate !== 0 && overrides?.bottom === undefined;
+    const bottom =
+      (p.xAxis.show === false ? 12 : 30) + this.xLabelReserve + (p.xAxis.title ? 20 : 0) + (side === 'bottom' ? LEGEND_ROW_PX : 0);
+    const right = (p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16) + (side === 'right' ? column : 0);
     const pad = { top, right, bottom, left, ...overrides };
     this.backend.set_chart_padding?.(pad.top, pad.right, pad.bottom, pad.left);
     this.chartPadding = pad;
+  }
+
+  /** Pages the legend for the room along its side of the canvas (no-op when unchanged). */
+  private layoutLegendPager(): void {
+    const pager = this.chartOverlay?.legendPager;
+    const p = this.chartPresentation;
+    const canvas = this.canvas;
+    if (!pager || !p || !canvas) return;
+    const pad = this.chartPadding;
+    const side = p.legend.position ?? 'top';
+    pager.layout(side === 'left' || side === 'right' ? canvas.offsetHeight - pad.top - pad.bottom : canvas.offsetWidth - pad.left - pad.right);
+  }
+
+  /** Legend entry names of the active chart (multi-ring pies: one per name). */
+  private legendNames(): string[] {
+    const meta = this.chartMeta;
+    if (!meta) return [];
+    if (meta.kind === 'pie' && meta.groups) return meta.groups.map((g) => g.name);
+    // Scatter trendline entries list their equations too
+    if (meta.kind === 'scatter' && meta.trendlines?.length) return [...meta.names, ...meta.trendlines.map((fit) => this.trendLabel(meta, fit))];
+    return 'names' in meta && Array.isArray(meta.names) ? (meta.names as string[]) : [];
   }
 
   private removeChartOverlay(): void {
@@ -5780,14 +5989,11 @@ export class Charturbo {
     title.textContent = p.title ?? '';
     title.style.display = p.title ? 'block' : 'none';
 
+    const legendSide = p.legend.position ?? 'top';
+    const legendWrap = p.legend.overflow === 'wrap' && (legendSide === 'top' || legendSide === 'bottom');
     const legend = div(
       {
-        left: `${pad.left}px`,
-        right: `${pad.right}px`,
-        top: `${p.title ? 36 : 10}px`,
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '4px 14px',
+        ...legendStyle(legendSide, legendWrap, pad, !!p.title, legendColumnWidth(this.legendNames())),
         fontSize: '12px',
         pointerEvents: 'auto',
       },
@@ -5800,7 +6006,9 @@ export class Charturbo {
       const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey';
       // Scatter series read as dots
       const dot = meta.kind === 'scatter';
-      meta.names.forEach((name, i) => {
+      // Multi-ring pies: one entry per name, toggling / emphasizing its slices in every ring
+      const entries = meta.kind === 'pie' && meta.groups ? meta.groups.map((g) => ({ name: g.name, i: g.slices[0], slices: g.slices })) : meta.names.map((name, i) => ({ name, i, slices: [i] }));
+      entries.forEach(({ name, i, slices }) => {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'charturbo-sdk-legend-item';
@@ -5825,8 +6033,13 @@ export class Charturbo {
           background: rgbaToCss(meta.colors[i]),
           flex: 'none',
         });
-        // Combo: each series keeps the swatch of its mark
+        // Combo: each series keeps the swatch of its mark; scatter: its symbol
         if (meta.kind === 'combo') Object.assign(swatch.style, comboSwatch(meta.types[i], rgbaToCss(meta.colors[i])));
+        if (meta.kind === 'scatter') {
+          const sw = symbolSwatch(meta.symbols[i] ?? 'circle', rgbaToCss(meta.colors[i]));
+          Object.assign(swatch.style, { borderRadius: '0px', background: 'none', ...sw.style });
+          if (sw.text) swatch.textContent = sw.text;
+        }
         const label = document.createElement('span');
         label.textContent = name;
         label.style.whiteSpace = 'nowrap';
@@ -5834,7 +6047,8 @@ export class Charturbo {
         const legendChanged = () => this.legendHooks.forEach((hook) => hook());
         if (p.legend.toggle) {
           item.addEventListener('click', () => {
-            this.setSeriesVisible(i, !meta.visible[i]);
+            const on = !meta.visible[i];
+            for (const k of slices) this.setSeriesVisible(k, on);
             legendChanged();
           });
         }
@@ -5865,6 +6079,24 @@ export class Charturbo {
       }
     }
 
+    if (meta?.kind === 'scatter' && meta.trendlines && p.legend.show) {
+      // Trendlines: a static stroke + equation entry each, fading with their series
+      for (const fit of meta.trendlines) {
+        const item = document.createElement('span');
+        item.className = 'charturbo-sdk-legend-trendline';
+        item.dataset.series = String(fit.series);
+        Object.assign(item.style, { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 0', color: t.textSecondary });
+        const swatch = document.createElement('span');
+        Object.assign(swatch.style, { width: '14px', height: `${Math.max(1, Math.min(4, fit.width))}px`, borderRadius: '1px', background: rgbaToCss(fit.color), flex: 'none' });
+        const label = document.createElement('span');
+        label.textContent = this.trendLabel(meta, fit);
+        // A side column wraps long equations; a row pages them
+        label.style.whiteSpace = legendSide === 'left' || legendSide === 'right' ? 'normal' : 'nowrap';
+        item.append(swatch, label);
+        legend.appendChild(item);
+      }
+    }
+
     if (meta?.kind === 'bar' && meta.legendEntry && p.legend.show) {
       // Single-series bars: one static entry (nothing to toggle)
       const item = document.createElement('span');
@@ -5878,6 +6110,10 @@ export class Charturbo {
       item.append(swatch, label);
       legend.appendChild(item);
     }
+    // One row / column: entries that do not fit page behind ‹ › (laid out once attached)
+    const legendItems = Array.from(legend.children) as HTMLElement[];
+    const legendPager = !legendWrap && legendItems.length > 1 ? new LegendPager(legendItems, legendSide === 'left' || legendSide === 'right', t.textSecondary) : undefined;
+    if (legendPager) legend.appendChild(legendPager.root);
 
     const xTitle = div(
       { fontSize: '12px', color: t.textSecondary, transform: 'translate(-50%, 0)', whiteSpace: 'nowrap' },
@@ -5911,7 +6147,9 @@ export class Charturbo {
       ticks: [],
       axesRevision: -1,
       annotations: new AnnotationLabelLayer(root),
+      legendPager,
     };
+    this.layoutLegendPager();
     if (meta?.kind === 'heatmap' && meta.colorbar.show) {
       const colorbar = new HeatmapColorbarLayer(root, meta);
       colorbar.refresh(this.backend, t, this.chartLocale());
@@ -5952,6 +6190,10 @@ export class Charturbo {
       item.style.opacity = on ? '1' : '0.45';
       item.style.textDecoration = on ? 'none' : 'line-through';
     });
+    // Trendlines hide with their series
+    legend.querySelectorAll<HTMLElement>('.charturbo-sdk-legend-trendline').forEach((item) => {
+      item.style.opacity = meta.visible[Number(item.dataset.series)] ? '1' : '0.45';
+    });
   }
 
   /** Keeps the overlay over the canvas and re-lays out tick labels when the engine moved them. */
@@ -5965,6 +6207,7 @@ export class Charturbo {
     o.root.style.top = `${canvas.offsetTop}px`;
     o.root.style.width = `${canvas.offsetWidth}px`;
     o.root.style.height = `${canvas.offsetHeight}px`;
+    this.layoutLegendPager();
     o.annotations.update(this.backend, this.chartAnnotations, this.theme);
     o.pie?.update(this.backend, this.theme, (v) => this.pieValueText(v), this.chartLocale());
     o.hierarchy?.update(this.backend, this.theme, (v) => this.hierValueText(v), this.chartLocale());
@@ -6035,6 +6278,7 @@ export class Charturbo {
         el.style.left = `${x}px`;
         el.style.top = `${y + 6}px`;
         el.style.transform = 'translate(-50%, 0)';
+        el.style.transformOrigin = '';
         xLabels.push({ el, x, value });
       } else if (axis === 2) {
         el.style.left = `${x + 8}px`;
@@ -6047,10 +6291,26 @@ export class Charturbo {
       }
     }
     for (let k = used; k < o.ticks.length; k++) o.ticks[k].style.display = 'none';
-    thinCenteredLabels(xLabels, [0, canvas.offsetWidth]);
+    const rotate = labelRotation(p.xAxis.labelRotate);
+    if (rotate) {
+      // Grow the derived bottom padding when laid-out labels hang deeper than reserved (only
+      // grows, so it settles; the engine re-lays out the axes for the next frame)
+      const need = rotatedLabelReserve(xLabels.map((l): [number, number] => [l.el.offsetWidth ?? 0, l.el.offsetHeight ?? 0]), rotate);
+      if (need > this.xLabelReserve) {
+        if (this.xLabelReserveGrows) {
+          const pad = this.chartPadding;
+          pad.bottom += need - this.xLabelReserve;
+          this.backend.set_chart_padding?.(pad.top, pad.right, pad.bottom, pad.left);
+        }
+        this.xLabelReserve = need;
+      }
+      thinRotatedLabels(xLabels, rotate);
+    } else {
+      thinCenteredLabels(xLabels, [0, canvas.offsetWidth]);
+    }
 
     o.xTitle.style.left = `${plotL + plotW / 2}px`;
-    o.xTitle.style.top = `${plotT + plotH + (p.xAxis.show === false ? 6 : 24)}px`;
+    o.xTitle.style.top = `${plotT + plotH + (p.xAxis.show === false ? 6 : 24 + this.xLabelReserve)}px`;
     const meta = this.chartMeta;
     const horizontalBars = (meta?.kind === 'bar' || meta?.kind === 'bar-multi') && meta.barStyle?.orientation === 'horizontal';
     // Horizontal bars size the left margin to the category labels: the title sits at its edge
@@ -6416,7 +6676,7 @@ export class Charturbo {
     this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover(this.chartHover)));
     e.meta.visible.forEach((v, i) => this.backend.set_chart_series_visible?.(i, v));
     const opt = typeof options?.legend === 'boolean' ? { show: options.legend } : options?.legend;
-    const legend = { show: opt?.show ?? e.meta.names.length > 1, toggle: opt?.toggle ?? true, emphasize: opt?.emphasize ?? true };
+    const legend = { show: opt?.show ?? e.meta.names.length > 1, toggle: opt?.toggle ?? true, emphasize: opt?.emphasize ?? true, position: opt?.position, overflow: opt?.overflow };
     this.chartPresentation = { title: options?.title, description: options?.description, xAxis: {}, yAxis: {}, legend,
       navigable: false, formatX: v => formatTickValue(v, this.chartLocale()) };
     if (options?.camera?.eye) this.setCameraPose(options.camera.eye, options.camera.target ?? [0, 0, 0]);
@@ -6605,6 +6865,7 @@ export class Charturbo {
       });
     }
     if (!area) validateLineBands(seriesList, fn);
+    const pieces = encodeSeriesPieces(seriesList, fn);
     const xAxisOpt = options?.axes?.x ?? {};
     const dateX = seriesList.some((s) => s.x !== undefined && s.x.length > 0 && s.x[0] instanceof Date);
     const timeX = (xAxisOpt.type ?? (dateX ? 'time' : 'numeric')) === 'time';
@@ -6648,6 +6909,7 @@ export class Charturbo {
     }
     // Markers / dashes / curves / null policies / bands (chart-linestyle.ts)
     const bands = applyLineStyles(this.backend, seriesList, options?.nulls, fn, area === null);
+    applyLinePieces(this.backend, pieces);
     standaloneBands?.forEach((b, i) => {
       this.backend.set_band_series!(i, b.lower, b.upper, b.opacity, ...b.widths);
       bands[i] = { lower: b.lower, upper: b.upper };
@@ -6680,10 +6942,12 @@ export class Charturbo {
       : (userFormatX ?? (timeX ? (v: number) => formatChartTime(v, undefined, locale(), tz()) : formatXNumber));
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const flat = viewMode === '2d';
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? seriesList.length >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = sparse?.meta.kind ?? (standaloneBands ? 'band' : 'line');
     this.chartMeta = {
@@ -6702,6 +6966,7 @@ export class Charturbo {
       visible: seriesList.map(() => true),
       ...(area ? { area: area.mode } : {}),
       ...(bands.some((b) => b) ? { bands } : {}),
+      ...(pieces.some((p) => p) ? { pieces: pieces.map((p) => p !== null) } : {}),
       ...(standaloneBands ? { standaloneBand: true } : {}),
       ...(sparse ? { sparse: sparse.meta } : {}),
     };
@@ -6796,6 +7061,7 @@ export class Charturbo {
       viewMode === '3d' ? 1 : 0
     );
     const barStyle = viewMode === '2d' ? this.initBarStyle(options, encodeErrors([items.map((it) => it.error)], n)) : undefined;
+    const barBackground = viewMode === '2d' ? this.initBarBackground(options) : undefined;
     this.chartHover = options?.hover;
     this.chartGrid = options?.grid;
     this.chartGridShown = viewMode === '2d';
@@ -6822,11 +7088,11 @@ export class Charturbo {
       })),
       values,
       barStyle,
+      barBackground,
     };
     const flat = viewMode === '2d';
     this.flatCameraView = flat;
-    const truncate = (s: string) => (s.length > 12 ? `${s.slice(0, 11)}…` : s);
-    const category = (i: number) => truncate(items[i]?.label ?? String(i));
+    const category = (i: number) => categoryText(items[i]?.label ?? String(i), options?.axes?.x?.labelRotate);
     // Single series: a legend only on request, one static entry
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const legendShown = flat && (legendOpt.show ?? false);
@@ -6837,8 +7103,8 @@ export class Charturbo {
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
-      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, {}),
-      legend: { show: legendShown, toggle: false, emphasize: false },
+      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, {}, n),
+      legend: { show: legendShown, toggle: false, emphasize: false, position: legendOpt.position, overflow: legendOpt.overflow },
       navigable: false,
     };
     this.syncBarLabels();
@@ -6848,6 +7114,14 @@ export class Charturbo {
     });
     this.rebuildChartOverlay();
     return { barCount: n };
+  }
+
+  /** Background tracks of a fresh 2D bar chart (a new engine chart starts without them). */
+  private initBarBackground(options: BarChartOptions | undefined): BarBackgroundState | undefined {
+    const state = resolveBarBackground(options?.background);
+    if (!state) return undefined;
+    sendBarBackground(this.backend, state, this.theme);
+    return state;
   }
 
   /** Orientation / error bars / label options of a fresh 2D bar chart (chart-bar-style.ts). */
@@ -6879,8 +7153,9 @@ export class Charturbo {
     style: BarStyleState | undefined,
     axes: { x?: ChartAxisOptions; y?: ChartAxisOptions },
     category: (i: number) => string,
-    valueAxis: ChartAxisOptions
-  ): Pick<ChartPresentation, 'xAxis' | 'yAxis' | 'formatX'> {
+    valueAxis: ChartAxisOptions,
+    categoryCount: number
+  ): Pick<ChartPresentation, 'xAxis' | 'yAxis' | 'formatX' | 'xCategoryCount'> {
     if (!flat) return { xAxis: { show: false }, yAxis: { show: false }, formatX: (v) => category(v) };
     if (style?.orientation === 'horizontal') {
       const xAxis = { ...valueAxis, ...(axes.x ?? {}) };
@@ -6891,12 +7166,15 @@ export class Charturbo {
         formatX: (v) => (formatValue ? formatValue(v) : formatTickValue(v, this.chartLocale())),
       };
     }
-    // Category axis: no time granularity
+    // Category axis: no time granularity; rotated labels thin by their footprint in the engine
     const formatCategory = resolveFormatLive(axes.x?.format, () => this.chartLocale());
+    const rotate = labelRotation(axes.x?.labelRotate);
+    if (rotate) this.backend.set_bar_axis_label_rotation?.(rotate);
     return {
       xAxis: axes.x ?? {},
       yAxis: { ...valueAxis, ...(axes.y ?? {}) },
       formatX: (v) => (formatCategory ? formatCategory(v) : category(v)),
+      xCategoryCount: categoryCount,
     };
   }
 
@@ -6921,7 +7199,9 @@ export class Charturbo {
         right: 16 + (outside ? Math.min(120, widestLabel(style, font) + 6) : 0),
       };
     }
-    return outside ? { top: 12 + (p.title ? 24 : 0) + (legend ? 28 : 0) + 16 } : {};
+    // Rotated labels: room for the tallest rotated box
+    const above = style.labels?.rotate ? Math.max(16, Math.min(120, tallestLabel(style, font) + 6)) : 16;
+    return outside ? { top: 12 + (p.title ? 24 : 0) + (legend ? 28 : 0) + above } : {};
   }
 
   /** Re-formats and re-measures bar data labels (render, visibility toggles, theme). */
@@ -7016,6 +7296,7 @@ export class Charturbo {
       flat ? 0 : 1
     );
     const barStyle = flat ? this.initBarStyle(options, encodeErrors(seriesList.map((series) => series.error), n)) : undefined;
+    const barBackground = flat ? this.initBarBackground(options) : undefined;
     this.chartHover = options?.hover;
     this.chartGrid = options?.grid;
     this.chartGridShown = flat;
@@ -7023,10 +7304,12 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? (flat && s >= 2),
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'bar';
     this.chartMeta = {
@@ -7039,15 +7322,15 @@ export class Charturbo {
       visible: seriesList.map(() => true),
       viewMode: flat ? '2d' : '3d',
       barStyle,
+      barBackground,
     };
     this.flatCameraView = flat;
-    const truncate = (str: string) => (str.length > 12 ? `${str.slice(0, 11)}…` : str);
     const percentAxis: ChartAxisOptions = mode === 'percent' ? { format: (v) => `${formatTickValue(v, this.chartLocale())}%` } : {};
-    const category = (i: number) => truncate(data.categories[i] ?? String(i));
+    const category = (i: number) => categoryText(data.categories[i] ?? String(i), options?.axes?.x?.labelRotate);
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
-      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, percentAxis),
+      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, percentAxis, n),
       legend,
       navigable: false,
     };
@@ -7065,7 +7348,8 @@ export class Charturbo {
    * uploaded once (1,000,000+ points at 60 FPS), nice-tick x / y axes, series legend, wheel zoom /
    * drag pan on both axes, and grid-hashed nearest-point hover. Data point ids = point index.
    */
-  renderScatterChart(data: ScatterChartData, options?: ScatterChartOptions): { pointCount: number } {
+  renderScatterChart(data: ScatterChartData, options?: ScatterChartOptions): { pointCount: number; trendlines: ScatterTrendlineFit[] } {
+    const trendlines = checkTrendlines(options?.trendline, 'renderScatterChart');
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7112,11 +7396,34 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
     const seriesCount = this.backend.chart_series_count?.() ?? (n > 0 ? 1 : 0);
+    // Symbol per series id (nothing to send when every series is a circle)
+    const symbols = Array.from({ length: seriesCount }, (_, i): ScatterSymbol => options?.seriesSymbols?.[i] ?? options?.symbol ?? 'circle');
+    const shaped = symbols.some((sym) => sym !== 'circle');
+    this.backend.set_chart_scatter_shapes?.(shaped ? Uint8Array.from(symbols, (sym) => SCATTER_SYMBOL_CODES[sym] ?? 0) : new Uint8Array(0));
+    this.backend.set_chart_scatter_jitter?.(options?.jitter?.x ?? 0, options?.jitter?.y ?? 0, options?.jitter?.seed ?? 0);
+    // Ripple: flags per series id, then the frame clock (it stops by itself without ripples)
+    const ripple = options?.ripple === true ? {} : options?.ripple || null;
+    const rippleIds = ripple ? new Set(ripple.series ?? Array.from({ length: seriesCount }, (_, i) => i)) : null;
+    this.backend.set_chart_scatter_ripple?.(
+      rippleIds ? Uint8Array.from({ length: seriesCount }, (_, i) => (rippleIds.has(i) ? 1 : 0)) : new Uint8Array(0),
+      ripple?.period ?? NaN,
+      ripple?.scale ?? NaN,
+      ripple?.count ?? 0,
+      ripple?.fill ?? false
+    );
+    if (rippleIds?.size) this.effectClock().start();
+    // Trendlines: one line per (trendline, series), fitted by the engine
+    const trend = encodeTrendlines(trendlines, seriesCount, (s) => palette[s % palette.length]);
+    this.backend.set_chart_scatter_trendlines?.(trend.records);
+    const fits = decodeTrendFits(this.backend.chart_scatter_trend_fits?.(), trend.drawn);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
-      show: legendOpt.show ?? seriesCount >= 2,
+    const legend: ChartLegendState = {
+      // Trendlines show their equations in the legend
+      show: legendOpt.show ?? (seriesCount >= 2 || fits.length > 0),
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'scatter';
     const { seriesName } = getMessages(this.locale).common;
@@ -7129,6 +7436,8 @@ export class Charturbo {
       y: ys,
       series: ids,
       pointColors,
+      symbols,
+      trendlines: fits,
     };
     this.flatCameraView = true;
     const formatScatterX = resolveFormatLive(options?.axes?.x?.format, () => this.chartLocale());
@@ -7146,7 +7455,18 @@ export class Charturbo {
     this.applyAxisScales({ x: options?.axes?.x, y: options?.axes?.y });
     this.applyChartPadding(this.chartPresentation, legend.show, options?.padding);
     this.rebuildChartOverlay();
-    return { pointCount: n };
+    return { pointCount: n, trendlines: fits };
+  }
+
+  /** Legend text of a scatter trendline (series name first with several series). */
+  private trendLabel(meta: ScatterChartMeta, fit: ScatterTrendlineFit): string {
+    return trendLegendLabel(fit, meta.names.length > 1 ? (meta.names[fit.series] ?? `Series ${fit.series}`) : null);
+  }
+
+  /** Fits of the scatter chart's trendlines (`ScatterChartOptions.trendline`); empty for other charts. */
+  getScatterTrendlines(): ScatterTrendlineFit[] {
+    const meta = this.chartMeta;
+    return meta?.kind === 'scatter' ? (meta.trendlines ?? []) : [];
   }
   /**
    * Keyboard a11y tooltip (chart-a11y.ts) of an engine hit, same as the pointer path for candles
@@ -7559,8 +7879,10 @@ export class Charturbo {
    * hover explodes the slice under the pointer (O(log n) angle search). Outside labels get leader
    * lines and per-side collision nudging from the engine; the SDK only places the DOM text.
    * Legend click hides a slice (the rest re-lay out). Data point ids = displayed slice index.
+   * `{ rings }` data draws nested rings (each with its own percents, folding and labels); same
+   * names share a color and one legend entry across rings.
    */
-  renderPieChart(data: PieChartData, options?: PieChartOptions): { sliceCount: number } {
+  renderPieChart(data: PieChartData | PieRingsData, options?: PieChartOptions): { sliceCount: number } {
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7580,10 +7902,12 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(false, this.themedGrid()));
 
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? meta.names.length >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'pie';
     this.chartMeta = meta;
@@ -7683,10 +8007,12 @@ export class Charturbo {
     this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover()));
     this.backend.set_chart_frame_style?.(encodeGridStyle(false, this.themedGrid()));
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? legendDefault,
       toggle: false,
       emphasize: meta.kind !== 'sankey' && (legendOpt.emphasize ?? true),
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = meta.kind;
     this.chartMeta = meta;
@@ -7837,10 +8163,12 @@ export class Charturbo {
     const barMode = options?.barMode ?? 'grouped';
     const meta = comboMeta(enc, data, barMode, formatXValue, options?.locale ?? this.locale);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? s >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'combo';
     this.chartMeta = meta;
@@ -7902,10 +8230,12 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? s >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'box';
     this.chartMeta = {
@@ -7957,7 +8287,7 @@ export class Charturbo {
     mode: BusinessChartMeta['kind'],
     meta: BusinessChartMeta,
     options: { title?: string; description?: string; padding?: ChartPaddingOptions } | undefined,
-    legend: Required<ChartLegendOptions>,
+    legend: ChartLegendState,
     padding: ChartPaddingOptions,
     grid = false
   ): void {
@@ -7995,10 +8325,12 @@ export class Charturbo {
     const meta = radarMeta(data, options, this.businessFormat(options?.format), this.locale);
     sendRadar(this.backend, meta, options, this.theme);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? meta.names.length >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.showBusinessChart('radar', meta, options, legend, {}, options?.showGrid ?? true);
     return { axisCount: meta.axes.length, seriesCount: meta.names.length };
@@ -8073,18 +8405,17 @@ export class Charturbo {
     this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover(options?.hover)));
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend = { show: legendOpt.show ?? meta.names.length >= 2, toggle: false, emphasize: false };
+    const legend = { show: legendOpt.show ?? meta.names.length >= 2, toggle: false, emphasize: false, position: legendOpt.position, overflow: legendOpt.overflow };
     this.chartMode = 'waterfall';
     this.chartMeta = meta;
     this.flatCameraView = true;
-    const truncate = (str: string) => (str.length > 12 ? `${str.slice(0, 11)}…` : str);
-    const category = (i: number) => truncate(meta.categories[i] ?? String(i));
+    const category = (i: number) => categoryText(meta.categories[i] ?? String(i), options?.axes?.x?.labelRotate);
     // Without an axis format the value axis reads like the labels
     const valueAxis: ChartAxisOptions = { format: options?.format };
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
-      ...this.barAxes(true, meta.barStyle, options?.axes ?? {}, category, valueAxis),
+      ...this.barAxes(true, meta.barStyle, options?.axes ?? {}, category, valueAxis, meta.categories.length),
       legend,
       navigable: false,
     };

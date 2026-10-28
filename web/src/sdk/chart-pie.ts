@@ -18,10 +18,48 @@ export interface PieChartData {
   values: Float64Array | number[];
 }
 
+/**
+ * One ring of a multi-ring pie (ECharts "nested pies"). Rings are drawn inside out in the given
+ * order; slices with the same name share a color, a legend entry and the legend emphasis.
+ */
+export interface PieRingData {
+  /** Ring name (tooltip, data table) */
+  name?: string;
+  labels: string[];
+  values: Float64Array | number[];
+  /**
+   * `[inner, outer]` radius as fractions of the full radius (0 <= inner < outer <= 1). Default:
+   * ring `k` of `n` takes the `k`-th equal share of the band from `donut` to the rim, with a small
+   * gap between neighbours
+   */
+  radius?: [number, number];
+  /** Label mode (default: `'percent'` for inner rings, the chart `labels` for the outermost) */
+  label?: PieLabelMode;
+  /** Default: the chart `maxSlices` */
+  maxSlices?: number | false;
+  /** Default: the chart `sort` */
+  sort?: 'none' | 'desc';
+}
+
+/** Multi-ring pie data: percents, angles and "Other" folding are per ring. */
+export interface PieRingsData {
+  rings: PieRingData[];
+}
+
+/** Gap between rings with default radii (fraction of the full radius). */
+const RING_GAP = 0.06;
+
 /** `'outside'`: name + percent with leader lines; `'percent'`: percent inside the slice. */
 export type PieLabelMode = 'outside' | 'percent' | 'none';
 
+/**
+ * Nightingale rose: the slice radius encodes the value, keeping each slice's area (ring area for
+ * donuts) proportional to it. `'radius'`: angles still follow the shares; `'area'`: equal angles.
+ */
+export type PieRoseMode = 'radius' | 'area';
+
 export interface PieChartOptions {
+  // Multi-ring data (`{ rings }`): `colors` index the concatenated values of every ring
   /** Enter / update animation of this chart (default: the SDK setting, `setAnimation`) */
   animation?: ChartAnimationInput;
   /** Donut hole radius / outer radius (0 or omitted = pie; up to 0.95) */
@@ -32,8 +70,23 @@ export interface PieChartOptions {
   maxSlices?: number | false;
   /** Degrees clockwise from 12 o'clock where the first slice starts (default 0) */
   startAngle?: number;
+  /**
+   * Degrees clockwise from 12 o'clock where the last slice ends (default: a full turn), e.g.
+   * `startAngle: -90, endAngle: 90` for a top half donut. The slices share the sweep along
+   * `direction`; an end at or before the start is a full turn. The chart is framed to the sweep
+   */
+  endAngle?: number;
+  /**
+   * Angular gap between slices in degrees (default 0, at most 45), on top of the 2 px surface
+   * gap. Slices narrower than it are not drawn (legend / tooltip / table still list them)
+   */
+  padAngle?: number;
+  /** Rounds every slice corner by this many CSS px (default 0), shrunk per slice so corners never cross; a pie's center stays sharp */
+  cornerRadius?: number;
   /** Default `'clockwise'` */
   direction?: 'clockwise' | 'counterclockwise';
+  /** Nightingale rose chart (default: off, every slice reaches the full radius) */
+  rose?: PieRoseMode;
   /** Color per input value (default: theme palette in fixed display order) */
   colors?: (ColorInput | null | undefined)[];
   /** Color of the "Other" slice (default: the theme's neutral baseline color) */
@@ -46,7 +99,7 @@ export interface PieChartOptions {
   labelMinAngle?: number;
   /**
    * Donut center text: the visible total (the hovered slice while hovering). `true` (default for
-   * donuts) captions it `Total` (in the chart language), a string replaces the caption, `false` hides it
+   * donuts, not roses) captions it `Total` (in the chart language), a string replaces the caption, `false` hides it
    */
   centerLabel?: boolean | string;
   title?: string;
@@ -76,6 +129,14 @@ export interface PieChartMeta {
   /** Input indices folded into "Other" */
   other: number[];
   inputLabels: string[];
+  /** Ring per displayed slice (all 0 for a single pie) */
+  ring: number[];
+  /** Ring names (`Ring n` when unnamed); one entry for a single pie */
+  ringNames: string[];
+  /** Ring per input value */
+  inputRings: number[];
+  /** Several rings: legend entries by name, each with its displayed slices */
+  groups?: { name: string; slices: number[] }[];
   valueLabel: string;
   otherLabel: string;
   labelMode: PieLabelMode;
@@ -87,17 +148,43 @@ export interface PieChartMeta {
 }
 
 const LABEL_CODES: Record<PieLabelMode, number> = { none: 0, outside: 1, percent: 2 };
+const ROSE_CODES: Record<PieRoseMode, number> = { radius: 1, area: 2 };
 /** Label line height (CSS px): the engine keeps outside labels this far apart. */
 const LABEL_LINE_PX = 16;
 
+/** Flat input of a single or multi-ring pie (`rings` null = classic single pie). */
+interface PieInput {
+  values: Float64Array;
+  labels: string[];
+  rings: PieRingData[] | null;
+}
+
+function pieInput(data: PieChartData | PieRingsData): PieInput {
+  if (!('rings' in data)) {
+    return { values: data.values instanceof Float64Array ? data.values : Float64Array.from(data.values), labels: [...data.labels], rings: null };
+  }
+  const values: number[] = [];
+  const labels: string[] = [];
+  for (const r of data.rings) {
+    values.push(...Array.from(r.values));
+    labels.push(...r.labels);
+  }
+  return { values: Float64Array.from(values), labels, rings: data.rings };
+}
+
 /**
  * Builds the display meta; slice fields are filled from the engine by `syncPieSlices`.
- * `locale`: default value / "Other" / center names.
+ * `locale`: default value / "Other" / center / ring names.
  */
-export function pieMeta(data: PieChartData, options?: PieChartOptions, locale?: string): PieChartMeta {
-  const m = getMessages(locale).common;
+export function pieMeta(data: PieChartData | PieRingsData, options?: PieChartOptions, locale?: string): PieChartMeta {
+  const msg = getMessages(locale);
+  const m = msg.common;
   const donut = Math.min(0.95, Math.max(0, Number(options?.donut) || 0));
-  const center = options?.centerLabel ?? donut > 0;
+  const input = pieInput(data);
+  // A rose hole is usually too small for the total, and several rings have several totals: off
+  // unless asked for
+  const center = options?.centerLabel ?? (donut > 0 && !options?.rose && !input.rings);
+  const outside = input.rings ? ringLabelModes(input.rings, options).includes('outside') : (options?.labels ?? 'outside') === 'outside';
   return {
     kind: 'pie',
     names: [],
@@ -107,10 +194,13 @@ export function pieMeta(data: PieChartData, options?: PieChartOptions, locale?: 
     percents: [],
     sources: [],
     other: [],
-    inputLabels: [...data.labels],
+    inputLabels: input.labels,
+    ring: [],
+    ringNames: input.rings ? input.rings.map((r, k) => r.name ?? msg.core.ringName(k + 1)) : [''],
+    inputRings: input.rings ? input.rings.flatMap((r, k) => r.labels.map(() => k)) : input.labels.map(() => 0),
     valueLabel: options?.valueLabel ?? m.value,
     otherLabel: options?.otherLabel ?? m.other,
-    labelMode: options?.labels ?? 'outside',
+    labelMode: input.rings ? (outside ? 'outside' : 'percent') : (options?.labels ?? 'outside'),
     donut,
     center: { show: center !== false && donut > 0, caption: typeof center === 'string' ? center : m.total },
     format: options?.format,
@@ -134,16 +224,50 @@ export function pieLabelSpace(labels: string[], otherLabel: string, mode: PieLab
   return [Math.min(180, Math.max(64, (longest + 7) * 6.5 + 28)), LABEL_LINE_PX + 4];
 }
 
+/** Label mode per ring: inner rings default to inside percents, the outermost to the chart's. */
+function ringLabelModes(rings: PieRingData[], options?: PieChartOptions): PieLabelMode[] {
+  return rings.map((r, k) => r.label ?? (k === rings.length - 1 ? (options?.labels ?? 'outside') : 'percent'));
+}
+
+/** `maxSlices` option as the engine code (< 0 = default, 0 = no folding). */
+function maxSlicesCode(v: number | false | undefined): number {
+  const max = v === false ? 0 : (v ?? -1);
+  return Number.isFinite(max) ? Math.floor(max) : -1;
+}
+
+/**
+ * Packed ring layout `[count, inner, outer, labels, maxSlices, sort]` per ring (default radius:
+ * the ring's equal share of the band from `donut` to the rim) and name groups (first appearance
+ * order).
+ */
+export function encodePieRings(rings: PieRingData[], donut: number, options?: PieChartOptions): { rings: Float32Array; groups: Uint32Array } {
+  const n = rings.length;
+  const band = (1 - donut) / Math.max(1, n);
+  const modes = ringLabelModes(rings, options);
+  const out = new Float32Array(n * 6);
+  rings.forEach((r, k) => {
+    if (r.labels.length !== r.values.length) throw new Error(`pie ring ${k}: ${r.labels.length} labels for ${r.values.length} values`);
+    const [inner, outer] = (r.radius ?? [donut + k * band + (k > 0 ? RING_GAP / 2 : 0), donut + (k + 1) * band - (k < n - 1 ? RING_GAP / 2 : 0)]).map(Number);
+    if (!(inner >= 0 && inner < outer && outer <= 1)) throw new Error(`pie ring ${k} radius ${inner}..${outer} (need 0 <= inner < outer <= 1)`);
+    out.set([r.values.length, inner, outer, LABEL_CODES[modes[k]] ?? 1, maxSlicesCode(r.maxSlices ?? options?.maxSlices), (r.sort ?? options?.sort) === 'desc' ? 1 : 0], k * 6);
+  });
+  const ids = new Map<string, number>();
+  const groups = rings.flatMap((r) => r.labels.map((name) => ids.get(name) ?? (ids.set(name, ids.size), ids.size - 1)));
+  return { rings: out, groups: Uint32Array.from(groups) };
+}
+
 /** Uploads the values and layout options (`set_pie_chart`); returns the displayed slice count. */
-export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData, meta: PieChartMeta, options?: PieChartOptions): number {
-  const values = data.values instanceof Float64Array ? data.values : Float64Array.from(data.values);
-  const max = options?.maxSlices === false ? 0 : (options?.maxSlices ?? -1);
+export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData | PieRingsData, meta: PieChartMeta, options?: PieChartOptions): number {
+  const input = pieInput(data);
+  const values = input.values;
+  const packed = input.rings ? encodePieRings(input.rings, meta.donut, options) : { rings: new Float32Array(0), groups: new Uint32Array(0) };
+  const max = maxSlicesCode(options?.maxSlices);
   const [sx, sy] = pieLabelSpace(meta.inputLabels, meta.otherLabel, meta.labelMode);
   return (
     backend.set_pie_chart?.(
       values,
       options?.sort === 'desc' ? 1 : 0,
-      Number.isFinite(max) ? Math.floor(max) : -1,
+      max,
       options?.startAngle ?? 0,
       (options?.direction ?? 'clockwise') === 'clockwise',
       meta.donut,
@@ -151,7 +275,13 @@ export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData,
       options?.labelMinAngle ?? NaN,
       LABEL_LINE_PX,
       sx,
-      sy
+      sy,
+      options?.rose ? (ROSE_CODES[options.rose] ?? 0) : 0,
+      options?.endAngle ?? NaN,
+      options?.padAngle ?? 0,
+      options?.cornerRadius ?? 0,
+      packed.rings,
+      packed.groups
     ) ?? 0
   );
 }
@@ -174,15 +304,16 @@ export function sendPieStyle(backend: WasmCharturboEngineBackend, meta: PieChart
 export function syncPieSlices(backend: WasmCharturboEngineBackend, meta: PieChartMeta): void {
   const a = backend.chart_pie_slices?.();
   if (!a) return;
-  const n = Math.floor(a.length / 8);
+  const n = Math.floor(a.length / 9);
   meta.names = [];
   meta.colors = [];
   meta.visible = [];
   meta.values = [];
   meta.percents = [];
   meta.sources = [];
+  meta.ring = [];
   for (let k = 0; k < n; k++) {
-    const at = k * 8;
+    const at = k * 9;
     const source = a[at];
     meta.sources.push(source);
     meta.names.push(source < 0 ? meta.otherLabel : inputName(meta, source));
@@ -190,13 +321,26 @@ export function syncPieSlices(backend: WasmCharturboEngineBackend, meta: PieChar
     meta.percents.push(a[at + 2]);
     meta.visible.push(a[at + 3] !== 0);
     meta.colors.push([a[at + 4], a[at + 5], a[at + 6], a[at + 7]]);
+    meta.ring.push(a[at + 8]);
   }
   meta.other = Array.from(backend.chart_pie_other?.() ?? []);
+  meta.groups = undefined;
+  if (meta.ringNames.length > 1) {
+    const byName = new Map<string, number[]>();
+    meta.names.forEach((name, k) => (byName.get(name) ?? byName.set(name, []).get(name)!).push(k));
+    meta.groups = [...byName].map(([name, slices]) => ({ name, slices }));
+  }
 }
 
-/** Names of the inputs folded into "Other" (tooltip / a11y). */
-export function pieOtherMembers(meta: PieChartMeta): string[] {
-  return meta.other.map((i) => inputName(meta, i));
+/** Ring name of displayed slice `k` (undefined for a single pie). */
+export function pieRingName(meta: PieChartMeta, k: number): string | undefined {
+  return meta.ringNames.length > 1 ? meta.ringNames[meta.ring[k]] : undefined;
+}
+
+/** Names of the inputs folded into "Other" (tooltip / a11y); `k` = an "Other" slice of a ring. */
+export function pieOtherMembers(meta: PieChartMeta, k?: number): string[] {
+  const other = k === undefined ? meta.other : meta.other.filter((i) => meta.inputRings[i] === meta.ring[k]);
+  return other.map((i) => inputName(meta, i));
 }
 
 /** Percent text, e.g. `12.5%`. */
@@ -211,6 +355,7 @@ export function pieTooltipContext(meta: PieChartMeta, k: number, cssColor: (c: R
   if (k < 0 || k >= meta.names.length) return null;
   const name = meta.names[k];
   const percent = meta.percents[k];
+  const ring = pieRingName(meta, k);
   return {
     chartType: 'pie',
     index: k,
@@ -220,7 +365,8 @@ export function pieTooltipContext(meta: PieChartMeta, k: number, cssColor: (c: R
       label: name,
       value: meta.values[k],
       percent,
-      ...(meta.sources[k] < 0 ? { members: pieOtherMembers(meta) } : {}),
+      ...(meta.sources[k] < 0 ? { members: pieOtherMembers(meta, k) } : {}),
+      ...(ring !== undefined ? { ring } : {}),
     },
     details: null,
   };
@@ -239,7 +385,8 @@ export function pieTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, 
   const members = shown?.length
     ? `<div style="color:${theme.textMuted};font-size:11px;margin-top:4px;max-width:220px;white-space:normal;">${esc(shown.join(m.listSeparator))}</div>`
     : '';
-  return `
+  const ring = s.ring ? `<div style="color:${theme.textMuted};font-size:11px;margin-bottom:2px;">${esc(s.ring)}</div>` : '';
+  return `${ring}
         <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;">
           <span style="display:flex;align-items:center;color:${theme.textSecondary};">${swatch}${esc(s.label)}</span>
           <span style="color:${theme.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${esc(formatValue(s.value))} <span style="color:${theme.textMuted};font-weight:400;">${formatPercent(s.percent, locale)}</span></span>
