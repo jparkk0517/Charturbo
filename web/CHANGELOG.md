@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 파이 조각 각도 간격
+
+- `PieChartOptions.padAngle`(도, 기본 0, 최대 45)을 추가했습니다. 기존 2px 간격 위에 각도 간격을 더하며, 각도 · 퍼센트 · hit test는 바뀌지 않습니다.
+- WASM `set_pie_chart`에 마지막 인자 `pad_angle_deg`를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/05-pad-angle`, WebGPU/WebGL2 fixture `pie-pad-angle`를 추가했습니다.
+
 ### 추가 — 파이 부분 원 (반 도넛)
 
 - `PieChartOptions.endAngle`을 추가했습니다. 조각이 `startAngle`~`endAngle` 범위를 `direction` 방향으로 나눠 가지며, 화면은 범위의 bbox에 맞춰 잡습니다. 생략하면 기존처럼 한 바퀴입니다.

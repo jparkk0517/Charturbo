@@ -18,7 +18,7 @@ HANDOFF의 계약을 따른다.
 
 - [ ] 파이 (ECharts pie 14)
   - [x] rose(nightingale): 넓이 비례(표준)로 구현, ECharts 선형 대응은 미채택
-  - [ ] padAngle
+  - [x] padAngle: 기존 2px 간격 위에 각도 간격 추가
   - [x] `endAngle`(반 도넛): 범위 bbox에 맞춰 화면을 잡음
   - [ ] 모서리 둥글게
   - [ ] 중첩 링

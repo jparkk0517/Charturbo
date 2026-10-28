@@ -43,6 +43,11 @@ export interface PieChartOptions {
    * `direction`; an end at or before the start is a full turn. The chart is framed to the sweep
    */
   endAngle?: number;
+  /**
+   * Angular gap between slices in degrees (default 0, at most 45), on top of the 2 px surface
+   * gap. Slices narrower than it are not drawn (legend / tooltip / table still list them)
+   */
+  padAngle?: number;
   /** Default `'clockwise'` */
   direction?: 'clockwise' | 'counterclockwise';
   /** Nightingale rose chart (default: off, every slice reaches the full radius) */
@@ -164,7 +169,8 @@ export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData,
       sx,
       sy,
       options?.rose ? (ROSE_CODES[options.rose] ?? 0) : 0,
-      options?.endAngle ?? NaN
+      options?.endAngle ?? NaN,
+      options?.padAngle ?? 0
     ) ?? 0
   );
 }

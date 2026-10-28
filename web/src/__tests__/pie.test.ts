@@ -236,6 +236,7 @@ describe('Native pie chart (SDK binding)', () => {
       maxSlices: 4,
       startAngle: 90,
       endAngle: -90,
+      padAngle: 3,
       direction: 'counterclockwise',
       labels: 'outside',
       colors: [undefined, '#ff0000'],
@@ -243,8 +244,8 @@ describe('Native pie chart (SDK binding)', () => {
       title: 'Traffic',
     });
     expect(res.sliceCount).toBe(4);
-    const [values, sort, max, start, clockwise, inner, labels, minAngle, line, sx, sy, rose, end] = calls.set_pie_chart[0] as [
-      Float64Array, number, number, number, boolean, number, number, number, number, number, number, number, number,
+    const [values, sort, max, start, clockwise, inner, labels, minAngle, line, sx, sy, rose, end, pad] = calls.set_pie_chart[0] as [
+      Float64Array, number, number, number, boolean, number, number, number, number, number, number, number, number, number,
     ];
     expect(values).toBeInstanceOf(Float64Array);
     expect(Array.from(values)).toEqual(DATA.values);
@@ -255,6 +256,7 @@ describe('Native pie chart (SDK binding)', () => {
     expect(sy).toBeGreaterThan(0);
     expect(rose).toBe(2);
     expect(end).toBe(-90);
+    expect(pad).toBe(3);
 
     const [palette, colors, other, leader, surface] = calls.set_chart_pie_style[0] as Float32Array[];
     expect(palette.length).toBe(CHARTURBO_THEMES.dark.palette.length * 4);
@@ -278,6 +280,7 @@ describe('Native pie chart (SDK binding)', () => {
     sdk.renderPieChart(DATA, { rose: 'radius' });
     expect(calls.set_pie_chart[2][11]).toBe(1);
     expect(Number.isNaN(calls.set_pie_chart[2][12])).toBe(true);
+    expect(calls.set_pie_chart[2][13]).toBe(0);
     // Theme switch re-sends the palette
     sdk.setTheme('light');
     const last = calls.set_chart_pie_style.at(-1) as Float32Array[];

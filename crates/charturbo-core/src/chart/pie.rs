@@ -119,6 +119,9 @@ pub struct PieOptions {
     /// Where the last slice ends (same compass degrees; NaN = a full turn). The sweep runs along
     /// the drawing direction; an end at or before the start is a full turn, beyond one is clamped
     pub end_angle_deg: f32,
+    /// Angular gap between neighbouring slices (degrees, clamped to [0, 45]) on top of the 2 px
+    /// surface gap; angles, percents and the hit test keep the unpadded layout
+    pub pad_angle_deg: f32,
     pub clockwise: bool,
     /// Donut hole radius / outer radius (0 = pie; clamped to [0, 0.95])
     pub inner_ratio: f32,
@@ -140,6 +143,7 @@ impl Default for PieOptions {
             max_slices: DEFAULT_PIE_MAX_SLICES,
             start_angle_deg: 0.0,
             end_angle_deg: f32::NAN,
+            pad_angle_deg: 0.0,
             clockwise: true,
             inner_ratio: 0.0,
             labels: PieLabelMode::Outside,
@@ -440,6 +444,7 @@ impl PieChart {
         let d = PieOptions::default();
         opts.inner_ratio = clean(opts.inner_ratio, 0.0).clamp(0.0, 0.95);
         opts.start_angle_deg = clean(opts.start_angle_deg, 0.0);
+        opts.pad_angle_deg = clean(opts.pad_angle_deg, 0.0).clamp(0.0, 45.0);
         opts.label_min_angle_deg = clean(opts.label_min_angle_deg, d.label_min_angle_deg).max(0.0);
         opts.label_line_px = clean(opts.label_line_px, d.label_line_px).max(1.0);
         opts.label_space_px = opts.label_space_px.map(|v| clean(v, 0.0).clamp(0.0, 2048.0));
@@ -675,6 +680,13 @@ impl PieChart {
         }
     }
 
+    /// Compass interval of a drawn slice: shrunk by half the pad angle on each side (a full disk
+    /// keeps its turn); `None` when the pad swallows the slice.
+    fn padded(&self, (lo, hi): (f32, f32), full: bool) -> Option<(f32, f32)> {
+        let pad = if full { 0.0 } else { 0.5 * self.opts.pad_angle_deg.to_radians() };
+        (hi - lo > 2.0 * pad).then_some((lo + pad, hi - pad))
+    }
+
     /// Slice triangles (`fills`) and their anti-aliasing outlines (`edges`) at scale `wpp`.
     pub(crate) fn build(&self, wpp: f32, hovered: Option<usize>, fills: &mut Vec<ChartFillRaw>, edges: &mut Vec<ChartSegmentRaw>) {
         fills.clear();
@@ -684,8 +696,10 @@ impl PieChart {
             if s.span() <= 0.0 {
                 continue;
             }
-            let (lo, hi) = self.compass(s);
             let full = shown == 1 && self.sweep >= TAU;
+            let Some((lo, hi)) = self.padded(self.compass(s), full) else {
+                continue;
+            };
             let offset = if hovered == Some(k) && !full {
                 polar((0.0, 0.0), 0.5 * (lo + hi), PIE_EXPLODE_PX * wpp)
             } else {
@@ -722,8 +736,11 @@ impl PieChart {
             if end <= start {
                 continue;
             }
-            let (lo, hi) = self.compass(&PieSlice { start, end, ..*s });
-            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full: shown == 1 && self.sweep >= TAU };
+            let full = shown == 1 && self.sweep >= TAU;
+            let Some((lo, hi)) = self.padded(self.compass(&PieSlice { start, end, ..*s }), full) else {
+                continue;
+            };
+            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full };
             tessellate_slice(&shape, wpp, (0.0, 0.0), self.display_color(k), fills, edges);
         }
     }
@@ -1346,6 +1363,43 @@ mod tests {
         got.sort_by(f32::total_cmp);
         for (g, w) in got.iter().zip(&want) {
             assert!((g - w).abs() < 0.05, "leader starts {got:?} vs rims {want:?}");
+        }
+    }
+
+    #[test]
+    fn pad_angle_opens_an_angular_gap_between_slices() {
+        for inner_ratio in [0.0, 0.5] {
+            let opts = PieOptions { pad_angle_deg: 10.0, inner_ratio, labels: PieLabelMode::None, ..Default::default() };
+            let (mut chart, cam) = pie(&[1.0, 1.0, 1.0, 1.0], opts);
+            chart.prepare_layers(&view(&cam));
+            // Quarter slices: every vertex away from the center keeps >= 5 degrees from the
+            // dividing rays at 0 / 90 / 180 / 270 degrees (the apex sits on the bisector)
+            assert!(!chart.fills.is_empty());
+            for f in &chart.fills {
+                let (x, y) = (f.position[0], f.position[1]);
+                if x.hypot(y) < 1.0 {
+                    continue;
+                }
+                let deg = x.atan2(y).to_degrees().rem_euclid(90.0);
+                assert!((5.0 - 1e-3..=85.0 + 1e-3).contains(&deg), "r_in {inner_ratio}: vertex at {deg} degrees");
+            }
+            // Angles, percents and the hit test keep the unpadded layout
+            let s = chart.pie_slices().unwrap();
+            assert!((s[1].start - FRAC_PI_2).abs() < 1e-5 && (s[0].percent - 25.0).abs() < 1e-9);
+        }
+        // A slice narrower than the pad disappears; a lone slice stays a full disk
+        let opts = PieOptions { pad_angle_deg: 20.0, max_slices: 0, labels: PieLabelMode::None, ..Default::default() };
+        let (mut chart, cam) = pie(&[100.0, 1.0], opts);
+        chart.prepare_layers(&view(&cam));
+        let tiny = chart.pie_slices().unwrap()[1].color;
+        assert!(chart.fills.iter().all(|f| f.color != tiny));
+        let (mut lone, cam) = pie(&[1.0], opts);
+        lone.prepare_layers(&view(&cam));
+        assert!(lone.fills.iter().any(|f| f.position[0].abs() < 1e-4 && f.position[1] > 1.0), "covers the top ray");
+        // Out-of-range pads are clamped / ignored
+        for (pad, want) in [(f32::NAN, 0.0), (-5.0, 0.0), (90.0, 45.0)] {
+            let (c, _) = pie(&[1.0, 1.0], PieOptions { pad_angle_deg: pad, ..Default::default() });
+            assert_eq!(inner(&c).opts.pad_angle_deg, want, "pad {pad}");
         }
     }
 
