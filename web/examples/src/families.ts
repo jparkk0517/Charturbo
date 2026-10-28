@@ -8,7 +8,7 @@ export interface Family {
 }
 
 export const FAMILIES: Family[] = [
-  { id: 'scientific3d', title: 'PointCloud3D · Surface3D', description: 'XYZ clouds and Y-up height grids with fixed axes, data aspect, orthographic projection, scalar colors, holes and live streaming.' },
+  { id: 'scientific3d', title: 'PointCloud3D · Surface3D', description: 'XYZ clouds and Y-up height grids with fixed axes, data aspect, orthographic projection, scalar colors, holes, height contours and live streaming.' },
   { id: 'line', title: 'Line · Area · Band · ErrorBar · Impulse', description: '1M-point lines, stacked areas, standalone bands, scientific error bars, event stems and live streaming.' },
   { id: 'bar', title: 'Bar · Horizontal · Labels', description: 'Grouped / stacked / percent bars, horizontal bars with data labels and error bars, histograms.' },
   { id: 'scatter', title: 'Scatter · Brush', description: '60k-point scatter with rectangle brush selection, bubble chart with per-point sizes.' },
@@ -46,6 +46,7 @@ export function renderHeader(active: string): HTMLElement {
   const benchmarks = document.createElement('a');
   benchmarks.href = './benchmarks.html';
   benchmarks.textContent = 'Benchmarks';
+  if (active === 'benchmarks') benchmarks.setAttribute('aria-current', 'page');
   nav.appendChild(benchmarks);
   for (const f of FAMILIES) {
     const a = document.createElement('a');

@@ -593,8 +593,8 @@ impl VisualizationEngine {
         Ok(n)
     }
 
-    pub fn update_scientific3d_series(&mut self, series: usize, xyz: Vec<[f32; 3]>, colors: Vec<[f32; 4]>, grid: Option<(usize, usize)>) -> Result<usize, String> {
-        let n = self.chart.as_mut().ok_or("no chart")?.update_scientific3d_series(series, xyz, colors, grid)?;
+    pub fn update_scientific3d_series(&mut self, series: usize, xyz: Vec<[f32; 3]>, colors: Vec<[f32; 4]>, grid: Option<(usize, usize)>, contours: Option<crate::chart::Scientific3DContours>) -> Result<usize, String> {
+        let n = self.chart.as_mut().ok_or("no chart")?.update_scientific3d_series(series, xyz, colors, grid, contours)?;
         self.refresh_chart_hover();
         Ok(n)
     }
@@ -1483,12 +1483,12 @@ mod tests {
         use crate::chart::Scientific3DSeries;
         let ds = GraphDataset::generate_seeded(&DatasetConfig { node_count: 0, edge_count: 0, ..Default::default() });
         let (mut engine, _) = mock_engine(ds);
-        engine.set_scientific3d(vec![Scientific3DSeries { xyz: vec![[0.; 3]], colors: vec![], color: [1.; 4], size: 8., grid: None, wireframe: false, lighting: 0. }]).unwrap();
+        engine.set_scientific3d(vec![Scientific3DSeries { xyz: vec![[0.; 3]], colors: vec![], color: [1.; 4], size: 8., grid: None, wireframe: false, lighting: 0., contours: None }]).unwrap();
         engine.rotate_camera(0.4, 0.2);
         let eye = engine.camera.eye_position();
         let view = ChartView { camera: &engine.camera, viewport_px: engine.viewport_px, pixel_ratio: engine.pixel_ratio };
         engine.chart.as_mut().unwrap().hover_at(&view, &mut engine.scene, (0., 0.)).unwrap();
-        engine.update_scientific3d_series(0, vec![[10., 20., 30.]], vec![], None).unwrap();
+        engine.update_scientific3d_series(0, vec![[10., 20., 30.]], vec![], None, None).unwrap();
         assert!((engine.camera.eye_position() - eye).length() < 1e-4);
         let p = engine.chart().unwrap().scientific_hit().unwrap();
         assert_eq!(&p[..3], &[10., 20., 30.]);

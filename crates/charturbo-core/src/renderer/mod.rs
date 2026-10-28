@@ -170,6 +170,8 @@ pub struct ChartLayers<'a> {
     pub bars: Option<&'a [ChartBarRaw]>,
     /// Filled areas (triangle list) drawn beneath the series strokes
     pub fills: Option<&'a [ChartFillRaw]>,
+    /// Scientific 3D isolines: hairline vertex pairs (line list), depth-tested without writes
+    pub contours_3d: Option<&'a [ChartFillRaw]>,
     /// Re-written vertex ranges of the uploaded fills (ignored when `fills` is set)
     pub fill_patch: Option<ChartFillPatch<'a>>,
     /// Hover / legend emphasis of tagged fill vertices (see fill_style.rs)

@@ -19,14 +19,15 @@
 7. **3D 스트리밍·표면 갱신:** `appendPointCloud3D` XYZ/scalar FIFO, `updateSurface3D` replaceY·열/행 append·scroll/grow. 원자적 native 단일 시리즈 갱신으로 orbit·가시성·강조 유지, ID·도메인·색상·hover·접근성·CSV 갱신. SDK/Rust 실패 테스트부터 구현했고 실제 GPU 비교에서 발견한 축 캐시 무효화 누락도 실패 테스트로 재현 후 수정했다. React/Vue ref·테마 변경 검증, 재생 제어 예제 2개, 양 GPU backend 정적/스트리밍 화면 동등성까지 확인했다.
 8. **3D 축 범위·aspect·직교 투영:** `axes3d.x/y/z` min/max·name·tickCount·visible, `aspect: 'cube'|'data'|[x,y,z]`, `camera.type`·`orthoSize`. geometry·격자·축·피킹이 같은 매핑을 사용한다. 직교 평행 ray·줌·resize·다른 차트로 전환 시 perspective 복원, 스트리밍 고정 범위 유지, 0 눈금 잔차·모바일 라벨 잘림을 TDD로 검증했다. 비교 데모와 직교 GPU fixture 2종을 추가했다.
 9. **정식 링크·CI:** 저장소·README·문서·사이트·패키지 링크와 git origin을 `jparkk0517/Charturbo`로 맞췄다. TypeScript `paths`로 자체 패키지를 소스에 연결해 clean CI가 로컬 dist-lib에 의존하던 문제를 수정했다.
+10. **Surface3D contours:** ChartGPU `Surface3DContourOptions`(show·levels·color·width·opacity)와 기본값(12, `#e2e8f0`, 1.5, 0.85)·alpha 가중치 공식을 맞췄다. Rust marching triangles가 렌더 삼각형 위에 isoline을 만들고, 1px hairline 전용 파이프라인(`chart-3d-contours`)이 depth test만 한다. 같은 평면 선의 점선화는 3D fill에 표준 polygon offset을 적용해 해결했다. Rust·SDK·WASM packed·React/Vue·예제 `07-contours`·원근/직교 fixture를 TDD로 진행했다.
 
 ## 다음 작업
 
-1. **Surface3D contours:** 로컬 `web/node_modules/chartgpu/dist/config/types.d.ts`의 show·levels·color·width·opacity 계약과 비교하고 TDD로 구현한다. 고정 범위·aspect·직교 투영·스트리밍에서도 같은 좌표 매핑을 유지한다.
-2. 투명 geometry 깊이 정렬/합성 및 대용량 hit-test·streaming 가속을 진행한다. 현재 전체 점/셀 순회, metadata 복사·변경 시리즈 재전송·전체 geometry 재생성 경로다. 축 nice ticks·독립 box 토글·GPU glyph, 카메라 FOV·near/far·up도 남아 있다.
-3. 관련 SDK·React/Vue·접근성·export·예제 및 실제 WebGPU/WebGL2 회귀를 검증한다.
-4. 이후 Density·주석 편집·차트 간 연결 분석을 진행한다. 기존 구현 범위를 먼저 확인한다.
-5. 전체 기능 동등성 검증·성능 비교·공식 사이트 콘텐츠 완성과 배포를 진행한다.
+1. 투명 geometry 깊이 정렬/합성 및 대용량 hit-test·streaming 가속을 진행한다. 현재 전체 점/셀 순회, metadata 복사·변경 시리즈 재전송·전체 geometry 재생성 경로다. 축 nice ticks·독립 box 토글·GPU glyph, 카메라 FOV·near/far·up도 남아 있다.
+   등고선 라벨·등고선 대용량 가속(현재 전체 셀 × 범위 내 level 순회, 갱신마다 전체 재생성)도 남아 있다.
+2. 관련 SDK·React/Vue·접근성·export·예제 및 실제 WebGPU/WebGL2 회귀를 검증한다.
+3. 이후 Density·주석 편집·차트 간 연결 분석을 진행한다. 기존 구현 범위를 먼저 확인한다.
+4. 전체 기능 동등성 검증·성능 비교·공식 사이트 콘텐츠 완성과 배포를 진행한다.
 
 ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap, band, errorBar, impulse, pointCloud3d, surface3d.
 
@@ -57,6 +58,10 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 - 갱신 입력은 SDK가 소유한 복사본으로 관리한다. 검증 후 WASM `update_chart_3d_series(series, xyz, colors, columns, rows)` 성공 시 metadata commit. Rust가 style·visibility·emphasis와 camera를 유지하며 전체 domain·offset을 재계산한다. `dirty = Dirty::all()`과 **`axes_key = None`을 함께 적용**해야 axis label이 새 범위를 표시한다.
 - 새 3D 갱신은 오래된 툴팁/키보드 focus를 해제한다. 카메라 제스처를 끊지 않도록 scene reset hooks와 data hooks를 구분한다. React/Vue는 SDK ref에서 호출하며 data/options prop 참조 변경은 전체 교체다.
 - `chart_3d_hit`는 raw XYZ·cell column/row다. 포인터는 보간된 surface 교차점, 키보드는 원본 정점을 사용한다. SVG는 raster fallback. brush·sync는 연결하지 않았다.
+- Contours: SDK가 levels를 원본 Y 높이 목록으로 확정한다. 개수 N이면 색상 domain(`yMin/yMax` 또는 유한 높이 범위) 안쪽 `lo + i/(N+1)·(hi-lo)`, i=1..N이고 lo==hi면 `[lo]`이다. 최종 alpha는 `min(1, opacity·colorA·(0.75+0.15·min(width,4)))`이다. `show` 아니면 전송하지 않지만 다른 필드는 항상 엄격 검증한다. 모든 render/update는 levels를 다시 계산한다.
+- WASM `set_chart_3d(..., config, contours)`와 `update_chart_3d_series(..., rows, contours)`의 contours는 시리즈마다 `[count, r, g, b, a, ...levels]`이고 count 0은 없음이다. set은 시리즈 수만큼 레코드를 넣고 빈 배열은 전체 없음이다. update는 해당 시리즈 레코드 1개이며 기존 등고선을 교체한다 (Rust `update_scientific3d_series(..., grid, contours)`의 None은 제거).
+- Rust `Scientific3DContours { levels(정렬·중복 제거), color }`는 grid 시리즈에만 허용한다. 삼각형 분할은 fill과 같은 `[0,2,1]`,`[1,2,3]`이다. 정점 y ≥ level이면 inside이며 `lo < level ≤ hi`인 level만 이진 탐색으로 순회한다. 출력은 `ChartState.contours_3d`(ChartFillRaw 쌍, w=0 untagged) → `ChartLayers.contours_3d`이고 fills dirty일 때 업로드한다. 다른 kind·`empty_chart_layers`는 빈 slice로 이전 버퍼를 지운다. 강조 시 alpha×0.2, hidden·hole은 생략, hover 대상이 아니다.
+- `chart-3d-fills`에 `DepthBiasState { constant: -1, slope_scale: -1.0 }`(reverse-Z에서 면을 뒤로 미는 glPolygonOffset(1,1))를 적용한다. 화면 공간으로 폭을 넓힌 segment는 선을 가로지르는 depth가 일정해 경사면에 묻히므로 등고선에 쓰지 않는다. 이 bias로 기존 surface baseline 2종에 실루엣 접힘 픽셀 0.003~0.008% 차이가 생겼고 허용 범위 안이라 baseline은 유지했다.
 - 투명도 0은 렌더·선택에서 제외한다. 반투명 geometry는 depth-write하지만 정렬하지 않으므로 정확한 다중 투명면 합성은 미완료다. 전체 ChartGPU 기능 동등성 완료로 표시하지 않는다.
 
 ## 주요 파일
@@ -64,7 +69,7 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 - `crates/charturbo-core/src/chart/scientific3d.rs`, `scientific3d_tests.rs`: 3D geometry·axes·picking·native 회귀
 - `crates/charturbo-core/src/lib_scientific3d.rs`, `renderer/wgpu_backend.rs`: WASM packed contract·전용 depth pipeline
 - `web/src/sdk/chart-scientific3d.ts`, `web/src/__tests__/scientific3d.test.ts`: 타입·검증·metadata·tooltip·접근성
-- `web/examples/src/demos/scientific3d/`: cloud·surface·wireframe·streaming 및 `06-axes-projection` 예제
+- `web/examples/src/demos/scientific3d/`: cloud·surface·wireframe·streaming·`06-axes-projection`·`07-contours` 예제
 - `crates/charturbo-core/src/camera/mod.rs`, `lib_camera.rs`: perspective/orthographic projection·ray·줌·상태 readback
 - `crates/charturbo-core/src/chart/sparse.rs`: ErrorBar·Impulse geometry·hover·brush·setter
 - `crates/charturbo-core/src/chart/linestyle.rs`: Band geometry·LOD, sparse extent·렌더 분기·native 회귀 테스트
@@ -83,14 +88,13 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 
 ## 마지막 검증 결과
 
-아래는 3D 축·aspect·직교 투영 단계의 결과다.
+아래는 Surface3D contours 단계의 결과다.
 
-- TS: 49파일 / 466테스트 통과.
-- Rust: 기본·no-default-features 각각 단위 410통과 / 1 ignored, 통합 1통과.
-- 타입 검사·기본/WebGPU 전용 WASM·라이브러리·examples 빌드 및 `git diff --check` 성공.
-- `npm run test:visual -- --strict --filter=scientific3d` 및 `--param=streaming:true`: 각 fixture 5종 × WebGPU/WebGL2 × canvas/full = 20개씩 모두 픽셀 차이 0%. 기존 baseline 변경 없이 새 직교 cloud/surface baseline 8개 추가. 고정 axes와 data/custom aspect를 포함한다.
-- 양 backend 실제 3D 예제 6개, 큐브/데이터 비율·원근/직교 전환, 깊이가 달라도 동일 XY 투영·전면 피킹·줌 배율·streaming/resize 후 상태, End XYZ tooltip·CSV·SVG embedded PNG·PNG·PDF·2D 전환, 390px 모바일을 확인했다. runtime exception 없음.
-- 이전 sparse·Band·Area 시각 회귀는 각 단계에서 통과했으며 이번에는 3D fixture를 검증했다.
+- TS: 49파일 / 468테스트 통과 (Node 22). 타입 검사 성공.
+- Rust: 기본·no-default-features 각각 단위 415통과 / 1 ignored, 통합 1통과.
+- 기본/WebGPU 전용 WASM·라이브러리·examples 빌드 및 `git diff --check` 성공.
+- `npm run test:visual -- --strict --filter=scientific3d` 및 `--param=streaming:true`: 각 7 fixture × WebGPU/WebGL2 × canvas/full = 28개 통과. 새 `scientific3d-contours`(data aspect·hole)·`-contours-ortho`(고정 Y·custom aspect) baseline 8개를 추가했고 스트리밍 결과와 픽셀 차이 0%다.
+- CDP로 양 backend `07-contours` 재생·일시정지·드래그를 확인했다. runtime exception 없음.
 
 대표 명령 (npm 명령은 `web/`에서):
 
@@ -109,14 +113,16 @@ npm run test:visual -- --strict --filter=scientific3d --param=streaming:true
 
 ## 작업 트리·실행 환경 주의점
 
+- 이 Mac에는 rustup stable(1.99.1, `~/.cargo`, PATH 미수정 → `. "$HOME/.cargo/env"`)과 wasm-pack 0.13.1을 설치했다. 기본 Node가 20.19.6이라 `volta run --node 22 npm test`처럼 Node 22로 실행한다 (undici가 Node ≥22.19 필요).
+- 저장소 경로에 공백이 있다. vitest alias는 `fileURLToPath`로 고쳤다. 다른 `URL().pathname` 사용도 같은 문제가 날 수 있다.
 - 기존 streaming·링크 정리는 `f36ec39`로 main에 푸시했고 Pages 배포 성공·정식 데모 HTTP 200을 확인했다. 축·aspect·직교 투영 단계도 검증 후 커밋·푸시한다. 새 채팅은 `git status`·`git log`로 최종 상태를 확인한다. 정식 저장소는 `jparkk0517/Charturbo`, 데모는 `https://jparkk0517.github.io/Charturbo/`다.
 - 데모 서버 `http://127.0.0.1:5310/`에서 검증했다. 새 채팅에서는 실행 여부 확인 필요.
 - Band 데모: `/line.html#06-band`, `/line.html#07-band-crossing`.
 - ErrorBar·Impulse 데모: `/line.html#08-error-bars`, `/line.html#09-error-horizontal`, `/line.html#10-impulse`.
 - 3D 데모: `/scientific3d.html`.
 - Paseo 브라우저 호스트 timeout은 headless Chrome CDP로 우회했다.
-- 임시 브라우저 검증 스크립트: `/private/var/folders/9r/d6q96w4117zcz3_hkrc1zyrw0000gn/T/opencode/check-charturbo-3d-axes.mjs` (이전 streaming·scientific3d·sparse·band 스크립트도 참고 가능). 출력의 `axes3d-*` 디렉터리에 스크린샷이 있다. 임시 파일은 영구 보존을 보장하지 않는다.
+- 임시 브라우저 검증 스크립트: `/private/tmp/claude-501/-Users-sun-kist-Desktop-01--hosun-03--code-Charturbo/04a38948-6b51-48c3-8e53-3ec9ec7e0308/scratchpad/cdp/check-contours.mjs <outDir> webgpu|webgl2` (Node 22 내장 WebSocket CDP, 5310 dev server 필요). 임시 파일은 영구 보존을 보장하지 않는다.
 
 ## 새 채팅 시작 문구
 
-> `docs/HANDOFF.md`를 읽고 Charturbo 개발을 이어가자. 3D streaming·축 범위·aspect·orthographic은 구현했으며 다음 작업은 Surface3D contours다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.
+> `docs/HANDOFF.md`를 읽고 Charturbo 개발을 이어가자. Surface3D contours까지 구현했으며 다음 작업은 투명 geometry 깊이 정렬과 대용량 3D hit-test·streaming 가속이다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.

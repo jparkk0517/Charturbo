@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -8,7 +9,8 @@ export default defineConfig({
   },
   test: {
     // Example lifecycle tests import the SDK by its public package name before a library build.
-    alias: { charturbo: new URL('./src/index.ts', import.meta.url).pathname },
+    // fileURLToPath decodes %20 so checkouts under paths with spaces resolve.
+    alias: { charturbo: fileURLToPath(new URL('./src/index.ts', import.meta.url)) },
     environment: 'node',
     include: ['src/**/*.test.{ts,tsx}'],
   },

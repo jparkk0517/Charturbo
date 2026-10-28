@@ -44,7 +44,7 @@ mod shape;
 mod sparkline;
 mod sparse;
 mod scientific3d;
-pub use scientific3d::{Scientific3DSeries, Scientific3DOptions};
+pub use scientific3d::{Scientific3DSeries, Scientific3DOptions, Scientific3DContours};
 use scientific3d::Scientific3D;
 #[cfg(test)]
 mod scientific3d_tests;
@@ -537,6 +537,8 @@ pub struct ChartState {
     markers: Vec<ChartMarkerRaw>,
     /// Filled areas (triangle list); empty until an area chart kind fills it
     fills: Vec<ChartFillRaw>,
+    /// Scientific 3D surface isolines (line list); empty for every other kind
+    contours_3d: Vec<ChartFillRaw>,
     /// Vertex ranges of `fills` re-written this frame (uploaded alone when `fills` is not dirty)
     fill_patches: Vec<(u32, u32)>,
     /// Emphasis uniform of tagged fill vertices (renderer/fill_style.rs)
@@ -584,6 +586,7 @@ impl ChartState {
             overlay: Vec::new(),
             markers: Vec::new(),
             fills: Vec::new(),
+            contours_3d: Vec::new(),
             fill_patches: Vec::new(),
             fill_style: ChartFillStyleRaw::default(),
             points: Vec::new(),
@@ -1464,7 +1467,7 @@ impl ChartState {
         }
         match &self.kind {
             ChartKind::Scientific3D(c) => {
-                if self.dirty.series || self.dirty.fills { c.build(&mut self.fills, &mut self.series, &mut self.styled.markers); self.dirty.fills = true; self.dirty.series = true; }
+                if self.dirty.series || self.dirty.fills { c.build(&mut self.fills, &mut self.contours_3d, &mut self.series, &mut self.styled.markers); self.dirty.fills = true; self.dirty.series = true; }
                 if self.dirty.underlay { c.grid(&self.frame_style, &mut self.underlay); }
                 if self.dirty.overlay { self.overlay.clear(); self.markers.clear(); }
             }
@@ -1657,6 +1660,7 @@ impl ChartState {
             fill_patch: (!anim.fills && !d.fills && !self.fill_patches.is_empty())
                 .then_some(ChartFillPatch { fills: &self.fills, ranges: &self.fill_patches }),
             fill_style: d.fill_style.then_some(self.fill_style),
+            contours_3d: d.fills.then_some(self.contours_3d.as_slice()),
             series: if anim.series {
                 Some(self.anim_series())
             } else {
@@ -1709,6 +1713,7 @@ pub fn empty_chart_layers() -> ChartLayers<'static> {
         underlay: Some(&[]),
         bars: Some(&[]),
         fills: Some(&[]),
+        contours_3d: Some(&[]),
         fill_patch: None,
         fill_style: Some(ChartFillStyleRaw::default()),
         series: Some(&[]),

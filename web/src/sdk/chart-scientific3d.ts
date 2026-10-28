@@ -1,5 +1,5 @@
 /** Independent Y-up scientific charts. Geometry and picking live in Rust. */
-import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
+import { parseColor, parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartGridStyle, ChartHoverStyle, ChartLegendOptions, ChartTooltipContext, NodeDetails, Vec3Tuple } from './charturbo';
 import type { A11yChartModel, A11yFocus } from './chart-a11y';
 import { rgbCss, type A11yCommon } from './chart-business-util';
@@ -29,6 +29,19 @@ export interface Surface3DGridData {
   /** Row-major Y heights: y[row * columns + column]. Nonfinite values make holes. */
   y: ArrayLike<number>;
 }
+/** Height isolines traced on the rendered surface triangles (ChartGPU `contours` contract). */
+export interface Surface3DContourOptions {
+  /** Default false. */
+  show?: boolean;
+  /** Integer 1..64 evenly spaced strictly inside yMin..yMax (default 12), or explicit raw-Y heights. */
+  levels?: number | readonly number[];
+  /** Default #e2e8f0. */
+  color?: ColorInput;
+  /** Visual weight, not CSS px: hairline alpha x (0.75 + 0.15 x min(width, 4)). Default 1.5. */
+  width?: number;
+  /** 0..1, default 0.85. */
+  opacity?: number;
+}
 export interface Surface3DSeries extends Scientific3DStyle {
   data: Surface3DGridData;
   colormap?: Scientific3DColormap;
@@ -37,6 +50,7 @@ export interface Surface3DSeries extends Scientific3DStyle {
   wireframe?: boolean;
   /** Flat diffuse lighting, 0..1 (default 0.65). */
   lighting?: number;
+  contours?: Surface3DContourOptions;
 }
 export interface PointCloud3DAppendOptions {
   /** Keep the newest samples. Zero / omitted means unbounded (up to the chart limit). */
@@ -100,6 +114,8 @@ export interface EncodedScientific3D {
   offsets: Uint32Array;
   styles: Float32Array;
   shapes: Uint32Array;
+  /** Per series `[levelCount, r, g, b, a, ...levels]`; zero count = none. */
+  contours: Float32Array;
   meta: Scientific3DMeta;
 }
 
@@ -191,13 +207,18 @@ const ramps = {
   viridis: [[0.267, 0.005, 0.329], [0.23, 0.322, 0.546], [0.128, 0.567, 0.551], [0.369, 0.789, 0.383], [0.993, 0.906, 0.144]],
   magma: [[0.001, 0, 0.014], [0.316, 0.071, 0.485], [0.716, 0.215, 0.475], [0.987, 0.536, 0.382], [0.987, 0.991, 0.75]],
 };
-function rampColors(values: ArrayLike<number>, map: Scientific3DColormap, alpha: number, min?: number, max?: number): Float32Array {
-  if (!(map in ramps)) throw new Error('3D chart: invalid colormap');
+/** Colormap domain: explicit min/max, else finite data extent (0..1 when empty). */
+function valueDomain(values: ArrayLike<number>, min?: number, max?: number): [number, number] {
   if (min !== undefined) finite(min, 'color min'); if (max !== undefined) finite(max, 'color max');
   let lo = Infinity, hi = -Infinity;
   for (let i = 0; i < values.length; i++) if (Number.isFinite(values[i])) { lo = Math.min(lo, values[i]); hi = Math.max(hi, values[i]); }
   lo = min ?? (Number.isFinite(lo) ? lo : 0); hi = max ?? (Number.isFinite(hi) ? hi : 1);
   if (lo > hi) throw new Error('3D chart: reversed color domain');
+  return [lo, hi];
+}
+function rampColors(values: ArrayLike<number>, map: Scientific3DColormap, alpha: number, min?: number, max?: number): Float32Array {
+  if (!(map in ramps)) throw new Error('3D chart: invalid colormap');
+  const [lo, hi] = valueDomain(values, min, max);
   const out = new Float32Array(values.length * 4), ramp = ramps[map];
   for (let i = 0; i < values.length; i++) {
     const t = Number.isFinite(values[i]) ? hi === lo ? 2 : Math.max(0, Math.min(4, (values[i] - lo) / (hi - lo) * 4)) : 0;
@@ -206,8 +227,31 @@ function rampColors(values: ArrayLike<number>, map: Scientific3DColormap, alpha:
   }
   return out;
 }
+const NO_CONTOURS = [0, 0, 0, 0, 0];
+/** Packed record of one surface; count levels split the colormap domain like ChartGPU. */
+function contourRecord(s: Surface3DSeries): number[] {
+  const c = s.contours;
+  if (!c) return NO_CONTOURS;
+  const levels = c.levels ?? 12;
+  if (typeof levels === 'number' ? !Number.isInteger(levels) || levels < 1 || levels > 64 : !Array.from(levels).every(v => Number.isFinite(Math.fround(v)))) {
+    throw new Error('3D chart: contour levels must be an integer 1..64 or finite heights');
+  }
+  const width = c.width ?? 1.5;
+  if (!Number.isFinite(width) || width <= 0) throw new Error('3D chart: contour width must be positive');
+  const opacity = c.opacity ?? 0.85;
+  if (!(opacity >= 0 && opacity <= 1)) throw new Error('3D chart: contour opacity must be 0..1');
+  const color = parseColor(c.color ?? '#e2e8f0');
+  if (!c.show) return NO_CONTOURS;
+  let heights: number[];
+  if (typeof levels === 'number') {
+    const [lo, hi] = valueDomain(s.data.y, s.yMin, s.yMax);
+    heights = lo === hi ? [lo] : Array.from({ length: levels }, (_, i) => lo + (i + 1) / (levels + 1) * (hi - lo));
+  } else heights = Array.from(levels);
+  const alpha = Math.min(1, opacity * color[3] * (0.75 + 0.15 * Math.min(4, width)));
+  return heights.length ? [heights.length, color[0], color[1], color[2], alpha, ...heights] : NO_CONTOURS;
+}
 function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaTuple[], surface: boolean): EncodedScientific3D {
-  const chunks: Float32Array[] = [], colors: Float32Array[] = [], shapes: number[] = [], offsets = [0], styles: number[] = [];
+  const chunks: Float32Array[] = [], colors: Float32Array[] = [], shapes: number[] = [], offsets = [0], styles: number[] = [], contours: number[] = [];
   const names: string[] = [], swatches: RgbaTuple[] = [];
   const clouds: PointCloud3DSeries[] = [], surfaces: Surface3DSeries[] = [];
   series.forEach((s, i) => {
@@ -219,11 +263,14 @@ function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaT
     const solid = () => { const c = new Float32Array(n * 4); for (let j = 0; j < n; j++) c.set([color[0], color[1], color[2], alpha], j * 4); return c; };
     if (surface) {
       const v = s as Surface3DSeries;
+      contours.push(...contourRecord(v));
       shapes.push(v.data.columns, v.data.rows); styles.push(0, finite(v.lighting ?? 0.65, 'lighting', 0, 1), v.wireframe ? 1 : 0);
       colors.push(s.color !== undefined && !v.colormap ? solid() : rampColors(v.data.y, v.colormap ?? 'viridis', alpha, v.yMin, v.yMax));
-      surfaces.push({ ...v, color: s.color === undefined ? undefined : color, data: { ...v.data, y: Float32Array.from(v.data.y) } });
+      surfaces.push({ ...v, color: s.color === undefined ? undefined : color, data: { ...v.data, y: Float32Array.from(v.data.y) },
+        contours: v.contours && { ...v.contours, levels: typeof v.contours.levels === 'object' ? Array.from(v.contours.levels) : v.contours.levels } });
     } else {
       const v = s as PointCloud3DSeries;
+      contours.push(...NO_CONTOURS);
       shapes.push(0, 0); styles.push(finite(v.size ?? 3, 'size', 0, 1024), 0, 0);
       if (v.colorBy) {
         if (v.colorBy.values.length !== n) throw new Error('3D chart: color values length mismatch');
@@ -235,7 +282,7 @@ function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaT
   const concat = (chunks: Float32Array[], n: number) => { const out = new Float32Array(n); let at = 0; for (const a of chunks) { out.set(a, at); at += a.length; } return out; };
   const xyz = concat(chunks, offsets.at(-1)! * 3), rgba = concat(colors, offsets.at(-1)! * 4);
   const boundaries = Uint32Array.from(offsets), shape = Uint32Array.from(shapes);
-  return { xyz, colors: rgba, offsets: boundaries, shapes: shape, styles: Float32Array.from(styles),
+  return { xyz, colors: rgba, offsets: boundaries, shapes: shape, styles: Float32Array.from(styles), contours: Float32Array.from(contours),
     meta: { kind: 'scientific3d', mode: surface ? 'surface3d' : 'pointCloud3d', names, colors: swatches, visible: series.map(s => s.visible !== false), xyz, pointColors: rgba, offsets: boundaries, shapes: shape,
       ...(surface ? { surfaces } : { clouds }) } };
 }

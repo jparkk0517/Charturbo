@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — Surface3D 등고선
+
+- `Surface3DSeries.contours`(`show`·`levels`·`color`·`width`·`opacity`)를 ChartGPU v0.4.0 기본값·의미와 맞춰 추가했습니다. 개수 levels는 색상 범위 안쪽을 균등 분할하며 스트리밍 갱신마다 다시 계산합니다.
+- 렌더링하는 삼각형 위에서 등고선을 생성해 hole·고정 축·aspect·직교 투영과 일관됩니다. 깊이 테스트하는 1px hairline 전용 파이프라인을 쓰고, 3D 면에 표준 polygon offset을 적용해 같은 평면 선의 깨짐을 없앴습니다.
+- WASM `set_chart_3d`·`update_chart_3d_series`에 packed contours 인자를 추가했습니다 (시리즈마다 `[levelCount, r, g, b, a, ...levels]`). SDK와 WASM을 함께 재빌드해야 합니다.
+- React/Vue 전달 검증, 재생 제어 예제, 원근·직교 WebGPU/WebGL2 fixture를 추가했습니다. 테스트 alias가 공백이 있는 경로에서도 동작하도록 수정했습니다.
+
 ### 추가 — 3D 축 범위 · 비율 · 직교 투영
 
 - `axes3d.x/y/z`의 고정 범위·이름·눈금 수·표시 여부, `aspect: 'cube'|'data'|[x,y,z]`를 제공합니다. 데이터 단위·사용자 비율을 geometry·격자·라벨·피킹에 일관되게 적용하며 고정 범위는 스트리밍에도 유지됩니다.
@@ -24,7 +31,7 @@
 - `renderPointCloud3D`·`renderSurface3D`, React/Vue `type="pointCloud3d"`·`type="surface3d"`를 추가했습니다.
 - XYZ billboard와 Y-up row-major surface를 전용 깊이 처리로 렌더링합니다. scalar 색상, grid hole, wireframe, 조명, 시리즈 가시성·강조, orbit/pan/zoom을 지원합니다.
 - 원본 XYZ 툴팁·키보드·CSV, surface ray intersection, SVG raster fallback, 예제 3개와 WebGPU/WebGL2 fixture를 연결했습니다. 투명도 0 표면의 선택·렌더와 resize 시 카메라 초기화를 수정했습니다.
-- 전체 교체 API에 더해 위 스트리밍·축·투영 API를 제공합니다. contours·정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
+- 전체 교체 API에 더해 위 스트리밍·축·투영 API를 제공합니다. 정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
 
 ### 추가 — 독립 ErrorBar · Impulse
 

@@ -1264,8 +1264,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_graph_visible?(visible: boolean): void;
   move_camera_local?(forwardDelta: number, rightDelta: number, upDelta: number): void;
   rotate_camera_look?(deltaYaw: number, deltaPitch: number): void;
-  set_chart_3d?(xyz: Float32Array, colors: Float32Array, offsets: Uint32Array, styles: Float32Array, shapes: Uint32Array, options: Float64Array): number;
-  update_chart_3d_series?(series: number, xyz: Float32Array, colors: Float32Array, columns: number, rows: number): number;
+  set_chart_3d?(xyz: Float32Array, colors: Float32Array, offsets: Uint32Array, styles: Float32Array, shapes: Uint32Array, options: Float64Array, contours: Float32Array): number;
+  update_chart_3d_series?(series: number, xyz: Float32Array, colors: Float32Array, columns: number, rows: number, contours: Float32Array): number;
   chart_3d_hit?(): Float32Array;
   set_camera_pose?(
     eyeX: number,
@@ -6283,7 +6283,7 @@ export class Charturbo {
   private commitScientific3DUpdate(s: number, e: EncodedScientific3D): void {
     const update = this.backend.update_chart_3d_series;
     if (!update) throw new Error('3D chart: backend does not support scientific updates');
-    update.call(this.backend, s, e.xyz, e.colors, e.shapes[0], e.shapes[1]);
+    update.call(this.backend, s, e.xyz, e.colors, e.shapes[0], e.shapes[1], e.contours);
     this.chartMeta = e.meta;
     // FIFO/grid growth can rebase every id: release stale pinned/keyboard tooltips,
     // without cancelling an orbit drag or resetting the camera.
@@ -6299,7 +6299,7 @@ export class Charturbo {
     this.setRigidPhysics(false);
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
-    this.backend.set_chart_3d(e.xyz, e.colors, e.offsets, e.styles, e.shapes, config);
+    this.backend.set_chart_3d(e.xyz, e.colors, e.offsets, e.styles, e.shapes, config, e.contours);
     e.meta.axisNames = [options?.axes3d?.x?.name ?? 'X', options?.axes3d?.y?.name ?? 'Y', options?.axes3d?.z?.name ?? 'Z'];
     this.chartMode = e.meta.mode;
     this.chartMeta = e.meta;

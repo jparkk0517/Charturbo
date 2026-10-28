@@ -89,6 +89,34 @@ describe('scientific 3D charts', () => {
     expect(Array.from(e.colors)).toEqual(Array(4).fill([1, 0, 0, 0.5]).flat());
   });
 
+  it('resolves surface contour levels and ChartGPU stroke weight into packed native records', () => {
+    const data = { columns: 2, rows: 2, xStart: 0, xStep: 1, zStart: 0, zStep: 1, y: [0, 1, 3, 4] };
+    const e = encodeSurface3D([
+      { data, contours: { show: true, levels: 3 } },
+      { data, yMin: 2, yMax: 2, contours: { show: true, levels: 4, color: '#ff0000', width: 10, opacity: 0.5 } },
+      { data, contours: { show: true, levels: [3.5, -1] } },
+      { data, contours: { levels: 4 } },
+    ], palette);
+    // Default #e2e8f0, opacity 0.85 x (0.75 + 0.15 x 1.5); count levels split yMin..yMax evenly.
+    const slate = [226 / 255, 232 / 255, 240 / 255, 0.85 * 0.975];
+    const expected = [3, ...slate, 1, 2, 3, 1, 1, 0, 0, 0.5 * 1.35, 2, 2, ...slate, 3.5, -1, 0, 0, 0, 0, 0];
+    expect(Array.from(e.contours)).toEqual(expected.map(Math.fround));
+    expect(Array.from(encodePointCloud3D([{ data: [[1, 2, 3]] }], palette).contours)).toEqual([0, 0, 0, 0, 0]);
+    const invalid = [{ levels: 0 }, { levels: 65 }, { levels: 1.5 }, { levels: [NaN] }, { width: 0 }, { opacity: 2 }, { color: 'nope' }];
+    for (const contours of invalid) expect(() => encodeSurface3D([{ data, contours: { show: true, ...contours } }], palette)).toThrow(/contour|color/i);
+  });
+  it('sends contours with the initial render and recomputes count levels on streaming updates', () => {
+    const { sdk, backend } = streamingSdk();
+    sdk.renderSurface3D([{ data: { columns: 2, rows: 2, xStart: 0, xStep: 1, zStart: 0, zStep: 1, y: [0, 1, 2, 4] },
+      contours: { show: true, levels: 1, color: [0, 1, 0, 1], width: 2, opacity: 1 } }]);
+    expect(Array.from(vi.mocked(backend.set_chart_3d!).mock.lastCall![6] as Float32Array)).toEqual([1, 0, 1, 0, 1, 2]);
+    sdk.updateSurface3D(0, { mode: 'replaceY', y: [0, 1, 2, 3], yMin: 0, yMax: 10 });
+    expect(Array.from(vi.mocked(backend.update_chart_3d_series!).mock.lastCall![5] as Float32Array)).toEqual([1, 0, 1, 0, 1, 5]);
+    sdk.updateSurface3D(0, { mode: 'appendRows', rows: 1, y: [20, 30] });
+    expect(Array.from(vi.mocked(backend.update_chart_3d_series!).mock.lastCall![5] as Float32Array)).toEqual([1, 0, 1, 0, 1, 5]);
+    sdk.dispose();
+  });
+
   function streamingSdk() {
     const { backend } = graphBackend();
     backend.set_chart_3d = vi.fn(() => 0);

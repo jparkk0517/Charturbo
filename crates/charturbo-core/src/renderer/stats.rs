@@ -39,6 +39,7 @@ pub fn chart_layer_bytes(layers: &ChartLayers<'_>) -> u64 {
         + bytes(layers.overlay)
         + bytes(layers.markers)
         + bytes(layers.fills)
+        + bytes(layers.contours_3d)
         + if layers.fills.is_none() { layers.fill_patch.as_ref().map_or(0, |p| p.bytes()) } else { 0 }
         + layers.fill_style.map_or(0, |s| std::mem::size_of_val(&s) as u64)
         + bytes(layers.points)

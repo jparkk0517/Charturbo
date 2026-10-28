@@ -35,6 +35,15 @@ pub struct Scientific3DSeries {
     pub grid: Option<(usize, usize)>,
     pub wireframe: bool,
     pub lighting: f32,
+    /// Height isolines of a grid series; None draws none.
+    pub contours: Option<Scientific3DContours>,
+}
+
+/// Raw-Y isoline heights traced on the rendered triangles, with a final stroke RGBA.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scientific3DContours {
+    pub levels: Vec<f32>,
+    pub color: [f32; 4],
 }
 
 #[derive(Debug, Clone)]
@@ -60,11 +69,16 @@ impl Scientific3D {
                 || s.colors.iter().flatten().any(|v| !v.is_finite()) {
                 return Err("invalid 3D series style or colors".into());
             }
+            if let Some(c) = &s.contours {
+                if s.grid.is_none() || c.levels.iter().chain(&c.color).any(|v| !v.is_finite()) { return Err("invalid surface contours".into()); }
+            }
             if let Some((cols, rows)) = s.grid {
                 if cols < 2 || rows < 2 || cols.checked_mul(rows) != Some(s.xyz.len()) { return Err("invalid surface grid shape".into()); }
             }
             n = n.checked_add(s.xyz.len()).filter(|n| *n <= 4_000_000).ok_or("3D chart exceeds 4000000 samples")?;
         }
+        let mut series = series;
+        for c in series.iter_mut().filter_map(|s| s.contours.as_mut()) { c.levels.sort_by(f32::total_cmp); c.levels.dedup(); }
         let mut chart = Self { visible: vec![true; series.len()], series, domain: [(0., 1.); 3], options, half: Vec3::splat(60.), offsets: vec![], emphasis: None, hit: Cell::new(None) };
         chart.reindex();
         Ok(chart)
@@ -127,8 +141,8 @@ impl Scientific3D {
         }}
     }
 
-    pub fn build(&self, fills: &mut Vec<ChartFillRaw>, lines: &mut Vec<ChartSegmentRaw>, markers: &mut Vec<ChartMarkerRaw>) {
-        fills.clear(); lines.clear(); markers.clear();
+    pub fn build(&self, fills: &mut Vec<ChartFillRaw>, contours_out: &mut Vec<ChartFillRaw>, lines: &mut Vec<ChartSegmentRaw>, markers: &mut Vec<ChartMarkerRaw>) {
+        fills.clear(); contours_out.clear(); lines.clear(); markers.clear();
         for (s, series) in self.series.iter().enumerate().filter(|(s, _)| self.visible[*s]) {
             let color = |i: usize| { let mut c = series.colors.get(i).copied().unwrap_or(series.color); if self.emphasis.is_some_and(|e| e != s) { c[3] *= 0.2; } c };
             if series.grid.is_none() {
@@ -154,6 +168,18 @@ impl Scientific3D {
                         for [a, b] in [[0, 1], [1, 3], [3, 2], [2, 0]] {
                             if color(ids[a])[3] <= 0. { continue; }
                             lines.push(ChartSegmentRaw { p0_width: p[a].extend(1.).to_array(), p1_pad: p[b].extend(0.).to_array(), color: color(ids[a]) });
+                        }
+                    }
+                    if let Some(contours) = &series.contours {
+                        let mut stroke = contours.color;
+                        if self.emphasis.is_some_and(|e| e != s) { stroke[3] *= 0.2; }
+                        for tri in [[0, 2, 1], [1, 2, 3]] {
+                            let raw = tri.map(|k| series.xyz[ids[k]]);
+                            // Hairlines lie exactly in the triangle plane; extruded strokes would
+                            // keep one depth across the line and sink into sloped surfaces.
+                            for (a, b) in isolines(raw, &contours.levels) {
+                                for p in [a, b] { contours_out.push(ChartFillRaw { position: self.world(p).extend(0.).to_array(), color: stroke }); }
+                            }
                         }
                     }
                 });
@@ -231,6 +257,26 @@ impl Scientific3D {
     }
 }
 
+/// Marching triangles: each level crossing a planar triangle yields one raw-space segment.
+/// Vertices at or above a level count as inside, matching marching-squares conventions.
+fn isolines(p: [[f32; 3]; 3], levels: &[f32]) -> impl Iterator<Item = ([f32; 3], [f32; 3])> + '_ {
+    let (lo, hi) = (p[0][1].min(p[1][1]).min(p[2][1]), p[0][1].max(p[1][1]).max(p[2][1]));
+    let first = levels.partition_point(|&l| l <= lo);
+    let last = levels.partition_point(|&l| l <= hi);
+    levels[first..last].iter().filter_map(move |&level| {
+        let mut ends = [[0.; 3]; 2];
+        let mut n = 0;
+        for (a, b) in [(0, 1), (1, 2), (2, 0)] {
+            let (ya, yb) = (p[a][1], p[b][1]);
+            if (ya >= level) == (yb >= level) { continue; }
+            let t = (level - ya) / (yb - ya);
+            ends[n] = std::array::from_fn(|k| if k == 1 { level } else { p[a][k] + t * (p[b][k] - p[a][k]) });
+            n += 1;
+        }
+        (n == 2).then_some((ends[0], ends[1]))
+    })
+}
+
 fn intersect(ray: &Ray, p: [Vec3; 3]) -> Option<(f32, f32, f32)> {
     let (e1, e2) = (p[1] - p[0], p[2] - p[0]);
     let h = ray.direction.cross(e2);
@@ -252,13 +298,14 @@ impl ChartState {
 
     /// Atomically replaces one series' samples, preserving style, visibility and chart state.
     /// Domain/ids are recomputed globally; the next frame rebuilds staged geometry.
-    pub fn update_scientific3d_series(&mut self, series: usize, xyz: Vec<[f32; 3]>, colors: Vec<[f32; 4]>, grid: Option<(usize, usize)>) -> Result<usize, String> {
+    /// `contours` replaces the series' isolines (None removes them).
+    pub fn update_scientific3d_series(&mut self, series: usize, xyz: Vec<[f32; 3]>, colors: Vec<[f32; 4]>, grid: Option<(usize, usize)>, contours: Option<Scientific3DContours>) -> Result<usize, String> {
         let ChartKind::Scientific3D(c) = &mut self.kind else { return Err("no scientific 3D chart".into()); };
         let old = c.series.get(series).ok_or("3D series index out of range")?;
         if old.grid.is_some() != grid.is_some() { return Err("cannot change 3D series kind during update".into()); }
         let n = xyz.len();
         if (c.len() - old.xyz.len()).checked_add(n).is_none_or(|n| n > 4_000_000) { return Err("3D chart exceeds 4000000 samples".into()); }
-        let next = Scientific3DSeries { xyz, colors, grid, color: old.color, size: old.size, wireframe: old.wireframe, lighting: old.lighting };
+        let next = Scientific3DSeries { xyz, colors, grid, color: old.color, size: old.size, wireframe: old.wireframe, lighting: old.lighting, contours };
         // Validate off to the side before mutating any live data or hover state.
         let mut checked = Scientific3D::new(vec![next], Scientific3DOptions::default())?;
         c.series[series] = checked.series.pop().unwrap();

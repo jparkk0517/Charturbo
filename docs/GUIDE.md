@@ -58,16 +58,19 @@ sdk.renderSurface3D([{
   data: { columns: 3, rows: 2, xStart: -1, xStep: 1, zStart: 0, zStep: 2,
     y: [0, 1, 0, 1, 2, 1] },
   colormap: 'viridis', lighting: 0.65,
+  contours: { show: true, levels: 8, color: '#f8fafc' },
 }], { title: 'Y-up surface', showGrid: true });
 sdk.enableNodeInteractions(canvas, { autoRender: true });
 ```
 
 - Cloud 입력: interleaved `Float32Array`·`Float64Array`, `[x,y,z][]`, `{x,y,z}[]`, 또는 같은 길이의 `{x: ArrayLike, y: ArrayLike, z: ArrayLike}`. `null`·비유한 좌표는 원본 ID를 유지하는 gap입니다. `size`는 CSS px 지름(기본 3), `colorBy: { values, colormap?, min?, max? }`로 scalar 색상을 지정합니다.
 - Surface 입력: `y[row * columns + column]`. 가로·세로 각각 2 이상, 유한한 시작점과 0이 아닌 step이 필요하며 음수 step도 지원합니다. 비유한 꼭짓점이 하나라도 있으면 해당 셀 전체가 hole입니다. `wireframe` 기본 false, `lighting`은 0..1, 기본 0.65입니다. `colormap`은 `'viridis'`·`'magma'`, `yMin/yMax`는 색상 범위입니다. 명시적 `color`만 지정하면 단색을 사용합니다.
+- Surface `contours: { show?, levels?, color?, width?, opacity? }`는 ChartGPU v0.4.0 계약을 따릅니다. `show` 기본 false입니다. `levels`는 1..64 정수(기본 12)이면 `yMin..yMax`(생략 시 유한 높이 범위) 안쪽을 균등 분할하고 양 끝은 제외합니다. 범위가 한 값이면 그 값 하나입니다. 유한 숫자 배열이면 원본 Y 높이를 그대로 사용합니다. `color` 기본 `#e2e8f0`, `opacity` 0..1 기본 0.85입니다. `width`(기본 1.5)는 CSS px 굵기가 아니라 1px hairline의 alpha 가중치 `min(1, opacity × colorAlpha × (0.75 + 0.15 × min(width, 4)))`입니다. 잘못된 값은 렌더 전에 거부합니다.
+- 등고선은 렌더링하는 삼각형 분할 위에서 marching triangles로 생성하며, 면과 같은 좌표 매핑을 씁니다. 따라서 고정 `axes3d`·`aspect`·직교 투영에서도 면 위에 놓입니다. hole 셀에는 그리지 않습니다. 시리즈 가시성·강조를 따르고 깊이 테스트로 가려지지만 선택 대상은 아닙니다. 면에 polygon offset(factor 1, units 1)을 적용해 같은 평면의 선이 끊기지 않게 합니다. `updateSurface3D`는 갱신된 높이와 `yMin/yMax`로 개수 기반 levels를 다시 계산합니다.
 - 공통 시리즈 옵션: `name`, `visible`, `color`, `opacity`. 차트 옵션: `title`, `description`, `legend`, `grid`, `showGrid`, `hover`, `axes3d`, `aspect`, `camera`. 카메라는 정규화된 렌더 공간의 Y-up orbit이며 resize 후 회전·팬·거리·투영 크기를 보존합니다.
 - 포인터 cloud 선택은 허용 반경 내 전면 샘플입니다. Surface는 삼각형 ray intersection으로 `point3d: {x,y,z,column,row}`를 반환합니다. Wireframe도 셀 내부를 선택합니다. 키보드·CSV는 보간하지 않은 원본 정점 XYZ를 제공합니다. SVG는 raster fallback, 이미지/PDF는 현재 3D 화면을 사용합니다.
 - React/Vue `type="pointCloud3d"`·`type="surface3d"`, 예제 `/scientific3d.html`. 전체 데이터를 해당 render API에 다시 전달하여 갱신합니다. 최대 400만 샘플이며 현재 hover는 전체 점/셀을 검사합니다.
-- contours, 3D brush·sync, 정확한 다중 투명면 합성은 후속 범위입니다. 반투명 geometry는 depth-write하지만 깊이 정렬하지 않습니다. 전체 ChartGPU v0.4.0 기능 동등성 완료를 뜻하지 않습니다.
+- 3D brush·sync, 정확한 다중 투명면 합성, 등고선 라벨은 후속 범위입니다. 반투명 geometry는 depth-write하지만 깊이 정렬하지 않습니다. 전체 ChartGPU v0.4.0 기능 동등성 완료를 뜻하지 않습니다.
 
 ### 3D 축 범위 · 비율 · 직교 투영
 

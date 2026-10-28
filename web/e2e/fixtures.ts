@@ -150,6 +150,21 @@ export const FIXTURES: Fixture[] = [
       if (!p || Math.abs(p.x - FIXTURE_WIDTH / 2) > 0.1 || Math.abs(p.y - FIXTURE_HEIGHT / 2) > 0.1) throw new Error('3D center projection changed');
     }),
   })),
+  ...[false, true].map(ortho => ({
+    name: `scientific3d-contours${ortho ? '-ortho' : ''}`, theme: 'dark' as const,
+    render: (ctx: FixtureContext) => single(ctx, sdk => {
+      const height = (i: number) => { const x = (i % 25 - 12) / 4, z = (Math.floor(i / 25) - 12) / 4; return Math.sin(x) * Math.cos(z) + 0.15 * x; };
+      const y = Float32Array.from({ length: 625 }, (_, i) => (i % 25 - 20) ** 2 + (Math.floor(i / 25) - 16) ** 2 < 6 ? NaN : height(i));
+      // Streaming starts from the same values reversed: an equal domain keeps the data-aspect framing.
+      const streaming = ctx.params.streaming === 'true';
+      const contours = { show: true, levels: ortho ? [-0.8, -0.4, 0, 0.4, 0.8] : 9, color: '#ffffff', width: 2 };
+      sdk.renderSurface3D([{ name: 'Height', data: { columns: 25, rows: 25, xStart: -3, xStep: 0.25, zStart: -3, zStep: 0.25, y: streaming ? y.slice().reverse() : y },
+        colormap: 'viridis', lighting: 0.4, contours }], ortho
+        ? { title: 'Contours · orthographic', aspect: [2, 1, 2], axes3d: { y: { min: -1.5, max: 1.5, tickCount: 3 } }, camera: { type: 'orthographic', orthoSize: 100 } }
+        : { title: 'Contours · data aspect', aspect: 'data' });
+      if (streaming) { sdk.render(); sdk.updateSurface3D(0, { mode: 'replaceY', y }); }
+    }),
+  })),
   {
     name: 'scientific3d-cloud', theme: 'dark',
     render: ctx => single(ctx, sdk => {

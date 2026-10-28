@@ -128,6 +128,8 @@ pub struct WgpuRenderBackend {
     fill_pipeline: wgpu::RenderPipeline,
     marker_3d_pipeline: wgpu::RenderPipeline,
     fill_3d_pipeline: wgpu::RenderPipeline,
+    /// Scientific 3D isolines (fill vertices as a line list, depth-tested, no depth write)
+    contour_3d_pipeline: wgpu::RenderPipeline,
     depth_3d: bool,
     /// Fills without depth test (annotation bands above the series)
     fill_overlay_pipeline: wgpu::RenderPipeline,
@@ -153,6 +155,7 @@ pub struct WgpuRenderBackend {
     chart_overlay: GpuArray,
     chart_markers: GpuArray,
     chart_fills: GpuArray,
+    chart_contours_3d: GpuArray,
     chart_points: GpuArray,
     /// A series is emphasized: points draw twice (others, then that series on top)
     point_emphasis: bool,
@@ -217,6 +220,10 @@ struct PipelineSpec<'a> {
 }
 
 fn create_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat, spec: PipelineSpec) -> wgpu::RenderPipeline {
+    create_biased_pipeline(device, format, spec, wgpu::DepthBiasState::default())
+}
+
+fn create_biased_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat, spec: PipelineSpec, bias: wgpu::DepthBiasState) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(spec.label),
         layout: Some(spec.layout),
@@ -245,7 +252,7 @@ fn create_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat, spec: Pip
             depth_write_enabled: spec.depth_write,
             depth_compare: spec.depth_compare,
             stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
+            bias,
         }),
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
@@ -380,6 +387,7 @@ pub struct GpuPipelines {
     fill_pipeline: wgpu::RenderPipeline,
     marker_3d_pipeline: wgpu::RenderPipeline,
     fill_3d_pipeline: wgpu::RenderPipeline,
+    contour_3d_pipeline: wgpu::RenderPipeline,
     fill_overlay_pipeline: wgpu::RenderPipeline,
     point_pipeline: wgpu::RenderPipeline,
     heatmap_pipeline: wgpu::RenderPipeline,
@@ -669,6 +677,7 @@ impl WgpuRenderBackend {
         let chart_overlay = arr("chart-overlay", vb);
         let chart_markers = arr("chart-markers", vb);
         let chart_fills = arr("chart-fills", vb);
+        let chart_contours_3d = arr("chart-contours-3d", vb);
         let chart_points = arr("chart-points", vb);
         let annotations_below = AnnotationArrays::new(&device, "chart-annotations-below");
         let annotations_above = AnnotationArrays::new(&device, "chart-annotations-above");
@@ -706,6 +715,7 @@ impl WgpuRenderBackend {
             fill_pipeline: p.fill_pipeline,
             marker_3d_pipeline: p.marker_3d_pipeline,
             fill_3d_pipeline: p.fill_3d_pipeline,
+            contour_3d_pipeline: p.contour_3d_pipeline,
             depth_3d: false,
             fill_overlay_pipeline: p.fill_overlay_pipeline,
             point_pipeline: p.point_pipeline,
@@ -727,6 +737,7 @@ impl WgpuRenderBackend {
             chart_overlay,
             chart_markers,
             chart_fills,
+            chart_contours_3d,
             chart_points,
             point_emphasis: false,
             annotations_below,
@@ -1005,10 +1016,19 @@ impl GpuPipelines {
             vs: "vs_marker", fs: "fs_marker", buffers: &[layout_of::<ChartMarkerRaw>(Instance, &ATTRS_4)],
             topology: TriangleList, depth_write: true, depth_compare: DEPTH_TEST,
         });
-        let fill_3d_pipeline = create_pipeline(device, format, PipelineSpec {
+        // Polygon offset (glPolygonOffset factor 1, units 1; negative under reverse-Z) pushes
+        // surfaces behind coplanar contour lines so line rasterization never loses depth ties.
+        let surface_offset = wgpu::DepthBiasState { constant: -1, slope_scale: -1.0, clamp: 0.0 };
+        let fill_3d_pipeline = create_biased_pipeline(device, format, PipelineSpec {
             label: "chart-3d-fills", layout: &fill_pipeline_layout, shader: &fill_shader,
             vs: "vs_fill", fs: "fs_fill", buffers: &[layout_of::<ChartFillRaw>(Vertex, &ATTRS_2)],
             topology: TriangleList, depth_write: true, depth_compare: DEPTH_TEST,
+        }, surface_offset);
+        // Untagged fill vertices (w = 0) as 1 px lines lying in the surface triangles' planes.
+        let contour_3d_pipeline = create_pipeline(device, format, PipelineSpec {
+            label: "chart-3d-contours", layout: &fill_pipeline_layout, shader: &fill_shader,
+            vs: "vs_fill", fs: "fs_fill", buffers: &[layout_of::<ChartFillRaw>(Vertex, &ATTRS_2)],
+            topology: LineList, depth_write: false, depth_compare: DEPTH_TEST,
         });
         let fill_overlay_pipeline = create_pipeline(
             device,
@@ -1083,6 +1103,7 @@ impl GpuPipelines {
             fill_pipeline,
             marker_3d_pipeline,
             fill_3d_pipeline,
+            contour_3d_pipeline,
             fill_overlay_pipeline,
             point_pipeline,
             heatmap_pipeline,
@@ -1227,6 +1248,9 @@ impl RenderBackend for WgpuRenderBackend {
         } else if let Some(p) = &layers.fill_patch {
             self.chart_fills.write_ranges(queue, p.fills, p.ranges);
         }
+        if let Some(v) = layers.contours_3d {
+            self.chart_contours_3d.upload(device, queue, v, max);
+        }
         if let Some(style) = &layers.fill_style {
             queue.write_buffer(&self.fill_style_buffer, 0, bytemuck::bytes_of(style));
         }
@@ -1338,6 +1362,7 @@ impl RenderBackend for WgpuRenderBackend {
             }
             draw_quads(&mut rpass, &self.bar_pipeline, cam, &self.chart_bars);
             draw_fills(&mut rpass, if self.depth_3d { &self.fill_3d_pipeline } else { &self.fill_pipeline }, fill, &self.chart_fills);
+            draw_fills(&mut rpass, &self.contour_3d_pipeline, fill, &self.chart_contours_3d);
             draw_quads(&mut rpass, &self.segment_pipeline, cam, &self.chart_series);
             // Dashed series strokes, then series point markers over the strokes
             draw_quads(&mut rpass, &self.dash_segment_pipeline, cam, &self.chart_series_dashed);
@@ -1419,6 +1444,7 @@ impl RenderBackend for WgpuRenderBackend {
             &self.chart_overlay,
             &self.chart_markers,
             &self.chart_fills,
+            &self.chart_contours_3d,
             &self.chart_points,
         ];
         let layers = [&self.annotations_below, &self.annotations_above, &self.brush, &self.navigator, &self.navigator_window];
