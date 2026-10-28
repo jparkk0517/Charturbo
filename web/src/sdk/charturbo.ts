@@ -263,6 +263,7 @@ export type {
   HierarchyNode,
   SankeyChartData,
   SankeyChartOptions,
+  SankeyLevelOptions,
   SankeyLinkInput,
   SankeyNodeInput,
   SunburstChartOptions,
@@ -1775,7 +1776,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     values: Float64Array,
     columns: Int32Array,
     groups: Int32Array,
-    options: Float64Array
+    options: Float64Array,
+    levels: Float32Array
   ): number;
   /** RGBA floats: palette, per-node colors (NaN = auto), other / surface / highlight; value colormap code */
   set_chart_hierarchy_style?(palette: Float32Array, colors: Float32Array, other: Float32Array, surface: Float32Array, highlight: Float32Array, colormap: number): void;

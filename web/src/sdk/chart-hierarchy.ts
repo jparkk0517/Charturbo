@@ -89,6 +89,14 @@ export interface SankeyNodeInput {
   column?: number;
 }
 
+export interface SankeyLevelOptions {
+  /** Column index (0 = sources; the packed column, as nodes are laid out) */
+  column: number;
+  color?: ColorInput;
+  /** Opacity of the links leaving the column (0-1, default: `linkOpacity`) */
+  linkOpacity?: number;
+}
+
 export interface SankeyLinkInput {
   source: string | number;
   target: string | number;
@@ -111,16 +119,20 @@ export interface SankeyChartOptions {
   labels?: boolean;
   legend?: ChartLegendOptions | boolean;
   padding?: ChartPaddingOptions;
-  /** Node bar width (CSS px, default 12) */
+  /** Node bar width (CSS px, default 12; the bar height when vertical) */
   nodeWidth?: number;
-  /** Vertical gap between nodes of a column (CSS px, default 10) */
+  /** Gap between nodes of a column (CSS px, default 10) */
   nodePadding?: number;
+  /** Flow direction (default `'horizontal'`: columns left to right; `'vertical'`: rows top to bottom) */
+  orient?: 'horizontal' | 'vertical';
+  /** Per-column style (ECharts `levels`): node color (node `color` still wins) and the opacity of the links leaving the column */
+  levels?: SankeyLevelOptions[];
   /** Relaxation rounds (default 32) */
   iterations?: number;
   /** Column assignment of nodes without `column` (default `'justify'`: sinks in the last column) */
   align?: 'justify' | 'left' | 'right' | 'center';
-  /** Ribbon color (default `'source'`) */
-  linkColor?: 'source' | 'target' | 'neutral';
+  /** Ribbon color (default `'source'`; `'gradient'` blends the source into the target color) */
+  linkColor?: 'source' | 'target' | 'neutral' | 'gradient';
   /** Ribbon opacity (default 0.5) */
   linkOpacity?: number;
   valueLabel?: string;
@@ -246,7 +258,19 @@ export function nameEngineError(e: unknown, names: string[]): Error {
 const COLOR_BY: Record<string, number> = { auto: 0, group: 1, value: 2 };
 const COLORMAPS: Record<string, number> = { sequential: 0, viridis: 1, magma: 2 };
 const ALIGN: Record<string, number> = { justify: 0, left: 1, right: 2, center: 3 };
-const LINK_COLOR: Record<string, number> = { source: 0, target: 1, neutral: 2 };
+const LINK_COLOR: Record<string, number> = { source: 0, target: 1, neutral: 2, gradient: 3 };
+
+/** Packed levels `[column, r, g, b, a (NaN = keep), linkOpacity (NaN = default)]` per entry. */
+function encodeSankeyLevels(levels: SankeyLevelOptions[] | undefined): Float32Array {
+  const out = new Float32Array((levels?.length ?? 0) * 6);
+  levels?.forEach((lv, k) => {
+    const o = lv.linkOpacity;
+    if (o !== undefined && !(o >= 0 && o <= 1)) throw new Error(`Sankey level ${k}: linkOpacity ${o} must be in [0, 1]`);
+    const c = parseOptionalColor(lv.color) ?? [NaN, NaN, NaN, NaN];
+    out.set([Math.max(0, Math.floor(lv.column)), ...c, o ?? NaN], k * 6);
+  });
+  return out;
+}
 const opt = (v: number | undefined) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
 const flag = (v: boolean | undefined) => (v === undefined ? NaN : v ? 1 : 0);
 
@@ -390,7 +414,20 @@ export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChar
       values,
       columns,
       groupNames.length ? groups : new Int32Array(0),
-      new Float64Array([opt(o.nodeWidth), opt(o.nodePadding), opt(o.iterations), ALIGN[o.align ?? 'justify'] ?? 0, LINK_COLOR[o.linkColor ?? 'source'] ?? 0, opt(o.linkOpacity), flag(o.labels ?? true), 14])
+      new Float64Array([
+        opt(o.nodeWidth),
+        opt(o.nodePadding),
+        opt(o.iterations),
+        ALIGN[o.align ?? 'justify'] ?? 0,
+        LINK_COLOR[o.linkColor ?? 'source'] ?? 0,
+        opt(o.linkOpacity),
+        flag(o.labels ?? true),
+        14,
+        o.orient === 'vertical' ? 1 : 0,
+        // Vertical rows: label centers keep the widest label apart (name + value, ~6.5 px per character)
+        (Math.max(0, ...names.map((n) => n.length)) + 8) * 6.5,
+      ]),
+      encodeSankeyLevels(o.levels)
     );
   } catch (e) {
     throw nameEngineError(e, names);
@@ -964,7 +1001,8 @@ export class HierarchyLabelLayer {
             top: `${y}px`,
             width: 'auto',
             height: 'auto',
-            transform: flags > 0 ? 'translate(0, -50%)' : 'translate(-100%, -50%)',
+            // Horizontal: beside the bar (1 right, -1 left); vertical: centered below (2) / above (-2)
+            transform: flags === 2 ? 'translate(-50%, 0)' : flags === -2 ? 'translate(-50%, -100%)' : flags > 0 ? 'translate(0, -50%)' : 'translate(-100%, -50%)',
             fontWeight: '400',
             overflow: 'visible',
           });

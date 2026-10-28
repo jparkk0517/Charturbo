@@ -64,17 +64,36 @@ pub enum SankeyLinkColor {
     Target,
     /// Neutral (style `other_color`)
     Neutral,
+    /// Source color blending into the target color along the ribbon
+    Gradient,
 }
 
 impl SankeyLinkColor {
-    /// 0 = source, 1 = target, 2 = neutral
+    /// 0 = source, 1 = target, 2 = neutral, 3 = gradient
     pub fn from_u8(v: u8) -> Self {
         match v {
             1 => Self::Target,
             2 => Self::Neutral,
+            3 => Self::Gradient,
             _ => Self::Source,
         }
     }
+}
+
+/// Flow direction: columns left to right, or rows top to bottom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SankeyOrient {
+    #[default]
+    Horizontal,
+    Vertical,
+}
+
+/// Style of one column (ECharts `levels`): node color and the opacity of the links leaving it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SankeyLevel {
+    pub column: u32,
+    pub color: Option<[f32; 4]>,
+    pub link_opacity: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -88,6 +107,9 @@ pub struct SankeyOptions {
     pub labels: bool,
     /// Label line height (CSS px): labels in a column keep this far apart
     pub label_line_px: f32,
+    pub orient: SankeyOrient,
+    /// Vertical orient: label centers in a row keep this far apart (CSS px; the widest label)
+    pub label_width_px: f32,
 }
 
 impl Default for SankeyOptions {
@@ -101,6 +123,8 @@ impl Default for SankeyOptions {
             link_opacity: DEFAULT_SANKEY_LINK_OPACITY,
             labels: true,
             label_line_px: 14.0,
+            orient: SankeyOrient::Horizontal,
+            label_width_px: 0.0,
         }
     }
 }
@@ -116,6 +140,8 @@ pub struct SankeyGraph {
     pub columns: Vec<i32>,
     /// Color group per node (`< 0` = none); empty = no groups
     pub groups: Vec<i32>,
+    /// Per-column node color / link opacity (later entries for the same column win)
+    pub levels: Vec<SankeyLevel>,
 }
 
 /// Laid-out node (CSS px from the canvas top-left).
@@ -150,6 +176,11 @@ pub fn validate_sankey(g: &SankeyGraph) -> Result<(), String> {
     }
     if !g.columns.is_empty() && g.columns.len() != n {
         return Err(format!("sankey has {n} nodes but {} columns", g.columns.len()));
+    }
+    if let Some((i, lv)) = g.levels.iter().enumerate().find(|(_, lv)| {
+        lv.link_opacity.is_some_and(|o| !(0.0..=1.0).contains(&o)) || lv.color.is_some_and(|c| c.iter().any(|v| !v.is_finite()))
+    }) {
+        return Err(format!("sankey level {i} (column {}) needs finite colors and a link opacity in [0, 1]", lv.column));
     }
     for i in 0..l {
         let (s, t, v) = (g.sources[i], g.targets[i], g.values[i]);
@@ -284,6 +315,7 @@ impl SankeyChart {
         opts.node_padding_px = clean(opts.node_padding_px, d.node_padding_px, 200.0);
         opts.link_opacity = clean(opts.link_opacity, d.link_opacity, 1.0);
         opts.label_line_px = clean(opts.label_line_px, d.label_line_px, 100.0).max(1.0);
+        opts.label_width_px = clean(opts.label_width_px, 0.0, 2000.0);
         opts.iterations = opts.iterations.min(1000);
         let n = graph.node_count;
         let (out_start, out) = csr(n, &graph.sources, None);
@@ -369,6 +401,51 @@ impl SankeyChart {
         self.layers
     }
 
+    /// Level style of column `layer` (the last matching entry).
+    fn level(&self, layer: u32) -> Option<&SankeyLevel> {
+        self.graph.levels.iter().rev().find(|l| l.column == layer)
+    }
+
+    /// Opacity of link `l`: its source column's level, else the chart's.
+    fn link_alpha(&self, l: usize) -> f32 {
+        let s = self.graph.sources[l] as usize;
+        self.level(self.layer[s]).and_then(|lv| lv.link_opacity).unwrap_or(self.opts.link_opacity)
+    }
+
+    fn vertical(&self) -> bool {
+        self.opts.orient == SankeyOrient::Vertical
+    }
+
+    /// The layout runs in flow coordinates (along the flow, across it); a vertical sankey swaps
+    /// them on screen. Maps flow -> CSS px and back (the swap is its own inverse).
+    fn css(&self, u: f32, v: f32) -> (f32, f32) {
+        if self.vertical() {
+            (v, u)
+        } else {
+            (u, v)
+        }
+    }
+
+    /// Plot rect in flow coordinates.
+    fn flow_plot(&self, plot: [f32; 4]) -> [f32; 4] {
+        if self.vertical() {
+            [plot[1], plot[0], plot[3], plot[2]]
+        } else {
+            plot
+        }
+    }
+
+    /// Node rects `[x0, y0, x1, y1]` in CSS px of the last frame (screen orientation).
+    pub fn node_rects_css(&self) -> Vec<[f32; 4]> {
+        self.nodes
+            .iter()
+            .map(|n| {
+                let (a, b) = (self.css(n.x0, n.y0), self.css(n.x1, n.y1));
+                [a.0, a.1, b.0, b.1]
+            })
+            .collect()
+    }
+
     fn outs(&self, v: usize) -> &[u32] {
         &self.out[self.out_start[v] as usize..self.out_start[v + 1] as usize]
     }
@@ -446,7 +523,7 @@ impl SankeyChart {
     }
 
     /// Node colors: by group when groups are given, else per node when the palette has room,
-    /// else per column; beyond the palette the neutral "Other". Overrides win.
+    /// else per column; beyond the palette the neutral "Other". Overrides win, then levels.
     fn assign_colors(&mut self) {
         let n = self.graph.node_count;
         let pal = &self.style.palette;
@@ -457,6 +534,9 @@ impl SankeyChart {
             .map(|v| {
                 if let Some(Some(c)) = self.style.colors.get(v) {
                     return *c;
+                }
+                if let Some(c) = self.level(self.layer[v]).and_then(|lv| lv.color) {
+                    return c;
                 }
                 if any_group {
                     match self.graph.groups.get(v) {
@@ -478,10 +558,10 @@ impl SankeyChart {
         self.assign_colors();
     }
 
-    /// d3-sankey layout into `plot` (CSS px).
+    /// d3-sankey layout into `plot` (CSS px), in flow coordinates (see `css`).
     fn layout(&mut self, plot: [f32; 4]) {
         let n = self.graph.node_count;
-        let [left, top, w, h] = plot;
+        let [left, top, w, h] = self.flow_plot(plot);
         let nw = self.opts.node_width_px.min(w.max(1.0));
         let cols = self.layers.max(1);
         let mut columns: Vec<Vec<u32>> = vec![Vec::new(); cols as usize];
@@ -715,6 +795,7 @@ impl SankeyChart {
         if self.nodes.is_empty() {
             return None;
         }
+        let (x, y) = self.css(x, y);
         for (v, node) in self.nodes.iter().enumerate() {
             // Nodes thinner than 3 px hover within 1.5 px of their center
             let pad = (3.0 - (node.y1 - node.y0)).max(0.0) * 0.5;
@@ -770,6 +851,7 @@ impl SankeyChart {
             (1, l as u32, (x, y + 0.5 * w))
         };
         let (value, _) = self.item_value(series, index)?;
+        let (x, y) = self.css(x, y);
         let (wx, wy) = s.world(x, y);
         Some((series, index, value as f32, Vec3::new(wx, wy, 0.0)))
     }
@@ -832,48 +914,61 @@ impl SankeyChart {
         self.link_ranges.resize(self.link_count(), (0, 0));
         self.lit_nodes.clear();
         self.lit_links.clear();
-        let base_alpha = self.opts.link_opacity;
         let link_tag = fill_emphasis_tag(FILL_EMPH_ALPHA, false, 0);
+        let vertical = self.vertical();
+        let world = |p: (f32, f32)| if vertical { screen.world(p.1, p.0) } else { screen.world(p.0, p.1) };
         for &l in &self.order {
             let (x0, x1, top0, top1, w) = self.ribbon(l as usize);
             let start = fills.len() as u32;
             if w > 0.0 {
-                let link = &self.links[l as usize];
-                let mut color = match self.opts.link_color {
-                    SankeyLinkColor::Source => self.colors[link.source as usize],
-                    SankeyLinkColor::Target => self.colors[link.target as usize],
-                    SankeyLinkColor::Neutral => self.style.other_color,
-                };
-                color[3] = base_alpha;
-                let v = |p: (f32, f32)| ChartFillRaw { position: [p.0, p.1, 0.0, link_tag], color };
+                let (c0, c1) = self.link_colors(l as usize);
+                let v = |p: (f32, f32), color: [f32; 4]| ChartFillRaw { position: [p.0, p.1, 0.0, link_tag], color };
                 // Chords within ~0.25 px: the smoothstep's curvature peaks at 6 dy / dx^2, so
                 // sqrt(3 dy) uniform steps suffice
                 let n = ((3.0 * (top1 - top0).abs()).sqrt().ceil() as usize).clamp(2, 48);
-                let mut prev: Option<((f32, f32), (f32, f32))> = None;
+                let mut prev: Option<((f32, f32), (f32, f32), [f32; 4])> = None;
                 for k in 0..=n {
-                    let (x, y) = Self::bezier(x0, x1, top0, top1, k as f32 / n as f32);
-                    let (a, b) = (screen.world(x, y), screen.world(x, y + w));
-                    if let Some((pa, pb)) = prev {
-                        fills.extend([v(pa), v(pb), v(b), v(pa), v(b), v(a)]);
+                    let t = k as f32 / n as f32;
+                    let (x, y) = Self::bezier(x0, x1, top0, top1, t);
+                    let (a, b) = (world((x, y)), world((x, y + w)));
+                    // Gradient: linear in the ribbon parameter (the ends keep the node colors)
+                    let c = mix(c0, c1, t);
+                    if let Some((pa, pb, pc)) = prev {
+                        fills.extend([v(pa, pc), v(pb, pc), v(b, c), v(pa, pc), v(b, c), v(a, c)]);
                     }
-                    prev = Some((a, b));
+                    prev = Some((a, b, c));
                 }
             }
             self.link_ranges[l as usize] = (start, fills.len() as u32);
         }
         self.node_start = fills.len() as u32;
         let node_tag = fill_emphasis_tag(FILL_EMPH_FADE, false, 0);
-        for (node, &c) in self.nodes.iter().zip(&self.colors) {
-            // Snapped bars, at least one device pixel tall
-            let (x0, x1) = (screen.snap(node.x0), screen.snap(node.x1));
-            let (y0, mut y1) = (screen.snap(node.y0), screen.snap(node.y1));
-            if y1 - y0 < 1.0 / screen.pixel_ratio {
-                y1 = y0 + 1.0 / screen.pixel_ratio;
-            }
+        for (r, &c) in self.node_rects_css().iter().zip(&self.colors) {
+            // Snapped bars, at least one device pixel in both directions
+            let min = 1.0 / screen.pixel_ratio;
+            let (x0, mut x1) = (screen.snap(r[0]), screen.snap(r[2]));
+            let (y0, mut y1) = (screen.snap(r[1]), screen.snap(r[3]));
+            x1 = x1.max(x0 + min);
+            y1 = y1.max(y0 + min);
             let at = fills.len();
             push_rect(screen, [x0, y0, x1 - x0, y1 - y0], [c[0], c[1], c[2], 1.0], fills);
             fills[at..].iter_mut().for_each(|f| f.position[3] = node_tag);
         }
+    }
+
+    /// Ribbon colors at the source and target ends (with the link's opacity).
+    fn link_colors(&self, l: usize) -> ([f32; 4], [f32; 4]) {
+        let link = &self.links[l];
+        let (s, t) = (self.colors[link.source as usize], self.colors[link.target as usize]);
+        let (mut a, mut b) = match self.opts.link_color {
+            SankeyLinkColor::Source => (s, s),
+            SankeyLinkColor::Target => (t, t),
+            SankeyLinkColor::Neutral => (self.style.other_color, self.style.other_color),
+            SankeyLinkColor::Gradient => (s, t),
+        };
+        let alpha = self.link_alpha(l);
+        (a[3], b[3]) = (alpha, alpha);
+        (a, b)
     }
 
     /// Vertex range of node `v` in the built fills.
@@ -922,14 +1017,9 @@ impl SankeyChart {
     #[cfg(test)]
     pub(crate) fn recolor_reference(&self, hovered: Option<(u32, u32)>, fills: &mut [ChartFillRaw]) {
         let lit = self.lit(hovered);
-        let base_alpha = self.opts.link_opacity;
         for (l, &(a, b)) in self.link_ranges.iter().enumerate() {
-            let link = &self.links[l];
-            let mut color = match self.opts.link_color {
-                SankeyLinkColor::Source => self.colors[link.source as usize],
-                SankeyLinkColor::Target => self.colors[link.target as usize],
-                SankeyLinkColor::Neutral => self.style.other_color,
-            };
+            let (mut color, _) = self.link_colors(l);
+            let base_alpha = color[3];
             color[3] = match &lit {
                 Some((_, links)) if links[l] => (base_alpha + LINK_HOVER_BOOST).min(1.0),
                 Some(_) => base_alpha * LINK_HOVER_DIM,
@@ -954,13 +1044,17 @@ impl SankeyChart {
         }
     }
 
-    /// Node label anchors beside the bars (right of nodes in the left half, left of the rest);
-    /// within a column, larger nodes keep their label when two would be closer than a line.
+    /// Node label anchors beside the bars (right of nodes in the left half, left of the rest;
+    /// vertical: below nodes in the top half, above the rest, centered on the bar); within a
+    /// column, larger nodes keep their label when two would be closer than a line (vertical: the
+    /// label width).
     fn layout_labels(&mut self) {
         let mut labels = Vec::new();
         if self.opts.labels {
-            let mid = self.plot[0] + 0.5 * self.plot[2];
-            let line = self.opts.label_line_px;
+            let fp = self.flow_plot(self.plot);
+            let mid = fp[0] + 0.5 * fp[2];
+            let vertical = self.vertical();
+            let line = if vertical { self.opts.label_width_px.max(self.opts.label_line_px) } else { self.opts.label_line_px };
             let mut by_col: Vec<Vec<u32>> = vec![Vec::new(); self.layers as usize];
             for (v, node) in self.nodes.iter().enumerate() {
                 by_col[node.layer as usize].push(v as u32);
@@ -979,7 +1073,9 @@ impl SankeyChart {
                     taken.insert(k, y);
                     let right = node.x0 < mid;
                     let x = if right { node.x1 + LABEL_GAP_PX } else { node.x0 - LABEL_GAP_PX };
-                    labels.push(HierarchyLabel { node: v, x_css: x, y_css: y, w_css: 0.0, h_css: line, flags: if right { 1 } else { -1 } });
+                    let (x_css, y_css) = self.css(x, y);
+                    let side = if right { 1 } else { -1 } * if vertical { 2 } else { 1 };
+                    labels.push(HierarchyLabel { node: v, x_css, y_css, w_css: 0.0, h_css: self.opts.label_line_px, flags: side });
                 }
             }
         }
@@ -1238,6 +1334,130 @@ mod tests {
         let s = chart.sankey().unwrap();
         assert!(labels.iter().filter(|l| s.nodes[l.node as usize].layer == 0).all(|l| l.flags == 1));
         assert!(labels.iter().filter(|l| s.nodes[l.node as usize].layer == 2).all(|l| l.flags == -1));
+    }
+
+    #[test]
+    fn vertical_orient_runs_the_flow_top_to_bottom() {
+        let opts = SankeyOptions { orient: SankeyOrient::Vertical, label_width_px: 60.0, ..Default::default() };
+        let (mut chart, cam) = sankey(sample_graph(), opts);
+        let v = view(&cam);
+        let mut scene = SceneWorld::new();
+        chart.prepare_layers(&v);
+        let s = chart.sankey().unwrap();
+        let rects = s.node_rects_css();
+        let [left, top, w, h] = s.plot;
+        let (layers, values, rows) = (s.node_layers().to_vec(), s.node_values(), s.layers());
+        // Columns become rows: bars `node_width` tall, rows from the top edge to the bottom edge
+        for (k, r) in rects.iter().enumerate() {
+            assert!((r[3] - r[1] - DEFAULT_SANKEY_NODE_WIDTH).abs() < 1e-3, "node {k}: {r:?}");
+            assert!(r[0] >= left - 0.05 && r[2] <= left + w + 0.05, "inside the plot: {r:?}");
+        }
+        assert!((rects[0][1] - top).abs() < 1e-3 && (rects[6][3] - (top + h)).abs() < 1e-3);
+        for a in 0..7 {
+            for b in 0..7 {
+                if layers[a] < layers[b] {
+                    assert!(rects[a][1] < rects[b][1], "layer order runs down");
+                }
+            }
+        }
+        // Breadth (now the width) is proportional to the value; a row never overlaps
+        let kx = (rects[0][2] - rects[0][0]) / 17.0;
+        for (k, r) in rects.iter().enumerate() {
+            assert!(((r[2] - r[0]) - kx * values[k] as f32).abs() < 1e-2, "node {k}");
+        }
+        for row in 0..rows {
+            let mut xs: Vec<[f32; 4]> = (0..7).filter(|&k| layers[k] == row).map(|k| rects[k]).collect();
+            xs.sort_by(|a, b| a[0].total_cmp(&b[0]));
+            for p in xs.windows(2) {
+                assert!(p[1][0] >= p[0][2] + DEFAULT_SANKEY_NODE_PADDING - 1e-2, "row {row} overlaps");
+            }
+        }
+        // Hover works in screen space: nodes hover themselves, link midpoints mostly their link
+        let mut own = 0;
+        for id in 0..(7 + 10) {
+            let (series, index, _, p) = chart.sample(id).unwrap();
+            let n = cam.project_to_ndc(p).unwrap();
+            let hit = chart.hover_at(&v, &mut scene, (n.x, n.y)).expect("hit");
+            let got = (hit.items[0].series, hit.items[0].index);
+            if series == 0 {
+                assert_eq!(got, (0, index), "node {id}");
+            }
+            own += (got == (series, index)) as u32;
+        }
+        assert!(own >= 14, "{own} of 17");
+        // Labels centered on the bars: below them in the top half (flags 2), above in the bottom
+        let (labels, _) = chart.hierarchy_labels().unwrap();
+        assert!(!labels.is_empty());
+        for l in labels {
+            let r = rects[l.node as usize];
+            assert!((l.x_css - 0.5 * (r[0] + r[2])).abs() < 1e-3);
+            match layers[l.node as usize] {
+                0 => assert!(l.flags == 2 && l.y_css > r[3]),
+                2 => assert!(l.flags == -2 && l.y_css < r[1]),
+                _ => {}
+            }
+        }
+        // Labels in a row keep `label_width_px` apart (centers)
+        let mut row0: Vec<f32> = labels.iter().filter(|l| layers[l.node as usize] == 0).map(|l| l.x_css).collect();
+        row0.sort_by(f32::total_cmp);
+        assert!(row0.windows(2).all(|p| p[1] - p[0] >= 60.0));
+    }
+
+    #[test]
+    fn gradient_links_blend_from_source_to_target_color() {
+        let (mut chart, cam) = sankey(sample_graph(), SankeyOptions { link_color: SankeyLinkColor::Gradient, ..Default::default() });
+        chart.prepare_layers(&view(&cam));
+        let s = chart.sankey().unwrap();
+        let rgb = |c: [f32; 4]| [c[0], c[1], c[2]];
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-4);
+        for l in 0..s.link_count() {
+            let (a, b) = s.link_ranges[l];
+            let link = s.links()[l];
+            let (src, tgt) = (s.colors[link.source as usize], s.colors[link.target as usize]);
+            let (first, last) = (chart.fills[a as usize].color, chart.fills[b as usize - 1].color);
+            assert!(close(rgb(first), rgb(src)) && close(rgb(last), rgb(tgt)), "link {l}");
+            assert_eq!((first[3], last[3]), (DEFAULT_SANKEY_LINK_OPACITY, DEFAULT_SANKEY_LINK_OPACITY));
+            // Halfway along the ribbon: halfway between the colors
+            let mid = chart.fills[(a + (b - a) / 2) as usize].color;
+            for k in 0..3 {
+                let (lo, hi) = (src[k].min(tgt[k]) - 1e-4, src[k].max(tgt[k]) + 1e-4);
+                assert!((lo..=hi).contains(&mid[k]));
+            }
+        }
+        assert_eq!(SankeyLinkColor::from_u8(3), SankeyLinkColor::Gradient);
+    }
+
+    #[test]
+    fn levels_color_columns_and_set_their_link_opacity() {
+        let (red, green, blue) = ([1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]);
+        let mut g = sample_graph();
+        g.levels = vec![
+            SankeyLevel { column: 0, color: Some(red), link_opacity: Some(0.9) },
+            SankeyLevel { column: 2, color: Some(blue), link_opacity: None },
+        ];
+        validate_sankey(&g).unwrap();
+        let mut style = HierarchyStyle::default();
+        style.colors = vec![None, Some(green)];
+        let chart = ChartState::new_sankey(g, SankeyOptions::default(), style.clone());
+        let mut cam = OrbitCamera::new(150.0, 16.0 / 9.0);
+        cam.set_pose(Vec3::new(0.0, 0.0, 150.0), Vec3::ZERO);
+        let mut chart = chart;
+        chart.frame_camera(&mut cam, (1600.0, 900.0));
+        chart.prepare_layers(&view(&cam));
+        let s = chart.sankey().unwrap();
+        // Node override > level color > palette
+        assert_eq!((s.colors[0], s.colors[1], s.colors[5], s.colors[6]), (red, green, blue, blue));
+        assert_eq!(s.colors[2], style.palette[2]);
+        // Links leaving column 0 take its opacity; the rest keep the default
+        for l in 0..s.link_count() {
+            let (a, _) = s.link_ranges[l];
+            let want = if s.node_layers()[s.links()[l].source as usize] == 0 { 0.9 } else { DEFAULT_SANKEY_LINK_OPACITY };
+            assert_eq!(chart.fills[a as usize].color[3], want, "link {l}");
+        }
+        // Levels must name real columns once; opacities stay in [0, 1]
+        let mut bad = sample_graph();
+        bad.levels = vec![SankeyLevel { column: 0, color: None, link_opacity: Some(2.0) }];
+        assert!(validate_sankey(&bad).unwrap_err().contains("level"));
     }
 
     #[test]

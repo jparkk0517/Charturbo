@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### 추가 — 생키 세로 방향 · 그라데이션 링크 · 단계 스타일
+
+- `SankeyChartOptions.orient: 'vertical'`: 같은 d3-sankey 배치를 흐름 좌표에서 계산하고 화면에서 x · y를 바꿉니다. hit test · 키보드 · 노드 사각형 · 라벨(막대 아래/위, 가운데 정렬)이 모두 따라갑니다.
+- `linkColor: 'gradient'`: 리본이 출발 노드 색에서 도착 노드 색으로 바뀝니다.
+- `levels: [{ column, color?, linkOpacity? }]`: 열마다 노드 색과 나가는 링크의 불투명도를 정합니다.
+- WASM `set_sankey_chart`의 `options`에 `orient` · `label_width_px`를 추가하고, 마지막 인자 `levels`(단계마다 6개 값)를 추가했습니다. 라벨 flags ±2는 세로 배치(아래/위)입니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `hierarchy/04-sankey-vertical`, WebGPU/WebGL2 fixture `sankey-vertical-gradient`를 추가했습니다.
+
 ### 추가 — 파이 다중 고리 (중첩 파이)
 
 - `renderPieChart({ rings: [...] })`로 여러 고리를 그립니다. 퍼센트 · 각도 · "Other" 접기 · 라벨 방식은 고리별로 계산하며, 같은 이름의 조각은 고리를 넘어 색 · 범례 항목 · 강조를 공유합니다. React/Vue `type="pie"`도 같은 데이터를 받습니다.

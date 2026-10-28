@@ -157,6 +157,7 @@ export {
   type HierarchyNode,
   type SankeyChartData,
   type SankeyChartOptions,
+  type SankeyLevelOptions,
   type SankeyLinkInput,
   type SankeyNodeInput,
   type SunburstChartOptions,

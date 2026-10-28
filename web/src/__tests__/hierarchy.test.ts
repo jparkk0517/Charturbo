@@ -524,6 +524,41 @@ describe('Hierarchy / flow charts (SDK binding)', () => {
     ).toThrow('Sankey links form a cycle: "Alpha" -> "Beta" -> "Alpha"');
   });
 
+  it('renderSankey: vertical orient, gradient links and per-column levels', () => {
+    const calls: Calls = {};
+    const st = state();
+    // Sankey labels: node 0 below its bar (2), node 3 above (-2)
+    st.labels = [0, 100, 40, 0, 14, 2, 3, 300, 260, 0, 14, -2];
+    const sdk = Charturbo.fromBackend(mockBackend(calls, st));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    sdk.renderSankey(SANKEY, {
+      orient: 'vertical',
+      linkColor: 'gradient',
+      levels: [{ column: 0, color: '#ff0000', linkOpacity: 0.8 }, { column: 2, linkOpacity: 0.3 }],
+    });
+    sdk.render();
+    const args = calls.set_sankey_chart[0];
+    const opts = args[6] as Float64Array;
+    expect([opts[4], opts[8]]).toEqual([3, 1]);
+    // Widest label estimate: longest name + a value at ~6.5 px per character
+    expect(opts[9]).toBeGreaterThan(40);
+    const levels = Array.from(args[7] as Float32Array);
+    expect(levels.slice(0, 6)).toEqual([0, 1, 0, 0, 1, 0.800000011920929]);
+    expect(levels[6]).toBe(2);
+    expect(levels.slice(7, 11).every(Number.isNaN)).toBe(true);
+    expect(levels[11]).toBeCloseTo(0.3, 6);
+    // Vertical labels: centered on the bar, below (2) or above (-2) it
+    const labels = container.querySelectorAll('.charturbo-sdk-hierarchy-label');
+    expect(labels[0].style.transform).toBe('translate(-50%, 0)');
+    expect(labels[1].style.transform).toBe('translate(-50%, -100%)');
+    // Defaults: horizontal, no levels
+    sdk.renderSankey(SANKEY);
+    const second = calls.set_sankey_chart[1];
+    expect((second[6] as Float64Array)[8]).toBe(0);
+    expect((second[7] as Float32Array).length).toBe(0);
+    expect(() => sdk.renderSankey(SANKEY, { levels: [{ column: 0, linkOpacity: 2 }] })).toThrow(/linkOpacity/);
+  });
+
   it('default tooltip html escapes names', () => {
     const ctx: ChartTooltipContext = {
       chartType: 'sankey',

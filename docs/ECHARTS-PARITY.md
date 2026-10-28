@@ -22,7 +22,7 @@ HANDOFF의 계약을 따른다.
   - [x] `endAngle`(반 도넛): 범위 bbox에 맞춰 화면을 잡음
   - [x] 모서리 둥글게: CSS px 단위, d3-shape `cornerRadius` 작도
   - [x] 중첩 링: 독립 고리 API, 이름 그룹으로 색 · 범례 공유
-- [ ] 생키: 세로 방향(orient), levels 스타일, 그라데이션 링크 (sankey 7)
+- [x] 생키: 세로 방향(orient), levels 스타일, 그라데이션 링크 (sankey 7)
 - [ ] 범례: 위치 지정, 넘침 시 스크롤/페이지
 - [ ] 산점도: 심볼 모양, 파동 효과(effectScatter), jitter
 - [ ] 선·막대: 구간 색칠(piecewise), 회귀선(최소제곱), 막대 배경, 라벨 회전

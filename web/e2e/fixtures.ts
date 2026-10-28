@@ -586,6 +586,20 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    name: 'sankey-vertical-gradient',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderSankey(energyFlows(), {
+          title: 'Vertical sankey',
+          orient: 'vertical',
+          linkColor: 'gradient',
+          levels: [{ column: 0, linkOpacity: 0.7 }, { column: 2, color: '#64748b' }],
+          padding: { top: 36, right: 12, bottom: 12, left: 12 },
+        });
+      }),
+  },
+  {
     name: 'sparklines',
     theme: 'light',
     render: async (ctx) => {

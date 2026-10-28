@@ -855,10 +855,14 @@ sdk.renderSankey(
   { nodes: [{ id: 'coal', name: 'Coal' }, { id: 'power', name: 'Electricity', column: 1 }, { id: 'homes', name: 'Homes', group: 'use' }],
     links: [{ source: 'coal', target: 'power', value: 30 }, { source: 'power', target: 'homes', value: 28 }] },
   { title: 'Energy', format: ',.0f', nodeWidth: 12, nodePadding: 10, iterations: 32, align: 'justify' /* | 'left' | 'right' | 'center' */,
-    linkColor: 'source' /* | 'target' | 'neutral' */, linkOpacity: 0.5 }
+    linkColor: 'source' /* | 'target' | 'neutral' | 'gradient' */, linkOpacity: 0.5,
+    orient: 'horizontal' /* | 'vertical' */, levels: [{ column: 0, color: '#ef4444', linkOpacity: 0.8 }] }
 );
 // 툴팁 ctx.flow = { kind: 'link', source, target, value, percentOfSource } | { kind: 'node', source, value, inflow, outflow }
 ```
+- 세로 방향(`orient: 'vertical'`): 같은 배치를 흐름 좌표(흐름 방향 · 가로지르는 방향)에서 계산하고 화면에서 x · y만 바꿉니다. 열은 위에서 아래로 쌓이는 행이 되고, hit test · 키보드 위치 · 내보내는 노드 사각형도 같은 변환을 씁니다. 라벨은 막대 가운데에 맞춰 위쪽 절반은 아래, 아래쪽 절반은 위에 놓고, 같은 행에서는 가장 긴 라벨 폭(SDK 추정)만큼 떨어뜨립니다
+- 링크 색 `'gradient'`: 리본 정점 색이 출발 노드 색에서 도착 노드 색으로 리본 매개변수에 따라 선형으로 바뀝니다
+- 단계 스타일(`levels`, ECharts `levels`): 열마다 노드 색(노드 `color`가 우선)과 그 열에서 나가는 링크의 불투명도를 정합니다. 같은 열을 여러 번 쓰면 마지막 항목이 이깁니다
 - d3-sankey 방식을 Rust로: 최장 경로 열 배정(정렬 / 명시적 `column` = 최소 열: 출발 노드보다 항상 오른쪽, 사용된 열만 압축), 노드 값 = max(유입, 유출), 가장 빽빽한 열 기준 `ky`로 폭 ∝ 값, `iterations`회 이완(가중 y로 이동, 오른쪽→왼쪽 / 왼쪽→오른쪽, alpha 0.99^i) + 열마다 충돌 해소(마지막 회차는 완전 해소 → 같은 열 노드는 겹치지 않음). 노드별 링크 순서는 패스마다 재정렬, 부착 오프셋은 누적합이라 허브 노드가 있어도 회차당 O(N + L log L)(노드 1만 · 링크 1.8만: release ≈ 50ms)
 - 링크 = 양 끝 수평 접선 3차 베지어 리본(두께 = 값), 화면 곡률에 맞춘 분할 수, 반투명, 두꺼운 것부터 그려 얇은 흐름이 위에 보임. hover: 노드(열 → 사각형) 다음 리본(x(t) = x 풀이 후 밴드 비교, 위에서부터). hover한 노드 / 링크와 연결된 흐름만 밝게(지오메트리는 그대로, 색만 다시 칠함)
 - 순환 링크는 예외(`Sankey links form a cycle: "A" -> "B" -> "A"`), 자기 자신 링크 · 음수 / 비유한 값 · 양 끝이 모두 명시적인데 앞 열로 가는 링크도 예외

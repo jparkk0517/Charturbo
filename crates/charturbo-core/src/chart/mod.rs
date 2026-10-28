@@ -111,7 +111,7 @@ pub use pie::{
 use hierarchy::HierChart;
 pub use hierarchy::{HierarchyColorBy, HierarchyLabel, HierarchyLayoutInfo, HierarchyStyle, Tree, NO_PARENT};
 pub use sankey::{
-    validate_sankey, SankeyAlign, SankeyChart, SankeyGraph, SankeyLink, SankeyLinkColor, SankeyNode, SankeyOptions,
+    validate_sankey, SankeyAlign, SankeyChart, SankeyGraph, SankeyLevel, SankeyLink, SankeyLinkColor, SankeyNode, SankeyOptions, SankeyOrient,
 };
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
