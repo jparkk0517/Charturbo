@@ -62,15 +62,10 @@ struct ScenePackKey {
 pub const SLEEP_CALM_STEPS: u32 = 30;
 
 pub enum GpuPhysicsRequest {
+    /// Done now: energy of the newest adopted layout (the GPU may still be stepping)
     Immediate(f32),
-    Pending(u32, crate::renderer::gpu_layout::GpuReadback),
-}
-
-struct PendingPhysics {
-    ticket: u32,
-    revision: u64,
-    config: ForceConfig,
-    dt: f32,
+    /// Full-state readback for `complete_physics_sync(ticket)`
+    Pending(u32, crate::renderer::gpu_layout::GpuSync),
 }
 
 /// Share of the view `fit_to_view` fills (0.9 = 5 % margin on each side).
@@ -110,7 +105,16 @@ pub struct VisualizationEngine {
     /// tweens from it
     chart_anim_prev: Option<AnimSnapshot>,
     physics_ticket: u32,
-    pending_physics: Option<PendingPhysics>,
+    sync_ticket: Option<u32>,
+    /// The GPU holds the authoritative layout (WebGPU `request_gpu_physics`); the CPU copy
+    /// trails it through asynchronous readbacks until the CPU steps or edits it again.
+    gpu_resident: bool,
+    /// Kinetic energy of the newest adopted GPU readback
+    gpu_energy: f32,
+    /// A wake-up the GPU sleep counter has not seen yet
+    gpu_sleep_reset: bool,
+    /// Unpinned node count sent with GPU steps (refreshed with every layout upload)
+    gpu_free: u32,
 }
 
 impl VisualizationEngine {
@@ -148,7 +152,11 @@ impl VisualizationEngine {
             chart_animation: None,
             chart_anim_prev: None,
             physics_ticket: 0,
-            pending_physics: None,
+            sync_ticket: None,
+            gpu_resident: false,
+            gpu_energy: 0.0,
+            gpu_sleep_reset: false,
+            gpu_free: 0,
         }
     }
 
@@ -203,6 +211,7 @@ impl VisualizationEngine {
     pub fn warmup(&mut self, ticks: usize, dt: f32) -> f32 {
         self.ensure_spatial_index();
         self.wake_up();
+        self.gpu_resident = false;
         for _ in 0..ticks {
             self.simulator.step(&mut self.dataset, dt);
         }
@@ -219,41 +228,96 @@ impl VisualizationEngine {
         }
         self.ensure_spatial_index();
         self.simulator.step(&mut self.dataset, dt);
+        // A real CPU step makes the CPU copy authoritative; the next GPU step re-uploads it
+        self.gpu_resident &= !(dt.is_finite() && dt > 0.0);
         self.finish_physics_step(scene_ke)
     }
 
-    /// GPU work holds a snapshot, never a borrow of the engine across an await.
+    /// One layout step on the GPU-resident layout (WebGPU), else a CPU step. Returns at
+    /// submission: the CPU copy, picking and energy follow through asynchronous readbacks.
+    /// Pending CPU layout edits are uploaded first (one node at a time, or whole).
     pub fn request_gpu_physics(&mut self, dt: f32) -> Result<GpuPhysicsRequest, String> {
-        self.pending_physics = None;
+        use crate::renderer::gpu_layout::{node_state, node_states, GpuLayoutStep, GpuSleep, GpuStateWrite};
+        self.adopt_gpu_readback();
+        if self.gpu_resident && !(dt.is_finite() && dt > 0.0) {
+            return Ok(GpuPhysicsRequest::Immediate(self.gpu_energy + self.scene.step_physics(0.0)));
+        }
         if !self.renderer.supports_gpu_physics() || !self.graph_visible || self.dataset.node_count() == 0
             || (self.auto_sleep_enabled && self.sleeping) || !dt.is_finite() || dt <= 0.0 {
             return Ok(GpuPhysicsRequest::Immediate(self.step_physics(dt)));
         }
-        let config = self.simulator.force_config();
-        let step = crate::renderer::gpu_layout::GpuLayoutStep::new(&self.dataset, config, dt);
-        let readback = self.renderer.gpu_layout(&step)?;
-        self.physics_ticket = self.physics_ticket.wrapping_add(1).max(1);
-        self.pending_physics = Some(PendingPhysics {
-            ticket: self.physics_ticket, revision: self.dataset.revision(), config, dt,
-        });
-        Ok(GpuPhysicsRequest::Pending(self.physics_ticket, readback))
+        let dirty = self.dataset.take_layout_dirty();
+        let full = dirty.full || !self.gpu_resident;
+        let (states, nodes): (Vec<_>, Vec<_>) = if full {
+            (node_states(&self.dataset), Vec::new())
+        } else {
+            (Vec::new(), dirty.nodes.iter().map(|&id| (id, node_state(&self.dataset.nodes()[id as usize]))).collect())
+        };
+        let write = if full { GpuStateWrite::Full(&states) } else if nodes.is_empty() { GpuStateWrite::Keep } else { GpuStateWrite::Nodes(&nodes) };
+        if full || !nodes.is_empty() {
+            self.gpu_free = self.dataset.nodes().iter().filter(|n| !n.is_pinned()).count() as u32;
+        }
+        let sleep = GpuSleep {
+            enabled: self.auto_sleep_enabled, threshold: self.sleep_threshold, free: self.gpu_free,
+            reset: std::mem::take(&mut self.gpu_sleep_reset) || full,
+        };
+        let step = GpuLayoutStep::new(&self.dataset, write, self.simulator.force_config(), dt, sleep);
+        if let Err(e) = self.renderer.gpu_layout_step(&step) {
+            // The edits taken above were not uploaded: the next GPU step re-uploads everything
+            self.gpu_resident = false;
+            return Err(e);
+        }
+        self.gpu_resident = true;
+        let scene_ke = self.scene.step_physics(dt);
+        Ok(GpuPhysicsRequest::Immediate(self.gpu_energy + scene_ke))
     }
 
-    /// `state` is the GPU layout readback: 8 floats of state per node, then 1 energy per node.
-    pub fn complete_gpu_physics(&mut self, ticket: u32, state: &[f32]) -> Result<f32, &'static str> {
-        if self.pending_physics.as_ref().map(|p| p.ticket) != Some(ticket) {
-            return Err("GPU physics request was superseded");
+    /// Adopts the newest periodic GPU readback into the CPU copy (no-op unless GPU-resident).
+    fn adopt_gpu_readback(&mut self) {
+        if !self.gpu_resident { return; }
+        if let Some(r) = self.renderer.gpu_layout_readback() { self.adopt_gpu_layout(r); }
+    }
+
+    fn adopt_gpu_layout(&mut self, r: crate::renderer::gpu_layout::GpuLayoutReadback) {
+        // Pending CPU edits win: whole-layout edits reject the readback, node edits keep their nodes
+        if !self.dataset.adopt_gpu_layout(&r.state) { return; }
+        self.index_dirty = true;
+        self.gpu_energy = r.energy;
+        // A wake-up after this readback was submitted outranks its sleep state
+        if self.auto_sleep_enabled && !self.gpu_sleep_reset {
+            self.calm_steps = r.calm_steps;
+            self.sleeping = r.sleeping;
         }
-        let pending = self.pending_physics.take().unwrap();
-        // Revisions are globally unique, including after replacement by same-sized data.
-        if !self.graph_visible || self.dataset.revision() != pending.revision || self.simulator.force_config() != pending.config {
-            return Err("Graph changed while GPU physics was running; result discarded");
+    }
+
+    /// Reads back the full GPU-resident layout (after pushing pending CPU node edits);
+    /// `Immediate` when the CPU copy is already authoritative.
+    pub fn request_physics_sync(&mut self) -> Result<GpuPhysicsRequest, String> {
+        use crate::renderer::gpu_layout::{node_state, GpuStateWrite};
+        if !self.gpu_resident || self.dataset.layout_dirty().full {
+            return Ok(GpuPhysicsRequest::Immediate(self.gpu_energy));
         }
-        if !self.simulator.apply_gpu_step(&mut self.dataset, state) {
-            return Err("Invalid GPU layout result");
+        let dirty = self.dataset.take_layout_dirty();
+        if !dirty.nodes.is_empty() {
+            let nodes: Vec<_> = dirty.nodes.iter().map(|&id| (id, node_state(&self.dataset.nodes()[id as usize]))).collect();
+            if let Err(e) = self.renderer.gpu_layout_write(GpuStateWrite::Nodes(&nodes)) {
+                self.gpu_resident = false;
+                return Err(e);
+            }
         }
-        let scene_ke = self.scene.step_physics(pending.dt);
-        Ok(self.finish_physics_step(scene_ke))
+        let sync = self.renderer.gpu_layout_sync()?;
+        self.physics_ticket = self.physics_ticket.wrapping_add(1).max(1);
+        self.sync_ticket = Some(self.physics_ticket);
+        Ok(GpuPhysicsRequest::Pending(self.physics_ticket, sync))
+    }
+
+    pub fn complete_physics_sync(&mut self, ticket: u32) -> Result<(), &'static str> {
+        if self.sync_ticket != Some(ticket) {
+            return Err("GPU physics sync was superseded");
+        }
+        self.sync_ticket = None;
+        if let Some(r) = self.renderer.gpu_layout_take_sync() { self.adopt_gpu_layout(r); }
+        Ok(())
     }
 
     pub fn supports_gpu_physics(&self) -> bool { self.renderer.supports_gpu_physics() }
@@ -299,6 +363,7 @@ impl VisualizationEngine {
     pub fn wake_up(&mut self) {
         self.sleeping = false;
         self.calm_steps = 0;
+        self.gpu_sleep_reset = true;
     }
 
     pub fn force_config(&self) -> ForceConfig {
@@ -328,11 +393,14 @@ impl VisualizationEngine {
     }
 
     pub fn sync_and_render(&mut self) {
-        if self.frustum_culling {
+        self.adopt_gpu_readback();
+        // The CPU index trails a GPU-resident layout by a frame or two: draw every node instead
+        let culling = self.frustum_culling && !self.gpu_resident;
+        if culling {
             self.ensure_spatial_index();
         }
         // Graph instances: repacked / re-uploaded only when the data, hover, or culling view changed
-        let cull_view = (self.graph_visible && self.frustum_culling)
+        let cull_view = (self.graph_visible && culling)
             .then(|| self.camera.view_proj_matrix().to_cols_array());
         let graph_key = GraphPackKey {
             revision: self.dataset.revision(),
@@ -345,7 +413,7 @@ impl VisualizationEngine {
             if !self.graph_visible {
                 self.renderer.sync_graph(&[], 0, &[]);
             } else {
-                let mask = if self.frustum_culling {
+                let mask = if culling {
                     let frustum = self.camera.frustum();
                     self.simulator
                         .spatial_index()

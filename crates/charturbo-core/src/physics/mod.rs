@@ -52,9 +52,6 @@ impl ForceConfig {
 /// Strategy trait for graph/embedding layout simulation.
 pub trait LayoutSimulator {
     fn step(&mut self, dataset: &mut GraphDataset, dt: f32);
-    /// Apply a GPU layout step: `[position_mass, velocity_pinned]` per node, then one kinetic
-    /// energy per node (see `renderer::gpu_layout`). Invalid results leave the layout untouched.
-    fn apply_gpu_step(&mut self, _dataset: &mut GraphDataset, _values: &[f32]) -> bool { false }
     /// Kinetic energy after the last `step`, if the simulator tracks it (saves an O(N) pass).
     fn kinetic_energy(&self) -> Option<f32> {
         None
@@ -107,20 +104,6 @@ impl<S: SpatialIndex> ForceDirectedSimulator<S> {
 }
 
 impl<S: SpatialIndex> LayoutSimulator for ForceDirectedSimulator<S> {
-    fn apply_gpu_step(&mut self, dataset: &mut GraphDataset, values: &[f32]) -> bool {
-        let n = dataset.node_count();
-        if values.len() != n * 9 || !values.iter().all(|v| v.is_finite()) { return false; }
-        let (states, energy) = values.split_at(n * 8);
-        for (node, s) in dataset.nodes_mut().iter_mut().zip(states.chunks_exact(8)) {
-            node.set_position(Vec3::new(s[0], s[1], s[2]));
-            node.set_velocity(Vec3::new(s[4], s[5], s[6]));
-        }
-        // Same sequential order as the CPU integrator (skipped nodes contribute 0)
-        self.last_kinetic_energy = energy.iter().sum();
-        self.populate_and_rebuild_index(dataset);
-        true
-    }
-
     fn step(&mut self, dataset: &mut GraphDataset, dt: f32) {
         let node_count = dataset.node_count();
         // Large frame gaps (tab switch) must not explode the integration
@@ -224,35 +207,6 @@ mod tests {
     use super::*;
     use crate::domain::{EdgeData, NodeData};
     use crate::spatial::OctreeSpatialIndex;
-
-    #[test]
-    fn gpu_step_results_replace_positions_velocities_energy_and_index() {
-        let nodes = (0..3).map(|i| NodeData::new(i, Vec3::new(i as f32, 0.0, 0.0), 0, 2.0, [1.0; 4])).collect();
-        let mut ds = GraphDataset::new(nodes, vec![EdgeData::new(0, 1, 1.0)]).unwrap();
-        ds.set_node_pinned(2, true);
-        let mut sim = ForceDirectedSimulator::new(OctreeSpatialIndex::default(), ForceConfig::default());
-        sim.rebuild_spatial_index(&ds);
-        // [position_mass, velocity_pinned] per node, then one kinetic energy per node.
-        let mut values = vec![
-            10.0, 0.0, 0.0, 2.0, 1.0, 0.0, 0.0, 0.0,
-            20.0, 0.0, 0.0, 2.0, 0.0, 2.0, 0.0, 0.0,
-            2.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0,
-            1.0, 4.0, 0.0,
-        ];
-        let revision = ds.revision();
-        assert!(sim.apply_gpu_step(&mut ds, &values));
-        assert_ne!(ds.revision(), revision);
-        assert_eq!(ds.nodes()[1].position(), Vec3::new(20.0, 0.0, 0.0));
-        assert_eq!(ds.nodes()[1].velocity(), Vec3::new(0.0, 2.0, 0.0));
-        assert_eq!(ds.nodes()[2].velocity(), Vec3::ZERO);
-        assert_eq!(sim.kinetic_energy(), Some(5.0));
-        assert_eq!(sim.spatial_index().query_sphere(Vec3::new(20.0, 0.0, 0.0), 0.5, 4), vec![1]);
-        // Wrong length or a nonfinite value leaves the layout untouched.
-        values[8] = f32::NAN;
-        assert!(!sim.apply_gpu_step(&mut ds, &values));
-        assert!(!sim.apply_gpu_step(&mut ds, &values[..24]));
-        assert_eq!(ds.nodes()[1].position(), Vec3::new(20.0, 0.0, 0.0));
-    }
 
     #[test]
     fn unconnected_close_nodes_push_apart() {

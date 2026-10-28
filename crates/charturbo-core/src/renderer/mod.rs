@@ -473,9 +473,19 @@ impl InstancePacker {
 /// keep the last uploaded buffers and redraw them as-is.
 pub trait RenderBackend {
     fn supports_gpu_physics(&self) -> bool { false }
-    fn gpu_layout(&mut self, _step: &gpu_layout::GpuLayoutStep) -> Result<gpu_layout::GpuReadback, String> {
+    /// Steps the GPU-resident layout (see `gpu_layout.rs`).
+    fn gpu_layout_step(&mut self, _step: &gpu_layout::GpuLayoutStep) -> Result<(), String> {
         Err("GPU physics requires a WebGPU device".into())
     }
+    fn gpu_layout_write(&mut self, _write: gpu_layout::GpuStateWrite) -> Result<(), String> {
+        Err("GPU physics requires a WebGPU device".into())
+    }
+    /// Newest periodic readback not superseded by a CPU write.
+    fn gpu_layout_readback(&mut self) -> Option<gpu_layout::GpuLayoutReadback> { None }
+    fn gpu_layout_sync(&mut self) -> Result<gpu_layout::GpuSync, String> {
+        Err("GPU physics requires a WebGPU device".into())
+    }
+    fn gpu_layout_take_sync(&mut self) -> Option<gpu_layout::GpuLayoutReadback> { None }
     /// Node instances (`opaque_nodes` leading opaque ones, then translucent) and graph edges.
     fn sync_graph(
         &mut self,

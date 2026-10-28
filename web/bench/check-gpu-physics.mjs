@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Real WebGPU/WASM checks; no mocks. Includes readback, stale jobs, shared devices and GL fallback.
+// Real WebGPU/WASM checks; no mocks. GPU-resident steps vs CPU, explicit sync, CPU edits applied
+// in order, sleep, disposal, shared devices and the WebGL2 CPU fallback.
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { openReport } from './report-browser.mjs';
@@ -34,10 +35,12 @@ try {
         cpu.loadDataset(raw); gpu.loadDataset(raw);
         cpu.setForceOptions({ theta }); gpu.setForceOptions({ theta });
         cpu.pinNode(2, true); gpu.pinNode(2, true);
-        let a, b;
+        let a;
         for (let tick = 0; tick < ticks; tick++) {
-          a = cpu.stepPhysics(.016); b = await gpu.stepPhysicsAsync(.016);
+          a = cpu.stepPhysics(.016); await gpu.stepPhysicsAsync(.016);
         }
+        await gpu.syncPhysicsPositions();
+        const b = await gpu.stepPhysicsAsync(0); // energy of the synced layout, no step
         const x = cpu.exportPositions(), y = gpu.exportPositions();
         check(x.length === y.length && y.every(Number.isFinite), 'finite complete positions');
         let maxError = 0;
@@ -45,31 +48,39 @@ try {
         check(maxError < .02, `CPU/GPU coordinate error ${maxError} at ${nodes} nodes`);
         check(Math.abs(a - b) / Math.max(a, 1) < .005, 'CPU/GPU kinetic energy');
         check(y[6] === raw.positions[6] && y[7] === raw.positions[7] && y[8] === raw.positions[8], 'pinned node moved');
-        check(gpu.queryRadius(y[0], y[1], y[2], .001, nodes).includes(0), 'spatial index stale after await');
+        check(gpu.queryRadius(y[0], y[1], y[2], .001, nodes).includes(0), 'spatial index stale after sync');
         gpu.render();
         comparisons.push({ nodes, ticks, theta, maxError });
       }
-      // Rendering/camera updates are safe while a GPU job is in flight.
+      // Rendering/camera updates are safe while a step is pending.
       let pending = gpu.stepPhysicsAsync(.016);
       gpu.rotateCamera(.1, 0); gpu.render();
       await rejects(gpu.stepPhysicsAsync(.016), /already pending/);
       await pending;
+      // CPU edits apply in order; in-flight GPU state never overwrites them.
       const raw = graphData({ nodes: 128, edges: 256, clusters: 8, seed: 9 });
-      pending = gpu.stepPhysicsAsync(.016);
-      gpu.loadDataset(raw);
-      await rejects(pending, /Graph changed/);
-      check(gpu.exportPositions().every((v, i) => v === raw.positions[i]), 'stale job overwrote replacement');
-      pending = gpu.stepPhysicsAsync(.016); gpu.setForceOptions({ theta: .5 });
-      await rejects(pending, /Graph changed/);
-      await gpu.stepPhysicsAsync(.016); // Recovers after rejection.
-      pending = gpu.stepPhysicsAsync(.016); gpu.stepPhysics(.016);
-      await rejects(pending, /Graph changed/);
+      await gpu.stepPhysicsAsync(.016);
+      gpu.loadDataset(raw); gpu.render();
+      check(gpu.exportPositions().every((v, i) => v === raw.positions[i]), 'GPU readback overwrote a replaced dataset');
+      await gpu.stepPhysicsAsync(.016);
+      gpu.moveNode(5, 40, 50, 60); gpu.pinNode(5, true); gpu.setForceOptions({ theta: .5 });
+      for (let i = 0; i < 3; i++) await gpu.stepPhysicsAsync(.016);
+      await gpu.syncPhysicsPositions();
+      let p = gpu.exportPositions();
+      check(p[15] === 40 && p[16] === 50 && p[17] === 60, 'GPU steps lost a moved, pinned node');
+      // A CPU step makes the CPU copy authoritative; GPU steps continue from it.
+      gpu.stepPhysics(.016);
+      const cpuStepped = gpu.exportPositions();
+      await gpu.stepPhysicsAsync(.016); await gpu.syncPhysicsPositions();
+      p = gpu.exportPositions();
+      check(p.every(Number.isFinite) && p.some((v, i) => v !== cpuStepped[i]), 'GPU did not continue from a CPU step');
       const before = gpu.exportPositions();
-      await gpu.stepPhysicsAsync(0);
+      await gpu.stepPhysicsAsync(0); await gpu.syncPhysicsPositions();
       check(gpu.exportPositions().every((v, i) => v === before[i]), 'zero dt moved nodes');
       gpu.loadDataset({ positions: new Float32Array([0, 0, 0, 1, 0, 0]) });
       gpu.pinNode(0, true); gpu.pinNode(1, true); gpu.setAutoSleep(true);
       for (let i = 0; i < 31; i++) await gpu.stepPhysicsAsync(.016);
+      await gpu.syncPhysicsPositions();
       check(gpu.isSleeping(), 'GPU physics did not honor auto-sleep');
       gpu.setAutoSleep(false);
       pending = gpu.stepPhysicsAsync(.016); gpu.dispose();
@@ -96,6 +107,6 @@ try {
   }
   assert.equal(result.length, 4);
   assert.deepEqual(browser.errors, []);
-  console.log('[bench:physics:check] CPU/GPU quality, pins, picking, stale/concurrent jobs, sleep, disposal, WebGL2 fallback passed');
+  console.log('[bench:physics:check] CPU/GPU quality, sync, pins, picking, ordered CPU edits, concurrent steps, sleep, disposal, WebGL2 fallback passed');
   console.log(JSON.stringify(result, null, 2));
 } finally { await browser.close(); }

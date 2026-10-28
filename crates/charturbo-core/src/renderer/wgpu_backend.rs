@@ -1167,10 +1167,28 @@ impl RenderBackend for WgpuRenderBackend {
         self.device.limits().max_compute_workgroups_per_dimension > 0
     }
 
-    fn gpu_layout(&mut self, step: &super::gpu_layout::GpuLayoutStep) -> Result<super::gpu_layout::GpuReadback, String> {
+    fn gpu_layout_step(&mut self, step: &super::gpu_layout::GpuLayoutStep) -> Result<(), String> {
         if !self.supports_gpu_physics() { return Err("GPU physics requires WebGPU".into()); }
         self.gpu_physics.get_or_insert_with(|| super::gpu_layout::GpuLayout::new(&self.device))
             .submit(&self.device, &self.queue, step)
+    }
+
+    fn gpu_layout_write(&mut self, write: super::gpu_layout::GpuStateWrite) -> Result<(), String> {
+        let layout = self.gpu_physics.as_mut().ok_or("GPU layout has no resident state")?;
+        layout.write(&self.device, &self.queue, write)
+    }
+
+    fn gpu_layout_readback(&mut self) -> Option<super::gpu_layout::GpuLayoutReadback> {
+        self.gpu_physics.as_mut()?.take_readback()
+    }
+
+    fn gpu_layout_sync(&mut self) -> Result<super::gpu_layout::GpuSync, String> {
+        let layout = self.gpu_physics.as_mut().ok_or("GPU layout has no resident state")?;
+        layout.request_sync(&self.device, &self.queue)
+    }
+
+    fn gpu_layout_take_sync(&mut self) -> Option<super::gpu_layout::GpuLayoutReadback> {
+        self.gpu_physics.as_mut()?.take_sync()
     }
 
     fn sync_graph(&mut self, nodes: &[NodeInstanceRaw], opaque_nodes: usize, edge_vertices: &[EdgeVertexRaw]) {

@@ -290,12 +290,22 @@ impl WasmCharturboEngine {
                 response.push(&energy.into());
                 Ok(js_sys::Promise::resolve(&JsValue::from(response)))
             }
-            engine::GpuPhysicsRequest::Pending(ticket, readback) => Ok(readback.into_promise(ticket)),
+            engine::GpuPhysicsRequest::Pending(ticket, sync) => Ok(sync.into_promise(ticket)),
         }
     }
 
-    pub fn complete_gpu_physics(&mut self, ticket: u32, state: &[f32]) -> Result<f32, JsValue> {
-        self.inner.complete_gpu_physics(ticket, state).map_err(JsValue::from_str)
+    /// Resolves to a ticket for `complete_physics_sync` (0: the CPU copy is already current).
+    #[cfg(target_arch = "wasm32")]
+    pub fn request_physics_sync(&mut self) -> Result<js_sys::Promise, JsValue> {
+        match self.inner.request_physics_sync().map_err(|e| JsValue::from_str(&e))? {
+            engine::GpuPhysicsRequest::Immediate(_) => Ok(js_sys::Promise::resolve(&JsValue::from(0))),
+            engine::GpuPhysicsRequest::Pending(ticket, sync) => Ok(sync.into_promise(ticket)),
+        }
+    }
+
+    /// Adopts the readback of `request_physics_sync` into the CPU copy (picking, exports).
+    pub fn complete_physics_sync(&mut self, ticket: u32) -> Result<(), JsValue> {
+        self.inner.complete_physics_sync(ticket).map_err(JsValue::from_str)
     }
 
     /// Auto-sleep for the graph layout. `sleep_threshold` is the MEAN kinetic energy per free

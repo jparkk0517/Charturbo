@@ -1200,8 +1200,11 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   warmup(ticks: number, dt: number): number;
   step_physics(dt: number): number;
   supports_gpu_physics?(): boolean;
-  request_gpu_physics?(dt: number): Promise<[number, Float32Array | number]>;
-  complete_gpu_physics?(ticket: number, forces: Float32Array): number;
+  /** Resolves `[0, energy]` once the GPU-resident step is submitted (CPU step on fallback). */
+  request_gpu_physics?(dt: number): Promise<[number, number]>;
+  /** Resolves a ticket for `complete_physics_sync`, or 0 when the CPU copy is already current. */
+  request_physics_sync?(): Promise<number>;
+  complete_physics_sync?(ticket: number): void;
   set_auto_sleep(enabled: boolean, sleepThreshold: number): void;
   is_sleeping(): boolean;
   wake_up(): void;
@@ -2698,30 +2701,45 @@ export class Charturbo {
     return this.backend.step_physics(dt);
   }
 
-  /** Whether this device supports the opt-in hybrid GPU graph solver. */
+  /** Whether this device supports the opt-in GPU-resident graph solver. */
   supportsGpuPhysics(): boolean {
     return !this.disposed && !!this.backend.supports_gpu_physics?.();
   }
 
   /**
-   * Opt-in hybrid graph step: GPU Barnes-Hut repulsion, CPU springs/integration and spatial
-   * index. Includes asynchronous GPU readback; after await, picking/export see current positions.
-   * Uses CPU physics on WebGL2/older backends. The synchronous stepPhysics() stays CPU-only.
-   * Await each step before starting another. Data/force edits during GPU work reject the stale
-   * result; camera movement and rendering can continue. Does not render automatically.
+   * Opt-in GPU-resident graph step (WebGPU): positions stay on the GPU, which builds the
+   * Barnes-Hut octree and applies repulsion, springs, integration and auto-sleep. Resolves once
+   * submitted, with the kinetic energy of the newest read-back layout. The CPU copy used by
+   * picking, exports, node details and isSleeping() trails by a frame or two; await
+   * syncPhysicsPositions() when it must be current. CPU edits (moveNode, pinNode, styles,
+   * loadDataset, stepPhysics) are applied in order. Uses CPU physics on WebGL2/older backends;
+   * the synchronous stepPhysics() stays CPU-only. Await each step before starting another.
+   * Does not render automatically.
    */
   async stepPhysicsAsync(dt = 0.016): Promise<number> {
     if (this.disposed) throw new Error('Engine is disposed');
     if (this.physicsPending) throw new Error('A physics step is already pending');
-    if (!this.backend.request_gpu_physics || !this.backend.complete_gpu_physics) return this.stepPhysics(dt);
+    if (!this.backend.request_gpu_physics) return this.stepPhysics(dt);
     this.physicsPending = true;
     try {
-      const [ticket, result] = await this.backend.request_gpu_physics(dt);
+      const [, energy] = await this.backend.request_gpu_physics(dt);
       if (this.disposed) throw new Error('Engine was disposed during GPU physics');
-      return ticket === 0 ? result as number : this.backend.complete_gpu_physics(ticket, result as Float32Array);
+      return energy;
     } finally {
       this.physicsPending = false;
     }
+  }
+
+  /**
+   * Brings the CPU copy of a GPU-resident layout up to date: after await, picking, exports,
+   * node details and isSleeping() reflect every submitted stepPhysicsAsync(). No-op on CPU physics.
+   */
+  async syncPhysicsPositions(): Promise<void> {
+    if (this.disposed) throw new Error('Engine is disposed');
+    if (!this.backend.request_physics_sync) return;
+    const ticket = await this.backend.request_physics_sync();
+    if (this.disposed) throw new Error('Engine was disposed during GPU physics');
+    if (ticket !== 0) this.backend.complete_physics_sync?.(ticket);
   }
 
   render(): void {

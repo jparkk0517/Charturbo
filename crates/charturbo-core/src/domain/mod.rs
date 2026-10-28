@@ -256,6 +256,15 @@ impl Adjacency {
     }
 }
 
+/// CPU layout edits (position, velocity, mass, pinned) not yet pushed to a GPU-resident layout.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LayoutDirty {
+    /// Every node (bulk edit, new or resized dataset)
+    pub full: bool,
+    /// Individually edited nodes (may repeat)
+    pub nodes: Vec<u32>,
+}
+
 /// Encapsulates the graph/embedding dataset and enforces integrity invariants.
 #[derive(Debug, Clone)]
 pub struct GraphDataset {
@@ -265,6 +274,7 @@ pub struct GraphDataset {
     adjacency: std::sync::OnceLock<Adjacency>,
     /// Globally unique id of the current edge list (GPU uploads the CSR only when it changes)
     topology: u64,
+    layout_dirty: LayoutDirty,
     selected_count: usize,
     embedding_dim: usize,
     normalized_embeddings: Vec<f32>,
@@ -296,6 +306,7 @@ impl GraphDataset {
             edges: Vec::new(),
             adjacency: Default::default(),
             topology: next_dataset_revision(),
+            layout_dirty: LayoutDirty { full: true, nodes: Vec::new() },
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -316,6 +327,7 @@ impl GraphDataset {
             edges,
             adjacency: Default::default(),
             topology: next_dataset_revision(),
+            layout_dirty: LayoutDirty { full: true, nodes: Vec::new() },
             selected_count,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -409,6 +421,7 @@ impl GraphDataset {
             edges: edge_vec,
             adjacency: Default::default(),
             topology: next_dataset_revision(),
+            layout_dirty: LayoutDirty { full: true, nodes: Vec::new() },
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -481,6 +494,7 @@ impl GraphDataset {
             edges,
             adjacency: Default::default(),
             topology: next_dataset_revision(),
+            layout_dirty: LayoutDirty { full: true, nodes: Vec::new() },
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -504,10 +518,59 @@ impl GraphDataset {
         &self.nodes
     }
 
+    /// Mutable access to every node; counts as a whole-layout edit.
     #[inline]
     pub fn nodes_mut(&mut self) -> &mut [NodeData] {
         self.touch();
+        self.mark_layout_full();
         &mut self.nodes
+    }
+
+    fn mark_layout_full(&mut self) {
+        self.layout_dirty = LayoutDirty { full: true, nodes: Vec::new() };
+    }
+
+    fn mark_layout_node(&mut self, id: u32) {
+        let d = &mut self.layout_dirty;
+        if d.full {
+            return;
+        }
+        d.nodes.push(id);
+        // Past a quarter of the nodes, one whole upload is cheaper than scattered writes
+        if d.nodes.len() > self.nodes.len() / 4 + 16 {
+            self.mark_layout_full();
+        }
+    }
+
+    pub fn layout_dirty(&self) -> &LayoutDirty {
+        &self.layout_dirty
+    }
+
+    /// Hands pending layout edits to the GPU uploader.
+    pub fn take_layout_dirty(&mut self) -> LayoutDirty {
+        std::mem::take(&mut self.layout_dirty)
+    }
+
+    /// Adopts GPU layout state (`[position_mass, velocity_pinned]` per node), keeping nodes with
+    /// pending CPU edits. Not a layout edit itself; false (nothing changes) on a pending
+    /// whole-layout edit or a malformed / nonfinite state.
+    pub fn adopt_gpu_layout(&mut self, state: &[f32]) -> bool {
+        if self.layout_dirty.full || state.len() != self.nodes.len() * 8 || !state.iter().all(|v| v.is_finite()) {
+            return false;
+        }
+        let mut keep = vec![false; if self.layout_dirty.nodes.is_empty() { 0 } else { self.nodes.len() }];
+        for &id in &self.layout_dirty.nodes {
+            keep[id as usize] = true;
+        }
+        self.touch();
+        for (i, (node, s)) in self.nodes.iter_mut().zip(state.chunks_exact(8)).enumerate() {
+            if keep.get(i) == Some(&true) {
+                continue;
+            }
+            node.position = Vec3::new(s[0], s[1], s[2]);
+            node.velocity = Vec3::new(s[4], s[5], s[6]);
+        }
+        true
     }
 
     #[inline]
@@ -556,6 +619,7 @@ impl GraphDataset {
     /// Imports flat `[x0, y0, z0, ...]` coordinates and zeroes velocities.
     pub fn import_positions(&mut self, positions: &[f32]) -> Result<(), &'static str> {
         self.touch();
+        self.mark_layout_full();
         if positions.len() != self.nodes.len() * 3 {
             return Err("positions slice length must equal 3 * node_count");
         }
@@ -571,6 +635,7 @@ impl GraphDataset {
 
     pub fn add_node(&mut self, position: Vec3, cluster_id: u16, mass: f32, color: Option<[f32; 4]>) -> u32 {
         self.touch();
+        self.mark_layout_full();
         let id = self.nodes.len() as u32;
         let resolved_color = color.unwrap_or_else(|| {
             CLUSTER_PALETTE[(cluster_id as usize) % CLUSTER_PALETTE.len()]
@@ -595,6 +660,7 @@ impl GraphDataset {
         self.touch();
         if let Some(node) = self.nodes.get_mut(node_id as usize) {
             node.set_pinned(pinned);
+            self.mark_layout_node(node_id);
             true
         } else {
             false
@@ -609,6 +675,7 @@ impl GraphDataset {
         if let Some(node) = self.nodes.get_mut(node_id as usize) {
             node.set_position(position);
             node.set_velocity(Vec3::ZERO);
+            self.mark_layout_node(node_id);
             true
         } else {
             false
@@ -765,6 +832,7 @@ impl GraphDataset {
             node.color = color;
             node.mass = mass.max(0.05);
             node.cluster_id = cluster_id;
+            self.mark_layout_node(node_id);
             true
         } else {
             false
@@ -838,6 +906,7 @@ impl GraphDataset {
     /// - `3`: 3D Cubic Grid Lattice Layout
     pub fn apply_preset_layout(&mut self, layout_kind: u8, space_radius: f32) {
         self.touch();
+        self.mark_layout_full();
         let n = self.nodes.len();
         if n == 0 {
             return;
@@ -1221,6 +1290,7 @@ impl GraphDataset {
             edges,
             adjacency: Default::default(),
             topology: next_dataset_revision(),
+            layout_dirty: LayoutDirty { full: true, nodes: Vec::new() },
             selected_count: 0,
             embedding_dim: dim,
             normalized_embeddings: normalized,
@@ -1605,5 +1675,31 @@ mod tests {
         ds.add_edge(59, 0, 1.0).unwrap();
         assert_eq!(ds.neighbors_of(59), vec![0]);
         assert_eq!(ds.select_shortest_path(59, 0), vec![59, 0]);
+    }
+
+    #[test]
+    fn layout_dirty_tracks_cpu_layout_edits_and_gpu_adoption_skips_them() {
+        let mut ds = GraphDataset::generate_seeded(&DatasetConfig { node_count: 4, edge_count: 2, ..Default::default() });
+        assert!(ds.take_layout_dirty().full, "a new dataset must be uploaded whole");
+        assert_eq!(ds.take_layout_dirty(), LayoutDirty::default());
+        let moved = Vec3::new(1.0, 2.0, 3.0);
+        ds.set_node_position(1, moved);
+        ds.set_node_pinned(2, true);
+        ds.select_nodes(&[0]);
+        ds.set_node_style(3, [1.0; 4], 2.0, 0);
+        assert_eq!(ds.layout_dirty(), &LayoutDirty { full: false, nodes: vec![1, 2, 3] });
+        // GPU state: [position_mass, velocity_pinned] per node
+        let gpu: Vec<f32> = (0..4).flat_map(|_| [9.0, 9.0, 9.0, 1.0, 0.5, 0.0, 0.0, 0.0]).collect();
+        let revision = ds.revision();
+        assert!(ds.adopt_gpu_layout(&gpu));
+        assert_ne!(ds.revision(), revision, "renderers must repack adopted positions");
+        assert_eq!(ds.nodes()[0].position(), Vec3::splat(9.0));
+        assert_eq!(ds.nodes()[0].velocity(), Vec3::new(0.5, 0.0, 0.0));
+        assert_eq!(ds.nodes()[1].position(), moved, "pending CPU edits win over older GPU state");
+        assert_eq!(ds.layout_dirty().nodes, vec![1, 2, 3], "adoption is not a CPU edit");
+        assert!(!ds.adopt_gpu_layout(&gpu[..8]));
+        ds.import_positions(&[0.0; 12]).unwrap();
+        assert!(!ds.adopt_gpu_layout(&gpu), "a whole-layout CPU edit supersedes every GPU node");
+        assert_eq!(ds.nodes()[0].position(), Vec3::ZERO);
     }
 }

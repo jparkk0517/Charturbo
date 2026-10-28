@@ -75,7 +75,7 @@ export async function createGraphAdapter(lib: GraphLib, card: HTMLElement, w: nu
     const { RustWgpuAdapter } = await import('../src/adapters/rust-wgpu-adapter');
     // Empty engine: the dataset arrives through loadRawDataset like on the three.js side
     const adapter = await RustWgpuAdapter.create(canvas, 42, 0, 0, 1);
-    if (lib === 'vizgpu' && !adapter.sdk.supportsGpuPhysics()) throw new Error('unsupported: hybrid GPU physics requires WebGPU');
+    if (lib === 'vizgpu' && !adapter.sdk.supportsGpuPhysics()) throw new Error('unsupported: GPU-resident physics requires WebGPU');
     const tickAsync = async (dt: number, simulate: boolean) => {
       const start = performance.now();
       const kineticEnergy = simulate ? await adapter.sdk.stepPhysicsAsync(dt) : 0;
@@ -93,7 +93,10 @@ export async function createGraphAdapter(lib: GraphLib, card: HTMLElement, w: nu
       tickAsync: lib === 'vizgpu' ? tickAsync : undefined,
       async validatePhysics() {
         const before = adapter.sdk.exportPositions();
-        if (lib === 'vizgpu') await tickAsync(0.016, true); else adapter.tick(0.016, true);
+        if (lib === 'vizgpu') {
+          await tickAsync(0.016, true);
+          await adapter.sdk.syncPhysicsPositions();
+        } else adapter.tick(0.016, true);
         const after = adapter.sdk.exportPositions();
         let movedNodes = 0;
         for (let i = 0; i < after.length; i += 3) {
