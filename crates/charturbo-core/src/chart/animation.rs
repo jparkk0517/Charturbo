@@ -102,6 +102,8 @@ pub(crate) struct LayerSnapshot {
     dashed: Vec<ChartDashSegmentRaw>,
     markers: Vec<ChartMarkerRaw>,
     bars: Vec<ChartBarRaw>,
+    /// Background tracks leading `bars` (a tween pairs tracks with tracks only)
+    bar_tracks: usize,
     fills: Vec<ChartFillRaw>,
     points: Vec<ChartPointRaw>,
     /// Pie slice angles `(start, end)`
@@ -311,6 +313,7 @@ impl ChartState {
             dashed: self.styled.dashed.clone(),
             markers: self.styled.markers.clone(),
             bars: self.bars.clone(),
+            bar_tracks: self.bar_track_count(),
             fills: self.fills.clone(),
             points: self.points.clone(),
             pie: match &self.kind {
@@ -445,7 +448,7 @@ impl ChartState {
             let pie_match = matches!(&self.kind, ChartKind::Pie(p) if p.len() == f.pie.len() && !f.pie.is_empty());
             let matched = pie_match
                 || (!f.series.is_empty() && f.series.len() == self.series.len())
-                || (!f.bars.is_empty() && f.bars.len() == self.bars.len())
+                || (!f.bars.is_empty() && f.bars.len() == self.bars.len() && f.bar_tracks == self.bar_track_count())
                 || (!f.fills.is_empty() && f.fills.len() == self.fills.len())
                 || (!f.points.is_empty() && f.points.len() == self.points.len());
             if !matched {
@@ -883,6 +886,26 @@ mod tests {
         l.arm_animation(opts(), snap);
         l.animation_tick(0.0);
         assert!(l.prepare_layers(&view(&cam)).series_clip.is_some());
+    }
+
+    #[test]
+    fn bar_layers_with_other_track_counts_enter_instead_of_pairing_tracks_with_bars() {
+        // 3 tracks + 3 bars, then 6 bars without tracks: same instance count, other content
+        let mut cam = flat_camera();
+        let mut scene = SceneWorld::new();
+        let mut a = bars(vec![1.0, 2.0, 3.0], &mut scene);
+        a.frame_camera(&mut cam, (1600.0, 900.0));
+        assert!(a.set_bar_background(Some([0.5, 0.5, 0.5, 0.2])));
+        a.arm_animation(opts(), None);
+        a.finish_animation();
+        assert_eq!(a.prepare_layers(&view(&cam)).bars.unwrap().len(), 6);
+        let snap = a.anim_snapshot();
+        let mut b = bars(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &mut scene);
+        b.arm_animation(opts(), snap);
+        b.animation_tick(0.0);
+        let first = b.prepare_layers(&view(&cam)).bars.unwrap().to_vec();
+        assert_eq!(first.len(), 6);
+        assert!(first.iter().all(|r| (r.rect[3] - r.rect[1]).abs() < 1e-6), "enters (grows from zero), no tween from the tracks");
     }
 
     #[test]
