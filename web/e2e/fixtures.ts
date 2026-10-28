@@ -430,6 +430,19 @@ export const FIXTURES: Fixture[] = [
   pieFixture('donut', 0.6),
   pieFixture('pie-rose', 0.2, { rose: 'area' }),
   {
+    // Strip plot: 4 categories x 60 points on the same x, jittered by +-0.3
+    name: 'scatter-jitter',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 240;
+        const x = Float32Array.from({ length: n }, (_, i) => i % 4);
+        const y = Float32Array.from({ length: n }, (_, i) => 50 + Math.sin(i * 1.7) * 12 + (i % 4) * 6);
+        const clusters = Uint16Array.from({ length: n }, (_, i) => i % 4);
+        sdk.renderScatterChart({ x, y, clusters }, { title: 'Jitter', pointRadius: 3.5, jitter: { x: 0.3 }, legend: false });
+      }),
+  },
+  {
     // Ripple rings frozen 1 s into the cycle around circles and triangles
     name: 'scatter-ripple',
     theme: 'dark',

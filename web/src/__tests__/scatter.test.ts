@@ -185,6 +185,18 @@ describe('Native scatter chart (SDK binding)', () => {
     expect(times).toEqual([1.5]);
   });
 
+  it('jitter: amplitudes and seed go to the engine (zeros when off)', () => {
+    const { backend, calls } = mockBackend(1);
+    backend.set_chart_scatter_jitter = (...args: number[]) => ((calls.set_chart_scatter_jitter ??= []).push(args), true);
+    const sdk = Charturbo.fromBackend(backend);
+    sdk.renderScatterChart({ x: [0, 0, 1], y: [1, 2, 3] }, { jitter: { x: 0.3, seed: 9 } });
+    sdk.renderScatterChart({ x: [0, 0, 1], y: [1, 2, 3] });
+    expect(calls.set_chart_scatter_jitter).toEqual([
+      [0.3, 0, 9],
+      [0, 0, 0],
+    ]);
+  });
+
   it('legend visibility / emphasis and x+y navigation are thin engine calls', () => {
     const { backend, calls } = mockBackend(3);
     const sdk = Charturbo.fromBackend(backend);

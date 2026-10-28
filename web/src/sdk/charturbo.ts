@@ -981,6 +981,12 @@ export interface ScatterChartOptions {
    * defaults). Keeps a frame loop running while shown: meant for highlighting a few points
    */
   ripple?: ScatterRippleOptions | boolean;
+  /**
+   * Spreads overlapping points (ggplot2 `geom_jitter`): uniform offsets in `[-x, x]` / `[-y, y]`
+   * data units (decades on log axes), fixed per point and `seed`. Tooltips, tables and exports
+   * keep the real values
+   */
+  jitter?: { x?: number; y?: number; seed?: number };
   /** Fill alpha multiplier; lower values reveal density (default: 0.85) */
   opacity?: number;
   /** Ring in the chart surface color around each point, CSS px (default: 1 with `sizes`, else 0) */
@@ -1489,6 +1495,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   ): number;
   /** Rippling scatter series flags, ripple period (s, NaN = 4), scale (NaN = 2.5), ring count (0 = 3), fill */
   set_chart_scatter_ripple?(flags: Uint8Array, periodS: number, scale: number, count: number, fill: boolean): boolean;
+  /** Scatter jitter amplitude per axis (data units) and seed */
+  set_chart_scatter_jitter?(x: number, y: number, seed: number): boolean;
   /** Ripple clock (s): false when nothing ripples */
   set_chart_effect_time?(seconds: number): boolean;
   /** Symbol code per scatter series id (0 circle, 1 square, 2 diamond, 3 triangle); empty = circles */
@@ -7192,6 +7200,7 @@ export class Charturbo {
     const symbols = Array.from({ length: seriesCount }, (_, i): ScatterSymbol => options?.seriesSymbols?.[i] ?? options?.symbol ?? 'circle');
     const shaped = symbols.some((sym) => sym !== 'circle');
     this.backend.set_chart_scatter_shapes?.(shaped ? Uint8Array.from(symbols, (sym) => SCATTER_SYMBOL_CODES[sym] ?? 0) : new Uint8Array(0));
+    this.backend.set_chart_scatter_jitter?.(options?.jitter?.x ?? 0, options?.jitter?.y ?? 0, options?.jitter?.seed ?? 0);
     // Ripple: flags per series id, then the frame clock (it stops by itself without ripples)
     const ripple = options?.ripple === true ? {} : options?.ripple || null;
     const rippleIds = ripple ? new Set(ripple.series ?? Array.from({ length: seriesCount }, (_, i) => i)) : null;

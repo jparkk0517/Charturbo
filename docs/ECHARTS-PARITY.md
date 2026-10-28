@@ -24,7 +24,7 @@ HANDOFF의 계약을 따른다.
   - [x] 중첩 링: 독립 고리 API, 이름 그룹으로 색 · 범례 공유
 - [x] 생키: 세로 방향(orient), levels 스타일, 그라데이션 링크 (sankey 7)
 - [x] 범례: 위치 지정, 넘침 시 스크롤/페이지
-- [ ] 산점도: 심볼 모양, 파동 효과(effectScatter), jitter
+- [x] 산점도: 심볼 모양, 파동 효과(effectScatter), jitter (데이터 단위, ggplot2 방식; 픽셀 단위 · beeswarm 겹침 회피는 미구현)
 - [ ] 선·막대: 구간 색칠(piecewise), 회귀선(최소제곱), 막대 배경, 라벨 회전
 
 ## 2A단계: 기존 엔진 재사용 새 차트 (약 2주)

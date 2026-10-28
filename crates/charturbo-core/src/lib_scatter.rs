@@ -1,5 +1,5 @@
 //! WASM bindings of the scatter point styles (kept apart from `lib.rs`; same
-//! `WasmCharturboEngine`): series symbol shapes and the ripple effect.
+//! `WasmCharturboEngine`): series symbol shapes, jitter and the ripple effect.
 
 use crate::chart::RippleOptions;
 use crate::WasmCharturboEngine;
@@ -25,6 +25,12 @@ impl WasmCharturboEngine {
             fill,
         };
         self.inner.set_chart_scatter_ripple(flags, opts)
+    }
+
+    /// Jitter: uniform offsets in [-x, x] / [-y, y] data units per point (scale space on log axes;
+    /// 0 = none), fixed per point index and `seed`. True when the points were re-laid out.
+    pub fn set_chart_scatter_jitter(&mut self, x: f64, y: f64, seed: u32) -> bool {
+        self.inner.set_chart_scatter_jitter(x, y, seed)
     }
 
     /// Ripple clock in seconds (only the point uniform changes); false when nothing ripples, so

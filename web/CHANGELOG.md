@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 산점도 지터
+
+- `ScatterChartOptions.jitter: { x, y, seed }`: ggplot2 `geom_jitter`처럼 데이터 단위 균등 오프셋으로 겹친 점을 흩뜨립니다. 점마다 고정(PCG 해시)이라 다시 그려도 같고, hover · 브러시가 흩뜨린 위치를 따르며 툴팁 · 표는 원래 값입니다.
+- WASM `set_chart_scatter_jitter(x, y, seed)`를 추가했습니다.
+- 예제 `scatter/05-jitter`, WebGPU/WebGL2 fixture `scatter-jitter`를 추가했습니다.
+
 ### 추가 — 산점도 파동 효과
 
 - `ScatterChartOptions.ripple`(ECharts `effectScatter`): 선택한 시리즈의 점 뒤로 커지며 사라지는 고리(`period` · `scale` · `count` · `fill`). 점 셰이더가 그리고 매 프레임 점 uniform의 시간만 갱신합니다.
