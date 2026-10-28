@@ -187,6 +187,15 @@ import {
 } from './chart-pie';
 import { EffectClock } from './chart-effect';
 import {
+  checkTrendlines,
+  decodeTrendFits,
+  encodeTrendlines,
+  trendLegendLabel,
+  type ScatterTrendline,
+  type ScatterTrendlineFit,
+} from './chart-trendline';
+export type { ScatterTrendline, ScatterTrendlineFit, ScatterTrendlineType } from './chart-trendline';
+import {
   LEGEND_ROW_PX,
   LEGEND_SIDE_GAP_PX,
   LegendPager,
@@ -1027,6 +1036,12 @@ export interface ScatterChartOptions {
    * keep the real values
    */
   jitter?: { x?: number; y?: number; seed?: number };
+  /**
+   * Regression trendlines (ECharts ecStat): least-squares fits of each chosen series, drawn
+   * across the visible x range beneath the points. The legend (shown by default with
+   * trendlines) lists each equation with its R²; fits are returned by `renderScatterChart`
+   */
+  trendline?: ScatterTrendline | ScatterTrendline[];
   /** Fill alpha multiplier; lower values reveal density (default: 0.85) */
   opacity?: number;
   /** Ring in the chart surface color around each point, CSS px (default: 1 with `sizes`, else 0) */
@@ -1537,6 +1552,10 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_chart_scatter_ripple?(flags: Uint8Array, periodS: number, scale: number, count: number, fill: boolean): boolean;
   /** Scatter jitter amplitude per axis (data units) and seed */
   set_chart_scatter_jitter?(x: number, y: number, seed: number): boolean;
+  /** Scatter trendlines, 12 f64 each: series, model, order, RGBA, width, dash x4 (chart-trendline.ts) */
+  set_chart_scatter_trendlines?(lines: Float64Array): boolean;
+  /** Trendline fits, 11 f64 each: used, skipped, R², coefficient count, 7 coefficients */
+  chart_scatter_trend_fits?(): Float64Array;
   /** Ripple clock (s): false when nothing ripples */
   set_chart_effect_time?(seconds: number): boolean;
   /** Symbol code per scatter series id (0 circle, 1 square, 2 diamond, 3 triangle); empty = circles */
@@ -2162,6 +2181,8 @@ interface ScatterChartMeta {
   pointColors: Float32Array | null;
   /** Symbol per series id */
   symbols: ScatterSymbol[];
+  /** Fits of the drawn trendlines (legend entries, accessible description) */
+  trendlines?: ScatterTrendlineFit[];
 }
 
 /** Candlestick chart: candle id = index; the OHLC arrays are the caller's (or converted copies). */
@@ -5870,6 +5891,8 @@ export class Charturbo {
     const meta = this.chartMeta;
     if (!meta) return [];
     if (meta.kind === 'pie' && meta.groups) return meta.groups.map((g) => g.name);
+    // Scatter trendline entries list their equations too
+    if (meta.kind === 'scatter' && meta.trendlines?.length) return [...meta.names, ...meta.trendlines.map((fit) => this.trendLabel(meta, fit))];
     return 'names' in meta && Array.isArray(meta.names) ? (meta.names as string[]) : [];
   }
 
@@ -6015,6 +6038,24 @@ export class Charturbo {
       }
     }
 
+    if (meta?.kind === 'scatter' && meta.trendlines && p.legend.show) {
+      // Trendlines: a static stroke + equation entry each, fading with their series
+      for (const fit of meta.trendlines) {
+        const item = document.createElement('span');
+        item.className = 'charturbo-sdk-legend-trendline';
+        item.dataset.series = String(fit.series);
+        Object.assign(item.style, { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 0', color: t.textSecondary });
+        const swatch = document.createElement('span');
+        Object.assign(swatch.style, { width: '14px', height: `${Math.max(1, Math.min(4, fit.width))}px`, borderRadius: '1px', background: rgbaToCss(fit.color), flex: 'none' });
+        const label = document.createElement('span');
+        label.textContent = this.trendLabel(meta, fit);
+        // A side column wraps long equations; a row pages them
+        label.style.whiteSpace = legendSide === 'left' || legendSide === 'right' ? 'normal' : 'nowrap';
+        item.append(swatch, label);
+        legend.appendChild(item);
+      }
+    }
+
     if (meta?.kind === 'bar' && meta.legendEntry && p.legend.show) {
       // Single-series bars: one static entry (nothing to toggle)
       const item = document.createElement('span');
@@ -6107,6 +6148,10 @@ export class Charturbo {
       item.setAttribute('aria-pressed', String(on));
       item.style.opacity = on ? '1' : '0.45';
       item.style.textDecoration = on ? 'none' : 'line-through';
+    });
+    // Trendlines hide with their series
+    legend.querySelectorAll<HTMLElement>('.charturbo-sdk-legend-trendline').forEach((item) => {
+      item.style.opacity = meta.visible[Number(item.dataset.series)] ? '1' : '0.45';
     });
   }
 
@@ -7260,7 +7305,8 @@ export class Charturbo {
    * uploaded once (1,000,000+ points at 60 FPS), nice-tick x / y axes, series legend, wheel zoom /
    * drag pan on both axes, and grid-hashed nearest-point hover. Data point ids = point index.
    */
-  renderScatterChart(data: ScatterChartData, options?: ScatterChartOptions): { pointCount: number } {
+  renderScatterChart(data: ScatterChartData, options?: ScatterChartOptions): { pointCount: number; trendlines: ScatterTrendlineFit[] } {
+    const trendlines = checkTrendlines(options?.trendline, 'renderScatterChart');
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7323,9 +7369,14 @@ export class Charturbo {
       ripple?.fill ?? false
     );
     if (rippleIds?.size) this.effectClock().start();
+    // Trendlines: one line per (trendline, series), fitted by the engine
+    const trend = encodeTrendlines(trendlines, seriesCount, (s) => palette[s % palette.length]);
+    this.backend.set_chart_scatter_trendlines?.(trend.records);
+    const fits = decodeTrendFits(this.backend.chart_scatter_trend_fits?.(), trend.drawn);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const legend: ChartLegendState = {
-      show: legendOpt.show ?? seriesCount >= 2,
+      // Trendlines show their equations in the legend
+      show: legendOpt.show ?? (seriesCount >= 2 || fits.length > 0),
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
       position: legendOpt.position,
@@ -7342,6 +7393,7 @@ export class Charturbo {
       series: ids,
       pointColors,
       symbols,
+      trendlines: fits,
     };
     this.flatCameraView = true;
     const formatScatterX = resolveFormatLive(options?.axes?.x?.format, () => this.chartLocale());
@@ -7359,7 +7411,18 @@ export class Charturbo {
     this.applyAxisScales({ x: options?.axes?.x, y: options?.axes?.y });
     this.applyChartPadding(this.chartPresentation, legend.show, options?.padding);
     this.rebuildChartOverlay();
-    return { pointCount: n };
+    return { pointCount: n, trendlines: fits };
+  }
+
+  /** Legend text of a scatter trendline (series name first with several series). */
+  private trendLabel(meta: ScatterChartMeta, fit: ScatterTrendlineFit): string {
+    return trendLegendLabel(fit, meta.names.length > 1 ? (meta.names[fit.series] ?? `Series ${fit.series}`) : null);
+  }
+
+  /** Fits of the scatter chart's trendlines (`ScatterChartOptions.trendline`); empty for other charts. */
+  getScatterTrendlines(): ScatterTrendlineFit[] {
+    const meta = this.chartMeta;
+    return meta?.kind === 'scatter' ? (meta.trendlines ?? []) : [];
   }
   /**
    * Keyboard a11y tooltip (chart-a11y.ts) of an engine hit, same as the pointer path for candles

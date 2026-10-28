@@ -571,6 +571,34 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // Linear fit of one series, exponential (dashed) + cubic fits of the other, clipped to the plot
+    name: 'scatter-trendline',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 120;
+        const x = Float32Array.from({ length: n }, (_, i) => (i >> 1) * 0.17);
+        const y = Float32Array.from({ length: n }, (_, i) =>
+          i % 2 ? 1.5 * Math.exp(0.3 * x[i]) * (1 + Math.sin(i * 2.3) * 0.15) : 4 + 1.6 * x[i] + Math.sin(i * 1.7) * 2.5
+        );
+        const clusters = Uint16Array.from({ length: n }, (_, i) => i % 2);
+        sdk.renderScatterChart(
+          { x, y, clusters },
+          {
+            title: 'Trendlines',
+            pointRadius: 3.5,
+            seriesNames: ['Linear', 'Growth'],
+            legend: { position: 'right' },
+            trendline: [
+              { type: 'linear', series: [0] },
+              { type: 'exponential', series: [1], dash: [6, 4] },
+              { type: 'polynomial', order: 3, series: [1], color: '#e11d48', width: 1.5 },
+            ],
+          }
+        );
+      }),
+  },
+  {
     // Ripple rings frozen 1 s into the cycle around circles and triangles
     name: 'scatter-ripple',
     theme: 'dark',

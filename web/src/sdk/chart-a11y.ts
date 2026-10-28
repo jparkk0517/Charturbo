@@ -15,6 +15,7 @@ import type { A11yCustomModel } from './chart-business-util';
 import { hierarchyA11yModel } from './chart-hierarchy';
 import { sparseTooltip, type SparseMeta } from './chart-sparse';
 import { scientificA11yModel, type Scientific3DMeta } from './chart-scientific3d';
+import { trendDescription, type ScatterTrendlineFit } from './chart-trendline';
 import type {
   ChartOhlc,
   ChartTooltipContext,
@@ -128,6 +129,8 @@ export interface A11yChartModel {
   /** Line: samples carry real x values (tooltip `x`) */
   hasX?: boolean;
   scatter?: A11yScatterData;
+  /** Scatter: sentences about the trendline fits (description) */
+  trendlines?: string[];
   heatmap?: A11yHeatmapData;
   /** Box plot groups (series = medians per category) */
   box?: A11yBoxData;
@@ -605,10 +608,12 @@ export function buildA11yModel(
     const clean = (v: number) => (data.f32 ? f32ToShortest(v) : v);
     const formatX = (x: number) => (formatXFn ? formatXFn(x) : enNumber(x, 4));
     const pointId = (s: number, i: number) => scatterOrder(idx, data, s)[i] ?? -1;
+    const fits = (Array.isArray(m.trendlines) ? m.trendlines : []) as ScatterTrendlineFit[];
     return {
       kind: 'scatter',
       ...common,
       series,
+      trendlines: fits.map((fit) => trendDescription(fit, series[fit.series]?.name ?? `Series ${fit.series + 1}`, !(series[fit.series]?.visible ?? true))),
       length: data.length,
       scatter: data,
       xValue: (i, s = 0) => clean(Number(data.x[pointId(s, i)])),
@@ -1034,6 +1039,7 @@ export function buildChartDescription(model: A11yChartModel): string {
     model.series.forEach((s) => {
       out.push(`${s.name}${s.visible ? '' : ' (hidden)'}: ${plural(seriesLength(s), 'point')}.`);
     });
+    out.push(...(model.trendlines ?? []));
   } else {
     const st = seriesStats(model.series[0]?.values ?? []);
     if (model.xTitle) out.push(`X axis: ${model.xTitle}.`);
