@@ -37,6 +37,7 @@ mod navigator;
 mod pie;
 mod radar;
 mod range;
+mod regression;
 mod sankey;
 mod scale;
 mod scatter;
@@ -116,7 +117,8 @@ pub use sankey::{
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
 pub use scale::{log_nice_domain, log_ticks, AxisScale, ScaleType};
-pub use scatter::{RippleOptions, ScatterLayout, ScatterPoints};
+pub use regression::{fit_trend, TrendFit, TrendModel, MAX_TREND_ORDER};
+pub use scatter::{RippleOptions, ScatterLayout, ScatterPoints, ScatterTrendline};
 pub use sparkline::{SparklineMarks, SparklineSummary};
 pub use svg::{SvgExport, SvgSupport, SVG_DEFAULT_MAX_MARKS};
 pub use zoom::ZOOM_HISTORY_MAX;
@@ -1462,6 +1464,10 @@ impl ChartState {
             if s.sync_view(view) {
                 self.dirty.underlay = true;
                 self.axes_key = None;
+            }
+            // Trendlines follow the zoom window, the scales, the camera and the legend
+            if s.build_trendlines(view, self.dirty.series, &mut self.series, &mut self.styled.dashed) {
+                self.dirty.series = true;
             }
         }
         if let ChartKind::Heatmap(h) = &mut self.kind {

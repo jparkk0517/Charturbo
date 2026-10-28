@@ -2,10 +2,14 @@
 //! uniform-grid spatial hash for O(1) nearest-point hover, axes and gridlines.
 
 use super::line::DIMMED_SERIES_ALPHA;
+use super::regression::TrendFit;
 use super::scale::{log_nice_domain, AxisScale};
 use super::finite::{max_f64, min_f64};
 use super::*;
 use crate::renderer::{ChartPointRaw, ChartPointStyleRaw, MAX_POINT_SERIES, POINT_SHAPE_STRIDE};
+
+mod trend;
+pub use trend::ScatterTrendline;
 
 /// Point fill when neither per-point nor series colors are given.
 const DEFAULT_POINT_COLOR: [f32; 4] = [0.224, 0.529, 0.898, 1.0];
@@ -176,6 +180,9 @@ pub(crate) struct ScatterChart {
     ripple: Vec<bool>,
     ripple_opts: RippleOptions,
     effect_time_s: f32,
+    /// Trendlines with their fits, and the view they were last drawn for (scatter/trend.rs)
+    trendlines: Vec<(ScatterTrendline, TrendFit)>,
+    trend_key: Option<trend::TrendKey>,
     grid: PointGrid,
     max_radius_px: f32,
     /// x tick target for the current plot width (about one tick per 90 CSS px)
@@ -251,6 +258,8 @@ impl ScatterChart {
             ripple: Vec::new(),
             ripple_opts: RippleOptions::default(),
             effect_time_s: 0.0,
+            trendlines: Vec::new(),
+            trend_key: None,
             grid: PointGrid::default(),
             max_radius_px,
             x_tick_target: 5,

@@ -33,6 +33,16 @@ impl VisualizationEngine {
         self.chart.as_mut().is_some_and(|c| c.set_scatter_jitter(x, y, seed))
     }
 
+    /// Scatter trendlines (see `ChartState::set_scatter_trendlines`).
+    pub fn set_chart_scatter_trendlines(&mut self, lines: &[crate::chart::ScatterTrendline]) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_scatter_trendlines(lines))
+    }
+
+    /// Fits of the scatter trendlines (empty without a scatter chart).
+    pub fn chart_scatter_trend_fits(&self) -> Vec<crate::chart::TrendFit> {
+        self.chart.as_ref().map(|c| c.scatter_trend_fits()).unwrap_or_default()
+    }
+
     /// Ripple clock (see `ChartState::set_effect_time`); false when nothing ripples.
     pub fn set_chart_effect_time(&mut self, seconds: f32) -> bool {
         self.chart.as_mut().is_some_and(|c| c.set_effect_time(seconds))
