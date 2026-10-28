@@ -1,4 +1,10 @@
+// First: sets <html lang> (the library's default locale) before anything else runs.
+import { applyTranslations, languageControl, t } from './i18n';
 import { createDemoPlayback } from './demo-playback';
+
+// The markup is English (also the no-JS fallback); translate it and add the language switcher.
+applyTranslations();
+document.querySelector('header.nav')?.append(languageControl());
 
 const host = document.querySelector<HTMLElement>('[data-live-demo]')!;
 const canvas = host.querySelector<HTMLCanvasElement>('canvas')!;
@@ -14,7 +20,7 @@ async function load() {
   if (loading || disposed) return;
   loading = true;
   observer?.disconnect();
-  status.textContent = 'Loading live renderer…';
+  status.textContent = t('landing.statusLoading');
   try {
     const { createStreamingArea } = await import('./streaming-area');
     if (disposed) return;
@@ -31,8 +37,8 @@ async function load() {
       try { chart.tick(delta); } catch { fail(); }
     });
     const updateControl = () => {
-      button.textContent = playback.paused ? 'Play demo' : 'Pause demo';
-      status.textContent = `${playback.paused ? 'Paused' : 'Live'} · 3 signals · 600 samples per signal`;
+      button.textContent = t(playback.paused ? 'landing.play' : 'landing.pause');
+      status.textContent = t(playback.paused ? 'landing.statusPaused' : 'landing.statusLive');
     };
     const toggle = () => { playback.setPaused(!playback.paused); updateControl(); };
     const preferenceChanged = () => { if (motion.matches) playback.setPaused(true); updateControl(); };
@@ -55,8 +61,8 @@ function fail() {
   poster.style.display = '';
   canvas.hidden = true;
   button.disabled = true;
-  button.textContent = 'Play demo';
-  status.textContent = 'Static preview · live rendering unavailable in this browser';
+  button.textContent = t('landing.play');
+  status.textContent = t('landing.statusFailed');
 }
 
 const observer = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver((entries) => {

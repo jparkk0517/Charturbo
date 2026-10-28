@@ -3,7 +3,10 @@
  * its source next to it. `window.__ready` turns true once every demo has mounted (or failed);
  * failures are shown in the card and logged with `console.error`.
  */
+// First: sets <html lang> (the library's default locale) before anything else runs.
+import { t, setPageMeta } from './i18n';
 import './style.css';
+import { demoText } from './demo-text';
 import { FAMILIES, renderHeader } from './families';
 import { highlight } from './highlight';
 import { Charturbo } from 'charturbo';
@@ -31,6 +34,7 @@ const stripMeta = (source: string) => source.replace(/export const meta = \{[\s\
 async function main() {
   const familyId = document.body.dataset.family ?? '';
   const family = FAMILIES.find((f) => f.id === familyId);
+  setPageMeta(t('page.title', { family: family?.title ?? familyId }), family?.description);
   document.body.prepend(renderHeader(familyId));
   const mainEl = document.querySelector('main')!;
   const intro = document.createElement('section');
@@ -62,6 +66,20 @@ async function main() {
       } catch (err) {
         console.error(`[examples] ${id} failed to load`, err);
         results.push({ id, ok: false, error: String(err) });
+        const card = document.createElement('article');
+        card.className = 'demo';
+        card.id = id;
+        card.style.order = String(paths.indexOf(path));
+        const body = card.appendChild(document.createElement('div'));
+        body.className = 'demo-main';
+        body.style.gridColumn = '1 / -1';
+        const title = body.appendChild(document.createElement('h2'));
+        title.textContent = demoText(familyId, id).title;
+        const box = body.appendChild(document.createElement('div'));
+        box.className = 'demo-error';
+        box.setAttribute('role', 'alert');
+        box.textContent = t('page.loadFailed', { error: String(err) });
+        mainEl.appendChild(card);
         return;
       }
       const card = document.createElement('article');
@@ -72,9 +90,11 @@ async function main() {
           <h2></h2><p class="demo-desc"></p>
           <div class="demo-host"></div>
         </div>
-        <details class="demo-source" open><summary>Source</summary><pre><code></code></pre></details>`;
-      card.querySelector('h2')!.textContent = mod.meta.title;
-      card.querySelector('.demo-desc')!.textContent = mod.meta.description ?? '';
+        <details class="demo-source" open><summary></summary><pre><code></code></pre></details>`;
+      const text = demoText(familyId, id, mod.meta);
+      card.querySelector('h2')!.textContent = text.title;
+      card.querySelector('.demo-desc')!.textContent = text.description;
+      card.querySelector('summary')!.textContent = t('page.source');
       card.querySelector('code')!.innerHTML = highlight(stripMeta(source).trim());
       const host = card.querySelector<HTMLElement>('.demo-host')!;
       host.style.height = `${mod.meta.height ?? 340}px`;
@@ -95,9 +115,10 @@ async function main() {
         console.error(`[examples] ${id} failed`, err);
         const box = document.createElement('div');
         box.className = 'demo-error';
-        box.textContent = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        box.textContent = t('page.runFailed', { error: message });
         host.appendChild(box);
-        results.push({ id, ok: false, error: box.textContent });
+        results.push({ id, ok: false, error: message });
       }
     })
   );

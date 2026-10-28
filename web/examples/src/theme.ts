@@ -1,4 +1,5 @@
 import { CHARTURBO_THEMES, type Charturbo, type CharturboThemeInput } from 'charturbo';
+import { t } from './i18n';
 
 export const THEMES = {
   dark: { label: 'Dark', base: 'dark', surface: '#090b14', floor: '#1c2535', obstacle: '#35435c' },
@@ -35,14 +36,16 @@ export function bindTheme(sdk: Charturbo): () => void {
   refresh();
   return subscribeTheme(refresh);
 }
+/** Localized theme name for controls (`THEMES[].label` stays the chart theme name). */
+export const themeLabel = (name: ThemeName) => t(`theme.${name}`);
 export function themeControl(): HTMLElement {
   document.documentElement.dataset.theme = theme;
   const label = document.createElement('label');
   label.className = 'site-theme';
-  label.textContent = '테마';
+  label.textContent = t('site.theme');
   const select = label.appendChild(document.createElement('select'));
   select.name = 'site-theme';
-  for (const [value, entry] of Object.entries(THEMES)) select.add(new Option(entry.label, value));
+  for (const value of Object.keys(THEMES) as ThemeName[]) select.add(new Option(themeLabel(value), value));
   select.value = theme;
   select.addEventListener('change', () => setThemeName(select.value as ThemeName));
   subscribeTheme(() => { select.value = theme; });

@@ -2,6 +2,8 @@
  * Gallery (gallery.html): one card per family with a live preview. All previews share one GPU
  * device (`CharturboDevice`): one adapter / device and one pipeline set for the whole page.
  */
+// First: sets <html lang> (the library's default locale) before anything else runs.
+import { htmlLang, setPageMeta, t } from './i18n';
 import './style.css';
 import { CharturboDevice, Charturbo } from 'charturbo';
 import { FAMILIES, renderHeader } from './families';
@@ -158,12 +160,14 @@ const PREVIEWS: Record<string, (sdk: Charturbo) => void> = {
 };
 
 async function main() {
+  setPageMeta(t('gallery.title'), t('gallery.intro'));
   document.body.prepend(renderHeader('gallery'));
   const mainEl = document.querySelector('main')!;
   const intro = document.createElement('section');
   intro.className = 'intro';
-  intro.innerHTML =
-    '<h1>charturbo examples</h1><p>Rust + WebGPU charts (WebGL2 fallback). Every page shows live charts next to their source.</p>';
+  intro.append(document.createElement('h1'), document.createElement('p'));
+  intro.querySelector('h1')!.textContent = t('gallery.heading');
+  intro.querySelector('p')!.textContent = t('gallery.intro');
   const grid = document.createElement('div');
   grid.className = 'gallery';
   mainEl.append(intro, grid);
@@ -183,7 +187,7 @@ async function main() {
     const device = await CharturboDevice.create();
     for (const { id, canvas } of canvases) {
       try {
-        const sdk = await Charturbo.create(canvas, { device, locale: 'en-US' });
+        const sdk = await Charturbo.create(canvas, { device, locale: htmlLang });
         PREVIEWS[id]?.(sdk);
         bindTheme(sdk);
       } catch (err) {
@@ -196,8 +200,7 @@ async function main() {
     notice.className = 'demo-error';
     notice.setAttribute('role', 'alert');
     notice.style.marginTop = '12px';
-    notice.textContent =
-      'Charts could not start: these examples need WebGPU or WebGL2. Use a recent Chrome, Edge, Safari or Firefox with hardware acceleration enabled (details in the browser console).';
+    notice.textContent = t('gallery.noGpu');
     intro.appendChild(notice);
   }
   window.__ready = true;

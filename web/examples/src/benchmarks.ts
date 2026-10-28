@@ -1,9 +1,12 @@
+// First: sets <html lang> before the chart engine loads.
+import { lang, setPageMeta, t } from './i18n';
+import { MESSAGES, type MessageKey } from './messages';
 import './style.css';
 import './benchmarks.css';
 import rawResults from '../../../docs/bench/results.json?raw';
 import { CharturboDevice } from 'charturbo';
 import { createReportChart, defaultDesign, exportReport, reportTheme, type ThemeName } from '../../bench/report-charts';
-import { conditions, formatValue, METRICS, rowsFor, SCENARIOS, workload, type Group, type Metric, type Results } from '../../bench/report-model';
+import { formatValue, METRICS, rowsFor, SCENARIOS, workload, type Entry, type Group, type Metric, type Results } from '../../bench/report-model';
 import { renderHeader } from './families';
 import { getThemeName, setThemeName, subscribeTheme } from './theme';
 
@@ -29,24 +32,48 @@ let device: CharturboDevice | undefined;
 document.body.prepend(renderHeader('benchmarks'));
 const main = document.querySelector('main')!;
 main.className = 'bench';
+setPageMeta(t('bench.title'), t('bench.description'));
+const esc = (text: string) => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 main.innerHTML = `
-  <section class="intro"><p class="eyebrow">BUILT WITH OUR OWN ENGINE</p><h1>측정 결과를,<br>우리 차트로.</h1><p>같은 데이터에서 관측한 성능을 살펴보세요.</p><p class="links"><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/BENCHMARKS.md">측정 방법 ↗</a><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/bench/results.json">CPU·GPU 전체 측정 원본 ↗</a><a href="https://github.com/jparkk0517/Charturbo">GitHub ↗</a></p></section>
-  <nav class="scenario-nav" aria-label="시나리오 바로가기"></nav>
-  <p id="status" role="status" aria-live="polite">차트 엔진을 불러오는 중…</p>
+  <section class="intro"><p class="eyebrow">${esc(t('bench.eyebrow'))}</p><h1>${t('bench.headingHtml')}</h1><p>${esc(t('bench.intro'))}</p><p class="links"><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/${lang === 'en' ? '' : `${lang}/`}contributing/benchmarks.md">${esc(t('bench.methodology'))}</a><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/bench/results.json">${esc(t('bench.raw'))}</a><a href="https://github.com/jparkk0517/Charturbo">GitHub ↗</a></p></section>
+  <nav class="scenario-nav" aria-label="${esc(t('bench.scenarioNav'))}"></nav>
+  <p id="status" role="status" aria-live="polite">${esc(t('bench.loading'))}</p>
   <div id="scenarios"></div>
-  <section class="notes"><h2>비교 조건을 함께 읽어주세요</h2><ul>
-    <li>TTFF는 엔진 초기화 이후 데이터 전달부터 첫 프레임까지입니다. 라이브러리별 재생성·재사용 방식이 다릅니다.</li>
-    <li>ChartGPU 산점도는 x축만 이동합니다. SciChart는 데이터 복사를 포함한 수정 측정만 TTFF에 표시합니다.</li>
-    <li>Charturbo는 시나리오별 CPU·GPU 유효 측정 중 FPS가 높은 모드 하나를 표시합니다(동률이면 물리 시간이 짧은 모드). 모든 지표는 선택된 동일 측정에서 가져오며, 사용 모드는 표와 툴팁에 표시합니다.</li>
-    <li>Charturbo·three.js는 같은 3D 힘 모델입니다. SDK의 hybrid GPU 모드는 GPU 반발력 + CPU 적분·공간 인덱스 방식입니다. deck.gl은 렌더만, cosmos.gl은 2D, 3d-force-graph는 다른 d3 힘 모델입니다.</li>
-    <li>SDK GPU 물리 시간은 업로드·GPU 완료·리드백·CPU 적분을 포함한 경과 시간이며, 나머지는 CPU 실행/제출 시간입니다. cosmos v3는 프레임당 한 스텝을 검증합니다. 시간 초과·미지원·미측정은 0점으로 표시하지 않습니다.</li>
+  <section class="notes"><h2>${esc(t('bench.notesHeading'))}</h2><ul>
+    ${(['bench.note1', 'bench.note2', 'bench.note3', 'bench.note4', 'bench.note5'] as const).map((k) => `<li>${esc(t(k))}</li>`).join('\n    ')}
   </ul></section>
-  <footer><span id="environment"></span><span>차트: Charturbo · WebGPU / WebGL2 · SVG export</span></footer>`;
+  <footer><span id="environment"></span><span>${esc(t('bench.footer'))}</span></footer>`;
 
 const status = document.querySelector<HTMLElement>('#status')!;
 const scenarioNav = document.querySelector<HTMLElement>('.scenario-nav')!;
 const scenarioList = document.querySelector<HTMLElement>('#scenarios')!;
 const metricsOf = (scenario: string): Metric[] => scenario.startsWith('graph') ? ['ttff', 'fps', 'physics'] : ['ttff', 'fps'];
+
+// bench/report-model (shared with the README export) speaks Korean: map its labels by id or by text.
+const scenarioLabel = (id: string) => {
+  const key = `bench.scenario.${id}` as MessageKey;
+  return Object.hasOwn(MESSAGES.en, key) ? t(key) : SCENARIOS.find((s) => s.id === id)?.label ?? id;
+};
+const metricTitle = (m: Metric) => t(`bench.metric.${m}.title`);
+const metricHint = (m: Metric) => t(`bench.metric.${m}.hint`);
+const KO_TEXT: Record<string, MessageKey> = {
+  '미측정': 'bench.status.notMeasured', '시간 초과': 'bench.status.timeout', '미지원': 'bench.status.unsupported',
+  '측정 실패': 'bench.status.failed', '재측정 필요: 데이터 복사 제외': 'bench.status.rerunCopy',
+  '재측정 필요: 물리 미검증': 'bench.status.rerunPhysics', '재측정 필요: 중복 물리 실행': 'bench.status.rerunDuplicate',
+  '해당 없음: 물리 없음': 'bench.status.noPhysics', '측정 완료': 'bench.status.measured', '측정값 없음': 'bench.status.noValue',
+  'x축만 줌·팬': 'bench.workload.zoomPanX', 'hover': 'bench.workload.hover', '줌·팬': 'bench.workload.zoomPan',
+  '3D CPU 물리 + 회전': 'bench.workload.cpuPhysics', '3D hybrid GPU 물리 + 회전': 'bench.workload.hybridPhysics',
+  '3D 물리 + 회전': 'bench.workload.physics', '렌더만 + 회전': 'bench.workload.renderOnly',
+  '2D GPU 레이아웃': 'bench.workload.gpuLayout2d', '3D d3 물리 + 회전': 'bench.workload.d3Physics',
+};
+/** Status / workload text from report-model in the site language (unknown text passes through). */
+const localize = (text: string) => (lang !== 'ko' && Object.hasOwn(KO_TEXT, text) ? t(KO_TEXT[text]) : text);
+function conditionsText(entry: Entry | undefined): string {
+  const m = entry?.measurement;
+  return m
+    ? t('bench.conditions', { date: m.date.slice(0, 10), runs: entry?.result?.ttff.frame.n ?? m.reps, seconds: m.duration / 1000 })
+    : t('bench.conditionsLegacy');
+}
 
 function applyDesign() {
   const t = reportTheme(design);
@@ -61,7 +88,7 @@ function applyDesign() {
 function renderTable(scenario: string): HTMLElement {
   const details = document.createElement('details');
   details.className = 'scenario-data';
-  details.innerHTML = `<summary>비교 수치 표</summary><div class="table-wrap"><table><caption>라이브러리별 수치, 조건 및 실패 사유</caption><thead><tr><th>라이브러리</th><th>TTFF (ms)</th><th>FPS</th><th>물리 (ms)</th><th>작업 / 렌더러</th><th>측정 조건</th><th>상태</th></tr></thead><tbody></tbody></table></div>`;
+  details.innerHTML = `<summary>${esc(t('bench.tableSummary'))}</summary><div class="table-wrap"><table><caption>${esc(t('bench.tableCaption'))}</caption><thead><tr><th>${esc(t('bench.colLibrary'))}</th><th>TTFF (ms)</th><th>FPS</th><th>${esc(t('bench.colPhysics'))}</th><th>${esc(t('bench.colWorkload'))}</th><th>${esc(t('bench.colConditions'))}</th><th>${esc(t('bench.colStatus'))}</th></tr></thead><tbody></tbody></table></div>`;
   const body = details.querySelector('tbody')!;
   for (const row of rowsFor(data, scenario, 'ttff')) {
     const values = (['ttff', 'fps', 'physics'] as Metric[]).map((m) => rowsFor(data, scenario, m).find((r) => r.lib === row.lib)!);
@@ -70,9 +97,9 @@ function renderTable(scenario: string): HTMLElement {
     const cells = [
       `${row.label} ${version}`,
       ...values.map((r) => r.value === null ? '—' : formatValue(r.value)),
-      `${workload(row.entry?.lib ?? row.lib, scenario)} / ${row.entry?.result?.backend ?? '—'}`,
-      conditions(row.entry), row.entry?.error ?? [
-        ...values.slice(0, metricsOf(scenario).length).map((r) => r.status).filter((s, i, all) => all.indexOf(s) === i),
+      `${localize(workload(row.entry?.lib ?? row.lib, scenario))} / ${row.entry?.result?.backend ?? '—'}`,
+      conditionsText(row.entry), row.entry?.error ?? [
+        ...values.slice(0, metricsOf(scenario).length).map((r) => localize(r.status)).filter((s, i, all) => all.indexOf(s) === i),
         ...(row.entry?.errors ?? []),
       ].join(' · '),
     ];
@@ -90,23 +117,23 @@ async function renderAll() {
   for (const s of SCENARIOS) {
     const link = scenarioNav.appendChild(document.createElement('a'));
     link.href = `#${s.id}`;
-    link.textContent = s.label;
+    link.textContent = scenarioLabel(s.id);
     const section = scenarioList.appendChild(document.createElement('section'));
     section.className = 'scenario';
     section.id = s.id;
     const h2 = section.appendChild(document.createElement('h2'));
-    h2.textContent = s.label;
+    h2.textContent = scenarioLabel(s.id);
     const grid = section.appendChild(document.createElement('div'));
     grid.className = 'charts';
-    grid.setAttribute('aria-label', `${s.label} 성능 차트`);
+    grid.setAttribute('aria-label', t('bench.chartsLabel', { scenario: scenarioLabel(s.id) }));
     for (const metric of metricsOf(s.id)) {
       const article = document.createElement('article');
       article.className = 'chart-card';
-      const h3 = document.createElement('h3'); h3.textContent = METRICS[metric].title;
-      const hint = document.createElement('p'); hint.textContent = METRICS[metric].hint;
+      const h3 = document.createElement('h3'); h3.textContent = metricTitle(metric);
+      const hint = document.createElement('p'); hint.textContent = metricHint(metric);
       const host = document.createElement('div'); host.className = 'chart-host';
       const unavailable = document.createElement('p'); unavailable.className = 'unavailable';
-      unavailable.textContent = rowsFor(data, s.id, metric).filter((r) => r.value === null).map((r) => `${r.label}: ${r.status}`).join(' · ');
+      unavailable.textContent = rowsFor(data, s.id, metric).filter((r) => r.value === null).map((r) => `${r.label}: ${localize(r.status)}`).join(' · ');
       article.append(h3, hint, host, unavailable);
       grid.append(article);
       hosts.push({ scenario: s.id, metric, article, host });
@@ -122,15 +149,15 @@ async function renderAll() {
       charts.push(chart);
       const save = document.createElement('button');
       save.type = 'button'; save.className = 'chart-download';
-      save.textContent = `${METRICS[metric].unit} 차트 SVG`;
-      save.setAttribute('aria-label', `${SCENARIOS.find((s) => s.id === scenario)!.label} ${METRICS[metric].title} SVG 다운로드`);
+      save.textContent = t('bench.download', { unit: METRICS[metric].unit });
+      save.setAttribute('aria-label', t('bench.downloadLabel', { scenario: scenarioLabel(scenario), metric: metricTitle(metric) }));
       save.addEventListener('click', () => chart.sdk.downloadChartSVG(`${scenario}-${metric}-${design.theme}.svg`));
       article.append(save);
     }
-    status.textContent = `${device.backend.toUpperCase()} · 실제 SDK 차트입니다. 막대 위에 포인터를 올려 수치를 확인하세요.`;
+    status.textContent = t('bench.ready', { backend: device.backend.toUpperCase() });
     window.__benchmark!.error = undefined;
   } catch (error) {
-    status.textContent = `차트를 표시할 수 없습니다: ${String(error)}. 각 시나리오의 수치 표는 계속 볼 수 있습니다.`;
+    status.textContent = t('bench.failed', { error: String(error) });
     window.__benchmark!.error = String(error);
   } finally { window.__benchmark!.ready = true; }
 }
@@ -141,7 +168,7 @@ subscribeTheme(() => {
   design = defaultDesign(getThemeName());
   applyDesign();
 });
-document.querySelector('#environment')!.textContent = `${data.meta.machine.cpu} · ${data.meta.chrome ?? ''} · 개별 날짜·반복·측정 시간은 표 참조`;
+document.querySelector('#environment')!.textContent = t('bench.environment', { cpu: data.meta.machine.cpu, chrome: data.meta.chrome ?? '' });
 window.__benchmark = {
   ready: false,
   async export(input, group, theme) {

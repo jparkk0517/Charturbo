@@ -1,8 +1,9 @@
 import { Charturbo, CHARTURBO_THEMES } from 'charturbo';
+import { htmlLang, t } from './i18n';
 
 /** Synthetic signals: deterministic, positive and deliberately not a performance benchmark. */
 export async function createStreamingArea(canvas: HTMLCanvasElement) {
-  const sdk = await Charturbo.create(canvas, { locale: 'en-US', timeZone: 'UTC' });
+  const sdk = await Charturbo.create(canvas, { locale: htmlLang, timeZone: 'UTC' });
   let observer: ResizeObserver | undefined;
   try {
     sdk.setTheme({ ...CHARTURBO_THEMES.dark, surface: '#0d131e' });
@@ -23,14 +24,14 @@ export async function createStreamingArea(canvas: HTMLCanvasElement) {
       const visible = size ? [0, 1, 2].map(s => sdk.isSeriesVisible(s)) : null;
       size = nextSize;
       const x = Float64Array.from({ length: count }, (_, i) => origin + (index - count + i) * step);
-      sdk.renderAreaChart(['Europe', 'Americas', 'Asia Pacific'].map((name, s) => ({
+      sdk.renderAreaChart([t('landing.seriesEurope'), t('landing.seriesAmericas'), t('landing.seriesAsia')].map((name, s) => ({
         name, x, values: Float32Array.from({ length: count }, (_, i) => signal(index - count + i, s)),
         color: ['#b8a4f5', '#6fb9ed', '#64dfc1'][s],
       })), {
         width, height, mode: 'stacked', fillOpacity: 0.45, animation: false,
         padding: { left: 44, right: 18, top: 40, bottom: 30 },
         axes: { x: { type: 'time' }, y: { min: 0, max: 145 } },
-        description: 'Synthetic regional traffic. Three synchronized series, retaining 600 samples each.',
+        description: t('landing.chartDescription'),
       });
       visible?.forEach((show, s) => sdk.setSeriesVisible(s, show));
       if (range) sdk.setXRange(...range);

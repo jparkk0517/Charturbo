@@ -1,6 +1,9 @@
 import { CHARTURBO_THEMES, parseColor, type Charturbo, type ObjectMaterialDescriptor, type RgbaTuple } from 'charturbo';
 
-import { THEMES, getThemeName, setThemeName, subscribeTheme } from './theme';
+import { t } from './i18n';
+import { THEMES, getThemeName, setThemeName, subscribeTheme, themeLabel, type ThemeName } from './theme';
+
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const PALETTES = {
   vivid: ['#3987e5', '#f28c33', '#4dc78c', '#db5473', '#9e80eb'],
   ocean: ['#3987e5', '#22d3ee', '#14b8a6', '#818cf8', '#a5f3fc'],
@@ -50,16 +53,17 @@ export function mountSceneDesignControls(host: HTMLElement): void {
   const section = document.createElement('section');
   section.className = 'scene-design';
   section.setAttribute('aria-labelledby', 'scene-design-heading');
+  const opt = (value: string, label: string) => `<option value="${value}">${escapeHtml(label)}</option>`;
   section.innerHTML = `
-    <div class="scene-design-heading"><div><h2 id="scene-design-heading">디자인 · 테마</h2><p>두 3D 데모에 실시간 적용됩니다. 선택한 설정은 다음 방문에도 유지됩니다.</p></div><button type="button" data-reset>디자인 초기화</button></div>
+    <div class="scene-design-heading"><div><h2 id="scene-design-heading">${escapeHtml(t('scene.heading'))}</h2><p>${escapeHtml(t('scene.intro'))}</p></div><button type="button" data-reset>${escapeHtml(t('scene.reset'))}</button></div>
     <div class="scene-design-fields">
-      <label>테마<select name="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="midnight">Midnight</option><option value="paper">Paper</option></select></label>
-      <label>팔레트<select name="palette"><option value="vivid">Vivid · 다채롭게</option><option value="ocean">Ocean · 시원하게</option><option value="sunset">Sunset · 따뜻하게</option><option value="mono">Mono · 단색</option></select></label>
-      <label>강조 색상<input name="accent" type="color"></label>
-      <label>재질<select name="material"><option value="original">데모 기본값</option><option value="matte">Matte · 무광</option><option value="glossy">Glossy · 유광</option><option value="metal">Metal · 금속</option></select></label>
-      <label class="scene-brightness">조명 <output></output><input name="brightness" type="range" min="0.25" max="2" step="0.05" aria-label="조명 밝기"></label>
-      <label class="scene-check"><input name="grid" type="checkbox">격자</label>
-      <label class="scene-check"><input name="axes" type="checkbox">좌표축</label>
+      <label>${escapeHtml(t('site.theme'))}<select name="theme">${(Object.keys(THEMES) as ThemeName[]).map((v) => opt(v, themeLabel(v))).join('')}</select></label>
+      <label>${escapeHtml(t('scene.palette'))}<select name="palette">${(Object.keys(PALETTES) as (keyof typeof PALETTES)[]).map((v) => opt(v, t(`scene.palette.${v}`))).join('')}</select></label>
+      <label>${escapeHtml(t('scene.accent'))}<input name="accent" type="color"></label>
+      <label>${escapeHtml(t('scene.material'))}<select name="material">${(Object.keys(MATERIALS) as (keyof typeof MATERIALS)[]).map((v) => opt(v, t(`scene.material.${v}`))).join('')}</select></label>
+      <label class="scene-brightness">${escapeHtml(t('scene.lighting'))} <output></output><input name="brightness" type="range" min="0.25" max="2" step="0.05" aria-label="${escapeHtml(t('scene.brightness'))}"></label>
+      <label class="scene-check"><input name="grid" type="checkbox">${escapeHtml(t('scene.grid'))}</label>
+      <label class="scene-check"><input name="axes" type="checkbox">${escapeHtml(t('scene.axes'))}</label>
     </div>`;
   const input = (name: string) => section.querySelector<HTMLInputElement>(`[name="${name}"]`)!;
   const syncControls = () => {
