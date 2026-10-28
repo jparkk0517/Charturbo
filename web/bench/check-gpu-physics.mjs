@@ -18,6 +18,12 @@ try {
       check(pattern.test(message), `Expected rejection ${pattern}, got ${message}`);
     };
     const canvases = [];
+    const pixels = (canvas) => {
+      const c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(canvas, 0, 0);
+      return ctx.getImageData(0, 0, c.width, c.height).data;
+    };
     const make = async (device) => {
       const canvas = document.createElement('canvas'); canvas.width = 960; canvas.height = 540;
       document.body.append(canvas); canvases.push(canvas);
@@ -49,8 +55,21 @@ try {
         check(Math.abs(a - b) / Math.max(a, 1) < .005, 'CPU/GPU kinetic energy');
         check(y[6] === raw.positions[6] && y[7] === raw.positions[7] && y[8] === raw.positions[8], 'pinned node moved');
         check(gpu.queryRadius(y[0], y[1], y[2], .001, nodes).includes(0), 'spatial index stale after sync');
+        // GPU-resident drawing (positions read on the GPU) matches CPU-packed positions, within the
+        // visual regression's canvas tolerance (e2e/run-visual.mjs: channel delta 24, 0.2 % of pixels):
+        // shader compilers may contract the two vertex paths' arithmetic differently at edges.
         gpu.render();
-        comparisons.push({ nodes, ticks, theta, maxError });
+        const resident = pixels(canvases[1]);
+        gpu.importPositions(y); gpu.render();
+        const packed = pixels(canvases[1]);
+        let residentDiffPixels = 0;
+        for (let i = 0; i < packed.length; i += 4) {
+          const delta = Math.max(...[0, 1, 2, 3].map((c) => Math.abs(resident[i + c] - packed[i + c])));
+          residentDiffPixels += delta > 24 ? 1 : 0;
+        }
+        check(resident.some((v, i) => i % 4 !== 3 && v !== 0), 'resident render captured an empty canvas');
+        check(residentDiffPixels <= packed.length / 4 * .002, `resident render differs in ${residentDiffPixels} pixels at ${nodes} nodes`);
+        comparisons.push({ nodes, ticks, theta, maxError, residentDiffPixels });
       }
       // Rendering/camera updates are safe while a step is pending.
       let pending = gpu.stepPhysicsAsync(.016);

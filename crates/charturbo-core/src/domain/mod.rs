@@ -552,8 +552,9 @@ impl GraphDataset {
     }
 
     /// Adopts GPU layout state (`[position_mass, velocity_pinned]` per node), keeping nodes with
-    /// pending CPU edits. Not a layout edit itself; false (nothing changes) on a pending
-    /// whole-layout edit or a malformed / nonfinite state.
+    /// pending CPU edits. Neither a layout edit nor a revision change (GPU-resident renderers
+    /// already draw these positions); false (nothing changes) on a pending whole-layout edit or a
+    /// malformed / nonfinite state.
     pub fn adopt_gpu_layout(&mut self, state: &[f32]) -> bool {
         if self.layout_dirty.full || state.len() != self.nodes.len() * 8 || !state.iter().all(|v| v.is_finite()) {
             return false;
@@ -562,7 +563,6 @@ impl GraphDataset {
         for &id in &self.layout_dirty.nodes {
             keep[id as usize] = true;
         }
-        self.touch();
         for (i, (node, s)) in self.nodes.iter_mut().zip(state.chunks_exact(8)).enumerate() {
             if keep.get(i) == Some(&true) {
                 continue;
@@ -1692,7 +1692,7 @@ mod tests {
         let gpu: Vec<f32> = (0..4).flat_map(|_| [9.0, 9.0, 9.0, 1.0, 0.5, 0.0, 0.0, 0.0]).collect();
         let revision = ds.revision();
         assert!(ds.adopt_gpu_layout(&gpu));
-        assert_ne!(ds.revision(), revision, "renderers must repack adopted positions");
+        assert_eq!(ds.revision(), revision, "adoption must not trigger a CPU repack");
         assert_eq!(ds.nodes()[0].position(), Vec3::splat(9.0));
         assert_eq!(ds.nodes()[0].velocity(), Vec3::new(0.5, 0.0, 0.0));
         assert_eq!(ds.nodes()[1].position(), moved, "pending CPU edits win over older GPU state");

@@ -45,6 +45,8 @@ struct GraphPackKey {
     hover_style: NodeHoverStyle,
     /// Camera matrix, only when frustum culling makes packing view-dependent
     cull_view: Option<[f32; 16]>,
+    /// Node indexes into the GPU-resident layout instead of CPU positions
+    resident: bool,
 }
 
 /// Everything the packed scene meshes / helper lines depend on.
@@ -272,6 +274,27 @@ impl VisualizationEngine {
         Ok(GpuPhysicsRequest::Immediate(self.gpu_energy + scene_ke))
     }
 
+    /// Writes pending CPU node edits into the GPU-resident layout. False when the GPU copy is not
+    /// current: not resident, a pending whole-layout edit (the next step uploads it), or a failed write.
+    fn flush_layout_edits(&mut self) -> bool {
+        use crate::renderer::gpu_layout::{node_state, GpuStateWrite};
+        if !self.gpu_resident || self.dataset.layout_dirty().full {
+            return false;
+        }
+        let dirty = self.dataset.take_layout_dirty();
+        if dirty.nodes.is_empty() {
+            return true;
+        }
+        let nodes: Vec<_> = dirty.nodes.iter().map(|&id| (id, node_state(&self.dataset.nodes()[id as usize]))).collect();
+        self.gpu_free = self.dataset.nodes().iter().filter(|n| !n.is_pinned()).count() as u32;
+        if self.renderer.gpu_layout_write(GpuStateWrite::Nodes(&nodes)).is_err() {
+            // The taken edits never reached the GPU: the next step re-uploads everything
+            self.gpu_resident = false;
+            return false;
+        }
+        true
+    }
+
     /// Adopts the newest periodic GPU readback into the CPU copy (no-op unless GPU-resident).
     fn adopt_gpu_readback(&mut self) {
         if !self.gpu_resident { return; }
@@ -293,17 +316,8 @@ impl VisualizationEngine {
     /// Reads back the full GPU-resident layout (after pushing pending CPU node edits);
     /// `Immediate` when the CPU copy is already authoritative.
     pub fn request_physics_sync(&mut self) -> Result<GpuPhysicsRequest, String> {
-        use crate::renderer::gpu_layout::{node_state, GpuStateWrite};
-        if !self.gpu_resident || self.dataset.layout_dirty().full {
+        if !self.flush_layout_edits() {
             return Ok(GpuPhysicsRequest::Immediate(self.gpu_energy));
-        }
-        let dirty = self.dataset.take_layout_dirty();
-        if !dirty.nodes.is_empty() {
-            let nodes: Vec<_> = dirty.nodes.iter().map(|&id| (id, node_state(&self.dataset.nodes()[id as usize]))).collect();
-            if let Err(e) = self.renderer.gpu_layout_write(GpuStateWrite::Nodes(&nodes)) {
-                self.gpu_resident = false;
-                return Err(e);
-            }
         }
         let sync = self.renderer.gpu_layout_sync()?;
         self.physics_ticket = self.physics_ticket.wrapping_add(1).max(1);
@@ -394,8 +408,11 @@ impl VisualizationEngine {
 
     pub fn sync_and_render(&mut self) {
         self.adopt_gpu_readback();
+        // GPU-resident layouts are drawn from GPU positions once pending node edits (drags) are
+        // written; a pending whole-layout edit draws the authoritative CPU copy instead
+        let resident = self.gpu_resident && self.graph_visible && self.flush_layout_edits();
         // The CPU index trails a GPU-resident layout by a frame or two: draw every node instead
-        let culling = self.frustum_culling && !self.gpu_resident;
+        let culling = self.frustum_culling && !resident;
         if culling {
             self.ensure_spatial_index();
         }
@@ -408,10 +425,11 @@ impl VisualizationEngine {
             hovered: self.hovered_node,
             hover_style: self.node_hover_style,
             cull_view,
+            resident,
         };
         if self.graph_pack_key.as_ref() != Some(&graph_key) {
             if !self.graph_visible {
-                self.renderer.sync_graph(&[], 0, &[]);
+                self.renderer.sync_graph(false, &[], 0, &[]);
             } else {
                 let mask = if culling {
                     let frustum = self.camera.frustum();
@@ -429,6 +447,7 @@ impl VisualizationEngine {
                 } else {
                     None
                 };
+                self.packer.resident = resident;
                 self.packer.pack_dataset_with_culling(
                     &self.dataset,
                     self.hovered_node,
@@ -436,7 +455,7 @@ impl VisualizationEngine {
                     &self.node_hover_style,
                 );
                 let (nodes, opaque, edges) = self.packer.packed();
-                self.renderer.sync_graph(nodes, opaque, edges);
+                self.renderer.sync_graph(resident, nodes, opaque, edges);
             }
             self.graph_pack_key = Some(graph_key);
         }
@@ -1470,13 +1489,30 @@ mod tests {
     impl RenderBackend for SharedMockRenderer {
         fn sync_graph(
             &mut self,
+            resident: bool,
             nodes: &[crate::renderer::NodeInstanceRaw],
             opaque_nodes: usize,
             edge_vertices: &[crate::renderer::EdgeVertexRaw],
         ) {
             self.0
                 .borrow_mut()
-                .sync_graph(nodes, opaque_nodes, edge_vertices);
+                .sync_graph(resident, nodes, opaque_nodes, edge_vertices);
+        }
+
+        fn supports_gpu_physics(&self) -> bool {
+            self.0.borrow().supports_gpu_physics()
+        }
+
+        fn gpu_layout_step(&mut self, step: &crate::renderer::gpu_layout::GpuLayoutStep) -> Result<(), String> {
+            self.0.borrow_mut().gpu_layout_step(step)
+        }
+
+        fn gpu_layout_write(&mut self, write: crate::renderer::gpu_layout::GpuStateWrite) -> Result<(), String> {
+            self.0.borrow_mut().gpu_layout_write(write)
+        }
+
+        fn gpu_layout_readback(&mut self) -> Option<crate::renderer::gpu_layout::GpuLayoutReadback> {
+            self.0.borrow_mut().gpu_layout_readback()
         }
 
         fn sync_scene_geometry(&mut self, vertices: &[crate::renderer::MeshVertexRaw], indices: &[u32]) {
@@ -1506,6 +1542,42 @@ mod tests {
         fn resize(&mut self, width: u32, height: u32) {
             self.0.borrow_mut().resize(width, height);
         }
+    }
+
+    #[test]
+    fn gpu_resident_layout_draws_gpu_positions_without_repacking_readbacks() {
+        use crate::renderer::gpu_layout::GpuLayoutReadback;
+        let ds = GraphDataset::generate_seeded(&DatasetConfig { node_count: 6, edge_count: 6, ..Default::default() });
+        let (mut engine, state) = mock_engine(ds);
+        state.borrow_mut().gpu_physics = true;
+        engine.sync_and_render();
+        assert!(!state.borrow().graph_resident, "CPU-packed until a GPU step owns the layout");
+        assert!(matches!(engine.request_gpu_physics(0.016), Ok(GpuPhysicsRequest::Immediate(_))));
+        assert_eq!(state.borrow().gpu_steps, vec![(true, 6)]);
+        engine.sync_and_render();
+        assert!(state.borrow().graph_resident);
+        let uploads = state.borrow().graph_uploads;
+        // Adopted readbacks move the CPU copy (picking) but the GPU already draws them
+        let moved: Vec<f32> = (0..6).flat_map(|_| [5.0, 5.0, 5.0, 1.0, 0.0, 0.0, 0.0, 0.0]).collect();
+        state.borrow_mut().gpu_readbacks.push(GpuLayoutReadback { epoch: 0, step: 1, state: moved, energy: 2.0, calm_steps: 0, sleeping: false });
+        engine.sync_and_render();
+        assert_eq!(engine.dataset().nodes()[0].position(), Vec3::splat(5.0));
+        assert_eq!(state.borrow().graph_uploads, uploads);
+        // A drag between steps reaches the GPU at render time
+        engine.move_node_to(2, Vec3::ONE);
+        engine.sync_and_render();
+        assert_eq!(state.borrow().gpu_writes, vec![vec![2]]);
+        assert!(state.borrow().graph_resident);
+        engine.request_gpu_physics(0.016).unwrap();
+        assert_eq!(state.borrow().gpu_steps.last(), Some(&(false, 6)), "the drag was already uploaded");
+        // A whole-layout CPU edit draws CPU positions until the next step uploads them
+        engine.import_positions(&[0.0; 18]).unwrap();
+        engine.sync_and_render();
+        assert!(!state.borrow().graph_resident);
+        engine.request_gpu_physics(0.016).unwrap();
+        assert_eq!(state.borrow().gpu_steps.last(), Some(&(true, 6)));
+        engine.sync_and_render();
+        assert!(state.borrow().graph_resident);
     }
 
     fn mock_engine(ds: GraphDataset) -> (VisualizationEngine, Rc<RefCell<MockRenderBackend>>) {
