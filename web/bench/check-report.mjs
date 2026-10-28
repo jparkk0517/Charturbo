@@ -10,32 +10,26 @@ const browser = await openReport();
 const output = path.join(import.meta.dirname, 'out');
 fs.mkdirSync(output, { recursive: true });
 try {
+  // Every scenario renders on the page at once: its own section, charts and table
+  assert.equal(await browser.evaluate('window.__benchmark.error'), undefined);
   for (const scenario of ['line-1m-1s', 'line-10m-1s', 'scatter-1m', 'bar-10k', 'graph-10k', 'graph-100k']) {
-    await browser.evaluate(`(() => { const s = document.querySelector('#scenario'); s.value = '${scenario}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-    await browser.wait('window.__benchmark.ready === true');
-    assert.equal(await browser.evaluate('window.__benchmark.error'), undefined);
-    assert.equal(await browser.evaluate('document.querySelectorAll("tbody tr").length'), scenario.startsWith('graph') ? 5 : 8);
-    assert.equal(await browser.evaluate('document.querySelectorAll(".chart-host canvas").length'), scenario.startsWith('graph') ? 3 : 2);
+    const section = `document.getElementById('${scenario}')`;
+    assert.equal(await browser.evaluate(`${section}.querySelectorAll("tbody tr").length`), scenario.startsWith('graph') ? 5 : 8);
+    assert.equal(await browser.evaluate(`${section}.querySelectorAll(".chart-host canvas").length`), scenario.startsWith('graph') ? 3 : 2);
   }
+  // The site header select is the only design control: it re-themes every report chart
   for (const theme of ['dark', 'midnight', 'paper', 'light']) {
-    await browser.evaluate(`(() => { const s = document.querySelector('#theme'); s.value = '${theme}'; s.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await browser.evaluate(`(() => { const s = document.querySelector('.site-theme select'); s.value = '${theme}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     assert.equal(await browser.evaluate('document.documentElement.dataset.theme'), theme);
   }
-  await browser.evaluate(`(() => {
-    for (const [id, value] of [['accent', '#d946ef'], ['palette', 'colorful'], ['radius', '0'], ['font', 'Georgia, serif']]) {
-      const s = document.getElementById(id); s.value = value; s.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    const s = document.getElementById('labels'); s.checked = false; s.dispatchEvent(new Event('input', { bubbles: true }));
-  })()`);
-  assert.equal(await browser.evaluate('getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()'), '#d946ef');
   const downloadSvg = await browser.evaluate(`(async () => {
     const original = URL.createObjectURL;
     let blob;
     URL.createObjectURL = (value) => { blob = value; return original(value); };
-    try { document.querySelector('#download').click(); } finally { URL.createObjectURL = original; }
+    try { document.querySelector('.chart-download').click(); } finally { URL.createObjectURL = original; }
     return blob?.text();
   })()`);
-  assert.ok(downloadSvg?.includes('<svg') && downloadSvg.includes('Georgia'), 'download uses the customized SDK chart');
+  assert.ok(downloadSvg?.includes('<svg'), 'download exports the SDK chart');
   // A successful zero FPS is valid; missing and failed rows must never become zero bars.
   const svg = await browser.evaluate(`window.__benchmark.export({meta: {date: '2026-10-27', machine: {cpu: 'test'}, versions: {}, reps: 5, duration: 3000}, compare: [
     {scenario: 'line-1m-1s', lib: 'viz', ok: true, result: {backend: 'webgpu', ttff: {frame: {median: 0, n: 5}}, steady: {fps: 0}}},
@@ -49,10 +43,6 @@ try {
     return !doc.querySelector('parsererror') && new Set(ids).size === ids.length;
   })()`);
   assert.ok(valid, 'exported SVG must parse and have unique clip IDs');
-  await browser.evaluate(`(() => {
-    const s = document.querySelector('#scenario'); s.value = 'line-1m-1s'; s.dispatchEvent(new Event('change', { bubbles: true }));
-  })()`);
-  await browser.wait('window.__benchmark.ready === true');
   const canvas = await browser.evaluate(`(() => {
     const c = document.querySelector('.chart-host canvas'); c.scrollIntoView({ block: 'center' });
     const r = c.getBoundingClientRect(); return { x: r.x, y: r.y };
@@ -74,5 +64,5 @@ try {
     fs.writeFileSync(path.join(output, `report-${name}.png`), Buffer.from(shot.data, 'base64'));
   }
   assert.deepEqual(browser.errors, []);
-  console.log('[bench:report:check] 6 scenarios, 4 themes, design controls, unavailable data, SVG and responsive layout passed');
+  console.log('[bench:report:check] 6 scenarios, 4 themes, unavailable data, SVG and responsive layout passed');
 } finally { await browser.close(); }

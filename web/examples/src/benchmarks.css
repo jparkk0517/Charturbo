@@ -1,33 +1,27 @@
-:root { color-scheme: light; font-family: system-ui, sans-serif; color: #14213d; background: #f3f6fb; --accent: #3182f6; --surface: #fff; --muted: #52627a; --line: #dce4ef; }
-:root[data-theme="dark"], :root[data-theme="midnight"] { color-scheme: dark; color: #edf2ff; background: #0b1020; --surface: #171c27; --muted: #aab9d0; --line: #2c3851; }
-:root[data-theme="midnight"] { background: #080f22; --surface: #101b35; }
-:root[data-theme="paper"] { background: #eee9dd; --surface: #faf6ed; --line: #d9d1bf; }
-* { box-sizing: border-box; }
-body { margin: 0; }
-main { max-width: 1280px; padding: 0 32px; margin: auto; }
-a { color: inherit; text-decoration: none; }
-a:hover { text-decoration: underline; }
-header, nav, .report-heading, footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-header { min-height: 84px; border-bottom: 1px solid var(--line); }
-.brand { font-size: 13px; font-weight: 800; letter-spacing: .13em; }
-nav { font-size: 13px; color: var(--muted); }
-.intro { padding: 56px 0 32px; }
-.eyebrow { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .16em; }
-h1 { font-size: clamp(32px, 5vw, 54px); letter-spacing: -.06em; line-height: 1.18; margin: 14px 0 20px; }
-.intro > p:last-child { color: var(--muted); line-height: 1.8; }
-.controls { display: flex; flex-wrap: wrap; align-items: end; gap: 18px; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
-label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--muted); }
-select, button, input { font: inherit; }
-select, button { min-height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; }
-button { cursor: pointer; font-size: 13px; }
-button:disabled { opacity: .5; cursor: wait; }
-input[type="color"] { height: 38px; width: 48px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: transparent; }
-input[type="range"] { width: 84px; height: 38px; accent-color: var(--accent); }
-.check { flex-direction: row; align-items: center; height: 38px; }
-.check input { accent-color: var(--accent); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.report-heading { margin-top: 36px; }
-h2 { font-size: 20px; letter-spacing: -.03em; }
+/* Benchmarks page: sits under the shared site header (style.css), so every rule is scoped to main.bench */
+.bench { --accent: #3182f6; --surface: #fff; --muted: #52627a; --line: #dce4ef; }
+:root[data-theme="dark"] .bench, :root[data-theme="midnight"] .bench { --surface: #171c27; --muted: #aab9d0; --line: #2c3851; }
+:root[data-theme="midnight"] .bench { --surface: #101b35; }
+:root[data-theme="paper"] .bench { --surface: #faf6ed; --line: #d9d1bf; }
+main.bench { display: block; max-width: 1280px; padding: 0 32px; margin: auto; }
+.bench a { color: inherit; text-decoration: none; }
+.bench a:hover { text-decoration: underline; }
+.bench footer, .bench .links { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.bench .links { justify-content: flex-start; font-size: 13px; color: var(--muted); }
+.bench .intro { padding: 56px 0 32px; }
+.bench .eyebrow { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+.bench .intro h1 { font-size: clamp(32px, 5vw, 54px); font-weight: 700; letter-spacing: -.06em; line-height: 1.18; margin: 14px 0 20px; }
+.bench .intro > p:not(.eyebrow) { color: var(--muted); line-height: 1.8; margin-bottom: 14px; }
+.bench button { font: inherit; min-height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; cursor: pointer; font-size: 13px; }
+.bench button:disabled { opacity: .5; cursor: wait; }
+.bench :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.bench .scenario-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.bench .scenario-nav a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; }
+.bench .scenario-nav a:hover { color: inherit; text-decoration: none; border-color: var(--accent); }
+.bench .scenario { margin-top: 36px; scroll-margin-top: 110px; }
+.bench .scenario-data { margin-top: 14px; }
+.bench .scenario-data summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 0 10px; }
+.bench h2 { font-size: 20px; letter-spacing: -.03em; }
 #status { color: var(--muted); font-size: 12px; line-height: 1.7; min-height: 22px; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .chart-card { min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--chart-surface, var(--surface)); padding: 20px 16px 12px; }
@@ -37,17 +31,16 @@ h2 { font-size: 20px; letter-spacing: -.03em; }
 .chart-host canvas { display: block; width: 100%; height: 100%; }
 .unavailable { min-height: 22px; }
 .chart-download { margin: 10px 8px 0; font-size: 11px; min-height: 30px; }
-.notes { margin-top: 26px; padding: 20px 24px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 12px 12px 0; }
-.notes h2 { font-size: 15px; margin: 0; }
-.notes ul { padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.9; margin-bottom: 0; }
-.data-section { margin-top: 36px; }
-.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
-caption { padding: 14px; text-align: left; color: var(--muted); }
-th, td { padding: 14px 16px; border-top: 1px solid var(--line); text-align: left; line-height: 1.6; }
-th { white-space: nowrap; color: var(--muted); }
-td:first-child { min-width: 140px; font-weight: 600; }
-td:last-child { max-width: 320px; overflow-wrap: anywhere; }
-footer { margin: 36px 0; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
-@media (max-width: 850px) { .charts { grid-template-columns: 1fr; } main { padding: 0 18px; } .controls { gap: 14px; padding: 18px; } }
-@media (max-width: 420px) { main { padding: 0 10px; } nav { gap: 12px; } .chart-card { padding: 18px 4px 10px; } .report-heading { gap: 10px; } h2 { font-size: 17px; } }
+.bench .notes { margin-top: 44px; padding: 20px 24px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 12px 12px 0; }
+.bench .notes h2 { font-size: 15px; margin: 0; }
+.bench .notes ul { padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.9; margin-bottom: 0; }
+.bench .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.bench table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.bench caption { padding: 14px; text-align: left; color: var(--muted); }
+.bench :is(th, td) { padding: 14px 16px; border-top: 1px solid var(--line); text-align: left; line-height: 1.6; }
+.bench th { white-space: nowrap; color: var(--muted); }
+.bench td:first-child { min-width: 140px; font-weight: 600; }
+.bench td:last-child { max-width: 320px; overflow-wrap: anywhere; }
+.bench footer { margin: 36px 0; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
+@media (max-width: 850px) { .charts { grid-template-columns: 1fr; } main.bench { padding: 0 18px; } }
+@media (max-width: 420px) { main.bench { padding: 0 10px; } .chart-card { padding: 18px 4px 10px; } .bench h2 { font-size: 17px; } }
