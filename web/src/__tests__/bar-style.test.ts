@@ -125,6 +125,8 @@ function mockBackend(
     set_bar_style: record('set_bar_style', true),
     set_bar_labels: record('set_bar_labels', true),
     set_chart_bar_background: record('set_chart_bar_background', true),
+    set_bar_label_boxes: record('set_bar_label_boxes', true),
+    set_bar_axis_label_rotation: record('set_bar_axis_label_rotation', true),
     chart_bar_labels: () => labels(),
     chart_hover_at_ndc: () => hit(),
     chart_sample: (id: number) => new Float64Array([0, id, 0, 1, 2, 3]),
@@ -195,6 +197,10 @@ describe('chart-bar-style helpers', () => {
     const r = resolveBarLabels({ position: 'insideBase', color: '#ff0000' });
     expect(r).toMatchObject({ mode: 1, position: 'insideBase', color: [1, 0, 0, 1] });
     expect(resolveBarLabels({ position: 'bogus' as never })?.position).toBe('outside');
+    // Rotation: degrees, positive = anticlockwise (ECharts label.rotate); 0 by default
+    expect(resolveBarLabels(true)?.rotate).toBe(0);
+    expect(resolveBarLabels({ rotate: 90 })?.rotate).toBe(90);
+    expect(resolveBarLabels({ rotate: NaN })?.rotate).toBe(0);
   });
 
   it('encodes symmetric / asymmetric errors by bar id', () => {
@@ -374,6 +380,92 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     sdk.renderBarChart(ITEMS, { labels: true });
     expect(calls.set_chart_padding.at(-1)?.[0]).toBe(28);
     expect(calls.set_bar_labels.at(-1)?.[1]).toBe(0);
+  });
+
+  it('rotated data labels send their rotated boxes and rotate the DOM text', () => {
+    const calls: Calls = {};
+    const labels = new Float64Array([1, 1, 0, 100, 50, 0]);
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0), () => labels));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    sdk.renderBarChart(ITEMS, { labels: { rotate: 90 } });
+    expect(calls.set_bar_labels).toBeUndefined();
+    const [mode, position, widths, heights] = calls.set_bar_label_boxes[0] as [number, number, Float32Array, Float32Array];
+    expect([mode, position]).toEqual([1, 0]);
+    // 90°: the line height across the bar, the text width along it ('12': 2 chars ≈ 16 px)
+    expect(widths[0]).toBeCloseTo(14, 3);
+    expect(heights[0]).toBeCloseTo(16, 3);
+    expect(Number.isNaN(widths[2]) && Number.isNaN(heights[2])).toBe(true);
+    // Outside labels on vertical bars reserve the tallest rotated box (+ 6) above the plot
+    expect(calls.set_chart_padding.at(-1)?.[0]).toBe(12 + 22);
+    sdk.render();
+    const el = container.querySelectorAll('.charturbo-sdk-bar-label')[0];
+    expect(el.style.transform).toBe('translate(-50%, -50%) rotate(-90deg)');
+
+    // 45°: axis-aligned box of the rotated text; horizontal bars keep room for its width
+    sdk.renderBarChart(ITEMS, { orientation: 'horizontal', labels: { rotate: 45 } });
+    const [w45, h45] = (calls.set_bar_label_boxes.at(-1) as [number, number, Float32Array, Float32Array]).slice(2) as Float32Array[];
+    const c = Math.SQRT1_2;
+    expect(w45[0]).toBeCloseTo(16 * c + 14 * c, 3);
+    expect(h45[0]).toBeCloseTo(16 * c + 14 * c, 3);
+    expect(calls.set_chart_padding.at(-1)?.[1]).toBe(16 + Math.ceil(30 * c) + 6);
+    // Upright labels keep the single-height setter
+    sdk.renderBarChart(ITEMS, { labels: { rotate: 0 } });
+    expect(calls.set_bar_labels.length).toBe(1);
+  });
+
+  it('rotated x axis labels: rotated ticks, footprint spacing, bottom padding grown unless given', () => {
+    const calls: Calls = {};
+    let axes = new Float64Array(0);
+    // Tick label layout boxes: 6 px per character, 14 px tall
+    vi.stubGlobal('document', {
+      body,
+      head: new FakeEl('head'),
+      createElement: (tag: string) => {
+        const el = new FakeEl(tag);
+        Object.defineProperty(el, 'offsetWidth', { get: () => el.textContent.length * 6 });
+        Object.defineProperty(el, 'offsetHeight', { get: () => 14 });
+        return el;
+      },
+      getElementById: () => null,
+    });
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => axes));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    const data = { categories: ['Northern region', 'South'], series: DATA.series.map(({ name, values }) => ({ name, values })) };
+    sdk.renderGroupedBarChart(data, { axes: { x: { labelRotate: 45, title: 'Region' } }, legend: false });
+    // The engine thins category ticks by the rotated footprint
+    expect(calls.set_bar_axis_label_rotation).toEqual([[45]]);
+    // Bottom padding from the category labels ('Northern re…': 12 chars ≈ 82 px):
+    // 82 sin45 + 7 cos45 hangs below the tick, 14 px already fit the upright row
+    const reserve = Math.ceil(89 * Math.SQRT1_2 - 14);
+    expect(calls.set_chart_padding.at(-1)?.[2]).toBe(30 + 20 + reserve);
+    const pads = calls.set_chart_padding.length;
+    axes = new Float64Array([56, 12, 700, 300, 2, 0, 0, 200, 312, 0, 1, 500, 312]);
+    sdk.render();
+    const ticks = container.querySelectorAll('.charturbo-sdk-axis-tick');
+    expect(ticks.map((t) => t.textContent)).toEqual(['Northern re…', 'South']);
+    expect(ticks[0].style.transform).toBe('translate(-100%, -50%) rotate(-45deg)');
+    expect(ticks[0].style.transformOrigin).toBe('100% 50%');
+    expect([ticks[0].style.left, ticks[0].style.top]).toEqual(['200px', '318px']);
+    // The measured labels fit the seeded reserve: no re-pad; the x title sits below them
+    expect(calls.set_chart_padding.length).toBe(pads);
+    const title = container.querySelectorAll('.charturbo-sdk-axis-title')[0];
+    expect(title.style.top).toBe(`${312 + 24 + reserve}px`);
+
+    // Value axis (horizontal bars): no engine spacing; the bottom grows once the ticks are laid out
+    sdk.renderBarChart(ITEMS, { orientation: 'horizontal', axes: { x: { labelRotate: 90 } } });
+    expect(calls.set_bar_axis_label_rotation.length).toBe(1);
+    expect(calls.set_chart_padding.at(-1)?.[2]).toBe(30);
+    axes = new Float64Array([90, 12, 600, 300, 1, 0, 1500, 400, 312]);
+    sdk.render();
+    // '1,500': 30 px hangs below the tick -> 16 px beyond the upright row
+    expect(calls.set_chart_padding.at(-1)?.[2]).toBe(46);
+    const n = calls.set_chart_padding.length;
+    sdk.render();
+    expect(calls.set_chart_padding.length).toBe(n);
+    // Explicit bottom padding stays as given
+    sdk.renderBarChart(ITEMS, { orientation: 'horizontal', axes: { x: { labelRotate: 90 } }, padding: { bottom: 40 } });
+    sdk.render();
+    expect(calls.set_chart_padding.at(-1)?.[2]).toBe(40);
   });
 
   it('percent labels follow legend toggles', () => {

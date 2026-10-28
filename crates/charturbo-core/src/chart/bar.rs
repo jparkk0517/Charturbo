@@ -113,6 +113,8 @@ pub(crate) struct BarChart {
     pub(crate) bases: Vec<f32>,
     /// Color of the background tracks behind the bars (`None` = none; bar_style.rs)
     pub(crate) background: Option<[f32; 4]>,
+    /// Rotation of the category tick labels in degrees (0 = upright; bar_style.rs)
+    pub(crate) category_label_deg: f32,
 }
 
 impl BarChart {
@@ -159,6 +161,7 @@ impl BarChart {
             labels: BarLabels::default(),
             bases: Vec::new(),
             background: None,
+            category_label_deg: 0.0,
         };
         chart.reshape();
         chart.relayout();
@@ -526,9 +529,9 @@ impl BarChart {
             self.edge_ticks(&h.edges, view, plot, out);
             return;
         }
-        // One category label per ~88 px so labels never collide
+        // One category label per ~88 px (rotated labels: their footprint) so labels never collide
         let n = self.slots.len();
-        let every = ((n as f32 * 88.0 / plot[2].max(1.0)).ceil() as usize).max(1);
+        let every = ((n as f32 * self.category_tick_px() / plot[2].max(1.0)).ceil() as usize).max(1);
         for i in (0..n).step_by(every) {
             if let Some((cx, _)) = view.project_css(Vec3::new(self.slots[i].0, self.bottom, 0.0)) {
                 out.ticks.push(AxisTick { axis: 0, value: i as f64, x_css: cx, y_css: bottom, granularity: 0 });
