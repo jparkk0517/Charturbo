@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 파이 다중 고리 (중첩 파이)
+
+- `renderPieChart({ rings: [...] })`로 여러 고리를 그립니다. 퍼센트 · 각도 · "Other" 접기 · 라벨 방식은 고리별로 계산하며, 같은 이름의 조각은 고리를 넘어 색 · 범례 항목 · 강조를 공유합니다. React/Vue `type="pie"`도 같은 데이터를 받습니다.
+- 툴팁(`ctx.slice.ring`) · 데이터 표 · 키보드 안내에 고리 이름을 붙입니다. 요약은 고리 수를 말하고 합계는 생략합니다.
+- WASM `set_pie_chart`에 마지막 인자 `rings`(고리마다 6개 값) · `groups`(값마다 그룹 id)를 추가했고, `chart_pie_slices`는 조각마다 9개 값(마지막이 고리)을 돌려줍니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/06-nested`, WebGPU/WebGL2 fixture `pie-rings`를 추가했습니다.
+
 ### 추가 — 파이 둥근 모서리
 
 - `PieChartOptions.cornerRadius`(CSS px)를 추가했습니다. 모서리 원은 안쪽으로 민 가장자리와 호에 접하며(d3-shape 작도), 얇은 조각·고리에서는 겹치지 않도록 줄어듭니다. 파이 중심은 뾰족하게 유지합니다.

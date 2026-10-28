@@ -1,6 +1,6 @@
 //! WASM bindings of the pie / donut chart (kept apart from `lib.rs`; same `WasmCharturboEngine`).
 
-use crate::chart::{validate_pie, PieLabelMode, PieOptions, PieRose, PieSort, PieStyle};
+use crate::chart::{validate_pie, validate_pie_rings, PieLabelMode, PieOptions, PieRing, PieRose, PieSort, PieStyle};
 use crate::WasmCharturboEngine;
 use wasm_bindgen::prelude::*;
 
@@ -21,8 +21,11 @@ impl WasmCharturboEngine {
     /// for outside labels; `rose` 0 = none, 1 = radius (angles by share), 2 = area (equal angles):
     /// slice area proportional to the value; `end_angle_deg` where the last slice ends (NaN = a
     /// full turn, see `PieOptions::end_angle_deg`); `pad_angle_deg` angular gap between slices (NaN /
-    /// negative = none); `corner_radius_px` slice corner rounding (0 = sharp). Returns the displayed
-    /// slice count.
+    /// negative = none); `corner_radius_px` slice corner rounding (0 = sharp). `rings`: 6 per ring
+    /// `[count, inner, outer (fractions of the radius), labels, max_slices (< 0 = default), sort]`
+    /// over consecutive values (empty = one ring from the scalar options); `groups`: empty or one
+    /// id per value (same id = same color / emphasis across rings). Returns the displayed slice
+    /// count.
     #[allow(clippy::too_many_arguments)]
     pub fn set_pie_chart(
         &mut self,
@@ -41,9 +44,25 @@ impl WasmCharturboEngine {
         end_angle_deg: f32,
         pad_angle_deg: f32,
         corner_radius_px: f32,
+        rings: &[f32],
+        groups: &[u32],
     ) -> Result<usize, JsValue> {
         validate_pie(values).map_err(|e| JsValue::from_str(&e))?;
         let d = PieOptions::default();
+        let rings: Vec<PieRing> = rings
+            .as_chunks::<6>()
+            .0
+            .iter()
+            .map(|&[count, inner, outer, labels, max_slices, sort]| PieRing {
+                len: count.max(0.0) as usize,
+                inner,
+                outer,
+                labels: PieLabelMode::from_u8(labels as u8),
+                max_slices: if max_slices < 0.0 { d.max_slices } else { max_slices as usize },
+                sort: PieSort::from_u8(sort as u8),
+            })
+            .collect();
+        validate_pie_rings(values, &rings, groups).map_err(|e| JsValue::from_str(&e))?;
         let opts = PieOptions {
             sort: PieSort::from_u8(sort),
             max_slices: usize::try_from(max_slices).unwrap_or(d.max_slices),
@@ -59,7 +78,7 @@ impl WasmCharturboEngine {
             label_space_px: [label_space_x, label_space_y],
             rose: PieRose::from_u8(rose),
         };
-        Ok(self.inner.set_pie_chart(values, opts, PieStyle::default()))
+        Ok(self.inner.set_pie_rings_chart(values, opts, PieStyle::default(), &rings, groups))
     }
 
     /// Pie colors (RGBA floats): `palette` 4 per entry in fixed display order; `colors` 4 per
@@ -76,17 +95,18 @@ impl WasmCharturboEngine {
         });
     }
 
-    /// Displayed slices, 8 per slice: `[source (-1 = Other), value, percent (NaN = hidden),
-    /// visible, r, g, b, a]`; empty without a pie.
+    /// Displayed slices, 9 per slice: `[source (-1 = Other), value, percent (NaN = hidden, share of
+    /// its ring), visible, r, g, b, a, ring]`; empty without a pie.
     pub fn chart_pie_slices(&self) -> Vec<f64> {
         let Some(slices) = self.inner.chart().and_then(|c| c.pie_slices()) else {
             return Vec::new();
         };
-        let mut out = Vec::with_capacity(slices.len() * 8);
+        let mut out = Vec::with_capacity(slices.len() * 9);
         for s in slices {
             let source = s.source.map_or(-1.0, |i| i as f64);
             out.extend([source, s.value, s.percent, if s.visible { 1.0 } else { 0.0 }]);
             out.extend(s.color.iter().map(|&c| c as f64));
+            out.push(s.ring as f64);
         }
         out
     }

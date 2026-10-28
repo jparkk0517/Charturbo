@@ -60,6 +60,14 @@ export interface A11yPieData {
   /** Displayed index of the "Other" slice (-1 = none) and the names it folds */
   otherSlice: number;
   otherMembers: string[];
+  /** Multi-ring pies: ring name per displayed slice (absent for a single pie) */
+  ring?: string[];
+}
+
+/** Slice name, prefixed with its ring in a multi-ring pie (`Source · Google`). */
+function pieLabel(p: A11yPieData, k: number): string {
+  const name = p.names[k] ?? `#${k + 1}`;
+  return p.ring ? `${p.ring[k]} · ${name}` : name;
 }
 
 /** Finite value extent of a heatmap and its empty (NaN) cell count. */
@@ -525,6 +533,8 @@ export function buildA11yModel(
     const other = (Array.isArray(m.other) ? m.other : []) as number[];
     const valueLabel = typeof m.valueLabel === 'string' && m.valueLabel ? m.valueLabel : 'Value';
     const fmt = typeof m.format === 'function' ? (m.format as (v: number) => string) : null;
+    const ringNames = (Array.isArray(m.ringNames) ? m.ringNames : []) as string[];
+    const ringOf = (Array.isArray(m.ring) ? m.ring : []) as number[];
     const pie: A11yPieData = {
       names,
       values,
@@ -534,8 +544,9 @@ export function buildA11yModel(
       donut: Number(m.donut) > 0,
       otherSlice: (Array.isArray(m.sources) ? (m.sources as number[]) : []).indexOf(-1),
       otherMembers: other.map((i) => inputLabels[i] ?? `#${i + 1}`),
+      ...(ringNames.length > 1 ? { ring: names.map((_, k) => ringNames[ringOf[k]] ?? '') } : {}),
     };
-    const label = (i: number) => names[i] ?? `#${i + 1}`;
+    const label = (i: number) => pieLabel(pie, i);
     return {
       kind: 'pie',
       ...common,
@@ -841,13 +852,16 @@ export function buildChartSummary(model: A11yChartModel): string {
     const shown = pieOrder(p);
     // Largest shares first (top 3)
     const top = [...shown].sort((a, b) => p.values[b] - p.values[a] || a - b).slice(0, 3);
-    const parts = top.map((k) => `${p.names[k]} ${enNumber(p.percents[k], 1)}%`);
+    const parts = top.map((k) => `${pieLabel(p, k)} ${enNumber(p.percents[k], 1)}%`);
     const more = shown.length - top.length;
     if (more > 0) parts.push(`and ${more} more`);
     const kind = p.donut ? 'Donut chart' : 'Pie chart';
     const hidden = p.names.length - p.visible.filter(Boolean).length;
     const hiddenText = hidden > 0 ? ` (${hidden} hidden)` : '';
-    return `${head}${kind}, ${plural(p.names.length, 'slice')}${hiddenText}, total ${f(p.total)}${tail(parts)}.`;
+    // Several rings have one total each: percents are shares of the slice's ring
+    const rings = p.ring ? `${plural(new Set(p.ring).size, 'ring')}, ` : '';
+    const total = p.ring ? '' : `, total ${f(p.total)}`;
+    return `${head}${kind}, ${rings}${plural(p.names.length, 'slice')}${hiddenText}${total}${tail(parts)}.`;
   }
   if (model.kind === 'line' || model.kind === 'candle') {
     const points = model.series.reduce((n, s) => n + s.values.length, 0);
@@ -968,11 +982,11 @@ export function buildChartDescription(model: A11yChartModel): string {
     if (st.empty > 0) out.push(`${plural(st.empty, 'empty cell')}.`);
   } else if (model.kind === 'pie' && model.pie) {
     const p = model.pie;
-    p.names.forEach((name, k) => {
+    p.names.forEach((_, k) => {
       const share = p.visible[k] ? `${enNumber(p.percents[k], 1)}%` : 'hidden';
-      out.push(`${name}: ${f(p.values[k])} (${share}).`);
+      out.push(`${pieLabel(p, k)}: ${f(p.values[k])} (${share}).`);
     });
-    if (p.otherSlice >= 0) out.push(`${p.names[p.otherSlice]} combines ${p.otherMembers.join(', ')}.`);
+    if (p.otherSlice >= 0) out.push(`${pieLabel(p, p.otherSlice)} combines ${p.otherMembers.join(', ')}.`);
   } else if (model.kind === 'line' || model.kind === 'candle') {
     // Series may have different x arrays: the range spans every series
     const [x0, x1] = lineXExtent(model);
@@ -1215,7 +1229,7 @@ export function pointAnnouncement(model: A11yChartModel, focus: A11yFocus): stri
     const p = model.pie;
     const order = pieOrder(p);
     const k = focus.index;
-    return `${p.names[k] ?? ''}, ${model.formatValue(p.values[k])}, ${enNumber(p.percents[k], 1)}%. ${order.indexOf(k) + 1} of ${order.length}.`;
+    return `${pieLabel(p, k)}, ${model.formatValue(p.values[k])}, ${enNumber(p.percents[k], 1)}%. ${order.indexOf(k) + 1} of ${order.length}.`;
   }
   if (model.kind === 'candle') {
     const v = (k: number) => model.formatValue(modelValue(model, k, focus.index));
@@ -2030,7 +2044,7 @@ export function tooltipContext(
       index: k,
       xLabel: name,
       items: [{ seriesName: name, value: p.values[k], color, nodeId: id, percent: p.percents[k] }],
-      slice: { label: name, value: p.values[k], percent: p.percents[k], ...members },
+      slice: { label: name, value: p.values[k], percent: p.percents[k], ...members, ...(p.ring ? { ring: p.ring[k] } : {}) },
       details: details(id),
     };
   }

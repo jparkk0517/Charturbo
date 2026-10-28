@@ -433,6 +433,22 @@ export const FIXTURES: Fixture[] = [
   pieFixture('pie-pad-angle', 0.5, { padAngle: 4 }),
   pieFixture('pie-rounded', 0.5, { padAngle: 3, cornerRadius: 8 }),
   {
+    name: 'pie-rings',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPieChart(
+          {
+            rings: [
+              { name: 'Channel', labels: ['Direct', 'Marketing', 'Search'], values: [1548, 775, 679] },
+              { name: 'Source', labels: ['Baidu', 'Direct', 'Email', 'Google', 'Bing'], values: [1048, 335, 310, 251, 147] },
+            ],
+          },
+          { title: 'Rings', legend: false, padding: { top: 36, right: 24, bottom: 24, left: 24 } }
+        );
+      }),
+  },
+  {
     name: 'combo',
     theme: 'dark',
     render: (ctx) =>

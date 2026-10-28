@@ -16,12 +16,12 @@ HANDOFF의 계약을 따른다.
 
 ## 1단계: 기존 차트 옵션 (약 1.5주)
 
-- [ ] 파이 (ECharts pie 14)
+- [x] 파이 (ECharts pie 14)
   - [x] rose(nightingale): 넓이 비례(표준)로 구현, ECharts 선형 대응은 미채택
   - [x] padAngle: 기존 2px 간격 위에 각도 간격 추가
   - [x] `endAngle`(반 도넛): 범위 bbox에 맞춰 화면을 잡음
   - [x] 모서리 둥글게: CSS px 단위, d3-shape `cornerRadius` 작도
-  - [ ] 중첩 링
+  - [x] 중첩 링: 독립 고리 API, 이름 그룹으로 색 · 범례 공유
 - [ ] 생키: 세로 방향(orient), levels 스타일, 그라데이션 링크 (sankey 7)
 - [ ] 범례: 위치 지정, 넘침 시 스크롤/페이지
 - [ ] 산점도: 심볼 모양, 파동 효과(effectScatter), jitter

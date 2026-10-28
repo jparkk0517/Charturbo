@@ -123,7 +123,7 @@ export {
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';
-export { type PieChartData, type PieChartOptions, type PieLabelMode, type PieRoseMode } from './sdk/chart-pie';
+export { type PieChartData, type PieChartOptions, type PieLabelMode, type PieRingData, type PieRingsData, type PieRoseMode } from './sdk/chart-pie';
 export {
   type ComboChartData,
   type ComboChartOptions,

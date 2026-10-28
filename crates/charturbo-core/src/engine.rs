@@ -10,7 +10,7 @@ use crate::chart::{BrushMode, BrushStyle, ChartSelection};
 use crate::chart::{CandleData, CandleLayout, CandleStyle, HistogramOptions};
 use crate::chart::{HeatmapColormap, HeatmapDomain, HeatmapLayout};
 use crate::chart::{BoxLayout, BoxPlotOptions};
-use crate::chart::{PieOptions, PieStyle};
+use crate::chart::{PieOptions, PieRing, PieStyle};
 use crate::chart::{ComboLayout, ComboSeries};
 use crate::chart::{AnimSnapshot, AnimationOptions, SvgExport};
 use crate::domain::{DatasetConfig, GraphDataset};
@@ -779,9 +779,14 @@ impl VisualizationEngine {
     /// Replaces graph content with a pie / donut chart (validated values) and frames it.
     /// Returns the displayed slice count (after "Other" folding).
     pub fn set_pie_chart(&mut self, values: &[f64], opts: PieOptions, style: PieStyle) -> usize {
+        self.set_pie_rings_chart(values, opts, style, &[], &[])
+    }
+
+    /// `set_pie_chart` with several rings (see `validate_pie_rings`).
+    pub fn set_pie_rings_chart(&mut self, values: &[f64], opts: PieOptions, style: PieStyle, rings: &[PieRing], groups: &[u32]) -> usize {
         self.begin_chart();
         let css = self.css_size();
-        let chart = ChartState::new_pie(values, opts, style);
+        let chart = ChartState::new_pie_rings(values, opts, style, rings, groups);
         chart.frame_camera(&mut self.camera, css);
         let n = chart.point_count();
         self.chart = Some(chart);

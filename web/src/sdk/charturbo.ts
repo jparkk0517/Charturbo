@@ -179,8 +179,9 @@ import {
   type PieChartData,
   type PieChartMeta,
   type PieChartOptions,
+  type PieRingsData,
 } from './chart-pie';
-export type { PieChartData, PieChartOptions, PieLabelMode, PieRoseMode } from './chart-pie';
+export type { PieChartData, PieChartOptions, PieLabelMode, PieRingData, PieRingsData, PieRoseMode } from './chart-pie';
 import {
   comboMeta,
   comboPointMetadata,
@@ -863,7 +864,7 @@ export interface ChartTooltipContext {
   /** Hovered sankey link (`A → B`, share of A) or node (inflow / outflow) */
   flow?: ChartFlowTooltip;
   /** Hovered pie slice: share of the visible total (0-100); "Other" lists the folded names */
-  slice?: { label: string; value: number; percent: number; members?: string[] };
+  slice?: { label: string; value: number; percent: number; members?: string[]; ring?: string };
   /** Hovered heatmap cell and its axis labels */
   cell?: { row: number; col: number; xLabel: string; yLabel: string };
   /** Series `x` value of the primary hovered sample (line charts with `x` only) */
@@ -1661,7 +1662,7 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_box_outliers?(group: number): Float32Array;
   /** `[lo, hi, bandwidth, density * 128]` of a violin group */
   chart_box_kde?(group: number): Float64Array;
-  /** Pie / donut (chart-pie.ts): values >= 0; `maxSlices` < 0 = default, 0 = no folding; `labels` 0 none, 1 outside, 2 inside; `rose` 0 none, 1 radius, 2 area; `endAngleDeg` NaN = full turn; `padAngleDeg` gap between slices; `cornerRadiusPx` 0 = sharp */
+  /** Pie / donut (chart-pie.ts): values >= 0; `maxSlices` < 0 = default, 0 = no folding; `labels` 0 none, 1 outside, 2 inside; `rose` 0 none, 1 radius, 2 area; `endAngleDeg` NaN = full turn; `padAngleDeg` gap between slices; `cornerRadiusPx` 0 = sharp; `rings` 6 per ring `[count, inner, outer, labels, maxSlices, sort]` (empty = single pie); `groups` one id per value (empty = per value) */
   set_pie_chart?(
     values: Float64Array,
     sort: number,
@@ -1677,7 +1678,9 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     rose: number,
     endAngleDeg: number,
     padAngleDeg: number,
-    cornerRadiusPx: number
+    cornerRadiusPx: number,
+    rings: Float32Array,
+    groups: Uint32Array
   ): number;
   /** RGBA floats: palette (display order), per-value colors (NaN = palette), other / leader / surface */
   set_chart_pie_style?(palette: Float32Array, colors: Float32Array, other: Float32Array, leader: Float32Array, surface: Float32Array): void;
@@ -5763,7 +5766,9 @@ export class Charturbo {
       const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey';
       // Scatter series read as dots
       const dot = meta.kind === 'scatter';
-      meta.names.forEach((name, i) => {
+      // Multi-ring pies: one entry per name, toggling / emphasizing its slices in every ring
+      const entries = meta.kind === 'pie' && meta.groups ? meta.groups.map((g) => ({ name: g.name, i: g.slices[0], slices: g.slices })) : meta.names.map((name, i) => ({ name, i, slices: [i] }));
+      entries.forEach(({ name, i, slices }) => {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'charturbo-sdk-legend-item';
@@ -5797,7 +5802,8 @@ export class Charturbo {
         const legendChanged = () => this.legendHooks.forEach((hook) => hook());
         if (p.legend.toggle) {
           item.addEventListener('click', () => {
-            this.setSeriesVisible(i, !meta.visible[i]);
+            const on = !meta.visible[i];
+            for (const k of slices) this.setSeriesVisible(k, on);
             legendChanged();
           });
         }
@@ -7518,8 +7524,10 @@ export class Charturbo {
    * hover explodes the slice under the pointer (O(log n) angle search). Outside labels get leader
    * lines and per-side collision nudging from the engine; the SDK only places the DOM text.
    * Legend click hides a slice (the rest re-lay out). Data point ids = displayed slice index.
+   * `{ rings }` data draws nested rings (each with its own percents, folding and labels); same
+   * names share a color and one legend entry across rings.
    */
-  renderPieChart(data: PieChartData, options?: PieChartOptions): { sliceCount: number } {
+  renderPieChart(data: PieChartData | PieRingsData, options?: PieChartOptions): { sliceCount: number } {
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();

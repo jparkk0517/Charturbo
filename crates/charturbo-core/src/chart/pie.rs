@@ -199,8 +199,13 @@ pub struct PieSlice {
     /// while hidden or zero)
     pub start: f32,
     pub end: f32,
-    /// World outer radius (`PIE_RADIUS` unless `PieOptions::rose`)
+    /// World inner / outer radius: the ring's band (`r_out` shorter in a `PieOptions::rose`)
+    pub r_in: f32,
     pub r_out: f32,
+    /// Ring of the slice (0 = innermost given, the classic single pie)
+    pub ring: u16,
+    /// Shared color / emphasis / legend group (input index by default; "Other" is its own)
+    pub group: u32,
     pub visible: bool,
     pub color: [f32; 4],
 }
@@ -240,6 +245,38 @@ pub(crate) struct PieScreen {
     pub r_css: f32,
     /// World units per CSS px
     pub wpp: f32,
+}
+
+/// One ring of a multi-ring pie (rings are given in input order, each over the next `len`
+/// values; radii are fractions of the full radius and must not overlap to stay hoverable).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PieRing {
+    pub len: usize,
+    pub inner: f32,
+    pub outer: f32,
+    pub labels: PieLabelMode,
+    /// Displayed slices including "Other" (0 = no folding)
+    pub max_slices: usize,
+    pub sort: PieSort,
+}
+
+/// Ring lengths must cover the values exactly with `0 <= inner < outer <= 1`; `groups` is empty
+/// or one id per value.
+pub fn validate_pie_rings(values: &[f64], rings: &[PieRing], groups: &[u32]) -> Result<(), String> {
+    if !groups.is_empty() && groups.len() != values.len() {
+        return Err(format!("pie groups: {} ids for {} values", groups.len(), values.len()));
+    }
+    if rings.is_empty() {
+        return Ok(());
+    }
+    let n: usize = rings.iter().map(|r| r.len).sum();
+    if n != values.len() {
+        return Err(format!("pie ring lengths sum to {n}, expected {} values", values.len()));
+    }
+    match rings.iter().position(|r| !(r.inner >= 0.0 && r.inner < r.outer && r.outer <= 1.0)) {
+        Some(i) => Err(format!("pie ring {i} radii {}..{} (need 0 <= inner < outer <= 1)", rings[i].inner, rings[i].outer)),
+        None => Ok(()),
+    }
 }
 
 /// Every value must be finite and >= 0.
@@ -538,12 +575,14 @@ pub(crate) struct PieChart {
     pub(crate) opts: PieOptions,
     style: PieStyle,
     pub(crate) slices: Vec<PieSlice>,
-    /// Input indices folded into "Other"
+    /// Rings (one for a classic pie), each over a contiguous range of `slices`
+    rings: Vec<RingState>,
+    /// Input indices folded into "Other" (every ring)
     pub(crate) other: Vec<usize>,
     pub(crate) emphasis: Option<usize>,
     /// Angle the slices share (radians, up to a full turn; see `PieOptions::end_angle_deg`)
     sweep: f32,
-    /// Sum of the visible slices
+    /// Sum of the visible slices of the first ring (the donut center total)
     total: f64,
     /// Scale (world per CSS px) and hovered slice the slice buffers were built for
     built: Option<(f32, Option<usize>)>,
@@ -555,9 +594,22 @@ pub(crate) struct PieChart {
     labels_revision: u32,
 }
 
+/// Laid-out ring: its slices, world radial band and label mode.
+#[derive(Debug, Clone)]
+struct RingState {
+    range: std::ops::Range<usize>,
+    inner: f32,
+    outer: f32,
+    labels: PieLabelMode,
+    /// Sum of the visible slices
+    total: f64,
+}
+
 impl PieChart {
-    /// Builds the displayed slices from validated values (see `validate_pie`).
-    pub(crate) fn new(values: &[f64], mut opts: PieOptions, style: PieStyle) -> Self {
+    /// Builds the displayed slices from validated values (see `validate_pie`, and
+    /// `validate_pie_rings` for `rings` / `groups`). No rings = one ring from `opts` (`inner_ratio`
+    /// to the rim, `labels`, `max_slices`, `sort`); no groups = one group per input value.
+    pub(crate) fn new(values: &[f64], mut opts: PieOptions, style: PieStyle, rings: &[PieRing], groups: &[u32]) -> Self {
         let clean = |v: f32, d: f32| if v.is_finite() { v } else { d };
         let d = PieOptions::default();
         opts.inner_ratio = clean(opts.inner_ratio, 0.0).clamp(0.0, 0.95);
@@ -572,23 +624,43 @@ impl PieChart {
             d if d.is_finite() && d > 0.0 => d.min(360.0).to_radians(),
             _ => TAU,
         };
-        let (slices, other) = fold_slices(values, opts.sort, opts.max_slices);
-        let mut pie = Self {
-            opts,
-            style,
-            slices: slices
-                .into_iter()
-                .map(|(source, value)| PieSlice {
+        let specs = if rings.is_empty() {
+            vec![PieRing { len: values.len(), inner: opts.inner_ratio, outer: 1.0, labels: opts.labels, max_slices: opts.max_slices, sort: opts.sort }]
+        } else {
+            rings.to_vec()
+        };
+        let (mut slices, mut other, mut states) = (Vec::new(), Vec::new(), Vec::new());
+        let mut at = 0;
+        for (ring, spec) in specs.iter().enumerate() {
+            let end = (at + spec.len).min(values.len());
+            let (folded, folded_other) = fold_slices(&values[at..end], spec.sort, spec.max_slices);
+            let first = slices.len();
+            let (inner, outer) = (spec.inner * PIE_RADIUS, spec.outer * PIE_RADIUS);
+            slices.extend(folded.into_iter().map(|(source, value)| {
+                let source = source.map(|i| i + at);
+                PieSlice {
                     source,
                     value,
                     percent: f64::NAN,
                     start: 0.0,
                     end: 0.0,
-                    r_out: PIE_RADIUS,
+                    r_in: inner,
+                    r_out: outer,
+                    ring: ring as u16,
+                    group: source.map_or(u32::MAX - ring as u32, |i| groups.get(i).copied().unwrap_or(i as u32)),
                     visible: true,
                     color: [0.0; 4],
-                })
-                .collect(),
+                }
+            }));
+            other.extend(folded_other.into_iter().map(|i| i + at));
+            states.push(RingState { range: first..slices.len(), inner, outer, labels: spec.labels, total: 0.0 });
+            at = end;
+        }
+        let mut pie = Self {
+            opts,
+            style,
+            slices,
+            rings: states,
             other,
             emphasis: None,
             sweep,
@@ -609,18 +681,27 @@ impl PieChart {
         self.slices.len()
     }
 
-    /// Angles, radii and percents of the visible slices (hidden ones collapse to zero width).
+    /// Angles, radii and percents of the visible slices, per ring (hidden ones collapse to zero
+    /// width).
     fn layout(&mut self) {
-        let visible = || self.slices.iter().filter(|s| s.visible);
+        let (rose, sweep) = (self.opts.rose, self.sweep);
+        for g in &mut self.rings {
+            Self::layout_ring(&mut self.slices[g.range.clone()], g, rose, sweep);
+        }
+        self.total = self.rings.first().map_or(0.0, |g| g.total);
+        self.built = None;
+        self.labels_key = None;
+    }
+
+    fn layout_ring(slices: &mut [PieSlice], g: &mut RingState, rose: PieRose, sweep: f32) {
+        let visible = || slices.iter().filter(|s| s.visible);
         let total: f64 = visible().map(|s| s.value).sum();
         let shown = visible().count();
         let max = visible().map(|s| s.value).fold(0.0, f64::max);
-        self.total = total;
-        let rose = self.opts.rose;
-        let (r_in, r_full) = (self.r_in(), PIE_RADIUS);
-        let sweep = self.sweep;
+        g.total = total;
+        let (r_in, r_full) = (g.inner, g.outer);
         let mut acc = 0.0f64;
-        for s in &mut self.slices {
+        for s in slices.iter_mut() {
             let share = match rose {
                 _ if !s.visible => 0.0,
                 PieRose::Area => 1.0 / shown as f64,
@@ -640,21 +721,22 @@ impl PieChart {
         }
         // The last visible slice closes the sweep and later (hidden) ones sit at its end, so the
         // ends stay monotonic for the hit test's binary search
-        if let Some(last) = self.slices.iter().rposition(|s| s.span() > 0.0) {
-            self.slices[last].end = sweep;
-            for s in &mut self.slices[last + 1..] {
+        if let Some(last) = slices.iter().rposition(|s| s.span() > 0.0) {
+            slices[last].end = sweep;
+            for s in &mut slices[last + 1..] {
                 (s.start, s.end) = (sweep, sweep);
             }
         }
-        self.built = None;
-        self.labels_key = None;
     }
 
-    /// Palette in fixed display order ("Other" uses its own neutral color).
+    /// Palette in fixed display order, or by group across several rings ("Other" uses its own
+    /// neutral color).
     fn assign_colors(&mut self) {
         let st = &self.style;
         let gray = [0.5, 0.5, 0.5, 1.0];
+        let by_group = self.rings.len() > 1;
         for (k, s) in self.slices.iter_mut().enumerate() {
+            let k = if by_group { s.group as usize } else { k };
             s.color = match s.source {
                 None => st.other_color,
                 Some(i) => st
@@ -717,15 +799,21 @@ impl PieChart {
         }
     }
 
+    /// Innermost ring's inner radius (world).
     fn r_in(&self) -> f32 {
-        PIE_RADIUS * self.opts.inner_ratio
+        self.rings.iter().map(|g| g.inner).fold(PIE_RADIUS, f32::min)
+    }
+
+    /// Label mode of slice `s`'s ring.
+    fn label_mode(&self, s: &PieSlice) -> PieLabelMode {
+        self.rings.get(s.ring as usize).map_or(PieLabelMode::None, |g| g.labels)
     }
 
     /// World point at the middle of slice `k` (between hole and rim; 0.6 of the rim for pies).
     fn centroid(&self, k: usize) -> Option<Vec3> {
         let s = self.slices.get(k)?;
         let (lo, hi) = self.compass(s);
-        let r = if self.opts.inner_ratio > 0.0 { 0.5 * (self.r_in() + s.r_out) } else { 0.6 * s.r_out };
+        let r = if s.r_in > 0.0 { 0.5 * (s.r_in + s.r_out) } else { 0.6 * s.r_out };
         let (x, y) = polar((0.0, 0.0), 0.5 * (lo + hi), r);
         Some(Vec3::new(x, y, 0.0))
     }
@@ -744,11 +832,12 @@ impl PieChart {
         (r > 1e-3).then_some(PieScreen { center_css: c, r_css: r, wpp: PIE_RADIUS / r })
     }
 
-    /// Slice under world point `(x, y)` (`wpp` = world units per CSS px): binary search over the
-    /// cumulative angles; the donut hole and beyond the rim miss. The `hovered` slice is tested
-    /// first where it is drawn (exploded), so hover follows the visible shape.
+    /// Slice under world point `(x, y)` (`wpp` = world units per CSS px): the ring by radius, then
+    /// a binary search over its cumulative angles; holes, gaps between rings and beyond the rim
+    /// miss. The `hovered` slice is tested first where it is drawn (exploded), so hover follows
+    /// the visible shape.
     pub(crate) fn slice_at(&self, x: f32, y: f32, wpp: f32, hovered: Option<usize>) -> Option<usize> {
-        if self.total <= 0.0 || wpp.is_nan() || wpp <= 0.0 {
+        if wpp.is_nan() || wpp <= 0.0 {
             return None;
         }
         // A lone shown slice spans the full turn and never explodes (O(1): no count of shown slices)
@@ -765,16 +854,26 @@ impl PieChart {
     /// Hit test of the unexploded pie around the origin.
     fn slice_at_centered(&self, x: f32, y: f32) -> Option<usize> {
         let r = x.hypot(y);
-        if r > PIE_RADIUS || r < self.r_in() {
-            return None;
-        }
+        let g = self.rings.iter().find(|g| g.total > 0.0 && r >= g.inner && r <= g.outer)?;
         let phi = x.atan2(y);
         let a = (self.dir() * (phi - self.start_rad())).rem_euclid(TAU);
         // f32 rem_euclid can round up to exactly TAU
         let a = if a >= TAU { 0.0 } else { a };
-        let k = self.slices.partition_point(|s| s.end <= a);
-        let s = self.slices.get(k)?;
-        (s.span() > 0.0 && a >= s.start && r <= s.r_out).then_some(k)
+        let ring = &self.slices[g.range.clone()];
+        let k = ring.partition_point(|s| s.end <= a);
+        let s = ring.get(k)?;
+        (s.span() > 0.0 && a >= s.start && r <= s.r_out).then_some(g.range.start + k)
+    }
+
+    /// Visible (non-empty) slices per ring: a ring's only one is drawn as a full disk / ring.
+    fn shown_per_ring(&self, spans: impl Iterator<Item = f32>) -> Vec<usize> {
+        let mut shown = vec![0; self.rings.len()];
+        for (s, span) in self.slices.iter().zip(spans) {
+            if span > 0.0 {
+                shown[s.ring as usize] += 1;
+            }
+        }
+        shown
     }
 
     pub(crate) fn hover(&self, view: &ChartView, ndc: (f32, f32), hovered: Option<usize>) -> Option<HoverResult> {
@@ -791,7 +890,7 @@ impl PieChart {
     fn display_color(&self, k: usize) -> [f32; 4] {
         let c = self.slices[k].color;
         match self.emphasis {
-            Some(e) if e != k => {
+            Some(e) if self.slices.get(e).is_some_and(|e| e.group != self.slices[k].group) => {
                 let s = self.style.surface;
                 [c[0] + (s[0] - c[0]) * FADE, c[1] + (s[1] - c[1]) * FADE, c[2] + (s[2] - c[2]) * FADE, c[3]]
             }
@@ -810,12 +909,12 @@ impl PieChart {
     pub(crate) fn build(&self, wpp: f32, hovered: Option<usize>, fills: &mut Vec<ChartFillRaw>, edges: &mut Vec<ChartSegmentRaw>) {
         fills.clear();
         edges.clear();
-        let shown = self.slices.iter().filter(|s| s.span() > 0.0).count();
+        let shown = self.shown_per_ring(self.slices.iter().map(|s| s.span()));
         for (k, s) in self.slices.iter().enumerate() {
             if s.span() <= 0.0 {
                 continue;
             }
-            let full = shown == 1 && self.sweep >= TAU;
+            let full = shown[s.ring as usize] == 1 && self.sweep >= TAU;
             let Some((lo, hi)) = self.padded(self.compass(s), full) else {
                 continue;
             };
@@ -825,7 +924,7 @@ impl PieChart {
                 (0.0, 0.0)
             };
             let corner = self.opts.corner_radius_px * wpp;
-            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full, corner };
+            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: s.r_in, full, corner };
             tessellate_slice(&shape, wpp, offset, self.display_color(k), fills, edges);
         }
     }
@@ -851,17 +950,17 @@ impl PieChart {
     ) {
         fills.clear();
         edges.clear();
-        let shown = angles.iter().filter(|(a, b)| b > a).count();
+        let shown = self.shown_per_ring(angles.iter().map(|(a, b)| b - a));
         for (k, (s, &(start, end))) in self.slices.iter().zip(angles).enumerate() {
             if end <= start {
                 continue;
             }
-            let full = shown == 1 && self.sweep >= TAU;
+            let full = shown[s.ring as usize] == 1 && self.sweep >= TAU;
             let Some((lo, hi)) = self.padded(self.compass(&PieSlice { start, end, ..*s }), full) else {
                 continue;
             };
             let corner = self.opts.corner_radius_px * wpp;
-            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full, corner };
+            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: s.r_in, full, corner };
             tessellate_slice(&shape, wpp, (0.0, 0.0), self.display_color(k), fills, edges);
         }
     }
@@ -878,25 +977,25 @@ impl PieChart {
         let line = self.opts.label_line_px;
         // CSS direction (y down) of a compass angle
         let dir_css = |phi: f32| (phi.sin(), -phi.cos());
-        match self.opts.labels {
-            PieLabelMode::None => {}
-            PieLabelMode::Inside => {
-                let ratio = self.opts.inner_ratio;
-                let ri = ratio * r;
-                for (k, s) in self.slices.iter().enumerate() {
-                    let rk = r * s.r_out / PIE_RADIUS;
-                    let rm = if ratio > 0.0 { 0.5 * (ri + rk) } else { 0.62 * rk };
-                    // The label needs about two line heights of arc (and one of depth in a rose)
-                    let shallow = self.opts.rose != PieRose::None && rk - ri < line;
-                    if s.span() <= 0.0 || s.span() < min_span || s.span() * rm < 2.0 * line || shallow {
-                        continue;
-                    }
-                    let (lo, hi) = self.compass(s);
-                    let v = dir_css(0.5 * (lo + hi));
-                    out.push(PieLabel { slice: k as u32, x_css: cx + v.0 * rm, y_css: cy + v.1 * rm, side: 0 });
-                }
+        // Ring depth matters in a rose and in thin rings
+        let depth_limited = self.opts.rose != PieRose::None || self.rings.len() > 1;
+        for (k, s) in self.slices.iter().enumerate() {
+            if self.label_mode(s) != PieLabelMode::Inside {
+                continue;
             }
-            PieLabelMode::Outside => {
+            let (ri, rk) = (r * s.r_in / PIE_RADIUS, r * s.r_out / PIE_RADIUS);
+            let rm = if s.r_in > 0.0 { 0.5 * (ri + rk) } else { 0.62 * rk };
+            // The label needs about two line heights of arc (and one of depth)
+            let shallow = depth_limited && rk - ri < line;
+            if s.span() <= 0.0 || s.span() < min_span || s.span() * rm < 2.0 * line || shallow {
+                continue;
+            }
+            let (lo, hi) = self.compass(s);
+            let v = dir_css(0.5 * (lo + hi));
+            out.push(PieLabel { slice: k as u32, x_css: cx + v.0 * rm, y_css: cy + v.1 * rm, side: 0 });
+        }
+        {
+            {
                 let css_h = view.viewport_px.1 as f32 / view.pixel_ratio.max(0.1);
                 let (top, bottom) = (padding[0] + 0.5 * line, (css_h - padding[2] - 0.5 * line).max(padding[0] + 0.5 * line));
                 let capacity = (((bottom - top) / line).floor() as usize + 1).max(1);
@@ -907,7 +1006,7 @@ impl PieChart {
                         .slices
                         .iter()
                         .enumerate()
-                        .filter(|(_, s)| s.span() > 0.0 && s.span() >= min_span)
+                        .filter(|(_, s)| self.label_mode(s) == PieLabelMode::Outside && s.span() > 0.0 && s.span() >= min_span)
                         .filter_map(|(k, s)| {
                             let (lo, hi) = self.compass(s);
                             let mid = 0.5 * (lo + hi);
@@ -945,9 +1044,9 @@ impl PieChart {
                         out.push(PieLabel { slice: k as u32, x_css: ax, y_css: y, side });
                     }
                 }
-                out.sort_by_key(|l| l.slice);
             }
         }
+        out.sort_by_key(|l| l.slice);
         let changed = out != self.labels;
         if changed {
             self.labels_revision = self.labels_revision.wrapping_add(1);
@@ -988,7 +1087,8 @@ impl PieChart {
     /// and outside labels.
     pub(crate) fn frame_camera(&self, camera: &mut OrbitCamera, css: (f32, f32), padding: &ChartPadding) {
         let m = PIE_EXPLODE_PX + 2.0;
-        let [sh, sv] = if self.opts.labels == PieLabelMode::Outside { self.opts.label_space_px } else { [0.0; 2] };
+        let outside = self.rings.iter().any(|g| g.labels == PieLabelMode::Outside);
+        let [sh, sv] = if outside { self.opts.label_space_px } else { [0.0; 2] };
         let pad = [padding[0] + m + sv, padding[1] + m + sh, padding[2] + m + sv, padding[3] + m + sh];
         let (x0, x1, y0, y1) = self.extent();
         frame_flat_at(camera, css, (0.5 * (x0 + x1), 0.5 * (y0 + y1)), x1 - x0, y1 - y0, &pad);
@@ -1025,7 +1125,13 @@ pub(crate) fn nudge(ys: &[f32], line: f32, top: f32, bottom: f32) -> Vec<f32> {
 impl ChartState {
     /// Creates a pie / donut chart from validated values (see `validate_pie`).
     pub fn new_pie(values: &[f64], opts: PieOptions, style: PieStyle) -> Self {
-        Self::with_kind(ChartKind::Pie(PieChart::new(values, opts, style)))
+        Self::new_pie_rings(values, opts, style, &[], &[])
+    }
+
+    /// Creates a multi-ring pie (see `validate_pie_rings`): one ring per entry of `rings` over
+    /// consecutive values; `groups` share colors and emphasis across rings.
+    pub fn new_pie_rings(values: &[f64], opts: PieOptions, style: PieStyle, rings: &[PieRing], groups: &[u32]) -> Self {
+        Self::with_kind(ChartKind::Pie(PieChart::new(values, opts, style, rings, groups)))
     }
 
     /// Palette / per-value colors / leader and surface colors of the pie (re-tessellates).
@@ -1069,7 +1175,7 @@ impl ChartState {
         Some(PieLayoutInfo {
             center_css: s.center_css,
             r_out_css: s.r_css,
-            r_in_css: s.r_css * p.opts.inner_ratio,
+            r_in_css: s.r_css * p.r_in() / PIE_RADIUS,
             total: p.total,
             hovered: self.hover.as_ref().and_then(|h| h.items.get(h.primary)).map(|i| i.index as usize),
         })
@@ -1485,6 +1591,92 @@ mod tests {
         for (g, w) in got.iter().zip(&want) {
             assert!((g - w).abs() < 0.05, "leader starts {got:?} vs rims {want:?}");
         }
+    }
+
+    #[test]
+    fn rings_lay_out_independently_in_their_radial_bands_and_share_colors_by_group() {
+        // Inner pie A/B, outer ring A/C/D: "A" is one group across both rings
+        let values = [3.0, 1.0, 1.0, 1.0, 2.0];
+        let rings = [
+            PieRing { len: 2, inner: 0.0, outer: 0.4, labels: PieLabelMode::Inside, max_slices: 0, sort: PieSort::None },
+            PieRing { len: 3, inner: 0.6, outer: 1.0, labels: PieLabelMode::Outside, max_slices: 0, sort: PieSort::None },
+        ];
+        let groups = [0, 1, 0, 2, 3];
+        validate_pie_rings(&values, &rings, &groups).unwrap();
+        let opts = PieOptions { label_min_angle_deg: 1.0, label_space_px: [90.0, 20.0], ..Default::default() };
+        let mut chart = ChartState::new_pie_rings(&values, opts, PieStyle::default(), &rings, &groups);
+        let mut cam = OrbitCamera::new(150.0, 16.0 / 9.0);
+        cam.set_pose(Vec3::new(0.0, 0.0, 150.0), Vec3::ZERO);
+        chart.frame_camera(&mut cam, (1600.0, 900.0));
+        let v = view(&cam);
+        chart.prepare_layers(&v);
+        let p = inner(&chart);
+        let s = &p.slices;
+        assert_eq!(s.iter().map(|s| s.ring).collect::<Vec<_>>(), vec![0, 0, 1, 1, 1]);
+        for (s, (a, b)) in s.iter().zip([(0.0, 20.0), (0.0, 20.0), (30.0, 50.0), (30.0, 50.0), (30.0, 50.0)]) {
+            assert!((s.r_in - a).abs() < 1e-4 && (s.r_out - b).abs() < 1e-4, "{} {}", s.r_in, s.r_out);
+        }
+        // Percents and angles per ring: each ring closes its own turn
+        assert!((s[0].percent - 75.0).abs() < 1e-9 && (s[2].percent - 25.0).abs() < 1e-9 && (s[4].percent - 50.0).abs() < 1e-9);
+        assert_eq!((s[1].end, s[4].end), (TAU, TAU));
+        assert!((s[3].end - TAU * 0.5).abs() < 1e-5);
+        // Hit test: ring by radius, then the angle search within the ring; the band between misses
+        let wpp = p.screen.unwrap().wpp;
+        let at = |k: usize, r: f32| {
+            let (lo, hi) = p.compass(&s[k]);
+            polar((0.0, 0.0), 0.5 * (lo + hi), r)
+        };
+        let (x, y) = at(0, 10.0);
+        assert_eq!(p.slice_at(x, y, wpp, None), Some(0));
+        let (x, y) = at(4, 40.0);
+        assert_eq!(p.slice_at(x, y, wpp, None), Some(4));
+        let (x, y) = at(4, 25.0);
+        assert_eq!(p.slice_at(x, y, wpp, None), None);
+        assert!(chart.fills.iter().all(|f| !(20.5..29.5).contains(&f.position[0].hypot(f.position[1]))), "gap band stays empty");
+        // Keyboard samples hover their own slice
+        let mut scene = SceneWorld::new();
+        for k in 0..5u32 {
+            let c = chart.sample(k).unwrap().3;
+            assert_eq!(chart.hover_at(&v, &mut scene, ndc_at(&cam, c.x, c.y)).unwrap().items[0].index, k);
+        }
+        // Colors follow the group, not the display order
+        let palette = PieStyle::default().palette;
+        let s = chart.pie_slices().unwrap();
+        assert_eq!((s[0].color, s[2].color), (palette[0], palette[0]));
+        assert_eq!((s[1].color, s[3].color, s[4].color), (palette[1], palette[2], palette[3]));
+        // Labels per ring mode: inner inside, outer outside with leaders
+        let (labels, _) = chart.pie_labels().unwrap();
+        assert!(labels.iter().any(|l| l.slice < 2) && labels.iter().any(|l| l.slice >= 2));
+        assert!(labels.iter().all(|l| (l.slice < 2) == (l.side == 0)), "{labels:?}");
+        assert_eq!(chart.underlay.len(), 2 * labels.iter().filter(|l| l.side != 0).count());
+
+        // Emphasis fades every other group: slice 2 (also "A") keeps its color
+        let p = match &mut chart.kind {
+            ChartKind::Pie(p) => p,
+            _ => unreachable!(),
+        };
+        p.set_emphasis(Some(0));
+        assert_eq!(p.display_color(2), p.slices[2].color);
+        assert_ne!(p.display_color(1), p.slices[1].color);
+        // Hiding an inner slice leaves the outer ring alone; a lone slice fills its ring
+        chart.set_series_visible(1, false, &mut scene);
+        let s = chart.pie_slices().unwrap();
+        assert!((s[0].percent - 100.0).abs() < 1e-9 && (s[4].percent - 50.0).abs() < 1e-9);
+        chart.prepare_layers(&v);
+        let tops = chart.fills.iter().filter(|f| f.position[0].abs() < 1e-4 && (1.0..20.5).contains(&f.position[1])).count();
+        assert!(tops > 0, "full inner disk covers the top ray");
+
+        // Validation: lengths, radii and groups must match
+        let bad = [PieRing { len: 4, ..rings[1] }];
+        assert!(validate_pie_rings(&values, &bad, &[]).unwrap_err().contains("ring"));
+        let bad = [PieRing { inner: 0.7, outer: 0.5, len: 5, ..rings[1] }];
+        assert!(validate_pie_rings(&values, &bad, &[]).is_err());
+        assert!(validate_pie_rings(&values, &rings, &[0, 1]).unwrap_err().contains("group"));
+        // No rings: the classic single pie, groups default to the input index
+        assert!(validate_pie_rings(&values, &[], &[]).is_ok());
+        let (plain, _) = pie(&values, PieOptions { max_slices: 0, ..Default::default() });
+        let s = plain.pie_slices().unwrap();
+        assert!(s.iter().enumerate().all(|(k, s)| s.ring == 0 && s.color == palette[k % palette.len()]));
     }
 
     /// Area of a triangle list.

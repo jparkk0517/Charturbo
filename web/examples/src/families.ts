@@ -15,7 +15,7 @@ export const FAMILIES: Family[] = [
   { id: 'candlestick', title: 'Candlestick · OHLC · Navigator', description: 'Candles and independent OHLC bars with volume and pixel-column aggregation, range navigator under a long time series.' },
   { id: 'heatmap', title: 'Heatmap', description: 'GPU texture heatmap with color bar and switchable color scales.' },
   { id: 'box', title: 'Box plot · Violin', description: 'Per-group statistics in O(n), Tukey whiskers, outliers, KDE violins.' },
-  { id: 'pie', title: 'Pie · Donut · Rose', description: 'Pie with outside labels and leader lines, donut with center total, Nightingale rose, half donut.' },
+  { id: 'pie', title: 'Pie · Donut · Rose', description: 'Pie with outside labels and leader lines, donut with center total, Nightingale rose, half donut, rounded corners, nested rings.' },
   { id: 'combo', title: 'Combo', description: 'Stacked bars, area and a dashed line on a right axis in one plot.' },
   { id: 'business', title: 'Radar · Gauge · Funnel · Waterfall', description: 'Business charts: radar, live gauge with status bands, conversion funnel, waterfall with subtotals.' },
   { id: 'hierarchy', title: 'Treemap · Sunburst · Sankey', description: 'Hierarchies with click drill-down and energy flows.' },
