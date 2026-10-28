@@ -84,7 +84,7 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 - `web/examples/src/demos/line/06-band.ts`, `07-band-crossing.ts`: Band 예제
 - `web/examples/src/demos/line/08-error-bars.ts`, `09-error-horizontal.ts`, `10-impulse.ts`: 신규 sparse 예제
 - `web/e2e/fixtures.ts`, `run-visual.mjs`, `baselines/`: 양 backend 시각 회귀
-- `docs/GUIDE.md`, `web/CHANGELOG.md`: 기능 문서·변경 이력
+- `docs/` (VitePress, en · ko · zh), `web/CHANGELOG.md`: 기능 문서·변경 이력
 
 ## 마지막 검증 결과
 

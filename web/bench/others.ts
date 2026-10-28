@@ -1,6 +1,6 @@
 /**
  * Cross-library adapters of the benchmark comparison (`?lib=uplot|echarts|chartjs|plotly|viz`).
- * Each library gets its documented large-data settings (see docs/BENCHMARKS.md):
+ * Each library gets its documented large-data settings (see docs/contributing/benchmarks.md):
  *  - uPlot: typed-array columns, no points (its line path already folds pixel columns); scatter
  *    = mode 2 with a custom square drawer (uPlot scatter demo style)
  *  - ECharts (canvas): typed-array data, `sampling: 'lttb'` (line), `large: true` (scatter /

@@ -20,6 +20,29 @@ env:
   WASM_PACK_VERSION: 0.13.1
 
 jobs:
+  docs:
+    name: docs (en / ko / zh-CN)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install
+        working-directory: docs
+        run: npm ci
+
+      - name: Every page in every locale
+        working-directory: docs
+        run: npm run check
+
+      - name: Build (dead links fail the build)
+        working-directory: docs
+        run: npm run build
+
   rust:
     name: cargo test
     runs-on: ubuntu-latest

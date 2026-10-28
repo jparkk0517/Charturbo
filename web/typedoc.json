@@ -4,7 +4,7 @@
   "entryPoints": ["src/index.ts", "src/react/index.ts", "src/vue/index.ts"],
   "entryPointStrategy": "resolve",
   "tsconfig": "tsconfig.json",
-  "out": "../docs/api",
+  "out": "../docs/public/api",
   "readme": "README.md",
   "includeVersion": true,
   "excludePrivate": true,

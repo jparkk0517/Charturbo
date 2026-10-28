@@ -15,8 +15,7 @@ node_modules/
 .vscode/
 *.log
 
-# Generated API docs / examples site build
-/docs/api/
+# Examples site build
 /web/examples-dist/
 
 # Test / bench / tool outputs
@@ -34,3 +33,9 @@ coverage/
 
 # Claude Code agent worktrees
 /.claude/
+
+# Docs site
+/docs/node_modules/
+/docs/.vitepress/cache/
+/docs/.vitepress/dist/
+/docs/public/api/

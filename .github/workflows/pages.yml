@@ -1,5 +1,6 @@
-# Builds the examples site (web/examples -> web/examples-dist) and deploys it to GitHub Pages:
-# https://jparkk0517.github.io/Charturbo/
+# Builds the examples site (web/examples -> web/examples-dist) and the documentation site
+# (docs/ -> web/examples-dist/docs, with the TypeDoc API reference under docs/api/) and deploys
+# them to GitHub Pages: https://jparkk0517.github.io/Charturbo/ and .../Charturbo/docs/
 # One-time setup: repo Settings > Pages > Build and deployment > Source = "GitHub Actions".
 name: Pages
 
@@ -47,13 +48,29 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            docs/package-lock.json
 
       - name: Build examples site
         working-directory: web
         run: |
           npm ci
           npm run examples:build
+
+      - name: Build API reference (TypeDoc -> docs/public/api)
+        working-directory: web
+        run: npm run docs
+
+      - name: Build documentation site
+        working-directory: docs
+        env:
+          DOCS_BASE: /Charturbo/docs/
+        run: |
+          npm ci
+          npm run check
+          npm run build
+          cp -R .vitepress/dist ../web/examples-dist/docs
 
       - uses: actions/configure-pages@v5
 

@@ -1,0 +1,14 @@
+{
+  "name": "charturbo-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "check": "node scripts/check-docs.mjs"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}
