@@ -543,6 +543,9 @@ describe('Business charts (SDK bindings)', () => {
     ]);
     expect(pointAnnouncement(model, { series: 0, index: 1 })).toBe('b, Total 10. 2 of 4.');
     expect(pointAnnouncement(model, { series: 0, index: 2 })).toBe('c, −5, running total 5. 3 of 4.');
+    // Legend placement options reach the waterfall too
+    sdk.renderWaterfallChart(data, { legend: { show: true, position: 'right' } });
+    expect((sdk as unknown as { chartPresentation: { legend: { position?: string } } }).chartPresentation.legend.position).toBe('right');
   });
 
   it('helpers and React / Vue dispatch', () => {

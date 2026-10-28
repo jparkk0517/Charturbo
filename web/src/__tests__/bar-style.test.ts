@@ -264,6 +264,21 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     vi.unstubAllGlobals();
   });
 
+  it('rotated category labels show the whole name; single-series legends keep their position', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    type Shown = { chartPresentation: { formatX?: (v: number) => string; legend: { position?: string } } };
+    const shown = () => (sdk as unknown as Shown).chartPresentation;
+    const long = { categories: ['Southern Europe', 'Oceania'], series: [{ name: 'A', values: [1, 2] }] };
+    sdk.renderGroupedBarChart(long);
+    expect(shown().formatX!(0)).toBe('Southern Eu…');
+    sdk.renderGroupedBarChart(long, { axes: { x: { labelRotate: 45 } } });
+    expect(shown().formatX!(0)).toBe('Southern Europe');
+    sdk.renderBarChart([{ label: 'Southern Europe', value: 1 }], { axes: { x: { labelRotate: 90 } }, legend: { show: true, position: 'bottom' } });
+    expect(shown().formatX!(0)).toBe('Southern Europe');
+    expect(shown().legend.position).toBe('bottom');
+  });
+
   it('plain bar charts send no styling', () => {
     const calls: Calls = {};
     const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
@@ -434,15 +449,15 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     sdk.renderGroupedBarChart(data, { axes: { x: { labelRotate: 45, title: 'Region' } }, legend: false });
     // The engine thins category ticks by the rotated footprint
     expect(calls.set_bar_axis_label_rotation).toEqual([[45]]);
-    // Bottom padding from the category labels ('Northern re…': 12 chars ≈ 82 px):
-    // 82 sin45 + 7 cos45 hangs below the tick, 14 px already fit the upright row
-    const reserve = Math.ceil(89 * Math.SQRT1_2 - 14);
+    // Bottom padding from the whole rotated category name ('Northern region': 15 chars ≈
+    // 101.5 px): 101.5 sin45 + 7 cos45 hangs below the tick, 14 px already fit the upright row
+    const reserve = Math.ceil(108.5 * Math.SQRT1_2 - 14);
     expect(calls.set_chart_padding.at(-1)?.[2]).toBe(30 + 20 + reserve);
     const pads = calls.set_chart_padding.length;
     axes = new Float64Array([56, 12, 700, 300, 2, 0, 0, 200, 312, 0, 1, 500, 312]);
     sdk.render();
     const ticks = container.querySelectorAll('.charturbo-sdk-axis-tick');
-    expect(ticks.map((t) => t.textContent)).toEqual(['Northern re…', 'South']);
+    expect(ticks.map((t) => t.textContent)).toEqual(['Northern region', 'South']);
     expect(ticks[0].style.transform).toBe('translate(-100%, -50%) rotate(-45deg)');
     expect(ticks[0].style.transformOrigin).toBe('100% 50%');
     expect([ticks[0].style.left, ticks[0].style.top]).toEqual(['200px', '318px']);

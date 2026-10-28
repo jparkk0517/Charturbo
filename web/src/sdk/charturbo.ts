@@ -706,6 +706,14 @@ export interface ChartLegendOptions {
   overflow?: 'scroll' | 'wrap';
 }
 
+/**
+ * Category tick text: names beyond 12 characters are shortened upright; rotated labels
+ * (`labelRotate`) keep the whole name, the reason to rotate them.
+ */
+function categoryText(name: string, rotate: number | undefined): string {
+  return rotate || name.length <= 12 ? name : `${name.slice(0, 11)}…`;
+}
+
 /** Legend settings of the active chart (defaults resolved, placement as given). */
 type ChartLegendState = { show: boolean; toggle: boolean; emphasize: boolean } & Pick<ChartLegendOptions, 'position' | 'overflow'>;
 
@@ -6996,8 +7004,7 @@ export class Charturbo {
     };
     const flat = viewMode === '2d';
     this.flatCameraView = flat;
-    const truncate = (s: string) => (s.length > 12 ? `${s.slice(0, 11)}…` : s);
-    const category = (i: number) => truncate(items[i]?.label ?? String(i));
+    const category = (i: number) => categoryText(items[i]?.label ?? String(i), options?.axes?.x?.labelRotate);
     // Single series: a legend only on request, one static entry
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const legendShown = flat && (legendOpt.show ?? false);
@@ -7009,7 +7016,7 @@ export class Charturbo {
       title: options?.title,
       description: options?.description,
       ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, {}, n),
-      legend: { show: legendShown, toggle: false, emphasize: false },
+      legend: { show: legendShown, toggle: false, emphasize: false, position: legendOpt.position, overflow: legendOpt.overflow },
       navigable: false,
     };
     this.syncBarLabels();
@@ -7230,9 +7237,8 @@ export class Charturbo {
       barBackground,
     };
     this.flatCameraView = flat;
-    const truncate = (str: string) => (str.length > 12 ? `${str.slice(0, 11)}…` : str);
     const percentAxis: ChartAxisOptions = mode === 'percent' ? { format: (v) => `${formatTickValue(v, this.chartLocale())}%` } : {};
-    const category = (i: number) => truncate(data.categories[i] ?? String(i));
+    const category = (i: number) => categoryText(data.categories[i] ?? String(i), options?.axes?.x?.labelRotate);
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
@@ -8291,12 +8297,11 @@ export class Charturbo {
     this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover(options?.hover)));
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend = { show: legendOpt.show ?? meta.names.length >= 2, toggle: false, emphasize: false };
+    const legend = { show: legendOpt.show ?? meta.names.length >= 2, toggle: false, emphasize: false, position: legendOpt.position, overflow: legendOpt.overflow };
     this.chartMode = 'waterfall';
     this.chartMeta = meta;
     this.flatCameraView = true;
-    const truncate = (str: string) => (str.length > 12 ? `${str.slice(0, 11)}…` : str);
-    const category = (i: number) => truncate(meta.categories[i] ?? String(i));
+    const category = (i: number) => categoryText(meta.categories[i] ?? String(i), options?.axes?.x?.labelRotate);
     // Without an axis format the value axis reads like the labels
     const valueAxis: ChartAxisOptions = { format: options?.format };
     this.chartPresentation = {
