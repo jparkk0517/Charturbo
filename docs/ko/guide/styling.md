@@ -91,7 +91,7 @@ sdk.renderLineChart([
 ```ts
 sdk.renderLineChart(series, {
   title: '인프라 텔레메트리',
-  legend: { show: true, toggle: true, emphasize: true },
+  legend: { show: true, toggle: true, emphasize: true, position: 'top', overflow: 'scroll' },
 });
 sdk.setSeriesVisible(1, false); // 범례 클릭과 같음
 sdk.emphasizeSeries(0);         // 다른 시리즈를 흐리게 (null = 해제)
@@ -104,8 +104,25 @@ sdk.emphasizeSeries(0);         // 다른 시리즈를 흐리게 (null = 해제)
 | `legend.show` | `boolean` | 시리즈 2개 이상이면 `true` | 범례 표시 |
 | `legend.toggle` | `boolean` | `true` | 클릭으로 시리즈 표시 전환 |
 | `legend.emphasize` | `boolean` | `true` | hover하면 다른 시리즈를 흐리게 |
+| `legend.position` | `'top' \| 'bottom' \| 'left' \| 'right'` | `'top'` | 범례가 놓이는 플롯의 쪽 |
+| `legend.overflow` | `'scroll' \| 'wrap'` | `'scroll'` | 한 줄(위 · 아래) 또는 한 열(왼쪽 · 오른쪽)에 들어가지 않는 항목: 페이지로 나누거나 여러 줄로 줄바꿈 |
 
 범례 항목은 `<button aria-pressed>` 요소라 키보드로도 조작됩니다. 전환하면 `'legendtoggle'`이 발생합니다.
+
+### 범례 위치와 페이지 {#legend-position-and-paging}
+
+```ts
+sdk.renderLineChart(series16, { legend: { position: 'bottom' } });                   // 한 줄, 페이지 나눔
+sdk.renderScatterChart(data, { legend: { position: 'right' } });                     // 한 열, 페이지 나눔
+sdk.renderLineChart(series16, { legend: { position: 'top', overflow: 'wrap' } });    // 줄 추가
+```
+
+- `position`: `'top'`과 `'bottom'`은 해당 쪽 여백에 28 px 한 줄을 더합니다. `'left'`와 `'right'`는 가장 긴 이름에 맞춘 열(72~200 px)에 항목을 세로로 쌓고, 그 폭과 8 px 간격을 해당 쪽 여백에 더합니다. `padding`으로 지정한 쪽은 지정한 값을 유지합니다.
+- `overflow: 'scroll'`(기본값): 범례는 한 줄 또는 한 열을 유지합니다. 실제로 잰 항목 크기로 페이지를 나누되 항목을 자르지 않고, ‹ n / m › 버튼으로 페이지를 넘깁니다. 크기가 바뀌면 페이지를 다시 나누고, 현재 첫 항목이 있는 페이지를 계속 보여 줍니다. 다른 페이지의 항목은 `display: none`이라 Tab 이동 순서와 이미지 내보내기에서 빠집니다.
+- `overflow: 'wrap'`: 항목을 여러 줄로 줄바꿈합니다. 위 · 아래 범례 전용입니다(왼쪽 · 오른쪽 범례는 항상 페이지로 나눔). 늘어난 줄은 여백에 반영되지 않아 플롯을 덮을 수 있습니다.
+- 페이지 버튼 라벨(`aria-label`)은 차트 로캘을 따릅니다. [다국어 지원](./i18n)을 참고하세요.
+
+[라이브 예제](https://jparkk0517.github.io/Charturbo/line.html#11-legend-paged)
 
 ## 그리드
 
@@ -150,6 +167,7 @@ sdk.setLineWidth(4, 0);   // 0번 시리즈만
 | `.charturbo-sdk-chart-overlay` | 캔버스 위 오버레이 루트 |
 | `.charturbo-sdk-chart-title` | 제목 |
 | `.charturbo-sdk-chart-legend`, `.charturbo-sdk-legend-item` | 범례와 항목 |
+| `.charturbo-sdk-legend-pager`, `.charturbo-sdk-legend-page` | 범례 페이지 이동 영역과 ‹ › 버튼 |
 | `.charturbo-sdk-axis-tick`, `.charturbo-sdk-axis-title` | 눈금 라벨과 축 제목 |
 | `.charturbo-sdk-annotation-label` | 주석 라벨 |
 | `.charturbo-sdk-node-tooltip` | 툴팁 |

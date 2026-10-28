@@ -91,12 +91,13 @@ Data point id = `seriesIndex * categories.length + categoryIndex`.
 | `orientation` | `'vertical' \| 'horizontal'` | `'vertical'` | Horizontal bars (2D only). |
 | `labels` | `boolean \| 'auto' \| BarLabelOptions` | off | Data labels (2D). See [Data labels](#data-labels). |
 | `errorBars` | `BarErrorBarStyle` | — | Look of error bars. See [Error bars](#error-bars). |
+| `background` | `boolean \| BarBackgroundOptions` | off | Track behind each bar across the whole value axis (2D). See [Background tracks](#background-tracks). |
 | `legend` | `ChartLegendOptions \| boolean` | multi: shown for 2+ series; single: hidden | Single series: a static key of item `category` values, or one entry named `seriesName`. |
 | `seriesName` | `string` | `'Value'` (localized) | Legend entry name of a single-series chart. |
 | `color` | `ColorInput` | first palette color | Default bar color for items without `color`. |
 | `cornerRadius` | `number` | `4` | Rounded data-end corners in CSS px (2D). |
 | `barThickness` | `number` | 72% of the slot | Bar width in world units. |
-| `axes` | `{ x?: ChartAxisOptions; y?: ChartAxisOptions }` | — | Axis titles and formats. With `'horizontal'`, `x` is the value axis and `y` the category axis. |
+| `axes` | `{ x?: ChartAxisOptions; y?: ChartAxisOptions }` | — | Axis titles and formats. With `'horizontal'`, `x` is the value axis and `y` the category axis. `axes.x.labelRotate` rotates the x tick labels; see [Label rotation](#label-rotation). |
 | `hover` | `ChartHoverStyle` | — | Hover style, e.g. `barHighlightColor`. |
 | `grid` | `ChartGridStyle` | — | Grid rows, color, stroke width. |
 | `padding` | `ChartPaddingOptions` | auto | Plot margins in CSS px. |
@@ -146,6 +147,7 @@ sdk.renderGroupedBarChart(data, {
 | `position` | `'outside' \| 'inside' \| 'insideBase' \| 'center'` | `'outside'` | `'outside'` is beyond the data end and its error bar. |
 | `format` | function, spec string or `Intl.NumberFormatOptions` | value axis format | `(value, ctx) => string`, a spec like `'.1f'` or `'$,.0f'`, or `Intl` options. Percent bars format the share. |
 | `color` | `ColorInput` | auto | Outside: theme text color. Inside: light or dark by bar luminance. |
+| `rotate` | `number` | `0` | Text rotation in degrees, positive = anticlockwise, -90..90. See [Label rotation](#label-rotation). |
 
 - The engine computes label anchors, fit and collision tests in CSS px; the DOM only places the text. Labels are included in PNG export.
 - Stacked segment labels always sit inside (centered) and show only when the text fits.
@@ -162,6 +164,46 @@ Set `error` on items or `error[]` on series: `±e` or `[minus, plus]` in value u
 | `cap` | `number` | `0.4` | Cap length as a fraction of the bar thickness. `0` = no caps. |
 
 The engine draws capped segments and includes them in the value domain (stacked bars: at the segment's stacked end; percent mode ignores errors). Tooltips show `±e` or `+p / −m` (`ChartTooltipItem.error`).
+
+## Background tracks
+
+```ts
+sdk.renderBarChart(items, { background: true });
+sdk.renderGroupedBarChart(data, { mode: 'stacked', background: { color: '#94a3b8', opacity: 0.18 } });
+```
+
+Like ECharts `showBackground`, `background` draws a track behind each bar across the whole value axis, with the bar's width and corners.
+
+| `background` field | Type | Default | Description |
+|---|---|---|---|
+| `color` | `ColorInput` | theme `baseline`, alpha × 0.2 | Track color (ECharts' default track is `rgba(180,180,180,0.2)`). |
+| `opacity` | `number` | `1` | Alpha multiplier of the color, 0–1. |
+
+- Grouped bars get one track per bar slot, including slots with a missing value (as in ECharts). Stacked and percent bars get one track per category.
+- Hiding a series removes its tracks. During the enter animation the tracks keep their full length.
+- Tracks are not hover targets.
+- 2D bar charts only: not supported in the 3D view, histograms, waterfall or combo charts.
+
+[Live example](https://jparkk0517.github.io/Charturbo/bar.html#04-background)
+
+## Label rotation
+
+```ts
+sdk.renderGroupedBarChart(data, {
+  labels: { rotate: 90, position: 'insideBase' },
+  axes: { x: { labelRotate: 30, format: (i) => categories[i] ?? '' } },
+});
+```
+
+Both options take degrees, positive = anticlockwise, in -90..90 (values outside are clamped), like ECharts `label.rotate` and `axisLabel.rotate`.
+
+- `labels.rotate` rotates the bar value labels. Placement, the inside fit test and `'auto'` collision hiding use the rotated text's bounding box, for every `position` and for horizontal bars too.
+- `axes.x.labelRotate` rotates the x tick labels (x axis only). As in ECharts, a positive angle puts the end of the text at the tick and a negative angle its start. Labels are thinned by their rotated footprint, and the derived bottom padding grows by the rotated height (an explicit `padding.bottom` is kept).
+- Rotated category labels keep the whole name; upright category names longer than 12 characters are shortened.
+- On an x axis that is not a category axis, the bottom padding can grow once after the first layout.
+- Not supported: y axis label rotation, rotated waterfall value labels, and extra side padding for end labels that overflow left or right.
+
+[Live example](https://jparkk0517.github.io/Charturbo/bar.html#05-label-rotation)
 
 ## Legend, hover and selection
 

@@ -78,6 +78,7 @@ sdk.renderCandlestickChart(ohlc, { timeZone: 'Europe/Berlin' });
 | `show` | `boolean` | `true` | 显示刻度标签 |
 | `title` | `string` | — | 刻度标签旁的坐标轴标题 |
 | `format` | 格式说明符字符串、`Intl.NumberFormatOptions` 或 `(value, granularity?) => string` | 本地化数字 / 时间标签 | 刻度标签文本，见[数字与日期格式](./number-format) |
+| `labelRotate` | `number` | `0` | 仅限 x 轴：刻度标签旋转角度（度），正值为逆时针，-90..90（ECharts `axisLabel.rotate`），见[柱状图](../charts/bar#label-rotation) |
 | `type` | `'numeric' \| 'time'` | x 为 `Date[]` 时为 `'time'`，否则为 `'numeric'` | 仅限折线图 / K 线图的 x 轴 |
 | `scale` | `'linear' \| 'log'` | `'linear'` | 数值刻度（折线图、面积图、散点图） |
 | `reverse` | `boolean` | `false` | y 向下增长，x 向左增长 |
@@ -167,7 +168,7 @@ sdk.getNavigatorRect(); // [left, top, width, height]，CSS px；没有时为 nu
 
 ## 柱状图与散点图坐标轴
 
-- 柱状图的 `axes.x` / `axes.y` 接受 `show`、`title`、`format`。设置 `orientation: 'horizontal'` 时，`axes.x` 为数值轴，`axes.y` 为类目轴。见[柱状图](../charts/bar)。
+- 柱状图的 `axes.x` / `axes.y` 接受 `show`、`title`、`format`，`axes.x` 还接受 `labelRotate`。设置 `orientation: 'horizontal'` 时，`axes.x` 为数值轴，`axes.y` 为类目轴。见[柱状图](../charts/bar)。
 - 散点图的 `axes.x` / `axes.y` 还接受刻度选项（`scale`、`reverse`、`tickCount`）。两个轴都可以缩放和平移。见[散点图 · 气泡图](../charts/scatter)。
 
 ## 另请参阅

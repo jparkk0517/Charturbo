@@ -71,13 +71,15 @@ interface SankeyLinkInput {
 
 | 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `nodeWidth` | `number` | `12` | 节点条宽度（CSS px）。 |
-| `nodePadding` | `number` | `10` | 同一列节点之间的垂直间距（CSS px）。 |
+| `nodeWidth` | `number` | `12` | 节点条宽度（CSS px；纵向时为节点条高度）。 |
+| `nodePadding` | `number` | `10` | 同一列节点之间的间距（CSS px）。 |
+| `orient` | `'horizontal' \| 'vertical'` | `'horizontal'` | 流向：从左到右的列，或从上到下的行。见[纵向布局](#vertical-layout)。 |
 | `iterations` | `number` | `32` | 布局松弛迭代次数。 |
 | `align` | `'justify' \| 'left' \| 'right' \| 'center'` | `'justify'` | 未指定 `column` 的节点的列分配方式。`'justify'` 将汇点放在最后一列。 |
-| `linkColor` | `'source' \| 'target' \| 'neutral'` | `'source'` | 条带颜色。 |
+| `linkColor` | `'source' \| 'target' \| 'neutral' \| 'gradient'` | `'source'` | 条带颜色。`'gradient'` 从来源颜色过渡到目标颜色。 |
 | `linkOpacity` | `number` | `0.5` | 条带不透明度。 |
 | `colors` | `ColorInput[]` | 主题调色板 | 固定顺序的分类调色板。 |
+| `levels` | `SankeyLevelOptions[]` | — | 按列设置节点颜色和链接不透明度。见[颜色与标签](#colors-and-labels)。 |
 | `labels` | `boolean` | `true` | 节点条旁的标签。 |
 | `format` | `ChartValueFormat` | 本地化数字 | 标签、提示框和无障碍文本的数值格式。见[数字与日期格式](../guide/number-format)。 |
 | `valueLabel` | `string` | `'数值'`（随语言区域） | 提示框和数据表中数值的名称。 |
@@ -96,10 +98,38 @@ interface SankeyLinkInput {
 
 链接是两端水平切线的三次贝塞尔条带，半透明绘制，从粗到细依次绘制，细的流量显示在上层。
 
-## 颜色与标签
+## 纵向布局 {#vertical-layout}
+
+```ts
+sdk.renderSankey(data, {
+  title: '能源 (TWh)',
+  orient: 'vertical',
+  linkColor: 'gradient',
+  levels: [
+    { column: 0, linkOpacity: 0.65 },
+    { column: 2, color: '#64748b' },
+  ],
+});
+```
+
+- `orient: 'vertical'` 在流向坐标（沿流向和横跨流向）中计算相同的布局，然后在屏幕上交换 x 和 y。列变为从上到下排列的行。
+- 命中测试、键盘位置和导出的节点矩形使用相同的变换。
+- 标签以节点条为中心：上半部分节点的标签在节点条下方，其余在上方。同一行中，标签中心之间的距离小于最长标签宽度（由 SDK 估算）时会省略标签，保留较大节点的标签。
+
+[在线示例](https://jparkk0517.github.io/Charturbo/hierarchy.html#04-sankey-vertical)
+
+## 颜色与标签 {#colors-and-labels}
 
 - 节点颜色：有 `group` 时按分组；否则节点数不超过调色板时按节点；再否则按列（超出调色板的节点为灰色）。
 - 标签显示名称和数值：左半部分节点的标签在右侧，其余在左侧。同一列中两个标签距离小于一行时，保留较大节点的标签。
+- `linkColor: 'gradient'`：每条条带的颜色沿条带从来源节点颜色线性过渡到目标节点颜色。
+- `levels`（与 ECharts `levels` 相同）设置某一列的样式：节点颜色（节点自身的 `color` 优先）以及从该列流出的链接的不透明度。多个条目指定同一列时，以最后一个为准。
+
+| `levels[]` 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `column` | `number` | — | 列索引（0 = 来源节点），按移除未使用的列之后的编号计算。 |
+| `color` | `ColorInput` | 上述节点颜色规则 | 该列节点的颜色。 |
+| `linkOpacity` | `number` | 图表的 `linkOpacity` | 从该列流出的链接的不透明度，0–1。 |
 
 ## 交互
 

@@ -78,6 +78,7 @@ For output that must not depend on the machine, such as server rendering or snap
 | `show` | `boolean` | `true` | Show tick labels |
 | `title` | `string` | — | Axis title beside the tick labels |
 | `format` | spec string, `Intl.NumberFormatOptions`, or `(value, granularity?) => string` | locale number / time label | Tick label text; see [Number & Date Formats](./number-format) |
+| `labelRotate` | `number` | `0` | x axes only: tick label rotation in degrees, positive = anticlockwise, -90..90 (ECharts `axisLabel.rotate`). See [Bar](../charts/bar#label-rotation) |
 | `type` | `'numeric' \| 'time'` | `'time'` for `Date[]` x, else `'numeric'` | Line / candlestick x axis only |
 | `scale` | `'linear' \| 'log'` | `'linear'` | Value scale (line, area, scatter) |
 | `reverse` | `boolean` | `false` | y grows downward, x grows leftward |
@@ -167,7 +168,7 @@ sdk.getNavigatorRect(); // [left, top, width, height] in CSS px, or null
 
 ## Bar and scatter axes
 
-- Bar charts take `axes.x` / `axes.y` with `show`, `title`, and `format`. With `orientation: 'horizontal'`, `axes.x` is the value axis and `axes.y` the category axis. See [Bar](../charts/bar).
+- Bar charts take `axes.x` / `axes.y` with `show`, `title`, and `format`, plus `labelRotate` on `axes.x`. With `orientation: 'horizontal'`, `axes.x` is the value axis and `axes.y` the category axis. See [Bar](../charts/bar).
 - Scatter charts take `axes.x` / `axes.y` with the scale options (`scale`, `reverse`, `tickCount`) too. Both axes zoom and pan. See [Scatter · Bubble](../charts/scatter).
 
 ## See also

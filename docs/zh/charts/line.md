@@ -65,6 +65,8 @@ sdk.renderLineChart(
 | `curve` | `'linear' \| 'step' \| 'stepBefore' \| 'stepAfter' \| 'monotone'` | `'linear'` | 样本之间的插值方式。 |
 | `nulls` | `'gap' \| 'connect' \| 'zero'` | 图表的 `nulls` | 该系列的缺失样本处理策略。 |
 | `band` | `{ lower, upper, opacity? }` | — | 在线条下方填充的范围带。见[范围带](#range-band)。 |
+| `pieces` | `LinePiece[]` | — | 按数值区间分段着色。见[分段着色](#piecewise-colors)。 |
+| `piecesBy` | `'y' \| 'x'` | `'y'` | 用于判断区间的值。 |
 | `pointSize` | `number` | — | 已弃用。映射为 `marker: { size }`。 |
 
 ## 选项 {#options}
@@ -79,7 +81,7 @@ sdk.renderLineChart(
 | `lineWidth` | `number` | `2` | 所有系列的线宽，单位为 CSS px。任何缩放级别下保持不变。 |
 | `nulls` | `'gap' \| 'connect' \| 'zero'` | `'gap'` | 缺失样本：断开线条、连接相邻点，或按 0 绘制。系列的 `nulls` 优先。 |
 | `axes` | `{ x?: LineXAxisOptions; y?: LineYAxisOptions; y2?: LineYAxisOptions }` | — | 坐标轴标题、格式、刻度类型、y 值域。仅当某个系列设置了 `yAxis: 'right'` 时才使用 `y2`。见[数据与坐标轴](../guide/data-and-axes)。 |
-| `legend` | `ChartLegendOptions \| boolean` | 2 个及以上系列时显示 | `{ show, toggle, emphasize }`。点击切换系列显示，悬停时淡化其他系列。 |
+| `legend` | `ChartLegendOptions \| boolean` | 2 个及以上系列时显示 | `{ show, toggle, emphasize, position, overflow }`。点击切换系列显示，悬停时淡化其他系列。见[样式与主题](../guide/styling)。 |
 | `hover` | `ChartHoverStyle` | — | 十字准线和悬停标记。见[提示框与悬停](../guide/tooltips)。 |
 | `showBackdropGrid` | `boolean` | `true` | 水平网格线和基线。 |
 | `grid` | `ChartGridStyle` | — | 网格行数、颜色、线宽。 |
@@ -130,6 +132,41 @@ sdk.renderLineChart(
 - 范围带与系列共用同一个图例项。提示框显示 `value lower – upper`（`item.band`）。数据表和 CSV 会增加 `<name> lower` 和 `<name> upper` 列。
 - 仅限折线图：面积图会忽略 `band`。如需不带中心线的范围带，请使用[带状图 · 范围图](./band)。
 - 通过 `appendSeriesData` 追加的样本没有范围带。以新长度调用 `setSeriesData` 会移除范围带。
+
+## 分段着色 {#piecewise-colors}
+
+```ts
+sdk.renderLineChart(
+  [
+    {
+      name: 'AQI',
+      values: aqi,
+      x,
+      pieces: [
+        { lte: 50, color: '#2e9e4f' },
+        { gt: 50, lte: 100, color: '#e0b100' },
+        { gt: 100, lte: 150, color: '#f07c1e' },
+        { gt: 150, color: '#d93434' },
+      ],
+    },
+  ],
+  { axes: { x: { type: 'time' } } }
+);
+```
+
+与 ECharts 分段型 `visualMap` 类似，`pieces` 按数值区间为系列着色。每个 `LinePiece` 为 `{ gt?, gte?, lt?, lte?, color }`；省略某个边界则该端开放。
+
+- 默认判断 y 值。设置 `piecesBy: 'x'` 时判断数据 x（时间轴上为 epoch ms），系列没有 `x` 时判断样本索引。
+- 值取包含它的第一个区间的颜色。不在任何区间内的值使用系列颜色。
+- 同时给出时，`gte` 优先于 `gt`，`lte` 优先于 `lt`，与 ECharts 相同。
+- 线条在绘制路径（降采样和 `curve` 之后）穿过边界处按线性插值切分，因此颜色恰好在边界值处改变。虚线模式在切分处保持连续。
+- 面积填充被裁剪为边界之间的条带。y 区间时为按高度划分的水平条带，类似 ECharts 渐变；堆叠面积按堆叠后的高度判断。见[面积图](./area)。
+- 标记（设置了 `marker.fill` 时除外）、悬停标记、提示框色块和 SVG 导出使用区间颜色。
+- 支持缩放、流式数据、对数与反向坐标轴以及右侧 y 轴。
+- 不使用区间颜色的部分：范围 `band`、独立的[带状图](./band) / [误差棒 · 脉冲图](./errorbar-impulse)、[组合图](./combo)、图例色块和数据表。
+- `pieces` 不是数组、区间缺少 `color`、边界为 `NaN`，或 `piecesBy` 不是 `'y'` / `'x'` 时抛出异常。
+
+[在线示例](https://jparkk0517.github.io/Charturbo/line.html#12-pieces)
 
 ## 更新数据 {#updating-data}
 

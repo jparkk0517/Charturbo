@@ -91,7 +91,7 @@ sdk.renderLineChart([
 ```ts
 sdk.renderLineChart(series, {
   title: '基础设施遥测',
-  legend: { show: true, toggle: true, emphasize: true },
+  legend: { show: true, toggle: true, emphasize: true, position: 'top', overflow: 'scroll' },
 });
 sdk.setSeriesVisible(1, false); // 等同于点击图例
 sdk.emphasizeSeries(0);         // 淡化其他系列（null 为取消）
@@ -104,8 +104,25 @@ sdk.emphasizeSeries(0);         // 淡化其他系列（null 为取消）
 | `legend.show` | `boolean` | 2 个及以上系列时为 `true` | 显示图例 |
 | `legend.toggle` | `boolean` | `true` | 点击切换系列可见性 |
 | `legend.emphasize` | `boolean` | `true` | 悬停时淡化其他系列 |
+| `legend.position` | `'top' \| 'bottom' \| 'left' \| 'right'` | `'top'` | 图例位于绘图区的哪一侧 |
+| `legend.overflow` | `'scroll' \| 'wrap'` | `'scroll'` | 一行（上 / 下）或一列（左 / 右）放不下的图例项：分页显示，或换行为多行 |
 
 图例项是 `<button aria-pressed>` 元素，因此可用键盘操作。切换时触发 `'legendtoggle'`。
+
+### 图例位置与分页 {#legend-position-and-paging}
+
+```ts
+sdk.renderLineChart(series16, { legend: { position: 'bottom' } });                   // 一行，分页
+sdk.renderScatterChart(data, { legend: { position: 'right' } });                     // 一列，分页
+sdk.renderLineChart(series16, { legend: { position: 'top', overflow: 'wrap' } });    // 增加行
+```
+
+- `position`：`'top'` 和 `'bottom'` 在该侧内边距中增加一行 28 px。`'left'` 和 `'right'` 将图例项纵向排成一列，列宽按最长名称确定（72–200 px），并在该侧内边距中增加该宽度加 8 px 间距。在 `padding` 中指定的一侧保留指定值。
+- `overflow: 'scroll'`（默认）：图例保持一行或一列。按实际测量的图例项尺寸分页，每页只放完整的图例项，用 ‹ n / m › 按钮翻页。尺寸变化时重新分页，并继续显示包含当前首个图例项的那一页。其他页的图例项为 `display: none`，因此不参与 Tab 键顺序，也不出现在图片导出中。
+- `overflow: 'wrap'`：图例项换行为多行。仅适用于上 / 下图例（左 / 右图例始终分页）。新增的行不计入内边距，可能遮挡绘图区。
+- 翻页按钮的标签（`aria-label`）跟随图表区域设置。见[国际化](./i18n)。
+
+[在线示例](https://jparkk0517.github.io/Charturbo/line.html#11-legend-paged)
 
 ## 网格
 
@@ -150,6 +167,7 @@ sdk.setLineWidth(4, 0);   // 仅系列 0
 | `.charturbo-sdk-chart-overlay` | 画布上方的覆盖层根元素 |
 | `.charturbo-sdk-chart-title` | 标题 |
 | `.charturbo-sdk-chart-legend`、`.charturbo-sdk-legend-item` | 图例及其项 |
+| `.charturbo-sdk-legend-pager`、`.charturbo-sdk-legend-page` | 图例分页器及其 ‹ › 按钮 |
 | `.charturbo-sdk-axis-tick`、`.charturbo-sdk-axis-title` | 刻度标签和坐标轴标题 |
 | `.charturbo-sdk-annotation-label` | 标注标签 |
 | `.charturbo-sdk-node-tooltip` | 提示框 |

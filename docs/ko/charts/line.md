@@ -65,6 +65,8 @@ sdk.renderLineChart(
 | `curve` | `'linear' \| 'step' \| 'stepBefore' \| 'stepAfter' \| 'monotone'` | `'linear'` | 샘플 사이 보간 방식. |
 | `nulls` | `'gap' \| 'connect' \| 'zero'` | 차트 `nulls` | 이 시리즈의 결측 샘플 처리 방식. |
 | `band` | `{ lower, upper, opacity? }` | — | 선 아래에 채우는 범위 밴드. [범위 밴드](#range-band) 참고. |
+| `pieces` | `LinePiece[]` | — | 값 구간별 색. [구간 색칠](#piecewise-colors) 참고. |
+| `piecesBy` | `'y' \| 'x'` | `'y'` | 구간을 판정할 값. |
 | `pointSize` | `number` | — | 지원 중단. `marker: { size }`로 매핑됩니다. |
 
 ## 옵션 {#options}
@@ -79,7 +81,7 @@ sdk.renderLineChart(
 | `lineWidth` | `number` | `2` | 모든 시리즈의 선 두께(CSS px). 줌과 관계없이 일정합니다. |
 | `nulls` | `'gap' \| 'connect' \| 'zero'` | `'gap'` | 결측 샘플 처리: 선을 끊거나, 이웃을 잇거나, 0으로 그립니다. 시리즈 `nulls`가 우선합니다. |
 | `axes` | `{ x?: LineXAxisOptions; y?: LineYAxisOptions; y2?: LineYAxisOptions }` | — | 축 제목, 형식, 스케일, y 도메인. `y2`는 시리즈에 `yAxis: 'right'`가 있을 때만 씁니다. [데이터와 축](../guide/data-and-axes) 참고. |
-| `legend` | `ChartLegendOptions \| boolean` | 시리즈 2개 이상이면 표시 | `{ show, toggle, emphasize }`. 클릭하면 시리즈를 토글하고, hover하면 나머지를 흐리게 합니다. |
+| `legend` | `ChartLegendOptions \| boolean` | 시리즈 2개 이상이면 표시 | `{ show, toggle, emphasize, position, overflow }`. 클릭하면 시리즈를 토글하고, hover하면 나머지를 흐리게 합니다. [스타일과 테마](../guide/styling) 참고. |
 | `hover` | `ChartHoverStyle` | — | 십자선과 hover 마커. [툴팁과 hover](../guide/tooltips) 참고. |
 | `showBackdropGrid` | `boolean` | `true` | 가로 그리드 선과 기준선. |
 | `grid` | `ChartGridStyle` | — | 그리드 행 수, 색, 선 두께. |
@@ -130,6 +132,41 @@ sdk.renderLineChart(
 - 밴드는 시리즈의 범례 항목을 함께 씁니다. 툴팁은 `value lower – upper`(`item.band`)를 보여 줍니다. 데이터 표와 CSV에는 `<name> lower`, `<name> upper` 열이 추가됩니다.
 - 선 차트에서만 됩니다. 영역 차트는 `band`를 무시합니다. 중심선 없는 밴드는 [밴드 · 범위](./band)를 쓰세요.
 - `appendSeriesData`로 추가한 샘플에는 밴드가 없습니다. 길이가 다른 데이터로 `setSeriesData`를 호출하면 밴드가 사라집니다.
+
+## 구간 색칠 {#piecewise-colors}
+
+```ts
+sdk.renderLineChart(
+  [
+    {
+      name: 'AQI',
+      values: aqi,
+      x,
+      pieces: [
+        { lte: 50, color: '#2e9e4f' },
+        { gt: 50, lte: 100, color: '#e0b100' },
+        { gt: 100, lte: 150, color: '#f07c1e' },
+        { gt: 150, color: '#d93434' },
+      ],
+    },
+  ],
+  { axes: { x: { type: 'time' } } }
+);
+```
+
+ECharts piecewise `visualMap`처럼 `pieces`는 값 구간에 따라 시리즈를 색칠합니다. 각 `LinePiece`는 `{ gt?, gte?, lt?, lte?, color }`이고, 경계를 생략하면 그쪽 끝은 열려 있습니다.
+
+- 판정하는 값은 기본적으로 y입니다. `piecesBy: 'x'`이면 데이터 x(시간 축은 epoch ms), 시리즈에 `x`가 없으면 샘플 인덱스입니다.
+- 값은 자신을 포함하는 첫 구간의 색을 씁니다. 어느 구간에도 없으면 시리즈 색입니다.
+- 둘 다 주면 `gte`가 `gt`보다, `lte`가 `lt`보다 우선합니다(ECharts와 같음).
+- 선은 그려진 경로(데시메이션과 `curve` 적용 후)가 경계를 지나는 지점에서 선형 보간으로 나뉘므로, 색이 정확히 경계값에서 바뀝니다. 점선 패턴은 나뉜 곳에서도 이어집니다.
+- 영역 채우기는 경계 사이의 띠로 잘라 채웁니다. y 구간이면 ECharts 그라데이션처럼 높이 기준 가로 띠이고, 누적 영역은 누적 높이로 판정합니다. [영역](./area) 참고.
+- 마커(`marker.fill`을 지정한 경우 제외), hover 마커, 툴팁 견본, SVG 내보내기가 구간 색을 씁니다.
+- 줌, 스트리밍, 로그 · 반전 축, 오른쪽 y축에서도 동작합니다.
+- 구간 색을 쓰지 않는 것: 범위 `band`, 독립 [밴드](./band) / [오차 막대 · 임펄스](./errorbar-impulse) 차트, [콤보](./combo) 차트, 범례 견본, 데이터 표.
+- `pieces`가 배열이 아니거나, `color` 없는 구간, `NaN` 경계, `'y'` / `'x'`가 아닌 `piecesBy`는 예외를 던집니다.
+
+[라이브 예제](https://jparkk0517.github.io/Charturbo/line.html#12-pieces)
 
 ## 데이터 갱신 {#updating-data}
 

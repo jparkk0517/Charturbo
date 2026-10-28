@@ -71,13 +71,15 @@ interface SankeyLinkInput {
 
 | 옵션 | 타입 | 기본값 | 설명 |
 | --- | --- | --- | --- |
-| `nodeWidth` | `number` | `12` | 노드 막대 폭(CSS px). |
-| `nodePadding` | `number` | `10` | 같은 열 노드 사이의 세로 간격(CSS px). |
+| `nodeWidth` | `number` | `12` | 노드 막대 폭(CSS px, 세로 방향이면 막대 높이). |
+| `nodePadding` | `number` | `10` | 같은 열 노드 사이의 간격(CSS px). |
+| `orient` | `'horizontal' \| 'vertical'` | `'horizontal'` | 흐름 방향: 왼쪽에서 오른쪽으로 가는 열, 또는 위에서 아래로 가는 행. [세로 레이아웃](#vertical-layout) 참고. |
 | `iterations` | `number` | `32` | 레이아웃 이완 반복 횟수. |
 | `align` | `'justify' \| 'left' \| 'right' \| 'center'` | `'justify'` | `column`이 없는 노드의 열 배정. `'justify'`는 도착 노드(sink)를 마지막 열에 놓습니다. |
-| `linkColor` | `'source' \| 'target' \| 'neutral'` | `'source'` | 리본 색. |
+| `linkColor` | `'source' \| 'target' \| 'neutral' \| 'gradient'` | `'source'` | 리본 색. `'gradient'`는 출발 색에서 도착 색으로 섞습니다. |
 | `linkOpacity` | `number` | `0.5` | 리본 불투명도. |
 | `colors` | `ColorInput[]` | 테마 팔레트 | 고정 순서의 범주형 팔레트. |
+| `levels` | `SankeyLevelOptions[]` | — | 열별 노드 색과 링크 불투명도. [색과 라벨](#colors-and-labels) 참고. |
 | `labels` | `boolean` | `true` | 막대 옆 노드 라벨. |
 | `format` | `ChartValueFormat` | 로케일 숫자 | 라벨, 툴팁, 접근성의 값 형식. [숫자·날짜 형식](../guide/number-format) 참고. |
 | `valueLabel` | `string` | `'값'` (로캘별) | 툴팁과 데이터 표에서 값의 이름. |
@@ -96,10 +98,38 @@ interface SankeyLinkInput {
 
 링크는 양 끝에서 수평 접선을 갖는 3차 베지어 리본입니다. 반투명으로, 두꺼운 것부터 그려서 얇은 흐름이 위에 보입니다.
 
-## 색과 라벨
+## 세로 레이아웃 {#vertical-layout}
+
+```ts
+sdk.renderSankey(data, {
+  title: '에너지 (TWh)',
+  orient: 'vertical',
+  linkColor: 'gradient',
+  levels: [
+    { column: 0, linkOpacity: 0.65 },
+    { column: 2, color: '#64748b' },
+  ],
+});
+```
+
+- `orient: 'vertical'`은 같은 레이아웃을 흐름 좌표(흐름 방향과 가로지르는 방향)에서 계산하고 화면에서 x와 y를 바꿉니다. 열은 위에서 아래로 쌓이는 행이 됩니다.
+- hit test, 키보드 위치, 내보내는 노드 사각형도 같은 변환을 씁니다.
+- 라벨은 막대 가운데에 맞춥니다. 위쪽 절반의 노드는 막대 아래에, 나머지는 위에 놓습니다. 같은 행에서 라벨 중심이 가장 긴 라벨 폭(SDK 추정)보다 가까우면 라벨을 빼고, 큰 노드의 라벨을 남깁니다.
+
+[라이브 예제](https://jparkk0517.github.io/Charturbo/hierarchy.html#04-sankey-vertical)
+
+## 색과 라벨 {#colors-and-labels}
 
 - 노드 색: `group`이 있으면 그룹별, 아니면 노드 수가 팔레트 이하일 때 노드별, 그 밖에는 열별입니다(팔레트를 넘는 노드는 회색).
 - 라벨은 이름과 값을 표시합니다. 왼쪽 절반의 노드는 오른쪽에, 나머지는 왼쪽에 놓습니다. 같은 열에서 두 라벨이 줄 간격보다 가까우면 큰 노드의 라벨을 남깁니다.
+- `linkColor: 'gradient'`: 각 리본의 색이 리본을 따라 출발 노드 색에서 도착 노드 색으로 선형으로 바뀝니다.
+- `levels`(ECharts `levels`와 같음)는 열의 스타일을 정합니다: 노드 색(노드 자신의 `color`가 우선)과 그 열에서 나가는 링크의 불투명도. 같은 열을 여러 항목이 지정하면 마지막 항목이 이깁니다.
+
+| `levels[]` 필드 | 타입 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `column` | `number` | — | 열 인덱스(0 = 출발 노드). 쓰이지 않는 열을 뺀 뒤의 번호입니다. |
+| `color` | `ColorInput` | 위의 노드 색 규칙 | 그 열 노드의 색. |
+| `linkOpacity` | `number` | 차트 `linkOpacity` | 그 열에서 나가는 링크의 불투명도, 0~1. |
 
 ## 상호작용
 

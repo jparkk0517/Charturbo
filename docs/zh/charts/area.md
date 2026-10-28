@@ -34,7 +34,7 @@ renderAreaChart(
 
 ## 数据格式 {#data-format}
 
-系列与[折线图](./line#data-format)中的 `LineSeriesDescriptor` 对象相同：`name`、`values`、可选的 `x`、`color`、`lineWidth`、`marker`、`dash`、`curve`、`nulls`。
+系列与[折线图](./line#data-format)中的 `LineSeriesDescriptor` 对象相同：`name`、`values`、可选的 `x`、`color`、`lineWidth`、`marker`、`dash`、`curve`、`nulls`、`pieces`、`piecesBy`。
 
 - 堆叠模式（`'stacked'`、`'percent'`）要求各系列长度相同。提供 `x` 时，每个系列都需要相同的 `x`。否则调用会抛出异常。
 - `NaN` 会在其所在系列的线条和面积中留下空缺，并对其上方的系列按 0 计算。
@@ -58,6 +58,19 @@ renderAreaChart(
 数值轴始终包含 0。曲线（`curve`）同样作用于填充；堆叠面积的下边缘沿着下方系列的曲线，既无空隙也不重叠。
 
 设置 `nulls: 'connect'` 时，堆叠面积会沿 x 对缺失值插值以支撑其上方的系列，并跳过自身的标记。
+
+## 分段着色 {#piecewise-colors}
+
+```ts
+sdk.renderAreaChart(
+  [{ name: 'Load', values: load, pieces: [{ lte: 60, color: '#14b8a6' }, { gt: 60, color: '#ef4444' }] }],
+  { mode: 'overlap' }
+);
+```
+
+`pieces` 在面积系列上的用法与[折线系列](./line#piecewise-colors)相同。填充被裁剪为区间边界之间的条带。y 区间（默认）时为按高度划分的水平条带，类似 ECharts 渐变；stacked 和 percent 面积按堆叠后的高度判断。设置 `piecesBy: 'x'` 时为竖直条带。
+
+[在线示例](https://jparkk0517.github.io/Charturbo/line.html#12-pieces)
 
 ## 图例与提示框 {#legend-and-tooltips}
 

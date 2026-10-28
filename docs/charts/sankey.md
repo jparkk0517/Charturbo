@@ -71,13 +71,15 @@ interface SankeyLinkInput {
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `nodeWidth` | `number` | `12` | Node bar width in CSS px. |
-| `nodePadding` | `number` | `10` | Vertical gap between nodes of a column, in CSS px. |
+| `nodeWidth` | `number` | `12` | Node bar width in CSS px (the bar height when vertical). |
+| `nodePadding` | `number` | `10` | Gap between nodes of a column, in CSS px. |
+| `orient` | `'horizontal' \| 'vertical'` | `'horizontal'` | Flow direction: columns left to right, or rows top to bottom. See [Vertical layout](#vertical-layout). |
 | `iterations` | `number` | `32` | Relaxation rounds of the layout. |
 | `align` | `'justify' \| 'left' \| 'right' \| 'center'` | `'justify'` | Column assignment of nodes without `column`. `'justify'` puts sinks in the last column. |
-| `linkColor` | `'source' \| 'target' \| 'neutral'` | `'source'` | Ribbon color. |
+| `linkColor` | `'source' \| 'target' \| 'neutral' \| 'gradient'` | `'source'` | Ribbon color. `'gradient'` blends the source color into the target color. |
 | `linkOpacity` | `number` | `0.5` | Ribbon opacity. |
 | `colors` | `ColorInput[]` | theme palette | Categorical palette in fixed order. |
+| `levels` | `SankeyLevelOptions[]` | — | Per-column node color and link opacity. See [Colors and labels](#colors-and-labels). |
 | `labels` | `boolean` | `true` | Node labels beside the bars. |
 | `format` | `ChartValueFormat` | locale number | Value text of labels, tooltip and accessibility. See [Number & Date Formats](../guide/number-format). |
 | `valueLabel` | `string` | `'Value'` (localized) | Name of the values in the tooltip and data table. |
@@ -96,10 +98,38 @@ The layout follows d3-sankey and runs in the engine (Rust):
 
 Links are cubic Bézier ribbons with horizontal tangents at both ends, drawn translucent and thickest first, so thin flows stay visible on top.
 
+## Vertical layout
+
+```ts
+sdk.renderSankey(data, {
+  title: 'Energy (TWh)',
+  orient: 'vertical',
+  linkColor: 'gradient',
+  levels: [
+    { column: 0, linkOpacity: 0.65 },
+    { column: 2, color: '#64748b' },
+  ],
+});
+```
+
+- `orient: 'vertical'` computes the same layout in flow coordinates (along and across the flow) and swaps x and y on screen. Columns become rows stacked from top to bottom.
+- Hit testing, keyboard positions and exported node rectangles use the same transform.
+- Labels are centered on the bar: below nodes in the top half, above the others. In a row, a label is dropped when its center is closer to another than the widest label (estimated by the SDK); the larger node keeps its label.
+
+[Live example](https://jparkk0517.github.io/Charturbo/hierarchy.html#04-sankey-vertical)
+
 ## Colors and labels
 
 - Node color: by `group` when groups are given; else one color per node when the nodes fit the palette; else by column (nodes beyond the palette are gray).
 - Labels show the name and value: to the right of nodes in the left half, to the left of the others. When two labels in a column are closer than a line, the larger node keeps its label.
+- `linkColor: 'gradient'`: each ribbon's color changes linearly from the source node color to the target node color along the ribbon.
+- `levels` (like ECharts `levels`) styles a column: the node color (a node's own `color` still wins) and the opacity of the links leaving that column. When several entries name the same column, the last one wins.
+
+| `levels[]` field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `column` | `number` | — | Column index (0 = sources), counted after unused columns are removed. |
+| `color` | `ColorInput` | node color rule above | Color of the nodes in the column. |
+| `linkOpacity` | `number` | chart `linkOpacity` | Opacity of the links leaving the column, 0–1. |
 
 ## Interactions
 

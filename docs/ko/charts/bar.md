@@ -91,12 +91,13 @@ sdk.renderBarChart(
 | `orientation` | `'vertical' \| 'horizontal'` | `'vertical'` | 가로 막대(2D만). |
 | `labels` | `boolean \| 'auto' \| BarLabelOptions` | 끔 | 데이터 라벨(2D). [데이터 라벨](#data-labels) 참고. |
 | `errorBars` | `BarErrorBarStyle` | — | 오차 막대 모양. [오차 막대](#error-bars) 참고. |
+| `background` | `boolean \| BarBackgroundOptions` | 끔 | 막대마다 값 축 전체 길이로 그리는 배경 트랙(2D). [배경 트랙](#background-tracks) 참고. |
 | `legend` | `ChartLegendOptions \| boolean` | 다중: 시리즈 2개 이상이면 표시, 단일: 숨김 | 단일 시리즈: 항목 `category` 값의 정적 범례, 또는 `seriesName` 이름의 항목 하나. |
 | `seriesName` | `string` | `'값'` (로캘별) | 단일 시리즈 차트의 범례 항목 이름. |
 | `color` | `ColorInput` | 팔레트 첫 색 | `color`가 없는 항목의 기본 막대 색. |
 | `cornerRadius` | `number` | `4` | 데이터 끝 쪽 모서리 둥글기(CSS px, 2D). |
 | `barThickness` | `number` | 슬롯의 72% | 월드 단위 막대 너비. |
-| `axes` | `{ x?: ChartAxisOptions; y?: ChartAxisOptions }` | — | 축 제목과 형식. `'horizontal'`이면 `x`가 값 축, `y`가 카테고리 축입니다. |
+| `axes` | `{ x?: ChartAxisOptions; y?: ChartAxisOptions }` | — | 축 제목과 형식. `'horizontal'`이면 `x`가 값 축, `y`가 카테고리 축입니다. `axes.x.labelRotate`는 x축 눈금 라벨을 회전합니다. [라벨 회전](#label-rotation) 참고. |
 | `hover` | `ChartHoverStyle` | — | hover 스타일. 예: `barHighlightColor`. |
 | `grid` | `ChartGridStyle` | — | 그리드 행 수, 색, 선 두께. |
 | `padding` | `ChartPaddingOptions` | 자동 | 플롯 여백(CSS px). |
@@ -146,6 +147,7 @@ sdk.renderGroupedBarChart(data, {
 | `position` | `'outside' \| 'inside' \| 'insideBase' \| 'center'` | `'outside'` | `'outside'`는 데이터 끝과 그 오차 막대보다 바깥입니다. |
 | `format` | 함수, 형식 문자열, `Intl.NumberFormatOptions` | 값 축 형식 | `(value, ctx) => string`, `'.1f'`나 `'$,.0f'` 같은 형식 문자열, 또는 `Intl` 옵션. 퍼센트 막대는 비율을 형식화합니다. |
 | `color` | `ColorInput` | 자동 | outside: 테마 텍스트 색. inside: 막대 휘도에 따라 밝은 색 또는 어두운 색. |
+| `rotate` | `number` | `0` | 텍스트 회전 각도(도), 양수 = 반시계 방향, -90~90. [라벨 회전](#label-rotation) 참고. |
 
 - 엔진이 라벨 앵커, 맞춤, 충돌 판정을 CSS px로 계산하고, DOM은 텍스트를 배치만 합니다. 라벨은 PNG 내보내기에 포함됩니다.
 - 누적 구간 라벨은 항상 안쪽(가운데)에 놓이고, 텍스트가 들어갈 때만 보입니다.
@@ -162,6 +164,46 @@ sdk.renderGroupedBarChart(data, {
 | `cap` | `number` | `0.4` | 막대 두께에 대한 캡 길이 비율. `0` = 캡 없음. |
 
 엔진은 캡이 달린 선분을 그리고 이를 값 도메인에 포함합니다(누적 막대: 구간의 누적 끝 기준, 퍼센트 모드는 오차를 무시). 툴팁은 `±e` 또는 `+p / −m`(`ChartTooltipItem.error`)을 보여 줍니다.
+
+## 배경 트랙 {#background-tracks}
+
+```ts
+sdk.renderBarChart(items, { background: true });
+sdk.renderGroupedBarChart(data, { mode: 'stacked', background: { color: '#94a3b8', opacity: 0.18 } });
+```
+
+ECharts `showBackground`처럼 `background`는 막대마다 값 축 전체 길이의 트랙을 막대와 같은 폭 · 모서리로 막대 뒤에 그립니다.
+
+| `background` 필드 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `color` | `ColorInput` | 테마 `baseline`, 알파 × 0.2 | 트랙 색(ECharts 기본 트랙은 `rgba(180,180,180,0.2)`). |
+| `opacity` | `number` | `1` | 색 알파에 곱하는 값, 0~1. |
+
+- grouped 막대는 막대 칸마다 트랙 하나를 그리며, 값이 없는 칸도 포함합니다(ECharts와 같음). stacked · percent 막대는 카테고리마다 하나입니다.
+- 시리즈를 숨기면 그 트랙도 사라집니다. 등장 애니메이션 동안 트랙은 전체 길이를 유지합니다.
+- 트랙은 hover 대상이 아닙니다.
+- 2D 막대 차트 전용입니다. 3D 뷰, 히스토그램, 폭포, 콤보 차트에서는 지원하지 않습니다.
+
+[라이브 예제](https://jparkk0517.github.io/Charturbo/bar.html#04-background)
+
+## 라벨 회전 {#label-rotation}
+
+```ts
+sdk.renderGroupedBarChart(data, {
+  labels: { rotate: 90, position: 'insideBase' },
+  axes: { x: { labelRotate: 30, format: (i) => categories[i] ?? '' } },
+});
+```
+
+두 옵션 모두 ECharts `label.rotate`, `axisLabel.rotate`처럼 도 단위 각도를 받으며, 양수가 반시계 방향이고 범위는 -90~90입니다(범위 밖 값은 잘라 냄).
+
+- `labels.rotate`는 막대 값 라벨을 회전합니다. 위치, 안쪽 들어맞음 판정, `'auto'` 충돌 숨김은 회전된 텍스트의 외곽 상자로 판정합니다. 모든 `position`과 가로 막대에도 적용됩니다.
+- `axes.x.labelRotate`는 x축 눈금 라벨을 회전합니다(x축 전용). ECharts처럼 양수면 글자 끝이, 음수면 글자 시작이 눈금에 붙습니다. 라벨은 회전된 차지 영역 기준으로 솎아 내고, 자동으로 정한 아래 여백은 회전된 높이만큼 늘어납니다(직접 준 `padding.bottom`은 유지).
+- 회전한 카테고리 라벨은 이름 전체를 보여 줍니다. 회전하지 않은 카테고리 이름은 12자를 넘으면 줄입니다.
+- 카테고리 축이 아닌 x축은 첫 배치 후 아래 여백이 한 번 늘어날 수 있습니다.
+- 지원하지 않음: y축 라벨 회전, 폭포 차트 값 라벨 회전, 양 끝 라벨이 좌우로 넘칠 때의 여백 확보.
+
+[라이브 예제](https://jparkk0517.github.io/Charturbo/bar.html#05-label-rotation)
 
 ## 범례, hover, 선택 {#legend-hover-and-selection}
 

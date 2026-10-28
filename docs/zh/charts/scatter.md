@@ -27,10 +27,13 @@ sdk.render();
 ```
 
 ```ts
-renderScatterChart(data: ScatterChartData, options?: ScatterChartOptions): { pointCount: number }
+renderScatterChart(
+  data: ScatterChartData,
+  options?: ScatterChartOptions
+): { pointCount: number; trendlines: ScatterTrendlineFit[] }
 ```
 
-数据点 id = 点的索引。
+数据点 id = 点的索引。`trendlines` 保存 `trendline` 选项的拟合结果（未设置时为空数组），见[趋势线](#trendlines)。
 
 ## 数据格式 {#data-format}
 
@@ -75,8 +78,13 @@ sdk.renderScatterChart(
 | `pointRadius` | `number` | `3` | 未提供 `sizes` 时的点半径，单位为 CSS px。 |
 | `opacity` | `number` | `0.85` | 填充 alpha 系数。较低的值能显现密度。 |
 | `pointRing` | `number` | 有 `sizes` 时为 `1`，否则为 `0` | 每个点周围表面颜色描边的宽度，单位为 CSS px。 |
+| `symbol` | `'circle' \| 'square' \| 'diamond' \| 'triangle'` | `'circle'` | 所有系列的点符号。见[符号](#symbols)。 |
+| `seriesSymbols` | `(ScatterSymbol \| undefined)[]` | — | 每个系列 id 的符号。缺失项使用 `symbol`。 |
+| `ripple` | `ScatterRippleOptions \| boolean` | 关闭 | 在所选系列的点周围显示涟漪。`true` = 所有系列，使用默认值。见[涟漪效果](#ripple-effect)。 |
+| `jitter` | `{ x?: number; y?: number; seed?: number }` | 关闭 | 用以数据单位表示的固定随机偏移打散重叠的点。见[抖动](#jitter)。 |
+| `trendline` | `ScatterTrendline \| ScatterTrendline[]` | — | 按系列拟合的回归线。见[趋势线](#trendlines)。 |
 | `axes` | `{ x?: ChartAxisOptions & ChartScaleOptions; y?: ... }` | — | 标题、格式、`scale: 'log'`、`reverse`、`tickCount`。见[数据与坐标轴](../guide/data-and-axes)。 |
-| `legend` | `ChartLegendOptions \| boolean` | 2 个及以上系列时显示 | 支持切换和强调的系列图例。 |
+| `legend` | `ChartLegendOptions \| boolean` | 2 个及以上系列或有趋势线时显示 | 支持切换和强调的系列图例。 |
 | `hover` | `ChartHoverStyle` | `hitRadius: 12` | 散点图始终拾取最近的点。 |
 | `showBackdropGrid` | `boolean` | `true` | 水平网格线和基线。 |
 | `verticalGrid` | `boolean` | `true` | 在 x 轴刻度处绘制竖直网格线。 |
@@ -104,6 +112,131 @@ sdk.on('select', (sel) => console.log(`已选中 ${sel.count} 个点`));
 ## 对数坐标轴 {#log-axes}
 
 `scale: 'log'` 使用 log10，刻度位于 10 的幂处。对数坐标轴上值 ≤ 0 的点不会被绘制。
+
+## 符号 {#symbols}
+
+```ts
+sdk.renderScatterChart(
+  { x, y, clusters },
+  {
+    seriesNames: ['西北', '东北', '西南', '东南'],
+    pointRadius: 4,
+    seriesSymbols: ['circle', 'square', 'diamond', 'triangle'],
+  }
+);
+```
+
+- `symbol` 设置所有系列的形状；`seriesSymbols` 按系列 id 设置。
+- 各形状与折线标记使用相同的有向距离函数进行抗锯齿，视觉分量与圆形大致相同。
+- 悬停标记、SVG 导出和图例色块使用相同的形状。三角形色块是 `▲` 字符，因此图片导出中也会保留。
+- 命中检测将所有符号视为圆形。
+
+[在线示例](https://jparkk0517.github.io/Charturbo/scatter.html#03-symbols)
+
+## 涟漪效果 {#ripple-effect}
+
+```ts
+sdk.renderScatterChart(
+  { x, y, clusters, sizes },
+  {
+    seriesNames: ['读数', '告警'],
+    seriesColors: ['#64748b', '#ef4444'],
+    ripple: { series: [1], period: 4, scale: 3, count: 3, fill: false },
+  }
+);
+sdk.setEffectTime(1.5); // 固定在周期的第 1.5 秒（截图、导出）
+sdk.setEffectTime(null); // 重新播放
+```
+
+与 ECharts `effectScatter` 类似，所选系列的每个点后方会出现圆环，从点半径扩大到 `scale` 倍，并在 `period` 秒内淡出。
+
+`ScatterRippleOptions`：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `series` | `number[]` | 所有系列 | 显示涟漪的系列 id。 |
+| `period` | `number` | `4` | 每个圆环周期的秒数（至少 0.1）。 |
+| `scale` | `number` | `2.5` | 最外圈半径 / 点半径，1–10。 |
+| `count` | `number` | `3` | 同时显示的圆环数，1–8，平均分配周期。 |
+| `fill` | `boolean` | `false` | 使用半透明填充圆环代替 1.5 px 描边。 |
+
+- 每帧只更新一个时间 uniform。SDK 仅在显示涟漪时运行 `requestAnimationFrame` 循环；图表改变时循环自行停止，隐藏的标签页中由浏览器暂停。
+- 设置了 `prefers-reduced-motion: reduce` 时只绘制一帧静止画面。
+- `setEffectTime(seconds)` 将圆环固定在周期中的该时刻；`null` 重新播放。
+- 涟漪显示期间图表每帧重绘，因此只用于突出少量的点，不要用于整个数据集。SVG 导出不包含圆环。
+
+[在线示例](https://jparkk0517.github.io/Charturbo/scatter.html#04-ripple)
+
+## 抖动 {#jitter}
+
+```ts
+sdk.renderScatterChart(
+  { x: serviceIndex, y: latencyMs, clusters: serviceIndex },
+  { seriesNames: services, opacity: 0.6, jitter: { x: 0.28 } }
+);
+```
+
+- 与 ggplot2 `geom_jitter` 类似，每个点在 `[-x, x]` 和 `[-y, y]` 数据单位（对数坐标轴上为 10 的幂单位）内移动一个均匀分布的偏移。`x` 和 `y` 默认为 `0`（该轴不偏移）。
+- 偏移只取决于点索引和 `seed`（默认 `0`），因此重绘时画面相同。
+- 偏移在布局点时加入：坐标轴范围、悬停、刷选和空间哈希都使用抖动后的位置。提示框、数据表和 CSV 显示原始值。
+- 这不是 ECharts 那种以像素为单位、避免重叠（beeswarm）的抖动。
+
+[在线示例](https://jparkk0517.github.io/Charturbo/scatter.html#05-jitter)
+
+## 趋势线 {#trendlines}
+
+```ts
+const { trendlines } = sdk.renderScatterChart(data, {
+  seriesNames: ['产品 A', '产品 B'],
+  trendline: { type: 'linear' },                 // 或趋势线数组
+});
+trendlines[0].expression; // 例如 'y = 1.234x + 5.6'
+trendlines[0].r2;
+sdk.getScatterTrendlines(); // 当前图表的相同拟合结果；其他图表返回 []
+```
+
+与 ECharts ecStat `regression` 类似，每条趋势线用最小二乘法分别拟合所选的每个系列，并绘制在点的下方。
+
+`ScatterTrendline`：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `type` | `'linear' \| 'exponential' \| 'logarithmic' \| 'polynomial'` | — | 回归模型。必填。 |
+| `order` | `number` | `2` | 多项式阶数，2–6 的整数（Excel 多项式趋势线同样最高为 6）。 |
+| `series` | `number[]` | 所有系列 | 要拟合的系列 id，每个一条线。 |
+| `color` | `ColorInput` | 系列颜色 | 线条颜色。 |
+| `width` | `number` | `2` | 线宽，单位为 CSS px。 |
+| `dash` | `number[]` | 实线 | 虚线模式，单位为 CSS px，`[on, off]` 或 `[on, off, on, off]`。 |
+
+模型：
+
+- `'linear'`：`y = a + bx`，普通最小二乘。
+- `'logarithmic'`：`y = a + b·ln(x)`。只拟合 `x > 0` 的点。
+- `'exponential'`：`y = a·e^(bx)`，与 ecStat 相同的 y 加权对数最小二乘。只拟合 `y > 0` 的点。
+- `'polynomial'`：按 x 升幂排列的系数，在归一化到 [−1, 1] 的 x 上求解。
+
+所有模型的 R² 都基于原始 y 计算 `1 − SS_res / SS_tot`（ecStat 不提供 R²）。超出模型定义域的点不参与拟合，其数量显示在图例、无障碍描述和 `skipped` 中。
+
+- 曲线覆盖可见的 x 范围（包括缩放和对数坐标轴），并按曲率细分。
+- 图例以 `y = … (R² = …)` 列出每条线，因此有趋势线时默认显示图例。有多个系列时，系列名称在前。
+- 图例和无障碍描述文本跟随图表区域设置。
+- `type`、`order`、`series`、`width` 或 `dash` 无效时抛出异常。
+
+`ScatterTrendlineFit`（由 `renderScatterChart` 和 `getScatterTrendlines()` 返回）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `type` | `ScatterTrendlineType` | 模型。 |
+| `order` | `number` | 多项式阶数（仅多项式拟合）。 |
+| `series` | `number` | 拟合的系列 id。 |
+| `coefficients` | `number[]` | linear、exponential、logarithmic 为 `[a, b]`；polynomial 为 `[c0, …, ck]`。系列中不同的点太少时为空。 |
+| `r2` | `number` | R²（无拟合结果或所有 y 相同时为 `NaN`）。 |
+| `points` | `number` | 参与拟合的点数。 |
+| `skipped` | `number` | 超出模型定义域、未参与拟合的有限点数。 |
+| `expression` | `string` | 方程文本，例如 `y = 1.234x + 5.6`（无拟合结果时为空）。 |
+| `color`、`width`、`dash` | `RgbaTuple`、`number`、`number[]` | 解析后的线条样式。 |
+
+[在线示例](https://jparkk0517.github.io/Charturbo/scatter.html#06-trendline)
 
 ## 更新数据 {#updating-data}
 

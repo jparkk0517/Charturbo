@@ -34,7 +34,7 @@ renderAreaChart(
 
 ## Data format
 
-The series are the same `LineSeriesDescriptor` objects as in [Line](./line#data-format): `name`, `values`, optional `x`, `color`, `lineWidth`, `marker`, `dash`, `curve`, `nulls`.
+The series are the same `LineSeriesDescriptor` objects as in [Line](./line#data-format): `name`, `values`, optional `x`, `color`, `lineWidth`, `marker`, `dash`, `curve`, `nulls`, `pieces`, `piecesBy`.
 
 - Stacked modes (`'stacked'`, `'percent'`) need series of equal length. When `x` is given, every series needs the same `x`. Otherwise the call throws.
 - `NaN` leaves a gap in its own line and area and counts as 0 for the series above it.
@@ -58,6 +58,19 @@ The series are the same `LineSeriesDescriptor` objects as in [Line](./line#data-
 The value axis always includes 0. Curves (`curve`) apply to the fill too; the bottom edge of a stacked area follows the curve of the series below, without gaps or overlap.
 
 With `nulls: 'connect'`, a stacked area interpolates the missing value along x to support the series above, and skips its own marker.
+
+## Piecewise colors
+
+```ts
+sdk.renderAreaChart(
+  [{ name: 'Load', values: load, pieces: [{ lte: 60, color: '#14b8a6' }, { gt: 60, color: '#ef4444' }] }],
+  { mode: 'overlap' }
+);
+```
+
+`pieces` works on area series as on [line series](./line#piecewise-colors). The fill is clipped into bands between the piece bounds. With y pieces (the default) the bands are horizontal by height, like an ECharts gradient; stacked and percent areas test the stacked height. With `piecesBy: 'x'` the bands are vertical.
+
+[Live example](https://jparkk0517.github.io/Charturbo/line.html#12-pieces)
 
 ## Legend and tooltips
 

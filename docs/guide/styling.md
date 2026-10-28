@@ -91,7 +91,7 @@ An invalid string throws a `TypeError`. The parser is exported as `parseColor`.
 ```ts
 sdk.renderLineChart(series, {
   title: 'Infrastructure telemetry',
-  legend: { show: true, toggle: true, emphasize: true },
+  legend: { show: true, toggle: true, emphasize: true, position: 'top', overflow: 'scroll' },
 });
 sdk.setSeriesVisible(1, false); // same as a legend click
 sdk.emphasizeSeries(0);         // fade the other series (null clears)
@@ -104,8 +104,25 @@ sdk.emphasizeSeries(0);         // fade the other series (null clears)
 | `legend.show` | `boolean` | `true` with 2+ series | Show the legend |
 | `legend.toggle` | `boolean` | `true` | Click toggles series visibility |
 | `legend.emphasize` | `boolean` | `true` | Hover fades the other series |
+| `legend.position` | `'top' \| 'bottom' \| 'left' \| 'right'` | `'top'` | Side of the plot the legend sits on |
+| `legend.overflow` | `'scroll' \| 'wrap'` | `'scroll'` | Entries that do not fit in one row (top / bottom) or one column (left / right): page them, or wrap into more rows |
 
 Legend items are `<button aria-pressed>` elements, so they work from the keyboard. Toggling emits `'legendtoggle'`.
+
+### Legend position and paging
+
+```ts
+sdk.renderLineChart(series16, { legend: { position: 'bottom' } });                   // one row, paged
+sdk.renderScatterChart(data, { legend: { position: 'right' } });                     // one column, paged
+sdk.renderLineChart(series16, { legend: { position: 'top', overflow: 'wrap' } });    // extra rows
+```
+
+- `position`: `'top'` and `'bottom'` add one 28 px row to that side's padding. `'left'` and `'right'` stack the entries in a column sized to the longest name (72–200 px) and add that width plus an 8 px gap to that side's padding. A side you set in `padding` keeps your value.
+- `overflow: 'scroll'` (default): the legend keeps one row or column. Entries are split into pages by their measured sizes, whole entries per page, and ‹ n / m › buttons switch pages. On resize the pages are rebuilt and the page that holds the current first entry stays shown. Entries on other pages get `display: none`, so they leave the Tab order and image exports.
+- `overflow: 'wrap'`: entries wrap into more rows. Top and bottom legends only (left / right legends always page). Extra rows are not reserved in the padding and may cover the plot.
+- The pager button labels (`aria-label`) follow the chart locale. See [Internationalization](./i18n).
+
+[Live example](https://jparkk0517.github.io/Charturbo/line.html#11-legend-paged)
 
 ## Grid
 
@@ -150,6 +167,7 @@ The overlay is plain DOM, so it can be styled with CSS:
 | `.charturbo-sdk-chart-overlay` | Overlay root above the canvas |
 | `.charturbo-sdk-chart-title` | Title |
 | `.charturbo-sdk-chart-legend`, `.charturbo-sdk-legend-item` | Legend and its items |
+| `.charturbo-sdk-legend-pager`, `.charturbo-sdk-legend-page` | Legend pager and its ‹ › buttons |
 | `.charturbo-sdk-axis-tick`, `.charturbo-sdk-axis-title` | Tick labels and axis titles |
 | `.charturbo-sdk-annotation-label` | Annotation labels |
 | `.charturbo-sdk-node-tooltip` | Tooltip |

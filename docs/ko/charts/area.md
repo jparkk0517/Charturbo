@@ -34,7 +34,7 @@ renderAreaChart(
 
 ## 데이터 형식 {#data-format}
 
-시리즈는 [선](./line#data-format)과 같은 `LineSeriesDescriptor` 객체입니다: `name`, `values`, 선택 사항인 `x`, `color`, `lineWidth`, `marker`, `dash`, `curve`, `nulls`.
+시리즈는 [선](./line#data-format)과 같은 `LineSeriesDescriptor` 객체입니다: `name`, `values`, 선택 사항인 `x`, `color`, `lineWidth`, `marker`, `dash`, `curve`, `nulls`, `pieces`, `piecesBy`.
 
 - 누적 모드(`'stacked'`, `'percent'`)에서는 시리즈 길이가 같아야 합니다. `x`를 주면 모든 시리즈의 `x`가 같아야 합니다. 아니면 예외를 던집니다.
 - `NaN`은 자기 선과 영역에 빈틈을 남기고, 위쪽 시리즈에는 0으로 계산됩니다.
@@ -58,6 +58,19 @@ renderAreaChart(
 값 축은 항상 0을 포함합니다. 곡선(`curve`)은 채우기에도 적용됩니다. 누적 영역의 아래 가장자리는 아래 시리즈의 곡선을 따르므로 빈틈이나 겹침이 없습니다.
 
 `nulls: 'connect'`이면 누적 영역은 결측 값을 x를 따라 보간해 위쪽 시리즈를 받치고, 자기 마커는 그리지 않습니다.
+
+## 구간 색칠 {#piecewise-colors}
+
+```ts
+sdk.renderAreaChart(
+  [{ name: 'Load', values: load, pieces: [{ lte: 60, color: '#14b8a6' }, { gt: 60, color: '#ef4444' }] }],
+  { mode: 'overlap' }
+);
+```
+
+`pieces`는 [선 시리즈](./line#piecewise-colors)와 같은 방식으로 영역 시리즈에도 적용됩니다. 채우기는 구간 경계 사이의 띠로 잘립니다. y 구간(기본값)이면 ECharts 그라데이션처럼 높이 기준 가로 띠이고, stacked · percent 영역은 누적 높이로 판정합니다. `piecesBy: 'x'`이면 세로 띠입니다.
+
+[라이브 예제](https://jparkk0517.github.io/Charturbo/line.html#12-pieces)
 
 ## 범례와 툴팁 {#legend-and-tooltips}
 

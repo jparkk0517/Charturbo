@@ -65,6 +65,8 @@ sdk.renderLineChart(
 | `curve` | `'linear' \| 'step' \| 'stepBefore' \| 'stepAfter' \| 'monotone'` | `'linear'` | Interpolation between samples. |
 | `nulls` | `'gap' \| 'connect' \| 'zero'` | chart `nulls` | Missing-sample policy of this series. |
 | `band` | `{ lower, upper, opacity? }` | — | Range band filled beneath the line. See [Range band](#range-band). |
+| `pieces` | `LinePiece[]` | — | Piecewise colors by value range. See [Piecewise colors](#piecewise-colors). |
+| `piecesBy` | `'y' \| 'x'` | `'y'` | Value the pieces test. |
 | `pointSize` | `number` | — | Deprecated. Mapped to `marker: { size }`. |
 
 ## Options
@@ -79,7 +81,7 @@ sdk.renderLineChart(
 | `lineWidth` | `number` | `2` | Stroke width in CSS px for every series. Constant at any zoom. |
 | `nulls` | `'gap' \| 'connect' \| 'zero'` | `'gap'` | Missing samples: break the line, join the neighbours, or draw them at 0. Series `nulls` wins. |
 | `axes` | `{ x?: LineXAxisOptions; y?: LineYAxisOptions; y2?: LineYAxisOptions }` | — | Axis titles, formats, scales, y domain. `y2` is used only when a series has `yAxis: 'right'`. See [Data & Axes](../guide/data-and-axes). |
-| `legend` | `ChartLegendOptions \| boolean` | shown for 2+ series | `{ show, toggle, emphasize }`. Click toggles a series, hover fades the others. |
+| `legend` | `ChartLegendOptions \| boolean` | shown for 2+ series | `{ show, toggle, emphasize, position, overflow }`. Click toggles a series, hover fades the others. See [Styling & Themes](../guide/styling). |
 | `hover` | `ChartHoverStyle` | — | Crosshair and hover markers. See [Tooltips & Hover](../guide/tooltips). |
 | `showBackdropGrid` | `boolean` | `true` | Horizontal gridlines and baseline. |
 | `grid` | `ChartGridStyle` | — | Grid rows, color, stroke width. |
@@ -130,6 +132,41 @@ sdk.renderLineChart(
 - It shares the series legend entry. Tooltips show `value lower – upper` (`item.band`). The data table and CSV add `<name> lower` and `<name> upper` columns.
 - Line charts only: area charts ignore `band`. For a band without a center line, use [Band · Range](./band).
 - Samples added with `appendSeriesData` have no band. `setSeriesData` with a new length removes the band.
+
+## Piecewise colors
+
+```ts
+sdk.renderLineChart(
+  [
+    {
+      name: 'AQI',
+      values: aqi,
+      x,
+      pieces: [
+        { lte: 50, color: '#2e9e4f' },
+        { gt: 50, lte: 100, color: '#e0b100' },
+        { gt: 100, lte: 150, color: '#f07c1e' },
+        { gt: 150, color: '#d93434' },
+      ],
+    },
+  ],
+  { axes: { x: { type: 'time' } } }
+);
+```
+
+Like ECharts piecewise `visualMap`, `pieces` colors a series by value range. Each `LinePiece` is `{ gt?, gte?, lt?, lte?, color }`; a missing bound leaves that end open.
+
+- The tested value is y by default. With `piecesBy: 'x'` it is the data x (epoch ms on a time axis), or the sample index when the series has no `x`.
+- A value takes the color of the first piece that contains it. Values outside every piece use the series color.
+- `gte` wins over `gt` and `lte` over `lt` when both are given, as in ECharts.
+- The line is split where the drawn path (after decimation and `curve`) crosses a bound, by linear interpolation, so the color changes exactly at the bound value. A dash pattern runs on across the split.
+- Area fills are clipped into bands between the bounds. With y pieces the bands are horizontal by height, like an ECharts gradient; stacked areas test the stacked height. See [Area](./area).
+- Markers (unless `marker.fill` is set), the hover marker, the tooltip swatch and SVG export use the piece colors.
+- Works with zoom, streaming, log and reversed axes, and the right y axis.
+- Not colored by pieces: the range `band`, standalone [Band](./band) / [Error Bar · Impulse](./errorbar-impulse) charts, [Combo](./combo) charts, legend swatches and the data table.
+- A non-array `pieces`, a piece without `color`, a `NaN` bound, or a `piecesBy` other than `'y'` / `'x'` throws.
+
+[Live example](https://jparkk0517.github.io/Charturbo/line.html#12-pieces)
 
 ## Updating data
 

@@ -78,6 +78,7 @@ sdk.renderCandlestickChart(ohlc, { timeZone: 'Europe/Berlin' });
 | `show` | `boolean` | `true` | 눈금 라벨 표시 |
 | `title` | `string` | — | 눈금 라벨 옆의 축 제목 |
 | `format` | 형식 스펙 문자열, `Intl.NumberFormatOptions`, `(value, granularity?) => string` | 로캘 숫자 / 시간 라벨 | 눈금 라벨 텍스트. [숫자·날짜 형식](./number-format) 참고 |
+| `labelRotate` | `number` | `0` | x축 전용: 눈금 라벨 회전 각도(도), 양수 = 반시계 방향, -90~90 (ECharts `axisLabel.rotate`). [막대](../charts/bar#label-rotation) 참고 |
 | `type` | `'numeric' \| 'time'` | x가 `Date[]`이면 `'time'`, 아니면 `'numeric'` | 선 · 캔들스틱 x축 전용 |
 | `scale` | `'linear' \| 'log'` | `'linear'` | 값 스케일 (선, 영역, 산점도) |
 | `reverse` | `boolean` | `false` | y는 아래로, x는 왼쪽으로 증가 |
@@ -167,7 +168,7 @@ sdk.getNavigatorRect(); // [left, top, width, height] CSS px, 없으면 null
 
 ## 막대 · 산점도 축
 
-- 막대 차트는 `axes.x` / `axes.y`에 `show`, `title`, `format`을 받습니다. `orientation: 'horizontal'`이면 `axes.x`가 값 축, `axes.y`가 카테고리 축입니다. [막대](../charts/bar)를 참고하세요.
+- 막대 차트는 `axes.x` / `axes.y`에 `show`, `title`, `format`을, `axes.x`에는 `labelRotate`도 받습니다. `orientation: 'horizontal'`이면 `axes.x`가 값 축, `axes.y`가 카테고리 축입니다. [막대](../charts/bar)를 참고하세요.
 - 산점도 차트는 `axes.x` / `axes.y`에 스케일 옵션(`scale`, `reverse`, `tickCount`)도 받습니다. 두 축 모두 줌 · 팬합니다. [산점도 · 버블](../charts/scatter)을 참고하세요.
 
 ## 함께 보기
