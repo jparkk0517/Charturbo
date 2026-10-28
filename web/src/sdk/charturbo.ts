@@ -337,6 +337,8 @@ export type Vec3Tuple = [number, number, number];
 
 /** `focusNode` default distance as a fraction of the overview (`fitToView`) distance */
 const FOCUS_DISTANCE_RATIO = 0.4;
+/** Canvas styles `enableNodeInteractions` sets while attached (restored on detach) */
+const PRESS_STYLE = { webkitTapHighlightColor: 'transparent', userSelect: 'none', webkitUserSelect: 'none', webkitTouchCallout: 'none' };
 export type LayoutPresetMode = 'cluster-sphere' | 'radial-shells' | 'helix' | 'grid-3d';
 export type EmbeddingProjectionMode = 'pca' | 'pca-umap' | 'random-projection';
 
@@ -2288,6 +2290,8 @@ export class Charturbo {
   private chartDataHooks = new Set<() => void>();
   /** Restyle live DOM (tooltips) when the theme changes. */
   private themeHooks = new Set<() => void>();
+  /** Legend click / emphasis changed the chart: `autoRender` bindings draw it now. */
+  private legendHooks = new Set<() => void>();
   /** Detach functions of every `enableNodeInteractions` call (run by `dispose`). */
   private disposers = new Set<() => void>();
   /** Live `enableNodeInteractions` bindings that own touch / pen gestures */
@@ -3615,6 +3619,10 @@ export class Charturbo {
       else hideTooltip();
     };
     this.themeHooks.add(restyleTooltip);
+    const renderAfterLegend = () => {
+      if (autoRender) this.render();
+    };
+    this.legendHooks.add(renderAfterLegend);
     // Scene / chart replaced: drop the stale tooltip
     this.hoverResetHooks.add(hideTooltip);
     this.chartDataHooks.add(hideTooltip);
@@ -3716,18 +3724,20 @@ export class Charturbo {
     /** Mouse orbit / pan / wheel zoom of graph / 3D views (camera-controls.ts) */
     const cameraOptions = resolveCameraControls(options?.cameraControls);
     const cameraOwned = cameraOptions.orbit || cameraOptions.pan || cameraOptions.zoom;
+    /** View-plane height at the target depth / viewport height: the content tracks the pointer */
+    const cameraUnitsPerPixel = () => {
+      const c = this.getCameraState();
+      return c ? (2 * (c.orthoSize ?? c.distance * Math.tan(c.fovY / 2))) / Math.max(1, canvas.getBoundingClientRect().height) : null;
+    };
+    const cameraDistance = () => this.getCameraState()?.distance ?? null;
     const camera = createCameraControls({
       options: cameraOptions,
       active: () => !this.chartMode,
       rotate: (yaw, pitch) => this.rotateCamera(yaw, pitch),
       pan: (r, u) => this.panCamera(r, u),
       zoom: (d) => this.zoomCamera(d),
-      unitsPerPixel: () => {
-        const c = this.getCameraState();
-        // View-plane height at the target depth / viewport height: the content tracks the pointer
-        return c ? (2 * (c.orthoSize ?? c.distance * Math.tan(c.fovY / 2))) / Math.max(1, canvas.getBoundingClientRect().height) : null;
-      },
-      distance: () => this.getCameraState()?.distance ?? null,
+      unitsPerPixel: cameraUnitsPerPixel,
+      distance: cameraDistance,
       viewHeight: () => canvas.getBoundingClientRect().height,
       capture: (id) => {
         try {
@@ -3748,7 +3758,11 @@ export class Charturbo {
      */
     const placeTooltip = (clientX: number, clientY: number, aboveFinger = false) => {
       if (!tooltipEl) return;
+      // Remembered relative to the canvas: a page / container scroll carries the tooltip along
+      const rect = canvas.getBoundingClientRect();
+      tooltipAnchor = { x: clientX - rect.left, y: clientY - rect.top, aboveFinger };
       tooltipEl.style.display = 'block';
+      tooltipEl.style.visibility = '';
       const w = tooltipEl.offsetWidth;
       const h = tooltipEl.offsetHeight;
       const vw = typeof window !== 'undefined' ? window.innerWidth : Infinity;
@@ -3759,6 +3773,19 @@ export class Charturbo {
         : clientY + 14 + h > vh ? clientY - 14 - h : clientY + 14;
       tooltipEl.style.left = `${Math.max(0, left)}px`;
       tooltipEl.style.top = `${Math.max(0, top)}px`;
+    };
+
+    let tooltipAnchor: { x: number; y: number; aboveFinger: boolean } | null = null;
+    /** Scroll (any ancestor, capture): the visible tooltip follows its point, hidden while that point is off screen */
+    const onScroll = () => {
+      if (!tooltipEl || !tooltipAnchor || tooltipEl.style.display === 'none') return;
+      const rect = canvas.getBoundingClientRect();
+      const x = rect.left + tooltipAnchor.x;
+      const y = rect.top + tooltipAnchor.y;
+      const vw = typeof window !== 'undefined' ? window.innerWidth : Infinity;
+      const vh = typeof window !== 'undefined' ? window.innerHeight : Infinity;
+      placeTooltip(x, y, tooltipAnchor.aboveFinger);
+      if (x < 0 || y < 0 || x > vw || y > vh) tooltipEl.style.visibility = 'hidden';
     };
 
     const defaultChartTooltip = (ctx: ChartTooltipContext): string => {
@@ -4353,6 +4380,8 @@ export class Charturbo {
               zoomCamera: (d) => {
                 if (this.chartMode || cameraOptions.zoom) this.zoomCamera(d);
               },
+              cameraUnitsPerPixel,
+              cameraDistance,
               showTooltipAt: (clientX, clientY) => hoverAt({ clientX, clientY }, true),
               clearTooltip: () => {
                 tooltipPinned = false;
@@ -4400,6 +4429,7 @@ export class Charturbo {
     canvas.addEventListener('dblclick', onDblClick);
     canvas.addEventListener('pointerleave', onPointerLeave);
     canvas.addEventListener('wheel', onWheel, { passive: false });
+    if (tooltipEl && typeof window !== 'undefined') window.addEventListener('scroll', onScroll, { capture: true, passive: true });
     // Escape drops the brush (live or committed); the canvas is focusable (chart-a11y.ts)
     const onKeyDown = (e: KeyboardEvent) => {
       // Ctrl / Cmd + Z undoes a zoom, Ctrl / Cmd + Shift + Z / Ctrl + Y redoes it
@@ -4417,6 +4447,10 @@ export class Charturbo {
     canvas.addEventListener('lostpointercapture', onLostCapture);
     // Touch / pen: the SDK owns every gesture, so the browser must not pan / zoom the page
     const prevTouchAction = canvas.style.touchAction;
+    // No tap highlight / text selection / iOS callout flashing over the chart on a click or tap
+    const pressStyle = canvas.style as unknown as Record<string, string>;
+    const prevPressStyle = Object.keys(PRESS_STYLE).map((prop) => pressStyle[prop] ?? '');
+    Object.assign(pressStyle, PRESS_STYLE);
     const stopFling = () => gestures?.stopFling();
     if (gestures) {
       canvas.style.touchAction = 'none';
@@ -4441,6 +4475,7 @@ export class Charturbo {
         canvas.removeEventListener('pointercancel', onPointerCancel);
         this.touchGestureOwners--;
       }
+      Object.keys(PRESS_STYLE).forEach((prop, i) => (pressStyle[prop] = prevPressStyle[i]));
       if (blocksContextMenu) canvas.removeEventListener('contextmenu', onContextMenu);
       if (cameraOwned) this.cameraControlOwners--;
       if (camera.dragging()) canvas.style.cursor = '';
@@ -4462,10 +4497,12 @@ export class Charturbo {
       this.hoverResetHooks.delete(resetNav);
       nav.reset();
       this.themeHooks.delete(restyleTooltip);
+      this.legendHooks.delete(renderAfterLegend);
       this.a11y.tooltip = null;
       this.syncTooltip = null;
       this.disposers.delete(detach);
       if (this.chartMode) this.backend.chart_clear_hover?.();
+      if (tooltipEl && typeof window !== 'undefined') window.removeEventListener('scroll', onScroll, { capture: true });
       tooltipEl?.parentElement?.removeChild(tooltipEl);
     };
     this.disposers.add(detach);
@@ -5735,14 +5772,23 @@ export class Charturbo {
         label.textContent = name;
         label.style.whiteSpace = 'nowrap';
         item.append(swatch, label);
+        const legendChanged = () => this.legendHooks.forEach((hook) => hook());
         if (p.legend.toggle) {
-          item.addEventListener('click', () => this.setSeriesVisible(i, !meta.visible[i]));
+          item.addEventListener('click', () => {
+            this.setSeriesVisible(i, !meta.visible[i]);
+            legendChanged();
+          });
         }
         if (p.legend.emphasize) {
-          item.addEventListener('pointerenter', () => meta.visible[i] && this.emphasizeSeries(i));
-          item.addEventListener('pointerleave', () => this.emphasizeSeries(null));
-          item.addEventListener('focus', () => meta.visible[i] && this.emphasizeSeries(i));
-          item.addEventListener('blur', () => this.emphasizeSeries(null));
+          const emphasize = (on: boolean) => {
+            if (on && !meta.visible[i]) return;
+            this.emphasizeSeries(on ? i : null);
+            legendChanged();
+          };
+          item.addEventListener('pointerenter', () => emphasize(true));
+          item.addEventListener('pointerleave', () => emphasize(false));
+          item.addEventListener('focus', () => emphasize(true));
+          item.addEventListener('blur', () => emphasize(false));
         }
         legend.appendChild(item);
       });

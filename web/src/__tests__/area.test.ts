@@ -342,6 +342,21 @@ describe('Area charts (overlap / stacked / percent)', () => {
     expect(calls.set_chart_emphasis).toEqual([[2], [-1]]);
   });
 
+  it('autoRender: a legend click or emphasis draws the chart right away (no pointer move needed)', () => {
+    const sdk = Charturbo.fromBackend(mockBackend({}, () => new Float64Array(0), () => new Float64Array(0)));
+    const detach = sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, { autoRender: true });
+    sdk.renderAreaChart(SERIES, { mode: 'stacked' });
+    const render = vi.spyOn(sdk, 'render');
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
+    items[0].fire('click');
+    expect(render).toHaveBeenCalledTimes(1);
+    items[1].fire('pointerenter');
+    expect(render).toHaveBeenCalledTimes(2);
+    detach();
+    items[0].fire('click');
+    expect(render).toHaveBeenCalledTimes(2);
+  });
+
   it('streamed percent tooltips use retained raw values without copying the whole window', () => {
     const calls: Calls = {};
     const backend = mockBackend(calls, () => hitOf(0, [[1, 1, 30, 3]]), () => new Float64Array(0));

@@ -366,6 +366,13 @@ export interface TouchGestureActions<P extends GesturePointer = GesturePointer> 
   rotateCamera: (deltaYaw: number, deltaPitch: number) => void;
   panCamera: (deltaRight: number, deltaUp: number) => void;
   zoomCamera: (delta: number) => void;
+  /**
+   * World units per CSS pixel at the target depth (`null` / absent = unknown: fixed gain), so a
+   * camera pan keeps the content under the fingers at any zoom
+   */
+  cameraUnitsPerPixel?: () => number | null;
+  /** Current target distance (`null` / absent = unknown: additive pinch zoom) */
+  cameraDistance?: () => number | null;
   /** Hit-test + tooltip at a client point (placed above the finger) */
   showTooltipAt: (clientX: number, clientY: number) => void;
   /** Drag / pinch started: drop the pinned tooltip and hover overlay */
@@ -377,7 +384,7 @@ export interface TouchGestureActions<P extends GesturePointer = GesturePointer> 
   changed: () => void;
 }
 
-/** Same gains as the showcase mouse controls (rad / px and world units / px). */
+/** Same gains as the showcase mouse controls (rad / px; world units / px when the camera distance is unknown). */
 export const TOUCH_ORBIT_RAD_PER_PX = 0.006;
 export const TOUCH_PAN_UNITS_PER_PX = 0.18;
 /** Camera distance change per unit of ln(pinch factor) (the engine zoom is additive). */
@@ -400,7 +407,10 @@ export function createTouchGestures<P extends GesturePointer>(
     if (mode === 'chart') actions.panChartX(pxToNdc(dx));
     // Screen y grows downward, NDC y upward: a finger moving up pans by +y
     else if (mode === 'chart-xy') actions.panChartXY(pxToNdc(dx), -pxToNdcY(dy));
-    else if (mode !== 'none') actions.panCamera(-dx * TOUCH_PAN_UNITS_PER_PX, dy * TOUCH_PAN_UNITS_PER_PX);
+    else if (mode !== 'none') {
+      const k = actions.cameraUnitsPerPixel?.() ?? TOUCH_PAN_UNITS_PER_PX;
+      actions.panCamera(-dx * k, dy * k);
+    }
     if (mode !== 'none') actions.changed();
   };
   const scrubTo = (x: number, y: number) => {
@@ -428,7 +438,11 @@ export function createTouchGestures<P extends GesturePointer>(
         if (mode === 'none') return;
         if (mode === 'chart') actions.zoomChartX(factor, actions.toNdcX(midX));
         else if (mode === 'chart-xy') actions.zoomChartXY(factor, actions.toNdcX(midX), actions.toNdcY(midY));
-        else actions.zoomCamera(Math.log(factor) * TOUCH_PINCH_CAMERA_SCALE);
+        else {
+          // Known distance: the pinch scales it (constant feel at any zoom), like the wheel
+          const d = actions.cameraDistance?.() ?? null;
+          actions.zoomCamera(d !== null && d > 0 ? d * (factor - 1) : Math.log(factor) * TOUCH_PINCH_CAMERA_SCALE);
+        }
         actions.changed();
       },
       onTwoFingerPan: pan,

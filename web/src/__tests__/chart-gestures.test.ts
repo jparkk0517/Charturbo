@@ -393,6 +393,27 @@ describe('createTouchGestures (SDK action mapping)', () => {
     expect(a.zoomChartX).not.toHaveBeenCalled();
   });
 
+  it('3D camera: known distance scales two-finger pan and pinch with the zoom level', () => {
+    const at = (distance: number) => {
+      const a = { ...actions('orbit'), cameraUnitsPerPixel: () => distance / 100, cameraDistance: () => distance };
+      const rec = createTouchGestures(a, {}, { inertia: false });
+      rec.pointerDown(pt(1, 100, 100));
+      rec.pointerDown(pt(2, 200, 100));
+      // Both fingers move 30 px right: a pure pan (no pinch)
+      rec.pointerMove(pt(1, 130, 100));
+      rec.pointerMove(pt(2, 230, 100));
+      const pan = a.panCamera.mock.calls.reduce((sum, [r]) => sum + r, 0);
+      rec.pointerMove(pt(2, 330, 100)); // spread 100 -> 200 px: zoom in
+      return { pan, zoom: a.zoomCamera.mock.calls.at(-1)![0] };
+    };
+    const near = at(50);
+    const far = at(500);
+    expect(near.pan).toBeLessThan(0); // content follows the fingers: target moves opposite
+    expect(far.pan / near.pan).toBeCloseTo(10);
+    expect(far.zoom / near.zoom).toBeCloseTo(10);
+    expect(near.zoom).toBeCloseTo(50 * (100 / 200 - 1));
+  });
+
   it('scatter (chart-xy): drag pans both axes (finger up = +y), pinch zooms both at the midpoint', () => {
     const a = actions('chart-xy');
     const rec = createTouchGestures(a, {}, { inertia: false });
