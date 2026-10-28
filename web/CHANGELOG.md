@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 범례 위치 · 페이지 넘김
+
+- `legend.position: 'top' | 'bottom' | 'left' | 'right'`: 범례를 플롯의 원하는 쪽에 두고 그쪽 여백을 잡습니다. 왼쪽 · 오른쪽은 가장 긴 이름에 맞춘 세로 열입니다.
+- `legend.overflow: 'scroll'`(기본): 한 줄(또는 한 열)에 들어가지 않는 항목은 ‹ n / m › 버튼으로 넘깁니다. 예전에는 줄바꿈된 범례가 플롯을 덮었습니다. `'wrap'`은 예전 동작입니다. 페이지 밖 항목은 `display: none`이라 포커스 · 내보내기에서 빠집니다.
+- 예제 `line/11-legend-paged`, WebGPU/WebGL2 fixture `legend-right-paged` · `legend-bottom-paged`를 추가했습니다.
+
 ### 추가 — 생키 세로 방향 · 그라데이션 링크 · 단계 스타일
 
 - `SankeyChartOptions.orient: 'vertical'`: 같은 d3-sankey 배치를 흐름 좌표에서 계산하고 화면에서 x · y를 바꿉니다. hit test · 키보드 · 노드 사각형 · 라벨(막대 아래/위, 가운데 정렬)이 모두 따라갑니다.

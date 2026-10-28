@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CHARTURBO_THEMES, Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 import { formatPercent, pieLabelSpace, pieMeta, textOn } from '../sdk/chart-pie';
+import { legendColumnWidth } from '../sdk/chart-legend';
 import {
   buildA11yModel,
   buildChartDescription,
@@ -377,6 +378,42 @@ describe('Native pie chart (SDK binding)', () => {
     // Legend hover emphasizes the slice in the engine
     items[2].fire('pointerenter');
     expect(calls.set_chart_emphasis.at(-1)).toEqual([2]);
+  });
+
+  it('legend position reserves its side; overflowing entries page with prev / next buttons', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, state()));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    const legendEl = () => container.querySelectorAll('.charturbo-sdk-chart-legend')[0];
+
+    sdk.renderPieChart(DATA, { maxSlices: 4, legend: { position: 'bottom' } });
+    expect(calls.set_chart_padding.at(-1)).toEqual([12, 16, 12 + 28, 12]);
+    expect([legendEl().style.bottom, legendEl().style.top]).toEqual(['6px', undefined]);
+
+    sdk.renderPieChart(DATA, { maxSlices: 4, legend: { position: 'right' } });
+    expect(calls.set_chart_padding.at(-1)).toEqual([12, 16 + legendColumnWidth(['Search', 'Direct', 'Social', 'Other']) + 8, 12, 12]);
+    expect([legendEl().style.right, legendEl().style.flexDirection]).toEqual(['8px', 'column']);
+
+    // The fake DOM measures every entry 800 px wide: one entry per page
+    sdk.renderPieChart(DATA, { maxSlices: 4 });
+    const items = container.querySelectorAll('.charturbo-sdk-legend-item');
+    const [pager] = container.querySelectorAll('.charturbo-sdk-legend-pager');
+    expect(pager.style.display).toBe('flex');
+    expect(pager.textContent).toContain('1 / 4');
+    expect(items.map((i) => i.style.display)).toEqual(['inline-flex', 'none', 'none', 'none']);
+    const [prev, next] = container.querySelectorAll('.charturbo-sdk-legend-page');
+    expect(prev.attrs['aria-disabled']).toBe('true');
+    next.fire('click');
+    expect(items.map((i) => i.style.display)).toEqual(['none', 'inline-flex', 'none', 'none']);
+    expect(pager.textContent).toContain('2 / 4');
+    expect(prev.attrs['aria-disabled']).toBe('false');
+    expect(prev.attrs['aria-label']).toBe('Previous legend page');
+
+    // 'wrap': every entry stays, rows wrap, no pager
+    sdk.renderPieChart(DATA, { maxSlices: 4, legend: { overflow: 'wrap' } });
+    expect(legendEl().style.flexWrap).toBe('wrap');
+    expect(container.querySelectorAll('.charturbo-sdk-legend-pager')).toEqual([]);
+    expect(container.querySelectorAll('.charturbo-sdk-legend-item').every((i) => i.style.display !== 'none')).toBe(true);
   });
 
   it('rings: concatenated values, packed ring layout, name groups shared by legend, tooltip and table', () => {

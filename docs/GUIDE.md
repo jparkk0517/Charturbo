@@ -204,7 +204,7 @@ sdk.setLineWidth(4, 0); // 0번 시리즈만
 ```ts
 sdk.renderLineChart(series, {
   title: '실시간 인프라 텔레메트리',
-  legend: { show: true, toggle: true, emphasize: true }, // 2개 이상 시리즈면 기본 표시
+  legend: { show: true, toggle: true, emphasize: true, position: 'top' /* | 'bottom' | 'left' | 'right' */, overflow: 'scroll' /* | 'wrap' */ }, // 2개 이상 시리즈면 기본 표시
   axes: {
     x: { title: '시간', format: (i) => new Date(t0 + i * 1000).toLocaleTimeString() },
     y: { title: '처리량 (req/s)', format: (v) => `${v / 1000}k` },
@@ -220,7 +220,9 @@ sdk.resetChartZoom();
 ```
 - 눈금은 엔진이 1·2·5×10ⁿ 단위로 계산하고 그리드도 같은 값에 그립니다. 라벨 DOM은 눈금이 실제로 바뀔 때만 다시 배치됩니다.
 - 범례는 `<button aria-pressed>`라 키보드로도 조작됩니다. 시리즈를 숨겨도 y축 범위는 유지됩니다.
-- CSS 클래스: `.charturbo-sdk-chart-overlay`, `.charturbo-sdk-chart-title`, `.charturbo-sdk-chart-legend`, `.charturbo-sdk-legend-item`, `.charturbo-sdk-axis-tick`, `.charturbo-sdk-axis-title`
+- 범례 위치(`position`): 위 · 아래는 한 줄(28px 여백), 왼쪽 · 오른쪽은 가장 긴 이름에 맞춘 세로 열(72~200px + 8px 간격)을 해당 쪽 여백에 더합니다. `padding`으로 지정한 쪽은 그 값이 이깁니다
+- 넘침(`overflow`): `'scroll'`(기본)은 실제로 잰 항목 크기로 한 줄(열)에 온전히 들어가는 만큼씩 페이지를 나누고 ‹ n / m › 버튼으로 넘깁니다(크기가 바뀌면 다시 나누되 현재 첫 항목이 있는 페이지 유지). 다른 페이지 항목은 `display: none`이라 탭 이동 · 이미지 내보내기에서 빠집니다. `'wrap'`은 줄바꿈(위 · 아래 전용, 늘어난 줄은 플롯을 덮을 수 있음)
+- CSS 클래스: `.charturbo-sdk-chart-overlay`, `.charturbo-sdk-chart-title`, `.charturbo-sdk-chart-legend`, `.charturbo-sdk-legend-item`, `.charturbo-sdk-legend-pager`, `.charturbo-sdk-legend-page`, `.charturbo-sdk-axis-tick`, `.charturbo-sdk-axis-title`
 
 #### 터치 · 펜 제스처 (모바일)
 `enableNodeInteractions`는 Pointer Events로 터치/펜 멀티 포인터를 직접 인식합니다 (마우스 동작은 그대로). 연결 중에는 캔버스에 `touch-action: none`을 걸고 해제 시 원래 값으로 복원합니다.

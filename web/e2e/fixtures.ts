@@ -429,6 +429,32 @@ export const FIXTURES: Fixture[] = [
   pieFixture('pie', 0),
   pieFixture('donut', 0.6),
   pieFixture('pie-rose', 0.2, { rose: 'area' }),
+  {
+    // Side legend column sized to the names; 14 entries page behind ‹ ›
+    name: 'legend-right-paged',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const labels = ['Search', 'Direct', 'Social', 'Email', 'Ads', 'Video', 'Partners', 'Affiliates', 'Podcasts', 'Events', 'Print', 'Radio', 'TV', 'Other'];
+        sdk.renderPieChart(
+          { labels, values: labels.map((_, i) => 40 - i * 2.5) },
+          { title: 'Legend right', donut: 0.5, maxSlices: false, labels: 'none', legend: { position: 'right' }, padding: { top: 36 } }
+        );
+      }),
+  },
+  {
+    // Bottom row: 12 series do not fit one row, the pager pages them
+    name: 'legend-bottom-paged',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const series = Array.from({ length: 12 }, (_, k) => ({
+          name: `Sensor ${String.fromCharCode(65 + k)}`,
+          values: Float32Array.from({ length: 200 }, (_, i) => Math.sin(i / 20 + k) * 10 + k * 3),
+        }));
+        sdk.renderLineChart(series, { title: 'Legend bottom', legend: { position: 'bottom' } });
+      }),
+  },
   pieFixture('pie-half-donut', 0.55, { startAngle: -90, endAngle: 90 }),
   pieFixture('pie-pad-angle', 0.5, { padAngle: 4 }),
   pieFixture('pie-rounded', 0.5, { padAngle: 3, cornerRadius: 8 }),

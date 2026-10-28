@@ -181,6 +181,8 @@ import {
   type PieChartOptions,
   type PieRingsData,
 } from './chart-pie';
+import { LEGEND_ROW_PX, LEGEND_SIDE_GAP_PX, LegendPager, legendColumnWidth, legendStyle, type ChartLegendPosition } from './chart-legend';
+export type { ChartLegendPosition } from './chart-legend';
 export type { PieChartData, PieChartOptions, PieLabelMode, PieRingData, PieRingsData, PieRoseMode } from './chart-pie';
 import {
   comboMeta,
@@ -652,7 +654,17 @@ export interface ChartLegendOptions {
   toggle?: boolean;
   /** Hover fades the other series (default: true) */
   emphasize?: boolean;
+  /** Side of the plot (default `'top'`); `'left'` / `'right'` stack the entries in a column sized to the longest name */
+  position?: ChartLegendPosition;
+  /**
+   * Entries beyond one row (top / bottom) or column (left / right): `'scroll'` (default) pages
+   * them behind ‹ › buttons; `'wrap'` adds rows (top / bottom only; extra rows may cover the plot)
+   */
+  overflow?: 'scroll' | 'wrap';
 }
+
+/** Legend settings of the active chart (defaults resolved, placement as given). */
+type ChartLegendState = { show: boolean; toggle: boolean; emphasize: boolean } & Pick<ChartLegendOptions, 'position' | 'overflow'>;
 
 /** Plot margins in CSS px; unspecified sides are derived from the title / legend / axes. */
 export interface ChartPaddingOptions {
@@ -1937,6 +1949,8 @@ interface ChartOverlay {
   colorbar?: HeatmapColorbarLayer;
   /** Pie slice labels / donut center (chart-pie.ts) */
   pie?: PieLabelLayer;
+  /** Pager of a one-row / one-column legend (chart-legend.ts) */
+  legendPager?: LegendPager;
   /** Treemap / sunburst / sankey labels, breadcrumb, sunburst center (chart-hierarchy.ts) */
   hierarchy?: HierarchyLabelLayer;
   /** Bar data labels (chart-bar-style.ts) */
@@ -1952,7 +1966,7 @@ interface ChartPresentation {
   yAxis: ChartAxisOptions;
   /** Right y axis (dual-axis 2D line charts only) */
   y2Axis?: ChartAxisOptions;
-  legend: Required<ChartLegendOptions>;
+  legend: ChartLegendState;
   /** 2D line chart: wheel / drag navigate the x axis */
   navigable: boolean;
   /** Scatter: navigation zooms / pans the y axis too */
@@ -5687,13 +5701,35 @@ export class Charturbo {
   private applyChartPadding(p: ChartPresentation, hasLegend: boolean, overrides?: ChartPaddingOptions): void {
     // Every 2D render passes here: invalid axis format specs throw from the render call, not later
     for (const a of [p.xAxis, p.yAxis, p.y2Axis]) resolveFormat(a?.format, this.chartLocale());
-    const top = 12 + (p.title ? 24 : 0) + (hasLegend ? 28 : 0);
-    const left = (p.yAxis.show === false ? 12 : 56) + (p.yAxis.title ? 20 : 0);
-    const bottom = (p.xAxis.show === false ? 12 : 30) + (p.xAxis.title ? 20 : 0);
-    const right = p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16;
+    // The legend takes a row above / below the plot, or a column beside it
+    const side = hasLegend ? (p.legend.position ?? 'top') : null;
+    const column = side === 'left' || side === 'right' ? legendColumnWidth(this.legendNames()) + LEGEND_SIDE_GAP_PX : 0;
+    const top = 12 + (p.title ? 24 : 0) + (side === 'top' ? LEGEND_ROW_PX : 0);
+    const left = (p.yAxis.show === false ? 12 : 56) + (p.yAxis.title ? 20 : 0) + (side === 'left' ? column : 0);
+    const bottom = (p.xAxis.show === false ? 12 : 30) + (p.xAxis.title ? 20 : 0) + (side === 'bottom' ? LEGEND_ROW_PX : 0);
+    const right = (p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16) + (side === 'right' ? column : 0);
     const pad = { top, right, bottom, left, ...overrides };
     this.backend.set_chart_padding?.(pad.top, pad.right, pad.bottom, pad.left);
     this.chartPadding = pad;
+  }
+
+  /** Pages the legend for the room along its side of the canvas (no-op when unchanged). */
+  private layoutLegendPager(): void {
+    const pager = this.chartOverlay?.legendPager;
+    const p = this.chartPresentation;
+    const canvas = this.canvas;
+    if (!pager || !p || !canvas) return;
+    const pad = this.chartPadding;
+    const side = p.legend.position ?? 'top';
+    pager.layout(side === 'left' || side === 'right' ? canvas.offsetHeight - pad.top - pad.bottom : canvas.offsetWidth - pad.left - pad.right);
+  }
+
+  /** Legend entry names of the active chart (multi-ring pies: one per name). */
+  private legendNames(): string[] {
+    const meta = this.chartMeta;
+    if (!meta) return [];
+    if (meta.kind === 'pie' && meta.groups) return meta.groups.map((g) => g.name);
+    return 'names' in meta && Array.isArray(meta.names) ? (meta.names as string[]) : [];
   }
 
   private removeChartOverlay(): void {
@@ -5748,14 +5784,11 @@ export class Charturbo {
     title.textContent = p.title ?? '';
     title.style.display = p.title ? 'block' : 'none';
 
+    const legendSide = p.legend.position ?? 'top';
+    const legendWrap = p.legend.overflow === 'wrap' && (legendSide === 'top' || legendSide === 'bottom');
     const legend = div(
       {
-        left: `${pad.left}px`,
-        right: `${pad.right}px`,
-        top: `${p.title ? 36 : 10}px`,
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '4px 14px',
+        ...legendStyle(legendSide, legendWrap, pad, !!p.title, legendColumnWidth(this.legendNames())),
         fontSize: '12px',
         pointerEvents: 'auto',
       },
@@ -5849,6 +5882,10 @@ export class Charturbo {
       item.append(swatch, label);
       legend.appendChild(item);
     }
+    // One row / column: entries that do not fit page behind ‹ › (laid out once attached)
+    const legendItems = Array.from(legend.children) as HTMLElement[];
+    const legendPager = !legendWrap && legendItems.length > 1 ? new LegendPager(legendItems, legendSide === 'left' || legendSide === 'right', t.textSecondary) : undefined;
+    if (legendPager) legend.appendChild(legendPager.root);
 
     const xTitle = div(
       { fontSize: '12px', color: t.textSecondary, transform: 'translate(-50%, 0)', whiteSpace: 'nowrap' },
@@ -5882,7 +5919,9 @@ export class Charturbo {
       ticks: [],
       axesRevision: -1,
       annotations: new AnnotationLabelLayer(root),
+      legendPager,
     };
+    this.layoutLegendPager();
     if (meta?.kind === 'heatmap' && meta.colorbar.show) {
       const colorbar = new HeatmapColorbarLayer(root, meta);
       colorbar.refresh(this.backend, t, this.chartLocale());
@@ -5936,6 +5975,7 @@ export class Charturbo {
     o.root.style.top = `${canvas.offsetTop}px`;
     o.root.style.width = `${canvas.offsetWidth}px`;
     o.root.style.height = `${canvas.offsetHeight}px`;
+    this.layoutLegendPager();
     o.annotations.update(this.backend, this.chartAnnotations, this.theme);
     o.pie?.update(this.backend, this.theme, (v) => this.pieValueText(v), this.chartLocale());
     o.hierarchy?.update(this.backend, this.theme, (v) => this.hierValueText(v), this.chartLocale());
@@ -6387,7 +6427,7 @@ export class Charturbo {
     this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover(this.chartHover)));
     e.meta.visible.forEach((v, i) => this.backend.set_chart_series_visible?.(i, v));
     const opt = typeof options?.legend === 'boolean' ? { show: options.legend } : options?.legend;
-    const legend = { show: opt?.show ?? e.meta.names.length > 1, toggle: opt?.toggle ?? true, emphasize: opt?.emphasize ?? true };
+    const legend = { show: opt?.show ?? e.meta.names.length > 1, toggle: opt?.toggle ?? true, emphasize: opt?.emphasize ?? true, position: opt?.position, overflow: opt?.overflow };
     this.chartPresentation = { title: options?.title, description: options?.description, xAxis: {}, yAxis: {}, legend,
       navigable: false, formatX: v => formatTickValue(v, this.chartLocale()) };
     if (options?.camera?.eye) this.setCameraPose(options.camera.eye, options.camera.target ?? [0, 0, 0]);
@@ -6651,10 +6691,12 @@ export class Charturbo {
       : (userFormatX ?? (timeX ? (v: number) => formatChartTime(v, undefined, locale(), tz()) : formatXNumber));
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const flat = viewMode === '2d';
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? seriesList.length >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = sparse?.meta.kind ?? (standaloneBands ? 'band' : 'line');
     this.chartMeta = {
@@ -6992,10 +7034,12 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? (flat && s >= 2),
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'bar';
     this.chartMeta = {
@@ -7082,10 +7126,12 @@ export class Charturbo {
 
     const seriesCount = this.backend.chart_series_count?.() ?? (n > 0 ? 1 : 0);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? seriesCount >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'scatter';
     this.chartMeta = {
@@ -7549,10 +7595,12 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(false, this.themedGrid()));
 
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? meta.names.length >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'pie';
     this.chartMeta = meta;
@@ -7652,10 +7700,12 @@ export class Charturbo {
     this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover()));
     this.backend.set_chart_frame_style?.(encodeGridStyle(false, this.themedGrid()));
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? legendDefault,
       toggle: false,
       emphasize: meta.kind !== 'sankey' && (legendOpt.emphasize ?? true),
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = meta.kind;
     this.chartMeta = meta;
@@ -7806,10 +7856,12 @@ export class Charturbo {
     const barMode = options?.barMode ?? 'grouped';
     const meta = comboMeta(enc, data, barMode, formatXValue);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? s >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'combo';
     this.chartMeta = meta;
@@ -7871,10 +7923,12 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? s >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.chartMode = 'box';
     this.chartMeta = {
@@ -7926,7 +7980,7 @@ export class Charturbo {
     mode: BusinessChartMeta['kind'],
     meta: BusinessChartMeta,
     options: { title?: string; description?: string; padding?: ChartPaddingOptions } | undefined,
-    legend: Required<ChartLegendOptions>,
+    legend: ChartLegendState,
     padding: ChartPaddingOptions,
     grid = false
   ): void {
@@ -7964,10 +8018,12 @@ export class Charturbo {
     const meta = radarMeta(data, options, this.businessFormat(options?.format));
     sendRadar(this.backend, meta, options, this.theme);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
-    const legend: Required<ChartLegendOptions> = {
+    const legend: ChartLegendState = {
       show: legendOpt.show ?? meta.names.length >= 2,
       toggle: legendOpt.toggle ?? true,
       emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
     };
     this.showBusinessChart('radar', meta, options, legend, {}, options?.showGrid ?? true);
     return { axisCount: meta.axes.length, seriesCount: meta.names.length };
