@@ -448,6 +448,37 @@ async function runGraph(id: GraphId) {
     record(g.adapter.tick(GRAPH_DT, true));
   });
   const mem = await memory();
+  // Synced work: same orbit + step per rAF, then a 1 px readback so the time includes GPU
+  // completion for every library (FPS saturates at the 60 Hz rAF cap; this does not).
+  phase('synced');
+  const synced: number[] = [];
+  {
+    let last = await raf();
+    const t0 = last;
+    for (;;) {
+      last = await raf();
+      const p = (last - t0) / DURATION;
+      if (p >= 1) break;
+      const w0 = performance.now();
+      g.adapter.rotateCamera((p - lastP) * GRAPH_ORBIT, 0);
+      lastP = p;
+      if (g.tickAsync) await g.tickAsync(GRAPH_DT, true);
+      else g.adapter.tick(GRAPH_DT, true);
+      gpuSync();
+      synced.push(performance.now() - w0);
+    }
+  }
+  // Readback cost alone (no step): separates the probe's fixed cost from GPU work per library.
+  const syncOnly: number[] = [];
+  {
+    let last = await raf();
+    const t0 = last;
+    while ((last = await raf()) - t0 < DURATION) {
+      const w0 = performance.now();
+      gpuSync();
+      syncOnly.push(performance.now() - w0);
+    }
+  }
   return {
     lib,
     scenario: id,
@@ -464,6 +495,8 @@ async function runGraph(id: GraphId) {
     ttff,
     memory: { ...mem, wasmBytes: g.wasmBytes(), gpuBytes: g.gpuBytes() },
     steady: { ...steady, physics: summarize(physics), render: summarize(render) },
+    synced: summarize(synced),
+    syncOnly: summarize(syncOnly),
     hover: null,
   };
 }

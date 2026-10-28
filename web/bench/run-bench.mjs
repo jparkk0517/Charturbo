@@ -338,17 +338,17 @@ function graphTable(lines, meta, runs) {
     lines.push(`${first.nodes.toLocaleString('en-US')} nodes, ${first.edges.toLocaleString('en-US')} edges, 8 clusters, seed 42. Init = engine creation; cold = first load + presented frame; TTFF = warm reload + presented frame. viz / vizgpu / three use matching 3D Barnes-Hut models. vizgpu is opt-in hybrid GPU repulsion with CPU springs/integration/index: physics is wall time INCLUDING upload, GPU completion and readback. Other physics / render values are CPU execution/submission times, NOT GPU execution time. deck.gl: render only. cosmos.gl: 2D GPU layout, no orbit; methodology v3 pauses automatic simulation so each frame executes exactly one explicit step (v2 ran two). 3d-force-graph: d3-force-3d with different forces/integrator; v2+ waits for scene updates and validates one tick plus movement. See per-entry methodology and conditions; these are different workloads.`);
     lines.push('');
   }
-  lines.push('| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |');
-  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  lines.push('| library | renderer | init ms | cold ms | TTFF med (p95) ms | pixels ms | steady med / p95 / max ms | fps | dropped | physics med (p95) ms | render med (p95) ms | GPU-synced frame med (p95) ms | main-thread ms/frame | JS heap MB | wasm MB | UA memory MB |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of runs) {
     if (!r.ok) {
-      lines.push(`| ${r.lib} | - | FAILED: ${r.error} |  |  |  |  |  |  |  |  |  |  |  |  |`);
+      lines.push(`| ${r.lib} | - | FAILED: ${r.error} |  |  |  |  |  |  |  |  |  |  |  |  |  |`);
       continue;
     }
     const x = r.result;
     const s = x.steady;
     lines.push(
-      `| ${r.lib}${meta.versions[r.lib] ? ` ${meta.versions[r.lib]}` : ''} | ${x.backend} | ${ms(x.initMs)} | ${ms(x.coldMs)} | ${ms(x.ttff.frame.median)} (${ms(x.ttff.frame.p95)}) | ${ms(x.ttff.pixels.median)} | ${ms(s.interval.median)} / ${ms(s.interval.p95)} / ${ms(s.interval.max)} | ${s.fps} | ${s.dropped}/${s.frames} | ${ms(s.physics.median)} (${ms(s.physics.p95)}) | ${ms(s.render.median)} (${ms(s.render.p95)}) | ${ms(s.mainThread?.perFrameMs)} | ${mb(x.memory.jsHeapBytes)} | ${mb(x.memory.wasmBytes)} | ${mb(x.memory.uaBytes)} |`
+      `| ${r.lib}${meta.versions[r.lib] ? ` ${meta.versions[r.lib]}` : ''} | ${x.backend} | ${ms(x.initMs)} | ${ms(x.coldMs)} | ${ms(x.ttff.frame.median)} (${ms(x.ttff.frame.p95)}) | ${ms(x.ttff.pixels.median)} | ${ms(s.interval.median)} / ${ms(s.interval.p95)} / ${ms(s.interval.max)} | ${s.fps} | ${s.dropped}/${s.frames} | ${ms(s.physics.median)} (${ms(s.physics.p95)}) | ${ms(s.render.median)} (${ms(s.render.p95)}) | ${x.synced ? `${ms(x.synced.median)} (${ms(x.synced.p95)})` : '-'} | ${ms(s.mainThread?.perFrameMs)} | ${mb(x.memory.jsHeapBytes)} | ${mb(x.memory.wasmBytes)} | ${mb(x.memory.uaBytes)} |`
     );
   }
   lines.push('');
@@ -526,7 +526,7 @@ async function main() {
           const x = r.result;
           log(
             r.ok
-              ? `compare ${id}/${lib}: ttff ${x.ttff.frame.median} ms${x.coldMs != null ? ` (cold ${x.coldMs})` : ''}, steady ${x.steady.interval.median}/${x.steady.interval.p95}/${x.steady.interval.max} ms, fps ${x.steady.fps}, dropped ${x.steady.dropped}/${x.steady.frames}${x.steady.physics ? `, physics ${x.steady.physics.median} ms, render ${x.steady.render.median} ms` : ''} [${Date.now() - tr} ms]`
+              ? `compare ${id}/${lib}: ttff ${x.ttff.frame.median} ms${x.coldMs != null ? ` (cold ${x.coldMs})` : ''}, steady ${x.steady.interval.median}/${x.steady.interval.p95}/${x.steady.interval.max} ms, fps ${x.steady.fps}, dropped ${x.steady.dropped}/${x.steady.frames}${x.steady.physics ? `, physics ${x.steady.physics.median} ms, render ${x.steady.render.median} ms` : ''}${x.synced ? `, synced ${x.synced.median} ms (sync only ${x.syncOnly.median} ms)` : ''} [${Date.now() - tr} ms]`
               : `compare ${id}/${lib}: FAILED ${r.error}${r.errors?.length ? ' | ' + r.errors.join(' | ') : ''}`
           );
         }
