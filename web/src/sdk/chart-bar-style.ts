@@ -1,7 +1,8 @@
 /**
- * Bar chart styling binding: horizontal orientation, data labels and error bars. The engine owns
- * the geometry (bar_style.rs): orientation re-mapping, error bar segments and their share of the
- * value domain, label anchors with inside / outside fit tests and collision hiding (`'auto'`).
+ * Bar chart styling binding: horizontal orientation, data labels, error bars and background
+ * tracks. The engine owns the geometry (bar_style.rs): orientation re-mapping, error bar segments
+ * and their share of the value domain, background tracks across the value axis, label anchors
+ * with inside / outside fit tests and collision hiding (`'auto'`).
  * This module encodes the options, formats label text and measures it (the engine needs the
  * text boxes to test fit / collisions), and places DOM labels at the engine anchors.
  */
@@ -63,6 +64,26 @@ export interface BarErrorBarStyle {
   /** Cap length as a fraction of the bar thickness (default 0.4; 0 = no caps) */
   cap?: number;
 }
+
+/**
+ * Background tracks: one muted bar behind every bar slot (grouped) or category stack (stacked /
+ * percent), spanning the whole value axis with the bar's width and corner radius (2D).
+ */
+export interface BarBackgroundOptions {
+  /** Track color (default: theme `baseline` at 20% alpha, the alpha of ECharts' default track) */
+  color?: ColorInput;
+  /** Alpha multiplier of the color, 0-1 (default 1) */
+  opacity?: number;
+}
+
+/** Resolved `background` option: explicit color (undefined = theme default) and opacity. */
+export interface BarBackgroundState {
+  color?: RgbaTuple;
+  opacity: number;
+}
+
+/** Alpha of the default track color (ECharts `backgroundStyle.color` default `rgba(180, 180, 180, 0.2)`). */
+const DEFAULT_TRACK_ALPHA = 0.2;
 
 interface ResolvedBarLabels {
   mode: 1 | 2;
@@ -154,6 +175,21 @@ export function sendBarStyle(backend: WasmCharturboEngineBackend, state: BarStyl
     state.errorBar.width ?? NaN,
     state.errorBar.cap ?? NaN
   );
+}
+
+/** Normalizes the `background` option (`true` / object); null = no tracks. */
+export function resolveBarBackground(opt: boolean | BarBackgroundOptions | undefined): BarBackgroundState | null {
+  if (!opt) return null;
+  const o: BarBackgroundOptions = opt === true ? {} : opt;
+  const opacity = typeof o.opacity === 'number' && Number.isFinite(o.opacity) ? Math.min(1, Math.max(0, o.opacity)) : 1;
+  return { color: parseOptionalColor(o.color), opacity };
+}
+
+/** Uploads the track color (`set_chart_bar_background`); no-op on engines without it. */
+export function sendBarBackground(backend: WasmCharturboEngineBackend, state: BarBackgroundState, theme: CharturboTheme): void {
+  const b = theme.baseline;
+  const [r, g, bl, a] = state.color ?? [b[0], b[1], b[2], b[3] * DEFAULT_TRACK_ALPHA];
+  backend.set_chart_bar_background?.(Float32Array.of(r, g, bl, a * state.opacity));
 }
 
 /** Data the label text needs (values flat by bar id, as uploaded). */

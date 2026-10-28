@@ -1,5 +1,5 @@
-//! WASM bindings of bar chart styling: orientation, error bars, data labels (kept apart from
-//! `lib.rs`; same `WasmCharturboEngine`).
+//! WASM bindings of bar chart styling: orientation, error bars, background tracks, data labels
+//! (kept apart from `lib.rs`; same `WasmCharturboEngine`).
 
 use crate::chart::{BarLabelMode, BarLabelOptions, BarLabelPosition, BarOrientation, BarStyle};
 use crate::WasmCharturboEngine;
@@ -36,6 +36,18 @@ impl WasmCharturboEngine {
             error_cap: if error_cap.is_finite() { error_cap.clamp(0.0, 1.0) } else { d.error_cap },
         };
         self.inner.chart_mut().is_some_and(|c| c.set_bar_style(style))
+    }
+
+    /// Background tracks behind the bars of the current 2D bar chart: RGBA color (anything but 4
+    /// finite numbers = none). One track per visible bar slot (grouped) or category stack
+    /// (stacked / percent) across the whole value axis; set again after every `set_bar_chart` /
+    /// `set_bar_chart_multi`. Returns false for 3D bars, histograms, or without a bar chart.
+    pub fn set_chart_bar_background(&mut self, color: &[f32]) -> bool {
+        let color = match color {
+            [r, g, b, a] if [r, g, b, a].iter().all(|c| c.is_finite()) => Some([*r, *g, *b, *a].map(|c| c.clamp(0.0, 1.0))),
+            _ => None,
+        };
+        self.inner.chart_mut().is_some_and(|c| c.set_bar_background(color))
     }
 
     /// Data labels of the current bar chart: `mode` 0 = off, 1 = show, 2 = auto (hide what does

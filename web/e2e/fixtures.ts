@@ -301,6 +301,50 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // One track per grouped bar slot across the whole value axis; the negative bar's track
+    // rounds its bottom end
+    name: 'bar-background',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderGroupedBarChart(
+          {
+            categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+            series: [
+              { name: 'Web', values: [120, 200, 150, -40, 70] },
+              { name: 'App', values: [80, 130, NaN, 60, 110] },
+            ],
+          },
+          { title: 'Bar background', padding: PADDING, legend: false, background: true, cornerRadius: 6 }
+        );
+      }),
+  },
+  {
+    // Horizontal stacks: one track per category across the plot width, custom color
+    name: 'bar-background-horizontal',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderGroupedBarChart(
+          {
+            categories: ['North', 'South', 'East', 'West'],
+            series: [
+              { name: 'A', values: [30, 12, 25, 8] },
+              { name: 'B', values: [20, 18, 10, 14] },
+            ],
+          },
+          {
+            mode: 'stacked',
+            orientation: 'horizontal',
+            title: 'Horizontal background',
+            padding: PADDING,
+            legend: false,
+            background: { color: '#94a3b8', opacity: 0.18 },
+          }
+        );
+      }),
+  },
+  {
     name: 'scatter',
     theme: 'dark',
     render: (ctx) =>
