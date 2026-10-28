@@ -1,10 +1,11 @@
 /**
  * Per-series line styles of line / area charts: point markers, dash patterns, step / monotone
- * curves, null policies, and range bands (error bands). The engine builds every mark from its
- * M4-decimated picks (chart/linestyle.rs, lib_linestyle.rs); this module only validates and
- * encodes the options and reads band values back for tooltips and the data table.
+ * curves, null policies, range bands (error bands), and piecewise colors. The engine builds every
+ * mark from its M4-decimated picks (chart/linestyle.rs, chart/pieces.rs, lib_linestyle.rs,
+ * lib_pieces.rs); this module only validates and encodes the options and reads band values and
+ * piece colors back for tooltips and the data table.
  */
-import { parseOptionalColor, type ColorInput } from './color';
+import { parseColor, parseOptionalColor, type ColorInput } from './color';
 import type { WasmCharturboEngineBackend } from './charturbo';
 
 export type LineMarkerShape = 'circle' | 'square' | 'diamond' | 'triangle' | 'none';
@@ -40,6 +41,19 @@ export interface LineBandOptions {
   opacity?: number;
 }
 
+/**
+ * One piece of a piecewise series color (ECharts visualMap `pieces`): values in the interval take
+ * `color`. Bounds are optional (open ends); `gte` wins over `gt` and `lte` over `lt` when both
+ * are given (ECharts).
+ */
+export interface LinePiece {
+  gt?: number;
+  gte?: number;
+  lt?: number;
+  lte?: number;
+  color: ColorInput;
+}
+
 /** Style fields of a `LineSeriesDescriptor`. */
 export interface LineStyleInput {
   marker?: LineMarkerOptions | boolean;
@@ -48,6 +62,17 @@ export interface LineStyleInput {
   curve?: LineCurve;
   nulls?: LineNullPolicy;
   band?: LineBandOptions;
+  /**
+   * Piecewise colors: the stroke, area fill, markers and tooltip swatch take the color of the
+   * first piece containing the value (outside every piece: the series color), switching exactly
+   * where the drawn line crosses a bound
+   */
+  pieces?: LinePiece[];
+  /**
+   * Value the pieces test: `'y'` (default; area fills are banded by height) or `'x'` (data x,
+   * epoch ms on a time axis, or the sample index without `x`)
+   */
+  piecesBy?: 'y' | 'x';
   /** Deprecated alias of `marker: { size }` */
   pointSize?: number;
 }
@@ -112,6 +137,64 @@ export function encodeLineStyles(series: LineStyleInput[], chartNulls: LineNullP
     if (r[16] !== 0 || r[17] !== 0) styled = true;
   });
   return styled ? out : null;
+}
+
+/** Floats per piece of `set_line_series_pieces` (see lib_pieces.rs). */
+export const LINE_PIECE_STRIDE = 8;
+
+/**
+ * Encodes the pieces of series `series` as `[lower (NaN = none), gte, upper (NaN = none), lte,
+ * r, g, b, a]` records. Throws on a non-array, NaN bounds or a missing color.
+ */
+export function encodeLinePieces(pieces: LinePiece[], fn: string, series: number): Float64Array {
+  if (!Array.isArray(pieces)) throw new Error(`${fn}: series ${series} pieces must be an array`);
+  const out = new Float64Array(pieces.length * LINE_PIECE_STRIDE);
+  pieces.forEach((p, k) => {
+    const what = `${fn}: series ${series} piece ${k}`;
+    if (p?.color === undefined) throw new Error(`${what} needs a color`);
+    const bounds = [p.gt, p.gte, p.lt, p.lte];
+    if (bounds.some((b) => b !== undefined && (typeof b !== 'number' || Number.isNaN(b)))) {
+      throw new Error(`${what} bounds must be numbers (not NaN)`);
+    }
+    const lo = p.gte ?? p.gt;
+    const hi = p.lte ?? p.lt;
+    out.set([lo ?? NaN, p.gte !== undefined ? 1 : 0, hi ?? NaN, p.lte !== undefined ? 1 : 0, ...parseColor(p.color)], k * LINE_PIECE_STRIDE);
+  });
+  return out;
+}
+
+/** Validated pieces per series (`null` = none) to upload once the chart exists. */
+export type EncodedLinePieces = ({ by: number; pieces: Float64Array } | null)[];
+
+/** Encodes the pieces of every series; throws before the chart is built on malformed input. */
+export function encodeSeriesPieces(series: LineStyleInput[], fn: string): EncodedLinePieces {
+  return series.map((s, i) => {
+    if (s.piecesBy !== undefined && s.piecesBy !== 'y' && s.piecesBy !== 'x') {
+      throw new Error(`${fn}: series ${i} piecesBy must be 'y' or 'x'`);
+    }
+    if (s.pieces === undefined) return null;
+    const pieces = encodeLinePieces(s.pieces, fn, i);
+    return pieces.length > 0 ? { by: s.piecesBy === 'x' ? 1 : 0, pieces } : null;
+  });
+}
+
+/** Uploads encoded pieces to a freshly built line / area chart. */
+export function applyLinePieces(backend: WasmCharturboEngineBackend, pieces: EncodedLinePieces): void {
+  pieces.forEach((p, i) => {
+    if (p) backend.set_line_series_pieces?.(i, p.by, p.pieces);
+  });
+}
+
+/** Piece color of a hovered sample, read from the engine (drawn position); `undefined` = the series color. */
+export function linePieceColor(
+  backend: WasmCharturboEngineBackend,
+  pieces: boolean[] | undefined,
+  series: number,
+  index: number
+): [number, number, number, number] | undefined {
+  if (!pieces?.[series]) return undefined;
+  const c = backend.chart_line_piece_color?.(series, index);
+  return c && c.length === 4 ? [c[0], c[1], c[2], c[3]] : undefined;
 }
 
 /** `[on, off(, on, off)]` of a dash option: `[a]` = `[a, a]`, three values use the first two. */

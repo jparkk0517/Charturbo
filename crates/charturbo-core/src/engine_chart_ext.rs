@@ -28,6 +28,16 @@ impl VisualizationEngine {
         self.chart.as_mut().is_some_and(|c| c.set_scatter_ripple(flags, opts))
     }
 
+    /// Piecewise colors of a line / area series (see `ChartState::set_line_pieces`).
+    pub fn set_chart_line_pieces(&mut self, series: usize, pieces: Option<crate::chart::SeriesPieces>) -> Result<(), String> {
+        self.chart.as_mut().ok_or_else(|| "no chart".to_string())?.set_line_pieces(series, pieces)
+    }
+
+    /// Piece color of a drawn line / area sample (see `ChartState::line_piece_color`).
+    pub fn chart_line_piece_color(&self, series: usize, index: usize) -> Option<[f32; 4]> {
+        self.chart.as_ref()?.line_piece_color(series, index)
+    }
+
     /// Scatter jitter (see `ChartState::set_scatter_jitter`).
     pub fn set_chart_scatter_jitter(&mut self, x: f64, y: f64, seed: u32) -> bool {
         self.chart.as_mut().is_some_and(|c| c.set_scatter_jitter(x, y, seed))

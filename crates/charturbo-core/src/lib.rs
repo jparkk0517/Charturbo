@@ -20,6 +20,7 @@ mod lib_zoom;
 mod lib_stats;
 mod lib_camera;
 mod lib_scatter;
+mod lib_pieces;
 pub mod physics;
 pub mod renderer;
 pub mod scene;

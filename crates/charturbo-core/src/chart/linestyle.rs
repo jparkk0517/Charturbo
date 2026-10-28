@@ -14,6 +14,7 @@
 //!   column keeping the extremes (lowest lower / highest upper edge).
 
 use super::line::{LineChart, LodWindow, DIMMED_SERIES_ALPHA};
+use super::pieces::{split_segment, WorldPieces};
 use super::*;
 use crate::renderer::ChartDashSegmentRaw;
 
@@ -198,6 +199,8 @@ pub(crate) struct LineStyles {
     pub(crate) series: Vec<LineSeriesStyle>,
     pub(crate) sparse: Vec<Option<super::sparse::SparseSeries>>,
     pub(crate) bands: Vec<Option<SeriesBand>>,
+    /// Piecewise colors (see pieces.rs)
+    pub(crate) pieces: Vec<Option<super::pieces::SeriesPieces>>,
     /// Extra y extent of each series: its band, and 0 for `Zero` series with missing samples
     /// (`(INF, -INF)` = none). Streaming only widens it.
     extra: Vec<(f32, f32)>,
@@ -752,16 +755,31 @@ impl LineChart {
                 apply_curve(style.curve, ppw, &sc.raw, &mut sc.path, &mut sc.curve);
                 &sc.path
             };
+            // Piecewise colors: segments are split where they cross a piece bound (pieces.rs)
+            let pieces = self.world_pieces(s_idx);
+            let tint = |c: Option<[f32; 4]>| {
+                c.map_or(color, |mut c| {
+                    c[3] *= dim;
+                    c
+                })
+            };
             if style.dashed() {
                 dash_phases(self, window, ctx, path, style.dash, &mut sc.phase);
+                let css_per_world = (ppw / ctx.pixel_ratio.max(0.1)) as f64;
+                let period = style.dash.iter().map(|&d| d as f64).sum::<f64>().max(1e-6);
                 for k in 1..path.x.len() {
                     let (x0, y0, x1, y1) = (path.x[k - 1], path.y[k - 1], path.x[k], path.y[k]);
                     if [x0, y0, x1, y1].iter().all(|c| c.is_finite()) {
-                        styled.dashed.push(ChartDashSegmentRaw {
-                            p0_width: [x0, y0, z, s.width_px],
-                            p1_phase: [x1, y1, z, sc.phase[k - 1] as f32],
-                            color,
-                            dash: style.dash,
+                        let len = ((x1 - x0) as f64).hypot((y1 - y0) as f64) * css_per_world;
+                        split_segment(pieces.as_ref(), [x0, y0], [x1, y1], |a, b, f, c| {
+                            // The pattern runs on through a cut
+                            let phase = if f == 0.0 { sc.phase[k - 1] } else { (sc.phase[k - 1] + f as f64 * len).rem_euclid(period) };
+                            styled.dashed.push(ChartDashSegmentRaw {
+                                p0_width: [a[0], a[1], z, s.width_px],
+                                p1_phase: [b[0], b[1], z, phase as f32],
+                                color: tint(c),
+                                dash: style.dash,
+                            });
                         });
                     }
                 }
@@ -769,21 +787,24 @@ impl LineChart {
                 for k in 1..path.x.len() {
                     let (x0, y0, x1, y1) = (path.x[k - 1], path.y[k - 1], path.x[k], path.y[k]);
                     if [x0, y0, x1, y1].iter().all(|c| c.is_finite()) {
-                        out.push(ChartSegmentRaw {
-                            p0_width: [x0, y0, z, s.width_px],
-                            p1_pad: [x1, y1, z, 0.0],
-                            color,
+                        split_segment(pieces.as_ref(), [x0, y0], [x1, y1], |a, b, _, c| {
+                            out.push(ChartSegmentRaw {
+                                p0_width: [a[0], a[1], z, s.width_px],
+                                p1_pad: [b[0], b[1], z, 0.0],
+                                color: tint(c),
+                            });
                         });
                     }
                 }
             }
             if let Some(m) = style.marker {
-                self.push_markers(&sc.raw, window, ctx, m, color, z, dim, &mut styled.markers);
+                self.push_markers(&sc.raw, window, ctx, m, color, pieces.as_ref(), z, dim, &mut styled.markers);
             }
         }
     }
 
-    /// Markers on the drawn samples (`raw`: one row per pick) per `m.show`.
+    /// Markers on the drawn samples (`raw`: one row per pick) per `m.show`; without an explicit
+    /// fill each takes the piece color of its point.
     #[allow(clippy::too_many_arguments)]
     fn push_markers(
         &self,
@@ -792,6 +813,7 @@ impl LineChart {
         ctx: &StyleCtx,
         m: SeriesMarker,
         color: [f32; 4],
+        pieces: Option<&WorldPieces>,
         z: f32,
         dim: f32,
         out: &mut Vec<ChartMarkerRaw>,
@@ -808,13 +830,20 @@ impl LineChart {
         if !show || m.size_px <= 0.0 {
             return;
         }
-        let fill = m.fill.map_or(color, |mut c| {
+        let fill = m.fill.map(|mut c| {
             c[3] *= dim;
             c
         });
         let mut ring = m.stroke.unwrap_or(ctx.ring);
         ring[3] *= dim;
         for k in (0..raw.x.len()).filter(|&k| raw.ok(k)) {
+            let piece = pieces.and_then(|wp| wp.color_at(if wp.axis == 0 { raw.x[k] } else { raw.y[k] }));
+            let fill = fill.unwrap_or_else(|| {
+                piece.map_or(color, |mut c| {
+                    c[3] *= dim;
+                    c
+                })
+            });
             out.push(ChartMarkerRaw {
                 center_radius: [raw.x[k], raw.y[k], z, 0.5 * m.size_px],
                 fill,

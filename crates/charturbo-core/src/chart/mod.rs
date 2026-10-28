@@ -35,6 +35,7 @@ mod line;
 mod linestyle;
 mod navigator;
 mod pie;
+mod pieces;
 mod radar;
 mod range;
 mod sankey;
@@ -91,6 +92,7 @@ pub use linestyle::{
     AUTO_MARKER_MIN_PX, DEFAULT_BAND_OPACITY,
 };
 use linestyle::{StyleCtx, StyledSeries};
+pub use pieces::{ColorPiece, PieceDim, SeriesPieces};
 use navigator::Navigator;
 pub use time_zone::TimeZone;
 pub use navigator::{NavigatorHit, NavigatorOptions, NavigatorStyle, DEFAULT_NAVIGATOR_HEIGHT_PX};
