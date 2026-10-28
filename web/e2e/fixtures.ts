@@ -449,6 +449,64 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // y pieces cut the stroke exactly at 50 / 100 / 150; an x window recolors a dashed series
+    name: 'line-pieces',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const rand = mulberry32(23);
+        const aqi = Float32Array.from(walk(rand, 240, 6, 90), (v) => Math.max(5, v));
+        const base = Float32Array.from({ length: 240 }, (_, i) => 20 + 6 * Math.sin(i / 14));
+        sdk.renderLineChart(
+          [
+            {
+              name: 'AQI',
+              values: aqi,
+              lineWidth: 2.5,
+              color: firstColor(ctx),
+              pieces: [
+                { lte: 50, color: '#16a34a' },
+                { gt: 50, lte: 100, color: '#eab308' },
+                { gt: 100, lte: 150, color: '#f97316' },
+                { gt: 150, color: '#dc2626' },
+              ],
+            },
+            { name: 'Baseline', values: base, dash: [6, 3], piecesBy: 'x', pieces: [{ gte: 80, lt: 160, color: '#7c3aed' }] },
+          ],
+          { title: 'Pieces', padding: PADDING, legend: false }
+        );
+      }),
+  },
+  {
+    // x pieces clip a monotone area fill into vertical slabs; y pieces band an overlapping fill
+    name: 'area-pieces',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const x = Float64Array.from({ length: 121 }, (_, i) => i / 10);
+        const load = Float32Array.from(x, (v) => 40 + 25 * Math.sin(v * 0.9) + 8 * Math.sin(v * 3.1));
+        const low = Float32Array.from(x, (v) => 15 + 12 * Math.cos(v * 0.7));
+        sdk.renderAreaChart(
+          [
+            {
+              name: 'Load',
+              values: load,
+              x,
+              curve: 'monotone',
+              color: firstColor(ctx),
+              piecesBy: 'x',
+              pieces: [
+                { gte: 2, lte: 4, color: '#f59e0b' },
+                { gte: 7.5, lte: 9, color: '#ef4444' },
+              ],
+            },
+            { name: 'Reserve', values: low, x, pieces: [{ gt: 22, color: '#38bdf8' }] },
+          ],
+          { title: 'Area pieces', padding: PADDING, legend: false, fillOpacity: 0.45 }
+        );
+      }),
+  },
+  {
     name: 'line-yzoom',
     theme: 'dark',
     render: (ctx) =>

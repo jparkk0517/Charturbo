@@ -84,8 +84,11 @@ export type { BandSeriesDescriptor, BandChartOptions } from './chart-band';
 import { encodeErrors as encodeErrorBars, encodeImpulses, sparseTooltip, type ErrorBarSeriesDescriptor, type ErrorBarChartOptions, type ImpulseSeriesDescriptor, type ImpulseChartOptions, type EncodedSparse, type SparseMeta } from './chart-sparse';
 export type { ErrorBarSeriesDescriptor, ErrorBarChartOptions, ErrorBarMode, ErrorBarDirection, ImpulseSeriesDescriptor, ImpulseChartOptions } from './chart-sparse';
 import {
+  applyLinePieces,
   applyLineStyles,
+  encodeSeriesPieces,
   lineBandAt,
+  linePieceColor,
   numericSamples,
   streamedBand,
   validateLineBands,
@@ -99,6 +102,7 @@ export type {
   LineMarkerOptions,
   LineMarkerShape,
   LineNullPolicy,
+  LinePiece,
   LineStyleInput,
 } from './chart-linestyle';
 import {
@@ -425,6 +429,15 @@ export interface LineSeriesDescriptor extends LineStyleInput {
    * shares the legend entry, tooltips show `lower – upper`, the data table adds its columns
    */
   band?: LineStyleInput['band'];
+  /**
+   * Piecewise colors (ECharts visualMap `pieces`): `[{ lte: 50, color: '#00e400' }, { gt: 50,
+   * lte: 100, color: '#ffde33' }, ...]`. The stroke switches color exactly where it crosses a
+   * bound (also when decimated, zoomed, streamed, dashed or curved); area fills are banded,
+   * markers, the hover marker and the tooltip swatch follow. Outside every piece: the series color
+   */
+  pieces?: LineStyleInput['pieces'];
+  /** Value the pieces test: `'y'` (default) or `'x'` (data x, or the sample index without `x`) */
+  piecesBy?: LineStyleInput['piecesBy'];
 }
 
 export interface LineChartOptions {
@@ -1701,6 +1714,10 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   clear_line_series_band?(series: number): void;
   /** `[lower, upper]` of a series band at a live sample index, or empty */
   chart_line_band_at?(series: number, index: number): Float64Array;
+  /** Piecewise colors of a line / area series: by 0 = y / 1 = x, 8 floats per piece (chart-linestyle.ts / lib_pieces.rs) */
+  set_line_series_pieces?(series: number, by: number, pieces: Float64Array): void;
+  /** RGBA piece color of a live sample at its drawn position, or empty (series color) */
+  chart_line_piece_color?(series: number, index: number): Float32Array;
   /** `[count, first, last, min, max, firstIndex, lastIndex, minIndex, maxIndex, changePct]` or empty */
   chart_sparkline_summary?(): Float64Array;
   /** Combo chart (chart-combo.ts / lib_combo.rs): flat values, kinds 0 bar / 1 line / 2 area, axes 0 left / 1 right */
@@ -2070,6 +2087,8 @@ interface LineChartMeta {
   area?: 'overlap' | 'stacked' | 'percent';
   /** Range band arrays per series (`null` = none); tooltips read the engine's live copy */
   bands?: (LineBandMeta | null)[];
+  /** Series with piecewise colors (tooltip swatches ask the engine) */
+  pieces?: boolean[];
   standaloneBand?: boolean;
   sparse?: SparseMeta;
 }
@@ -4103,7 +4122,7 @@ export class Charturbo {
           items.push({
             seriesName: meta.names[series] ?? `Series ${series}`,
             value: hit[at + 2],
-            color: rgbaToCss(meta.colors[series]),
+            color: rgbaToCss((meta.kind === 'line' ? linePieceColor(this.backend, meta.pieces, series, index) : undefined) ?? meta.colors[series]),
             nodeId,
             ...(band ? { band } : {}),
             ...(meta.kind === 'line' ? sparseTooltip(meta.sparse, series, index) : {}),
@@ -6706,6 +6725,7 @@ export class Charturbo {
       });
     }
     if (!area) validateLineBands(seriesList, fn);
+    const pieces = encodeSeriesPieces(seriesList, fn);
     const xAxisOpt = options?.axes?.x ?? {};
     const dateX = seriesList.some((s) => s.x !== undefined && s.x.length > 0 && s.x[0] instanceof Date);
     const timeX = (xAxisOpt.type ?? (dateX ? 'time' : 'numeric')) === 'time';
@@ -6749,6 +6769,7 @@ export class Charturbo {
     }
     // Markers / dashes / curves / null policies / bands (chart-linestyle.ts)
     const bands = applyLineStyles(this.backend, seriesList, options?.nulls, fn, area === null);
+    applyLinePieces(this.backend, pieces);
     standaloneBands?.forEach((b, i) => {
       this.backend.set_band_series!(i, b.lower, b.upper, b.opacity, ...b.widths);
       bands[i] = { lower: b.lower, upper: b.upper };
@@ -6805,6 +6826,7 @@ export class Charturbo {
       visible: seriesList.map(() => true),
       ...(area ? { area: area.mode } : {}),
       ...(bands.some((b) => b) ? { bands } : {}),
+      ...(pieces.some((p) => p) ? { pieces: pieces.map((p) => p !== null) } : {}),
       ...(standaloneBands ? { standaloneBand: true } : {}),
       ...(sparse ? { sparse: sparse.meta } : {}),
     };

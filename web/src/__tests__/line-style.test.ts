@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildA11yModel, buildDataTable, tableToCSV } from '../sdk/chart-a11y';
-import { LINE_STYLE_STRIDE, encodeLineStyles, numericSamples, resolveMarker } from '../sdk/chart-linestyle';
+import { LINE_STYLE_STRIDE, encodeLinePieces, encodeLineStyles, numericSamples, resolveMarker } from '../sdk/chart-linestyle';
 import {
   Charturbo,
   type ChartTooltipContext,
@@ -103,7 +103,12 @@ class FakeEl {
 
 type Calls = Record<string, unknown[][]>;
 
-function mockBackend(calls: Calls, hit: () => Float64Array, band?: (s: number, i: number) => Float64Array): WasmCharturboEngineBackend {
+function mockBackend(
+  calls: Calls,
+  hit: () => Float64Array,
+  band?: (s: number, i: number) => Float64Array,
+  pieceColor?: (s: number, i: number) => Float32Array
+): WasmCharturboEngineBackend {
   const record =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -120,6 +125,13 @@ function mockBackend(calls: Calls, hit: () => Float64Array, band?: (s: number, i
     set_error_bar_series: record('set_error_bar_series'),
     set_impulse_series: record('set_impulse_series'),
     chart_line_band_at: band,
+    set_line_series_pieces: record('set_line_series_pieces'),
+    chart_line_piece_color: pieceColor
+      ? (s: number, i: number) => {
+          (calls.chart_line_piece_color ??= []).push([s, i]);
+          return pieceColor(s, i);
+        }
+      : undefined,
     set_chart_hover_style: record('set_chart_hover_style'),
     set_chart_frame_style: record('set_chart_frame_style'),
     set_chart_padding: record('set_chart_padding'),
@@ -203,6 +215,21 @@ describe('line style encoding', () => {
     expect(resolveMarker({})).toBeNull();
     const styles = encodeLineStyles([{ pointSize: 4 }], undefined, 'f')!;
     expect(record(styles, 0).slice(0, 2)).toEqual([0, 4]);
+  });
+
+  it('encodes pieces as [lo, gte, hi, lte, r, g, b, a]: gte wins over gt, lte over lt (ECharts), open ends NaN', () => {
+    const enc = encodeLinePieces([{ lt: 50, color: '#00ff00' }, { gt: 50, gte: 60, lt: 90, lte: 80, color: [0, 0, 1, 0.5] }], 'f', 0);
+    expect(Array.from(enc).map((v) => (Number.isNaN(v) ? 'NaN' : v))).toEqual([
+      'NaN', 0, 50, 0, 0, 1, 0, 1,
+      60, 1, 80, 1, 0, 0, 1, 0.5,
+    ]);
+    expect(encodeLinePieces([{ color: '#ff0000' }], 'f', 0).length).toBe(8);
+  });
+
+  it('rejects malformed pieces', () => {
+    expect(() => encodeLinePieces([{ gt: NaN, color: '#ff0000' }], 'f', 1)).toThrow('f: series 1 piece 0 bounds must be numbers (not NaN)');
+    expect(() => encodeLinePieces([{ lt: 1 } as never], 'f', 0)).toThrow('f: series 0 piece 0 needs a color');
+    expect(() => encodeLinePieces('x' as never, 'f', 0)).toThrow('f: series 0 pieces must be an array');
   });
 
   it('rejects unknown options and bad dash lengths', () => {
@@ -421,6 +448,57 @@ describe('line styles in the SDK', () => {
     const c = ctx as unknown as ChartTooltipContext;
     expect(c.items[0].band).toEqual({ lower: 27, upper: 37 });
     expect(c.items[1].band).toBeUndefined();
+  });
+
+  it('uploads pieces after the chart (y by default, x on request); bad pieces throw before the chart', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0)));
+    sdk.renderLineChart([
+      { name: 'AQI', values: [40, 120, 220], pieces: [{ lte: 50, color: '#00e400' }, { gt: 50, lte: 100, color: [1, 1, 0, 1] }] },
+      { name: 'Plain', values: [1, 2, 3] },
+    ]);
+    expect(calls.set_line_series_pieces.length).toBe(1);
+    const [series, by, enc] = calls.set_line_series_pieces[0] as [number, number, Float64Array];
+    expect([series, by]).toEqual([0, 0]);
+    expect(Array.from(enc).map((v) => (Number.isNaN(v) ? 'NaN' : v))).toEqual(['NaN', 0, 50, 1, 0, 228 / 255, 0, 1, 50, 0, 100, 1, 1, 1, 0, 1]);
+    // Areas share them; x pieces
+    sdk.renderAreaChart([{ name: 'A', values: [1, 2, 3], piecesBy: 'x', pieces: [{ gte: 1, lt: 2, color: '#ff0000' }] }]);
+    expect((calls.set_line_series_pieces[1] as unknown[]).slice(0, 2)).toEqual([0, 1]);
+    // Empty pieces upload nothing
+    sdk.renderLineChart([{ name: 'E', values: [1, 2], pieces: [] }]);
+    expect(calls.set_line_series_pieces.length).toBe(2);
+    const built = calls.set_line_chart.length;
+    expect(() => sdk.renderLineChart([{ name: 'B', values: [1, 2], piecesBy: 'z' as never, pieces: [{ color: '#ff0000' }] }])).toThrow(
+      "renderLineChart: series 0 piecesBy must be 'y' or 'x'"
+    );
+    expect(() => sdk.renderLineChart([{ name: 'B', values: [1, 2], pieces: [{ lt: NaN, color: '#ff0000' }] }])).toThrow(
+      'renderLineChart: series 0 piece 0 bounds must be numbers (not NaN)'
+    );
+    expect(calls.set_line_chart.length).toBe(built);
+  });
+
+  it('tooltip swatches take the piece color of the hovered sample', () => {
+    const calls: Calls = {};
+    const hit = new Float64Array([0, 0, 2, 0, 2, 220, 2, 1, 2, 3, 5]);
+    const sdk = Charturbo.fromBackend(
+      mockBackend(calls, () => hit, undefined, (s) => (s === 0 ? new Float32Array([1, 0, 0, 1]) : new Float32Array(0)))
+    );
+    let ctx: ChartTooltipContext | null = null;
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {
+      formatChartTooltip: (c) => {
+        ctx = c;
+        return '';
+      },
+    });
+    sdk.renderLineChart([
+      { name: 'AQI', values: [40, 120, 220], color: '#0000ff', pieces: [{ gt: 200, color: '#ff0000' }] },
+      { name: 'Plain', values: [1, 2, 3], color: '#00ff00' },
+    ]);
+    canvas.fire('pointermove', { clientX: 400, clientY: 200, buttons: 0 });
+    const c = ctx as unknown as ChartTooltipContext;
+    expect(c.items.map((it) => it.color)).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)']);
+    // Only series with pieces ask the engine
+    expect(calls.chart_line_piece_color).toEqual([[0, 2]]);
   });
 
   it('samples without band edges (streamed after the band) show no range', () => {

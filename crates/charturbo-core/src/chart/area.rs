@@ -303,6 +303,7 @@ impl AreaChart {
         let (mut rows, mut top, mut base_rows, mut bottom, mut edges) =
             (Path::default(), Path::default(), Path::default(), Path::default(), Path::default());
         let mut prev: Option<usize> = None;
+        let mut tris = Vec::new();
         for s in order {
             // Top edge: the series' drawn stroke (M4 picks, null policy, curve; see linestyle.rs).
             // Missing samples are NaN tops: the band leaves a gap there.
@@ -343,12 +344,23 @@ impl AreaChart {
                 }
             }
             prev = Some(s);
-            let mut color = l.series[s].color;
-            color[3] *= self.fill_opacity;
-            if l.emphasis.is_some_and(|e| e != s) {
-                color[3] *= DIMMED_SERIES_ALPHA;
+            let fill = |mut c: [f32; 4]| {
+                c[3] *= self.fill_opacity;
+                if l.emphasis.is_some_and(|e| e != s) {
+                    c[3] *= DIMMED_SERIES_ALPHA;
+                }
+                c
+            };
+            let color = fill(l.series[s].color);
+            match l.world_pieces(s) {
+                // Piecewise colors: the fill is clipped into the slabs between piece bounds
+                Some(wp) => {
+                    tris.clear();
+                    band_triangles(&edges.x, &edges.y, &edges.y2, l.z[s], color, &mut tris);
+                    wp.clip_fill(&tris, |c| c.map_or(color, fill), out);
+                }
+                None => band_triangles(&edges.x, &edges.y, &edges.y2, l.z[s], color, out),
             }
-            band_triangles(&edges.x, &edges.y, &edges.y2, l.z[s], color, out);
         }
     }
 
