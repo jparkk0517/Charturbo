@@ -20,6 +20,12 @@ export interface PieChartData {
 /** `'outside'`: name + percent with leader lines; `'percent'`: percent inside the slice. */
 export type PieLabelMode = 'outside' | 'percent' | 'none';
 
+/**
+ * Nightingale rose: the slice radius encodes the value, keeping each slice's area (ring area for
+ * donuts) proportional to it. `'radius'`: angles still follow the shares; `'area'`: equal angles.
+ */
+export type PieRoseMode = 'radius' | 'area';
+
 export interface PieChartOptions {
   /** Enter / update animation of this chart (default: the SDK setting, `setAnimation`) */
   animation?: ChartAnimationInput;
@@ -33,6 +39,8 @@ export interface PieChartOptions {
   startAngle?: number;
   /** Default `'clockwise'` */
   direction?: 'clockwise' | 'counterclockwise';
+  /** Nightingale rose chart (default: off, every slice reaches the full radius) */
+  rose?: PieRoseMode;
   /** Color per input value (default: theme palette in fixed display order) */
   colors?: (ColorInput | null | undefined)[];
   /** Color of the "Other" slice (default: the theme's neutral baseline color) */
@@ -45,7 +53,7 @@ export interface PieChartOptions {
   labelMinAngle?: number;
   /**
    * Donut center text: the visible total (the hovered slice while hovering). `true` (default for
-   * donuts) captions it `Total`, a string replaces the caption, `false` hides it
+   * donuts, not roses) captions it `Total`, a string replaces the caption, `false` hides it
    */
   centerLabel?: boolean | string;
   title?: string;
@@ -86,13 +94,15 @@ export interface PieChartMeta {
 }
 
 const LABEL_CODES: Record<PieLabelMode, number> = { none: 0, outside: 1, percent: 2 };
+const ROSE_CODES: Record<PieRoseMode, number> = { radius: 1, area: 2 };
 /** Label line height (CSS px): the engine keeps outside labels this far apart. */
 const LABEL_LINE_PX = 16;
 
 /** Builds the display meta; slice fields are filled from the engine by `syncPieSlices`. */
 export function pieMeta(data: PieChartData, options?: PieChartOptions): PieChartMeta {
   const donut = Math.min(0.95, Math.max(0, Number(options?.donut) || 0));
-  const center = options?.centerLabel ?? donut > 0;
+  // A rose hole is usually too small for the total: off unless asked for
+  const center = options?.centerLabel ?? (donut > 0 && !options?.rose);
   return {
     kind: 'pie',
     names: [],
@@ -146,7 +156,8 @@ export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData,
       options?.labelMinAngle ?? NaN,
       LABEL_LINE_PX,
       sx,
-      sy
+      sy,
+      options?.rose ? (ROSE_CODES[options.rose] ?? 0) : 0
     ) ?? 0
   );
 }

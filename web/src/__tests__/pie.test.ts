@@ -238,11 +238,12 @@ describe('Native pie chart (SDK binding)', () => {
       direction: 'counterclockwise',
       labels: 'outside',
       colors: [undefined, '#ff0000'],
+      rose: 'area',
       title: 'Traffic',
     });
     expect(res.sliceCount).toBe(4);
-    const [values, sort, max, start, clockwise, inner, labels, minAngle, line, sx, sy] = calls.set_pie_chart[0] as [
-      Float64Array, number, number, number, boolean, number, number, number, number, number, number,
+    const [values, sort, max, start, clockwise, inner, labels, minAngle, line, sx, sy, rose] = calls.set_pie_chart[0] as [
+      Float64Array, number, number, number, boolean, number, number, number, number, number, number, number,
     ];
     expect(values).toBeInstanceOf(Float64Array);
     expect(Array.from(values)).toEqual(DATA.values);
@@ -251,6 +252,7 @@ describe('Native pie chart (SDK binding)', () => {
     expect(line).toBe(16);
     expect(sx).toBeGreaterThanOrEqual(64);
     expect(sy).toBeGreaterThan(0);
+    expect(rose).toBe(2);
 
     const [palette, colors, other, leader, surface] = calls.set_chart_pie_style[0] as Float32Array[];
     expect(palette.length).toBe(CHARTURBO_THEMES.dark.palette.length * 4);
@@ -270,7 +272,9 @@ describe('Native pie chart (SDK binding)', () => {
     // Folding off / no labels
     sdk.renderPieChart(DATA, { maxSlices: false, labels: 'none' });
     const second = calls.set_pie_chart[1];
-    expect([second[1], second[2], second[6], second[9], second[10]]).toEqual([0, 0, 0, 0, 0]);
+    expect([second[1], second[2], second[6], second[9], second[10], second[11]]).toEqual([0, 0, 0, 0, 0, 0]);
+    sdk.renderPieChart(DATA, { rose: 'radius' });
+    expect(calls.set_pie_chart[2][11]).toBe(1);
     // Theme switch re-sends the palette
     sdk.setTheme('light');
     const last = calls.set_chart_pie_style.at(-1) as Float32Array[];
@@ -429,6 +433,9 @@ describe('Native pie chart (SDK binding)', () => {
     expect(pieMeta(DATA, { donut: 0.5 }).center).toEqual({ show: true, caption: 'Total' });
     expect(pieMeta(DATA, { donut: 0.5, centerLabel: 'Visits' }).center).toEqual({ show: true, caption: 'Visits' });
     expect(pieMeta(DATA, { donut: 0.5, centerLabel: false }).center.show).toBe(false);
+    // Rose holes are usually decorative: the center stays off unless asked for
+    expect(pieMeta(DATA, { donut: 0.2, rose: 'area' }).center.show).toBe(false);
+    expect(pieMeta(DATA, { donut: 0.2, rose: 'area', centerLabel: true }).center.show).toBe(true);
     expect(pieMeta(DATA, { donut: 3 }).donut).toBe(0.95);
   });
 });

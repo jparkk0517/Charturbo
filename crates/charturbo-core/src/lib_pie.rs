@@ -1,6 +1,6 @@
 //! WASM bindings of the pie / donut chart (kept apart from `lib.rs`; same `WasmCharturboEngine`).
 
-use crate::chart::{validate_pie, PieLabelMode, PieOptions, PieSort, PieStyle};
+use crate::chart::{validate_pie, PieLabelMode, PieOptions, PieRose, PieSort, PieStyle};
 use crate::WasmCharturboEngine;
 use wasm_bindgen::prelude::*;
 
@@ -18,7 +18,8 @@ impl WasmCharturboEngine {
     /// "Other" folding; `start_angle_deg` clockwise from 12 o'clock (NaN = 0); `labels` 0 = none,
     /// 1 = outside with leader lines, 2 = inside; `label_min_angle_deg` / `label_line_px` NaN =
     /// default; `label_space_x` / `label_space_y` CSS px reserved beside / above and below the pie
-    /// for outside labels. Returns the displayed slice count.
+    /// for outside labels; `rose` 0 = none, 1 = radius (angles by share), 2 = area (equal angles):
+    /// slice area proportional to the value. Returns the displayed slice count.
     #[allow(clippy::too_many_arguments)]
     pub fn set_pie_chart(
         &mut self,
@@ -33,6 +34,7 @@ impl WasmCharturboEngine {
         label_line_px: f32,
         label_space_x: f32,
         label_space_y: f32,
+        rose: u8,
     ) -> Result<usize, JsValue> {
         validate_pie(values).map_err(|e| JsValue::from_str(&e))?;
         let d = PieOptions::default();
@@ -46,6 +48,7 @@ impl WasmCharturboEngine {
             label_min_angle_deg,
             label_line_px,
             label_space_px: [label_space_x, label_space_y],
+            rose: PieRose::from_u8(rose),
         };
         Ok(self.inner.set_pie_chart(values, opts, PieStyle::default()))
     }

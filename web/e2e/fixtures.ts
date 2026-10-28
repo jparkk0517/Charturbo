@@ -428,6 +428,7 @@ export const FIXTURES: Fixture[] = [
   boxFixture('violin', true),
   pieFixture('pie', 0),
   pieFixture('donut', 0.6),
+  pieFixture('pie-rose', 0.2, 'area'),
   {
     name: 'combo',
     theme: 'dark',
@@ -768,7 +769,7 @@ function hierarchyData() {
   };
 }
 
-function pieFixture(name: string, donut: number): Fixture {
+function pieFixture(name: string, donut: number, rose?: 'radius' | 'area'): Fixture {
   return {
     name,
     theme: donut > 0 ? 'light' : 'dark',
@@ -777,8 +778,9 @@ function pieFixture(name: string, donut: number): Fixture {
         sdk.renderPieChart(
           { labels: ['Search', 'Direct', 'Social', 'Email', 'Ads', 'Other'], values: [420, 260, 180, 90, 40, 25] },
           {
-            title: donut > 0 ? 'Donut' : 'Pie',
+            title: rose ? 'Rose' : donut > 0 ? 'Donut' : 'Pie',
             donut,
+            rose,
             sort: 'desc',
             labels: 'outside',
             legend: false,

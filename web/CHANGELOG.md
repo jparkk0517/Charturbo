@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 파이 나이팅게일 로즈
+
+- `PieChartOptions.rose: 'radius' | 'area'`를 추가했습니다. 조각 넓이(도넛은 고리 넓이)가 값에 비례하도록 반지름을 정합니다. `'area'`는 같은 각도, `'radius'`는 비율 각도입니다. 퍼센트는 합계 대비 비율로 유지합니다.
+- hit test · 키보드 위치 · 안쪽 라벨 · 바깥 지시선 시작점이 조각마다의 반지름을 따릅니다. 로즈는 도넛 중앙 라벨이 기본으로 꺼집니다.
+- WASM `set_pie_chart`에 마지막 인자 `rose`(0 없음 · 1 radius · 2 area)를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/03-rose`, WebGPU/WebGL2 fixture `pie-rose`를 추가했습니다.
+
 ### 추가 — Surface3D 등고선
 
 - `Surface3DSeries.contours`(`show`·`levels`·`color`·`width`·`opacity`)를 ChartGPU v0.4.0 기본값·의미와 맞춰 추가했습니다. 개수 levels는 색상 범위 안쪽을 균등 분할하며 스트리밍 갱신마다 다시 계산합니다.

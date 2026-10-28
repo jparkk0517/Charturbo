@@ -105,7 +105,7 @@ pub use radar::{validate_radar, RadarGridShape, RadarLabel, RadarLayoutInfo, Rad
 use waterfall::WaterfallChart;
 pub use waterfall::{compute_waterfall, validate_waterfall, WaterfallItem, WaterfallKind, WaterfallOptions, WaterfallStyle};
 pub use pie::{
-    fold_slices, validate_pie, PieLabel, PieLabelMode, PieLayoutInfo, PieOptions, PieSlice, PieSort, PieStyle,
+    fold_slices, validate_pie, PieLabel, PieLabelMode, PieLayoutInfo, PieOptions, PieRose, PieSlice, PieSort, PieStyle,
     DEFAULT_PIE_MAX_SLICES, PIE_CHORD_ERROR_PX, PIE_EXPLODE_PX, PIE_GAP_PX,
 };
 use hierarchy::HierChart;
