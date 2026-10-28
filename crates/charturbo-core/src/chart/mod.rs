@@ -116,7 +116,7 @@ pub use sankey::{
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
 pub use scale::{log_nice_domain, log_ticks, AxisScale, ScaleType};
-pub use scatter::{ScatterLayout, ScatterPoints};
+pub use scatter::{RippleOptions, ScatterLayout, ScatterPoints};
 pub use sparkline::{SparklineMarks, SparklineSummary};
 pub use svg::{SvgExport, SvgSupport, SVG_DEFAULT_MAX_MARKS};
 pub use zoom::ZOOM_HISTORY_MAX;

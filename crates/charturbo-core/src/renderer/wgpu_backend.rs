@@ -852,7 +852,7 @@ impl GpuPipelines {
 
         // Fills: camera + emphasis uniform. Same bind group layout as the meshes / points but its own
         // pipeline layout: wgpu re-reads the shader's expected uniform sizes only when the layout
-        // object changes, so point (1072 B) -> fill (48 B) draws must not share one
+        // object changes, so point (1088 B) -> fill (48 B) draws must not share one
         let fill_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("chart-fill-pipeline-layout"),
             bind_group_layouts: &[&mesh_bind_group_layout],

@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 산점도 파동 효과
+
+- `ScatterChartOptions.ripple`(ECharts `effectScatter`): 선택한 시리즈의 점 뒤로 커지며 사라지는 고리(`period` · `scale` · `count` · `fill`). 점 셰이더가 그리고 매 프레임 점 uniform의 시간만 갱신합니다.
+- 파동이 보일 때만 도는 프레임 루프(`chart-effect.ts`)를 추가했습니다. 차트가 바뀌면 스스로 멈추고, `prefers-reduced-motion`이면 정지 프레임입니다. `sdk.setEffectTime(seconds | null)`로 특정 시점에 고정할 수 있습니다.
+- WASM `set_chart_scatter_ripple` · `set_chart_effect_time`을 추가했고 점 uniform이 1072 → 1088바이트가 되었습니다(`effect`). SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `scatter/04-ripple`, WebGPU/WebGL2 fixture `scatter-ripple`(1초 시점 고정)을 추가했습니다.
+
 ### 추가 — 산점도 심볼 모양
 
 - `ScatterChartOptions.symbol` · `seriesSymbols`: 시리즈마다 원 · 사각형 · 마름모 · 삼각형 점. 모양은 점 인스턴스의 시리즈 슬롯 칸에 함께 실려 업로드 크기가 같고, 원은 이전과 같은 픽셀입니다.

@@ -103,6 +103,7 @@ export {
   type ChartTooltipContext,
   type ScatterChartData,
   type ScatterChartOptions,
+  type ScatterRippleOptions,
   type NodeMetadata,
   type NodeDetails,
   type NodeInteractionOptions,

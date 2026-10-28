@@ -255,6 +255,7 @@ sdk.renderScatterChart(
     pointRadius: 3, opacity: 0.85, // sizes가 없을 때의 반지름 (CSS px), 채움 투명도
     pointRing: 1,                  // 배경색 링 (px, sizes가 있으면 기본 1)
     symbol: 'circle', seriesSymbols: ['circle', 'square', 'diamond', 'triangle'], // 시리즈별 심볼
+    ripple: { series: [1], period: 4, scale: 2.5, count: 3, fill: false }, // 파동 효과 (true = 모든 시리즈)
   }
 );
 sdk.enableNodeInteractions(canvas); // 휠: x/y 줌, 드래그: 팬, 더블클릭: 리셋, 툴팁: 시리즈 · x · y
@@ -263,6 +264,7 @@ sdk.zoomChartXY(0.5, 0, 0);         // 프로그램으로 줌 (NDC 기준점)
 - 2D 전용입니다 (`z`, `viewMode: '3d'`는 무시). x/y 범위는 1·2·5×10ⁿ 눈금으로 맞춰지고, 그리드는 가로 + 세로(`verticalGrid`)입니다.
 - 포인트(20 바이트 인스턴스)는 데이터 / 표시 시리즈가 바뀔 때만 업로드되고, 줌·팬은 레이어 변환 uniform만 갱신합니다.
 - 심볼(`symbol` · `seriesSymbols`): 모양 번호를 시리즈 슬롯 칸에 `slot + 256 × 모양`으로 함께 실어 인스턴스 크기는 그대로입니다. 셰이더가 선 마커와 같은 signed distance(원 · 사각형 · 마름모 · 삼각형, 원과 비슷한 시각 무게)로 안티에일리어싱하며 원은 이전과 같은 픽셀입니다. hover 마커 · SVG 내보내기 · 범례 견본(삼각형은 `▲` 글자라 이미지 내보내기에도 그대로)이 같은 모양을 씁니다. hit test는 원 기준입니다
+- 파동(`ripple`, ECharts `effectScatter`): 선택한 시리즈의 점 뒤로 고리가 점 반지름에서 `scale`배까지 커지며 `period`초 동안 사라집니다(`count`개가 위상을 나눔, 1.5px 선 또는 반투명 채움). 시리즈 플래그는 모양 비트에 함께 실리고, 매 프레임 바뀌는 것은 점 uniform의 시간 값뿐입니다. SDK는 파동이 보일 때만 `requestAnimationFrame` 루프를 돌리고(차트가 바뀌면 스스로 멈춤, 숨긴 탭은 브라우저가 멈춤), `prefers-reduced-motion: reduce`이면 정지 프레임 하나만 그립니다. `sdk.setEffectTime(초)`는 특정 시점에 고정합니다(스크린샷 · 내보내기), `null`은 다시 재생. 매 프레임 다시 그리므로 소수의 강조 점용입니다. SVG 내보내기에는 고리가 없습니다
 - hover는 Rust의 균일 그리드 공간 해시로 가장 가까운 점(기본 반경 12 px, 버블은 자기 반지름 안)을 찾습니다. 점 id = 데이터 인덱스.
 
 #### 히트맵 / 행렬 차트

@@ -520,8 +520,10 @@ struct PointStyle {
     // [sx, sy, tx, ty]: world xy = base xy * s + t
     transform: vec4<f32>,
     ring_color: vec4<f32>,
-    // [ring_width_css_px, emphasized_slot (< 0 = none), 0, 0]
+    // [ring_width_css_px, emphasized_slot (< 0 = none), effect_time_s, 0]
     params: vec4<f32>,
+    // Ripple: [period_s, scale, ring count, fill (1) / stroke (0)]
+    effect: vec4<f32>,
     // Alpha multiplier of series slot s at [s / 4][s % 4]; 0 = hidden
     series_alpha: array<vec4<f32>, 64>,
 };
@@ -530,7 +532,7 @@ struct PointStyle {
 var<uniform> point_style: PointStyle;
 
 struct PointInstance {
-    // [x, y, series_slot + 256 * shape, radius_css_px] (shape: see marker_sd)
+    // [x, y, series_slot + 256 * (shape + 4 * ripple), radius_css_px] (shape: see marker_sd)
     @location(0) center_radius: vec4<f32>,
     @location(1) color: vec4<f32>,
 };
@@ -542,6 +544,8 @@ struct PointOut {
     @location(1) radii: vec2<f32>,
     @location(2) color: vec4<f32>,
     @location(3) shape: f32,
+    // Rippling rings behind the point (0 / 1)
+    @location(4) ripple: f32,
 };
 
 @vertex
@@ -553,7 +557,9 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
     let corner = corners[vi % 6u];
     let packed = max(inst.center_radius.z, 0.0);
     let slot = min(u32(packed) % 256u, 255u);
-    let shape = floor(packed / 256.0);
+    let bits = floor(packed / 256.0);
+    let shape = bits % 4.0;
+    let ripple = select(0.0, 1.0, bits >= 4.0);
     let alpha = point_style.series_alpha[slot / 4u][slot % 4u];
     let emphasized = i32(slot) == i32(point_style.params.y);
     // Pass 0 skips the emphasized slot, pass 1 draws only it
@@ -567,6 +573,7 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
         out.radii = vec2<f32>(0.0);
         out.color = vec4<f32>(0.0);
         out.shape = 0.0;
+        out.ripple = 0.0;
         return out;
     }
 
@@ -574,8 +581,11 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
     // Sub-pixel points still cover about one pixel
     let r = max(inst.center_radius.w * pr, 0.5);
     let outer = r + max(point_style.params.x, 0.0) * pr;
-    // Diamonds / triangles reach past the radius (see marker_sd)
-    let ext = select(outer, outer * 1.25, shape > 0.5) + 1.0;
+    // Diamonds / triangles reach past the radius (see marker_sd); ripples reach `scale` radii
+    var ext = select(outer, outer * 1.25, shape > 0.5) + 1.0;
+    if (ripple > 0.5) {
+        ext = max(ext, r * max(point_style.effect.y, 1.0) * select(1.0, 1.25, shape > 0.5) + 2.0 * pr + 1.0);
+    }
 
     let xy = inst.center_radius.xy * point_style.transform.xy + point_style.transform.zw;
     let c = to_clip(vec3<f32>(xy, 0.0));
@@ -586,6 +596,7 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
     out.radii = vec2<f32>(r, outer);
     out.color = vec4<f32>(inst.color.rgb, inst.color.a * min(alpha, 1.0));
     out.shape = shape;
+    out.ripple = ripple;
     return out;
 }
 
@@ -593,15 +604,33 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
 fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
     // Circles: 0.5 - (d - outer) and d - r + 0.5, as before the shapes
     let coverage = clamp(0.5 - marker_sd(in.local, in.radii.y, in.shape), 0.0, 1.0);
-    if (coverage <= 0.0) {
-        discard;
-    }
     var c = in.color;
     if (in.radii.y > in.radii.x) {
         let ring = vec4<f32>(point_style.ring_color.rgb, point_style.ring_color.a * in.color.a);
         c = mix(in.color, ring, clamp(marker_sd(in.local, in.radii.x, in.shape) + 0.5, 0.0, 1.0));
     }
-    return vec4<f32>(c.rgb, c.a * coverage);
+    let a_point = c.a * coverage;
+    // Ripple rings behind the point: each grows to `scale` radii and fades over one period
+    var a_ripple = 0.0;
+    if (in.ripple > 0.5) {
+        let e = point_style.effect;
+        let n = u32(clamp(e.z, 1.0, 8.0));
+        let width = 1.5 * camera.viewport.z;
+        for (var k = 0u; k < n; k = k + 1u) {
+            let phase = fract(point_style.params.z / max(e.x, 0.1) + f32(k) / f32(n));
+            let sd = marker_sd(in.local, in.radii.x * (1.0 + (max(e.y, 1.0) - 1.0) * phase), in.shape);
+            let cov = select(clamp(0.5 * width + 0.5 - abs(sd), 0.0, 1.0), clamp(0.5 - sd, 0.0, 1.0) * 0.5, e.w > 0.5);
+            a_ripple = max(a_ripple, cov * (1.0 - phase));
+        }
+        a_ripple = a_ripple * in.color.a;
+    }
+    // Point over its rings (straight alpha "over")
+    let a = a_point + a_ripple * (1.0 - a_point);
+    if (a <= 0.0) {
+        discard;
+    }
+    let rgb = (c.rgb * a_point + in.color.rgb * a_ripple * (1.0 - a_point)) / a;
+    return vec4<f32>(rgb, a);
 }
 "#;
 

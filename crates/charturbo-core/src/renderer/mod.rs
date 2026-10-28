@@ -90,8 +90,9 @@ pub struct ChartBarRaw {
 /// back to re-packing points on legend changes.
 pub const MAX_POINT_SERIES: usize = 256;
 
-/// Point shapes ride in the series slot channel: `slot + POINT_SHAPE_STRIDE * shape` (0 circle,
-/// 1 square, 2 diamond, 3 triangle).
+/// Point shapes ride in the series slot channel: `slot + POINT_SHAPE_STRIDE * (shape + 4 *
+/// ripple)` (shape 0 circle, 1 square, 2 diamond, 3 triangle; ripple 1 = rippling rings, see
+/// `ChartPointStyleRaw::effect`).
 pub const POINT_SHAPE_STRIDE: f32 = MAX_POINT_SERIES as f32;
 
 /// Series slot of a packed point slot channel.
@@ -101,7 +102,12 @@ pub fn point_slot(packed: f32) -> usize {
 
 /// Shape code of a packed point slot channel.
 pub fn point_shape(packed: f32) -> f32 {
-    (packed.max(0.0) / POINT_SHAPE_STRIDE).floor()
+    (packed.max(0.0) / POINT_SHAPE_STRIDE).floor() % 4.0
+}
+
+/// Ripple flag of a packed point slot channel.
+pub fn point_ripple(packed: f32) -> bool {
+    (packed.max(0.0) / POINT_SHAPE_STRIDE).floor() >= 4.0
 }
 
 /// Scatter point instance (20 bytes): base world position, series slot, radius in CSS px,
@@ -117,8 +123,8 @@ pub struct ChartPointRaw {
     pub color: [u8; 4],
 }
 
-/// Uniform of the scatter point layer (1072 bytes): zoom transform, separating ring, and the
-/// alpha multiplier of every series slot (legend emphasis / visibility).
+/// Uniform of the scatter point layer (1088 bytes): zoom transform, separating ring, ripple
+/// effect, and the alpha multiplier of every series slot (legend emphasis / visibility).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct ChartPointStyleRaw {
@@ -126,9 +132,14 @@ pub struct ChartPointStyleRaw {
     pub transform: [f32; 4],
     /// Ring color (usually the chart surface); its alpha is scaled by the point alpha
     pub ring_color: [f32; 4],
-    /// `[ring_width_css_px, emphasized_slot, 0, 0]` (ring 0 = none; slot < 0 = no emphasis).
-    /// With an emphasized slot the layer is drawn twice: other slots first, then that one on top.
+    /// `[ring_width_css_px, emphasized_slot, effect_time_s, 0]` (ring 0 = none; slot < 0 = no
+    /// emphasis). With an emphasized slot the layer is drawn twice: other slots first, then that
+    /// one on top.
     pub params: [f32; 4],
+    /// Ripple of flagged points: `[period_s, scale (outer radius / point radius), ring count,
+    /// fill (1) or stroke (0)]`; each ring grows from the point to `scale` times its radius and
+    /// fades out over a period, rings evenly phase-shifted
+    pub effect: [f32; 4],
     /// Alpha multiplier of slot `s` at `series_alpha[s / 4][s % 4]`; 0 = hidden (culled)
     pub series_alpha: [[f32; 4]; MAX_POINT_SERIES / 4],
 }
@@ -150,6 +161,7 @@ impl Default for ChartPointStyleRaw {
             transform: [1.0, 1.0, 0.0, 0.0],
             ring_color: [0.0; 4],
             params: [0.0, -1.0, 0.0, 0.0],
+            effect: [4.0, 2.5, 3.0, 0.0],
             series_alpha: [[1.0; 4]; MAX_POINT_SERIES / 4],
         }
     }
@@ -729,7 +741,7 @@ mod tests {
         assert_eq!(size_of::<ChartMarkerRaw>(), 64);
         assert_eq!(size_of::<ChartBarRaw>(), 48);
         assert_eq!(size_of::<ChartPointRaw>(), 20);
-        assert_eq!(size_of::<ChartPointStyleRaw>(), 1072);
+        assert_eq!(size_of::<ChartPointStyleRaw>(), 1088);
         assert_eq!(size_of::<ChartFillRaw>(), 32);
         assert_eq!(size_of::<ChartHeatmapStyleRaw>(), 80);
         assert_eq!(size_of::<NodeInstanceRaw>(), 32);

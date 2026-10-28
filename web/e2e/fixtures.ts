@@ -430,6 +430,19 @@ export const FIXTURES: Fixture[] = [
   pieFixture('donut', 0.6),
   pieFixture('pie-rose', 0.2, { rose: 'area' }),
   {
+    // Ripple rings frozen 1 s into the cycle around circles and triangles
+    name: 'scatter-ripple',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderScatterChart(
+          { x: [2, 5, 8, 3, 7], y: [3, 7, 4, 8, 2], clusters: [0, 0, 0, 1, 1] },
+          { title: 'Ripple', pointRadius: 7, seriesSymbols: ['circle', 'triangle'], ripple: { scale: 3, period: 3 } }
+        );
+        sdk.setEffectTime(1);
+      }),
+  },
+  {
     // Four series, four symbols; the legend swatches follow
     name: 'scatter-symbols',
     theme: 'light',

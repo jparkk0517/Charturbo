@@ -181,6 +181,7 @@ import {
   type PieChartOptions,
   type PieRingsData,
 } from './chart-pie';
+import { EffectClock } from './chart-effect';
 import {
   LEGEND_ROW_PX,
   LEGEND_SIDE_GAP_PX,
@@ -930,6 +931,19 @@ export interface ScatterChartData {
   colors?: Float32Array | number[];
 }
 
+export interface ScatterRippleOptions {
+  /** Series ids that ripple (default: every series) */
+  series?: number[];
+  /** Seconds per ring cycle (default 4) */
+  period?: number;
+  /** Outer ring radius / point radius (default 2.5, 1-10) */
+  scale?: number;
+  /** Rings at a time (default 3, 1-8) */
+  count?: number;
+  /** Filled rings instead of 1.5 px strokes (default false) */
+  fill?: boolean;
+}
+
 export interface ScatterChartOptions {
   /** Enter / update animation of this chart (default: the SDK setting, `setAnimation`) */
   animation?: ChartAnimationInput;
@@ -962,6 +976,11 @@ export interface ScatterChartOptions {
   symbol?: ScatterSymbol;
   /** Symbol per series id (missing entries: `symbol`); the legend swatches follow */
   seriesSymbols?: (ScatterSymbol | undefined)[];
+  /**
+   * Rippling rings around the points (ECharts `effectScatter`; `true` = every series with the
+   * defaults). Keeps a frame loop running while shown: meant for highlighting a few points
+   */
+  ripple?: ScatterRippleOptions | boolean;
   /** Fill alpha multiplier; lower values reveal density (default: 0.85) */
   opacity?: number;
   /** Ring in the chart surface color around each point, CSS px (default: 1 with `sizes`, else 0) */
@@ -1468,6 +1487,10 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     gapPx: number,
     viewMode: number
   ): number;
+  /** Rippling scatter series flags, ripple period (s, NaN = 4), scale (NaN = 2.5), ring count (0 = 3), fill */
+  set_chart_scatter_ripple?(flags: Uint8Array, periodS: number, scale: number, count: number, fill: boolean): boolean;
+  /** Ripple clock (s): false when nothing ripples */
+  set_chart_effect_time?(seconds: number): boolean;
   /** Symbol code per scatter series id (0 circle, 1 square, 2 diamond, 3 triangle); empty = circles */
   set_chart_scatter_shapes?(shapes: Uint8Array): boolean;
   set_scatter_chart?(
@@ -2380,6 +2403,7 @@ export class Charturbo {
   private animationApplied: ResolvedAnimation | null = null;
   /** rAF loop while the engine animates (created on first use) */
   private animDriverRef: AnimationDriver | null = null;
+  private effectClockRef: EffectClock | null = null;
   /** Set by `enableNodeInteractions`: shows / hides the tooltip of a synced cursor hit */
   private syncTooltip: ((hit: Float64Array | null) => void) | null = null;
   /** Disconnects the `autoResize` observer */
@@ -2818,6 +2842,21 @@ export class Charturbo {
   /** Jumps a running chart animation to its final frame (call `render()` to show it). */
   finishAnimation(): void {
     this.animDriverRef?.finish();
+  }
+
+  /**
+   * Freezes continuous effects (the scatter ripple) at `seconds` into their cycle, e.g. for
+   * screenshots or exports; `null` restarts them.
+   */
+  setEffectTime(seconds: number | null): void {
+    if (seconds === null) return this.effectClock().start();
+    this.effectClockRef?.stop();
+    if (this.backend.set_chart_effect_time?.(seconds)) this.render();
+  }
+
+  /** Frame clock of the scatter ripple (chart-effect.ts). */
+  private effectClock(): EffectClock {
+    return (this.effectClockRef ??= new EffectClock(this.backend, () => this.render()));
   }
 
   private animDriver(): AnimationDriver {
@@ -5690,6 +5729,7 @@ export class Charturbo {
     this.stopAutoResize = null;
     this.rangeFrame.cancel();
     this.animDriverRef?.dispose();
+    this.effectClockRef?.stop();
     this.events.clear();
     for (const detach of [...this.disposers]) detach();
     this.disposers.clear();
@@ -7152,6 +7192,17 @@ export class Charturbo {
     const symbols = Array.from({ length: seriesCount }, (_, i): ScatterSymbol => options?.seriesSymbols?.[i] ?? options?.symbol ?? 'circle');
     const shaped = symbols.some((sym) => sym !== 'circle');
     this.backend.set_chart_scatter_shapes?.(shaped ? Uint8Array.from(symbols, (sym) => SCATTER_SYMBOL_CODES[sym] ?? 0) : new Uint8Array(0));
+    // Ripple: flags per series id, then the frame clock (it stops by itself without ripples)
+    const ripple = options?.ripple === true ? {} : options?.ripple || null;
+    const rippleIds = ripple ? new Set(ripple.series ?? Array.from({ length: seriesCount }, (_, i) => i)) : null;
+    this.backend.set_chart_scatter_ripple?.(
+      rippleIds ? Uint8Array.from({ length: seriesCount }, (_, i) => (rippleIds.has(i) ? 1 : 0)) : new Uint8Array(0),
+      ripple?.period ?? NaN,
+      ripple?.scale ?? NaN,
+      ripple?.count ?? 0,
+      ripple?.fill ?? false
+    );
+    if (rippleIds?.size) this.effectClock().start();
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const legend: ChartLegendState = {
       show: legendOpt.show ?? seriesCount >= 2,

@@ -31,6 +31,23 @@ pub struct ScatterPoints {
     pub series_colors: Vec<[f32; 4]>,
 }
 
+/// Ripple (ECharts `effectScatter`) of flagged series: rings grow from the point to `scale`
+/// times its radius and fade out over `period_s`, `count` rings evenly phase-shifted, stroked
+/// (1.5 px) or filled at half strength.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RippleOptions {
+    pub period_s: f32,
+    pub scale: f32,
+    pub count: u32,
+    pub fill: bool,
+}
+
+impl Default for RippleOptions {
+    fn default() -> Self {
+        Self { period_s: 4.0, scale: 2.5, count: 3, fill: false }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScatterLayout {
     pub width: f32,
@@ -152,6 +169,10 @@ pub(crate) struct ScatterChart {
     pub(crate) emphasis: Option<usize>,
     /// Shape code per series id (0 circle, 1 square, 2 diamond, 3 triangle; missing = circle)
     shapes: Vec<u8>,
+    /// Rippling series ids, the ripple and its clock (seconds)
+    ripple: Vec<bool>,
+    ripple_opts: RippleOptions,
+    effect_time_s: f32,
     grid: PointGrid,
     max_radius_px: f32,
     /// x tick target for the current plot width (about one tick per 90 CSS px)
@@ -209,6 +230,9 @@ impl ScatterChart {
             series_in_uniform: series_count <= MAX_POINT_SERIES,
             emphasis: None,
             shapes: Vec::new(),
+            ripple: Vec::new(),
+            ripple_opts: RippleOptions::default(),
+            effect_time_s: 0.0,
             grid: PointGrid::default(),
             max_radius_px,
             x_tick_target: 5,
@@ -293,10 +317,36 @@ impl ScatterChart {
         changed
     }
 
-    /// Point slot channel: the series slot plus the series' shape (see `POINT_SHAPE_STRIDE`).
+    /// Sets the rippling series ids (`flags[id] != 0`) and the ripple (clamped: period >= 0.1 s,
+    /// scale 1..10, 1..8 rings). True when the points or the uniform changed.
+    pub(crate) fn set_ripple(&mut self, flags: &[u8], opts: RippleOptions) -> bool {
+        let ripple: Vec<bool> = flags.iter().map(|&f| f != 0).collect();
+        let clean = |v: f32, d: f32| if v.is_finite() { v } else { d };
+        let d = RippleOptions::default();
+        let opts = RippleOptions {
+            period_s: clean(opts.period_s, d.period_s).max(0.1),
+            scale: clean(opts.scale, d.scale).clamp(1.0, 10.0),
+            count: opts.count.clamp(1, 8),
+            fill: opts.fill,
+        };
+        let changed = ripple != self.ripple || opts != self.ripple_opts;
+        self.ripple = ripple;
+        self.ripple_opts = opts;
+        changed
+    }
+
+    /// Some series ripples (the SDK keeps a frame clock running).
+    pub(crate) fn rippling(&self) -> bool {
+        self.ripple.iter().any(|&r| r)
+    }
+
+    /// Point slot channel: the series slot plus the series' shape and ripple flag (see
+    /// `POINT_SHAPE_STRIDE`).
     #[inline]
     fn packed_slot(&self, slot: f32, series: usize) -> f32 {
-        slot + POINT_SHAPE_STRIDE * self.shapes.get(series).copied().unwrap_or(0) as f32
+        let shape = self.shapes.get(series).copied().unwrap_or(0) as f32;
+        let ripple = if self.ripple.get(series).copied().unwrap_or(false) { 4.0 } else { 0.0 };
+        slot + POINT_SHAPE_STRIDE * (shape + ripple)
     }
 
     #[inline]
@@ -328,7 +378,11 @@ impl ScatterChart {
         let mut style = ChartPointStyleRaw {
             transform: self.transform(),
             ring_color: hover.marker_ring_color,
-            params: [self.layout.ring_px.max(0.0), -1.0, 0.0, 0.0],
+            params: [self.layout.ring_px.max(0.0), -1.0, self.effect_time_s, 0.0],
+            effect: {
+                let o = self.ripple_opts;
+                [o.period_s, o.scale, o.count as f32, if o.fill { 1.0 } else { 0.0 }]
+            },
             ..Default::default()
         };
         if self.series_in_uniform {
@@ -643,6 +697,34 @@ impl ChartState {
         }
         changed
     }
+
+    /// Rippling scatter series ids (`flags[id] != 0`) and the ripple; rebuilds the points and the
+    /// point uniform when they changed. False for other charts.
+    pub fn set_scatter_ripple(&mut self, flags: &[u8], opts: RippleOptions) -> bool {
+        let ChartKind::Scatter(s) = &mut self.kind else {
+            return false;
+        };
+        let changed = s.set_ripple(flags, opts);
+        if changed {
+            self.dirty.points = true;
+            self.dirty.point_style = true;
+        }
+        changed
+    }
+
+    /// Ripple clock in seconds: only the point uniform changes. False (nothing to animate) when
+    /// no series ripples.
+    pub fn set_effect_time(&mut self, seconds: f32) -> bool {
+        let ChartKind::Scatter(s) = &mut self.kind else {
+            return false;
+        };
+        if !s.rippling() {
+            return false;
+        }
+        s.effect_time_s = if seconds.is_finite() { seconds } else { 0.0 };
+        self.dirty.point_style = true;
+        true
+    }
 }
 
 // Brush selection support (see brush.rs)
@@ -758,6 +840,42 @@ mod tests {
         let points = &svg[svg.find("data-layer=\"points\"").expect("points layer")..];
         assert_eq!(points.matches("<circle").count(), 3, "{points}");
         assert_eq!(points.matches("<path d=\"M").count(), 1, "the triangle");
+    }
+
+    #[test]
+    fn ripple_series_carry_a_flag_and_time_only_touches_the_uniform() {
+        use crate::renderer::{point_ripple, point_shape, point_slot};
+        let mut chart = scatter(vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 2.0], vec![0, 1, 2]);
+        let cam = framed(&chart);
+        chart.prepare_layers(&view(&cam));
+        // No ripple: the clock is a no-op (no loop needed, nothing re-uploaded)
+        assert!(!chart.set_effect_time(1.0));
+        assert!(chart.prepare_layers(&view(&cam)).point_style.is_none());
+
+        chart.set_scatter_shapes(&[0, 3]);
+        let opts = RippleOptions { period_s: 2.0, scale: 3.0, count: 4, fill: true };
+        assert!(chart.set_scatter_ripple(&[0, 1], opts));
+        let layers = chart.prepare_layers(&view(&cam));
+        let pts = layers.points.unwrap().to_vec();
+        let style = layers.point_style.unwrap();
+        let decoded: Vec<(usize, f32, bool)> = pts.iter().map(|p| {
+            let z = p.center_radius[2];
+            (point_slot(z), point_shape(z), point_ripple(z))
+        }).collect();
+        assert_eq!(decoded, vec![(0, 0.0, false), (1, 3.0, true), (2, 0.0, false)]);
+        assert_eq!(style.effect, [2.0, 3.0, 4.0, 1.0]);
+        // The clock only rewrites the uniform
+        assert!(chart.set_effect_time(1.25));
+        let layers = chart.prepare_layers(&view(&cam));
+        assert!(layers.points.is_none());
+        assert_eq!(layers.point_style.unwrap().params[2], 1.25);
+        // Options are clamped; turning every series off stops the clock
+        let wild = RippleOptions { period_s: 0.0, scale: 50.0, count: 99, fill: false };
+        chart.set_scatter_ripple(&[1], wild);
+        let style = chart.prepare_layers(&view(&cam)).point_style.unwrap();
+        assert_eq!(style.effect, [0.1, 10.0, 8.0, 0.0]);
+        chart.set_scatter_ripple(&[], wild);
+        assert!(!chart.set_effect_time(2.0));
     }
 
     #[test]

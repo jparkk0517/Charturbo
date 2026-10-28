@@ -23,6 +23,16 @@ impl VisualizationEngine {
         self.chart.as_mut().is_some_and(|c| c.set_scatter_shapes(shapes))
     }
 
+    /// Rippling scatter series (see `ChartState::set_scatter_ripple`).
+    pub fn set_chart_scatter_ripple(&mut self, flags: &[u8], opts: crate::chart::RippleOptions) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_scatter_ripple(flags, opts))
+    }
+
+    /// Ripple clock (see `ChartState::set_effect_time`); false when nothing ripples.
+    pub fn set_chart_effect_time(&mut self, seconds: f32) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_effect_time(seconds))
+    }
+
     pub fn chart_animation(&self) -> Option<AnimationOptions> {
         self.chart_animation
     }
