@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 파이 부분 원 (반 도넛)
+
+- `PieChartOptions.endAngle`을 추가했습니다. 조각이 `startAngle`~`endAngle` 범위를 `direction` 방향으로 나눠 가지며, 화면은 범위의 bbox에 맞춰 잡습니다. 생략하면 기존처럼 한 바퀴입니다.
+- WASM `set_pie_chart`에 마지막 인자 `end_angle_deg`(NaN = 한 바퀴)를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/04-half-donut`, WebGPU/WebGL2 fixture `pie-half-donut`를 추가했습니다.
+
 ### 추가 — 파이 나이팅게일 로즈
 
 - `PieChartOptions.rose: 'radius' | 'area'`를 추가했습니다. 조각 넓이(도넛은 고리 넓이)가 값에 비례하도록 반지름을 정합니다. `'area'`는 같은 각도, `'radius'`는 비율 각도입니다. 퍼센트는 합계 대비 비율로 유지합니다.

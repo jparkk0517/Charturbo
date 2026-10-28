@@ -19,7 +19,7 @@ HANDOFF의 계약을 따른다.
 - [ ] 파이 (ECharts pie 14)
   - [x] rose(nightingale): 넓이 비례(표준)로 구현, ECharts 선형 대응은 미채택
   - [ ] padAngle
-  - [ ] `endAngle`(반 도넛)
+  - [x] `endAngle`(반 도넛): 범위 bbox에 맞춰 화면을 잡음
   - [ ] 모서리 둥글게
   - [ ] 중첩 링
 - [ ] 생키: 세로 방향(orient), levels 스타일, 그라데이션 링크 (sankey 7)

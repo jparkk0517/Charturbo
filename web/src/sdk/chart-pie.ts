@@ -37,6 +37,12 @@ export interface PieChartOptions {
   maxSlices?: number | false;
   /** Degrees clockwise from 12 o'clock where the first slice starts (default 0) */
   startAngle?: number;
+  /**
+   * Degrees clockwise from 12 o'clock where the last slice ends (default: a full turn), e.g.
+   * `startAngle: -90, endAngle: 90` for a top half donut. The slices share the sweep along
+   * `direction`; an end at or before the start is a full turn. The chart is framed to the sweep
+   */
+  endAngle?: number;
   /** Default `'clockwise'` */
   direction?: 'clockwise' | 'counterclockwise';
   /** Nightingale rose chart (default: off, every slice reaches the full radius) */
@@ -157,7 +163,8 @@ export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData,
       LABEL_LINE_PX,
       sx,
       sy,
-      options?.rose ? (ROSE_CODES[options.rose] ?? 0) : 0
+      options?.rose ? (ROSE_CODES[options.rose] ?? 0) : 0,
+      options?.endAngle ?? NaN
     ) ?? 0
   );
 }

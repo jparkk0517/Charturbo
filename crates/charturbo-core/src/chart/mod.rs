@@ -407,6 +407,11 @@ impl ChartView<'_> {
 
 /// Head-on 2D framing: `width x height` world rect fills the canvas minus `padding` (CSS px).
 pub(crate) fn frame_flat(camera: &mut OrbitCamera, css: (f32, f32), width: f32, height: f32, padding: &ChartPadding) {
+    frame_flat_at(camera, css, (0.0, 0.0), width, height, padding);
+}
+
+/// `frame_flat` for a `width` x `height` world rect centered on `center` instead of the origin.
+pub(crate) fn frame_flat_at(camera: &mut OrbitCamera, css: (f32, f32), center: (f32, f32), width: f32, height: f32, padding: &ChartPadding) {
     let (w_css, h_css) = css;
     let [top, right, bottom, left] = *padding;
     let plot_w = (w_css - left - right).max(w_css * 0.2);
@@ -416,7 +421,7 @@ pub(crate) fn frame_flat(camera: &mut OrbitCamera, css: (f32, f32), width: f32, 
     let visible_h = h_css / s;
     let distance = camera.distance_for_visible_height(visible_h);
     // Shift the camera so the plot centre lands in the centre of the padded area
-    let target = Vec3::new(-(left - right) * 0.5 / s, -(bottom - top) * 0.5 / s, 0.0);
+    let target = Vec3::new(center.0 - (left - right) * 0.5 / s, center.1 - (bottom - top) * 0.5 / s, 0.0);
     camera.set_pose(target + Vec3::new(0.0, 0.0, distance), target);
 }
 

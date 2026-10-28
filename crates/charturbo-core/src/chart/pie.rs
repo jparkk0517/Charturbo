@@ -116,6 +116,9 @@ pub struct PieOptions {
     pub max_slices: usize,
     /// Where the first slice starts, degrees clockwise from 12 o'clock
     pub start_angle_deg: f32,
+    /// Where the last slice ends (same compass degrees; NaN = a full turn). The sweep runs along
+    /// the drawing direction; an end at or before the start is a full turn, beyond one is clamped
+    pub end_angle_deg: f32,
     pub clockwise: bool,
     /// Donut hole radius / outer radius (0 = pie; clamped to [0, 0.95])
     pub inner_ratio: f32,
@@ -136,6 +139,7 @@ impl Default for PieOptions {
             sort: PieSort::None,
             max_slices: DEFAULT_PIE_MAX_SLICES,
             start_angle_deg: 0.0,
+            end_angle_deg: f32::NAN,
             clockwise: true,
             inner_ratio: 0.0,
             labels: PieLabelMode::Outside,
@@ -415,6 +419,8 @@ pub(crate) struct PieChart {
     /// Input indices folded into "Other"
     pub(crate) other: Vec<usize>,
     pub(crate) emphasis: Option<usize>,
+    /// Angle the slices share (radians, up to a full turn; see `PieOptions::end_angle_deg`)
+    sweep: f32,
     /// Sum of the visible slices
     total: f64,
     /// Scale (world per CSS px) and hovered slice the slice buffers were built for
@@ -437,6 +443,11 @@ impl PieChart {
         opts.label_min_angle_deg = clean(opts.label_min_angle_deg, d.label_min_angle_deg).max(0.0);
         opts.label_line_px = clean(opts.label_line_px, d.label_line_px).max(1.0);
         opts.label_space_px = opts.label_space_px.map(|v| clean(v, 0.0).clamp(0.0, 2048.0));
+        let dir = if opts.clockwise { 1.0 } else { -1.0 };
+        let sweep = match dir * (opts.end_angle_deg - opts.start_angle_deg) {
+            d if d.is_finite() && d > 0.0 => d.min(360.0).to_radians(),
+            _ => TAU,
+        };
         let (slices, other) = fold_slices(values, opts.sort, opts.max_slices);
         let mut pie = Self {
             opts,
@@ -456,6 +467,7 @@ impl PieChart {
                 .collect(),
             other,
             emphasis: None,
+            sweep,
             total: 0.0,
             built: None,
             screen: None,
@@ -482,6 +494,7 @@ impl PieChart {
         self.total = total;
         let rose = self.opts.rose;
         let (r_in, r_full) = (self.r_in(), PIE_RADIUS);
+        let sweep = self.sweep;
         let mut acc = 0.0f64;
         for s in &mut self.slices {
             let share = match rose {
@@ -495,18 +508,18 @@ impl PieChart {
                 _ if s.visible && max > 0.0 => (r_in * r_in + (s.value / max) as f32 * (r_full * r_full - r_in * r_in)).sqrt(),
                 _ => r_in,
             };
-            s.start = (acc * TAU as f64) as f32;
+            s.start = (acc * sweep as f64) as f32;
             acc += share;
-            // The last visible slice closes the circle exactly
-            s.end = ((acc * TAU as f64) as f32).min(TAU);
+            // The last visible slice closes the sweep exactly
+            s.end = ((acc * sweep as f64) as f32).min(sweep);
             s.percent = if s.visible && total > 0.0 { s.value / total * 100.0 } else { f64::NAN };
         }
-        // The last visible slice closes the circle and later (hidden) ones sit at TAU, so the
+        // The last visible slice closes the sweep and later (hidden) ones sit at its end, so the
         // ends stay monotonic for the hit test's binary search
         if let Some(last) = self.slices.iter().rposition(|s| s.span() > 0.0) {
-            self.slices[last].end = TAU;
+            self.slices[last].end = sweep;
             for s in &mut self.slices[last + 1..] {
-                (s.start, s.end) = (TAU, TAU);
+                (s.start, s.end) = (sweep, sweep);
             }
         }
         self.built = None;
@@ -672,7 +685,7 @@ impl PieChart {
                 continue;
             }
             let (lo, hi) = self.compass(s);
-            let full = shown == 1;
+            let full = shown == 1 && self.sweep >= TAU;
             let offset = if hovered == Some(k) && !full {
                 polar((0.0, 0.0), 0.5 * (lo + hi), PIE_EXPLODE_PX * wpp)
             } else {
@@ -710,7 +723,7 @@ impl PieChart {
                 continue;
             }
             let (lo, hi) = self.compass(&PieSlice { start, end, ..*s });
-            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full: shown == 1 };
+            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full: shown == 1 && self.sweep >= TAU };
             tessellate_slice(&shape, wpp, (0.0, 0.0), self.display_color(k), fills, edges);
         }
     }
@@ -806,21 +819,41 @@ impl PieChart {
         changed
     }
 
-    /// Plot rectangle = the pie's bounding box; no ticks.
+    /// World bounding box `(x0, x1, y0, y1)` of the full-radius sweep (hole edge or center
+    /// included): the whole disk for a full turn.
+    fn extent(&self) -> (f32, f32, f32, f32) {
+        if self.sweep >= TAU {
+            return (-PIE_RADIUS, PIE_RADIUS, -PIE_RADIUS, PIE_RADIUS);
+        }
+        let a = self.start_rad();
+        let (lo, hi) = if self.opts.clockwise { (a, a + self.sweep) } else { (a - self.sweep, a) };
+        // Both edges at the rim and the hole (the center for a pie)
+        let mut pts: Vec<(f32, f32)> = [lo, hi].iter().flat_map(|&phi| [PIE_RADIUS, self.r_in()].map(|r| polar((0.0, 0.0), phi, r))).collect();
+        // Compass extremes (up / right / down / left) inside the sweep
+        for q in (lo / FRAC_PI_2).ceil() as i32..=(hi / FRAC_PI_2).floor() as i32 {
+            pts.push(polar((0.0, 0.0), q as f32 * FRAC_PI_2, PIE_RADIUS));
+        }
+        pts.iter().fold((f32::MAX, f32::MIN, f32::MAX, f32::MIN), |(x0, x1, y0, y1), p| (x0.min(p.0), x1.max(p.0), y0.min(p.1), y1.max(p.1)))
+    }
+
+    /// Plot rectangle = the bounding box of the sweep; no ticks.
     pub(crate) fn axes(&self, view: &ChartView, out: &mut AxisLayout) {
         out.ticks.clear();
-        out.plot_css = match Self::screen_of(view) {
-            Some(s) => [s.center_css.0 - s.r_css, s.center_css.1 - s.r_css, 2.0 * s.r_css, 2.0 * s.r_css],
-            None => [0.0; 4],
+        let (x0, x1, y0, y1) = self.extent();
+        out.plot_css = match (view.project_css(Vec3::new(x0, y1, 0.0)), view.project_css(Vec3::new(x1, y0, 0.0))) {
+            (Some(a), Some(b)) => [a.0.min(b.0), a.1.min(b.1), (b.0 - a.0).abs(), (b.1 - a.1).abs()],
+            _ => [0.0; 4],
         };
     }
 
-    /// Fits the pie into the padded plot, keeping room for the explode offset and outside labels.
+    /// Fits the sweep's bounding box into the padded plot, keeping room for the explode offset
+    /// and outside labels.
     pub(crate) fn frame_camera(&self, camera: &mut OrbitCamera, css: (f32, f32), padding: &ChartPadding) {
         let m = PIE_EXPLODE_PX + 2.0;
         let [sh, sv] = if self.opts.labels == PieLabelMode::Outside { self.opts.label_space_px } else { [0.0; 2] };
         let pad = [padding[0] + m + sv, padding[1] + m + sh, padding[2] + m + sv, padding[3] + m + sh];
-        frame_flat(camera, css, 2.0 * PIE_RADIUS, 2.0 * PIE_RADIUS, &pad);
+        let (x0, x1, y0, y1) = self.extent();
+        frame_flat_at(camera, css, (0.5 * (x0 + x1), 0.5 * (y0 + y1)), x1 - x0, y1 - y0, &pad);
     }
 }
 
@@ -1313,6 +1346,61 @@ mod tests {
         got.sort_by(f32::total_cmp);
         for (g, w) in got.iter().zip(&want) {
             assert!((g - w).abs() < 0.05, "leader starts {got:?} vs rims {want:?}");
+        }
+    }
+
+    #[test]
+    fn end_angle_limits_the_sweep_and_the_half_donut_fills_the_plot() {
+        // Top half, clockwise from 9 o'clock to 3 o'clock
+        let half = PieOptions { start_angle_deg: -90.0, end_angle_deg: 90.0, inner_ratio: 0.5, labels: PieLabelMode::None, ..Default::default() };
+        let (mut chart, cam) = pie(&[1.0, 1.0], half);
+        let v = view(&cam);
+        chart.prepare_layers(&v);
+        let p = inner(&chart);
+        let s = &p.slices;
+        assert!((s[0].end - FRAC_PI_2).abs() < 1e-5 && (s[1].end - std::f32::consts::PI).abs() < 1e-5);
+        assert!((s[0].percent - 50.0).abs() < 1e-9);
+        let (lo, hi) = p.compass(&s[0]);
+        assert!((lo + FRAC_PI_2).abs() < 1e-5 && hi.abs() < 1e-5, "upper-left quadrant: {lo} {hi}");
+        // Nothing below the center: no fill, no hit
+        assert!(chart.fills.iter().all(|f| f.position[1] > -1e-3), "lower half stays empty");
+        let wpp = p.screen.unwrap().wpp;
+        let r = 0.75 * PIE_RADIUS;
+        assert_eq!(p.slice_at(-r * 0.7, r * 0.7, wpp, None), Some(0));
+        assert_eq!(p.slice_at(r * 0.7, r * 0.7, wpp, None), Some(1));
+        assert_eq!(p.slice_at(0.0, -r, wpp, None), None);
+
+        // Framing fits the half ring's box: much larger than the full ring on a wide canvas
+        let r_half = chart.pie_layout().unwrap().r_out_css;
+        let (mut full, cam_full) = pie(&[1.0, 1.0], PieOptions { end_angle_deg: f32::NAN, ..half });
+        full.prepare_layers(&view(&cam_full));
+        let r_full = full.pie_layout().unwrap().r_out_css;
+        assert!(r_half > 1.5 * r_full, "half {r_half} vs full {r_full}");
+        // The plot box is the half ring: twice as wide as tall, its bottom edge on the center
+        let [l, t, w, h] = chart.axes().plot_css;
+        let c = chart.pie_layout().unwrap().center_css;
+        assert!((w - 2.0 * r_half).abs() < 0.5 && (h - r_half).abs() < 0.5, "{w} x {h} for r {r_half}");
+        assert!((l + 0.5 * w - c.0).abs() < 0.5 && (t + h - c.1).abs() < 0.5);
+        assert!(t >= 0.0 && t + h <= 900.0);
+
+        // A lone visible slice keeps the sweep (no full disk)
+        let (mut lone, cam_lone) = pie(&[3.0], half);
+        lone.prepare_layers(&view(&cam_lone));
+        assert!(lone.fills.iter().all(|f| f.position[1] > -1e-3));
+        assert!(!lone.fills.is_empty());
+
+        // Counter-clockwise from 3 o'clock back to 9 o'clock covers the same top half
+        let ccw = PieOptions { clockwise: false, start_angle_deg: 90.0, end_angle_deg: -90.0, ..half };
+        let (mut chart, cam) = pie(&[1.0, 1.0], ccw);
+        chart.prepare_layers(&view(&cam));
+        let p = inner(&chart);
+        assert!((p.slices[1].end - std::f32::consts::PI).abs() < 1e-5);
+        assert!(chart.fills.iter().all(|f| f.position[1] > -1e-3));
+        assert_eq!(p.slice_at(r * 0.7, r * 0.7, wpp, None), Some(0));
+        // End at or before the start: a full turn (like the gauge); beyond a turn: clamped
+        for end in [-90.0, -100.0, 400.0] {
+            let (c, _) = pie(&[1.0, 1.0], PieOptions { start_angle_deg: -90.0, end_angle_deg: end, ..Default::default() });
+            assert_eq!(c.pie_slices().unwrap()[1].end, TAU, "end {end}");
         }
     }
 
