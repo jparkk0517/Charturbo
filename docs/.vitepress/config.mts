@@ -247,8 +247,9 @@ export default defineConfig({
   appearance: 'dark',
   cleanUrls: true,
   lastUpdated: true,
-  // Bench raw output, the agent hand-off note and the ECharts parity checklist are not pages
-  srcExclude: ['bench/**', 'HANDOFF.md', 'ECHARTS-PARITY.md'],
+  // Bench raw output, the agent hand-off note and the ECharts parity checklist are not pages;
+  // public/ is copied as-is (the TypeDoc output there carries its own .md files)
+  srcExclude: ['bench/**', 'public/**', 'HANDOFF.md', 'ECHARTS-PARITY.md'],
   head: [['meta', { name: 'theme-color', content: '#080b12' }]],
   markdown: {
     config(md) {
