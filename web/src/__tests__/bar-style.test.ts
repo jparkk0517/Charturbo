@@ -124,6 +124,7 @@ function mockBackend(
     set_chart_emphasis: record('set_chart_emphasis'),
     set_bar_style: record('set_bar_style', true),
     set_bar_labels: record('set_bar_labels', true),
+    set_chart_bar_background: record('set_chart_bar_background', true),
     chart_bar_labels: () => labels(),
     chart_hover_at_ndc: () => hit(),
     chart_sample: (id: number) => new Float64Array([0, id, 0, 1, 2, 3]),
@@ -264,6 +265,37 @@ describe('Bar styling through the SDK (orientation, labels, error bars, legend)'
     sdk.renderGroupedBarChart({ categories: DATA.categories, series: DATA.series.map(({ name, values }) => ({ name, values })) });
     expect(calls.set_bar_style).toBeUndefined();
     expect(calls.set_bar_labels).toBeUndefined();
+    expect(calls.set_chart_bar_background).toBeUndefined();
+  });
+
+  it('background tracks: theme baseline at 20% by default, custom color x opacity, follow the theme, 2D only', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    const sent = () => Array.from(calls.set_chart_bar_background.at(-1)![0] as Float32Array);
+    const rgba = (c: readonly number[]) => Array.from(Float32Array.from(c));
+    sdk.renderBarChart(ITEMS, { background: true });
+    const dark = CHARTURBO_THEMES.dark.baseline;
+    expect(sent()).toEqual(rgba([dark[0], dark[1], dark[2], dark[3] * 0.2]));
+    // Theme switch: the default color follows
+    sdk.setTheme('light');
+    const light = CHARTURBO_THEMES.light.baseline;
+    expect(calls.set_chart_bar_background.length).toBe(2);
+    expect(sent()).toEqual(rgba([light[0], light[1], light[2], light[3] * 0.2]));
+    // Opacity scales the default alpha
+    sdk.renderGroupedBarChart(DATA, { mode: 'stacked', background: { opacity: 0.5 } });
+    expect(sent()).toEqual(rgba([light[0], light[1], light[2], light[3] * 0.1]));
+    // Explicit color (its alpha x opacity) does not follow the theme
+    sdk.renderGroupedBarChart(DATA, { background: { color: 'rgba(255, 0, 0, 0.5)', opacity: 0.5 } });
+    expect(sent()).toEqual(rgba([1, 0, 0, 0.25]));
+    const count = calls.set_chart_bar_background.length;
+    sdk.setTheme('dark');
+    expect(calls.set_chart_bar_background.length).toBe(count);
+    // Off, `false` and the 3D matrix send nothing (a new chart starts without tracks)
+    sdk.renderBarChart(ITEMS);
+    sdk.renderBarChart(ITEMS, { background: false });
+    sdk.renderBarChart(ITEMS, { background: true, viewMode: '3d' });
+    sdk.renderGroupedBarChart(DATA, { background: {}, viewMode: '3d' });
+    expect(calls.set_chart_bar_background.length).toBe(count);
   });
 
   it('horizontal bars: value axis on x, category labels on y, wider left margin, no brush', () => {

@@ -294,10 +294,14 @@ import {
   encodeErrors,
   formatBarError,
   measureLabel,
+  resolveBarBackground,
   resolveBarLabels,
+  sendBarBackground,
   sendBarLabels,
   sendBarStyle,
   widestLabel,
+  type BarBackgroundOptions,
+  type BarBackgroundState,
   type BarErrorBarStyle,
   type BarErrorValue,
   type BarLabelOptions,
@@ -305,6 +309,7 @@ import {
   type BarStyleState,
 } from './chart-bar-style';
 export type {
+  BarBackgroundOptions,
   BarErrorBarStyle,
   BarErrorValue,
   BarLabelContext,
@@ -523,6 +528,12 @@ export interface BarChartOptions {
   labels?: boolean | 'auto' | BarLabelOptions;
   /** Look of error bars (values come from `error` on items / series) */
   errorBars?: BarErrorBarStyle;
+  /**
+   * Background tracks behind the bars, across the whole value axis (2D): `true` for the theme
+   * default or a color / opacity. Grouped bars get one per bar slot (hidden series drop theirs),
+   * stacked / percent bars one per category. Not hover targets
+   */
+  background?: boolean | BarBackgroundOptions;
   /**
    * Legend. Multi-series: series toggle (re-stacks) / hover emphasis, shown for 2+ series in 2D.
    * Single series (on request, static): a key of the item `category` values (color of each
@@ -1874,6 +1885,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_bar_labels?(mode: number, position: number, widths: Float32Array, height: number, padPx: number): boolean;
   /** `[revision, count, (bar id, x, y, inside) * count]` (CSS px, text box centers) */
   chart_bar_labels?(): Float64Array;
+  /** Bar background tracks: RGBA (empty = none); 2D bar charts only */
+  set_chart_bar_background?(color: Float32Array): boolean;
   /** Releases the WASM engine (wasm-bindgen) */
   free?(): void;
 }
@@ -2071,6 +2084,8 @@ interface BarChartMeta {
   values?: Float32Array;
   /** Orientation, labels, error bars (chart-bar-style.ts) */
   barStyle?: BarStyleState;
+  /** Background tracks (chart-bar-style.ts) */
+  barBackground?: BarBackgroundState;
   /** Static legend entry of a single-series chart */
   legendEntry?: { name: string; color: RgbaTuple };
 }
@@ -2089,6 +2104,8 @@ interface MultiBarChartMeta {
   viewMode: '2d' | '3d';
   /** Orientation, labels, error bars (chart-bar-style.ts) */
   barStyle?: BarStyleState;
+  /** Background tracks (chart-bar-style.ts) */
+  barBackground?: BarBackgroundState;
 }
 
 interface ScatterChartMeta {
@@ -4950,6 +4967,8 @@ export class Charturbo {
       // Default error bar color / label font follow the theme
       const bars = this.chartMeta?.kind === 'bar' || this.chartMeta?.kind === 'bar-multi' ? this.chartMeta.barStyle : undefined;
       if (bars?.errMinus && !bars.errorBar.color) sendBarStyle(this.backend, bars, t);
+      const track = this.chartMeta?.kind === 'bar' || this.chartMeta?.kind === 'bar-multi' ? this.chartMeta.barBackground : undefined;
+      if (track && !track.color) sendBarBackground(this.backend, track, t);
       this.syncBarLabels();
       // Pie palette follows the theme (fixed display order)
       if (this.chartMeta?.kind === 'pie') {
@@ -6880,6 +6899,7 @@ export class Charturbo {
       viewMode === '3d' ? 1 : 0
     );
     const barStyle = viewMode === '2d' ? this.initBarStyle(options, encodeErrors([items.map((it) => it.error)], n)) : undefined;
+    const barBackground = viewMode === '2d' ? this.initBarBackground(options) : undefined;
     this.chartHover = options?.hover;
     this.chartGrid = options?.grid;
     this.chartGridShown = viewMode === '2d';
@@ -6904,6 +6924,7 @@ export class Charturbo {
       })),
       values,
       barStyle,
+      barBackground,
     };
     const flat = viewMode === '2d';
     this.flatCameraView = flat;
@@ -6930,6 +6951,14 @@ export class Charturbo {
     });
     this.rebuildChartOverlay();
     return { barCount: n };
+  }
+
+  /** Background tracks of a fresh 2D bar chart (a new engine chart starts without them). */
+  private initBarBackground(options: BarChartOptions | undefined): BarBackgroundState | undefined {
+    const state = resolveBarBackground(options?.background);
+    if (!state) return undefined;
+    sendBarBackground(this.backend, state, this.theme);
+    return state;
   }
 
   /** Orientation / error bars / label options of a fresh 2D bar chart (chart-bar-style.ts). */
@@ -7098,6 +7127,7 @@ export class Charturbo {
       flat ? 0 : 1
     );
     const barStyle = flat ? this.initBarStyle(options, encodeErrors(seriesList.map((series) => series.error), n)) : undefined;
+    const barBackground = flat ? this.initBarBackground(options) : undefined;
     this.chartHover = options?.hover;
     this.chartGrid = options?.grid;
     this.chartGridShown = flat;
@@ -7123,6 +7153,7 @@ export class Charturbo {
       visible: seriesList.map(() => true),
       viewMode: flat ? '2d' : '3d',
       barStyle,
+      barBackground,
     };
     this.flatCameraView = flat;
     const truncate = (str: string) => (str.length > 12 ? `${str.slice(0, 11)}…` : str);

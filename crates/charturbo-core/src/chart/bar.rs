@@ -111,6 +111,8 @@ pub(crate) struct BarChart {
     /// Floating bars (waterfall.rs): value-axis base of each bar by global id (empty or
     /// non-finite = the zero baseline). Grouped single-series layout only
     pub(crate) bases: Vec<f32>,
+    /// Color of the background tracks behind the bars (`None` = none; bar_style.rs)
+    pub(crate) background: Option<[f32; 4]>,
 }
 
 impl BarChart {
@@ -156,6 +158,7 @@ impl BarChart {
             style: BarStyle::default(),
             labels: BarLabels::default(),
             bases: Vec::new(),
+            background: None,
         };
         chart.reshape();
         chart.relayout();
@@ -420,12 +423,15 @@ impl BarChart {
             .unwrap_or_else(|| lighten(self.color_of(global), 0.22))
     }
 
-    /// `hovered` = global id of the highlighted bar / segment.
+    /// `hovered` = global id of the highlighted bar / segment. Background tracks (if any) come
+    /// first, then one bar per laid-out segment in global id order.
     pub(crate) fn build_bars(&self, hovered: Option<usize>, style: &ChartHoverStyle, out: &mut Vec<ChartBarRaw>) {
         out.clear();
         if self.layout.view != ChartViewMode::Flat {
             return;
         }
+        // Background tracks first: below every bar
+        self.build_tracks(out);
         let n = self.categories.max(1);
         let side_gap = (self.mode == BarMode::Grouped && self.visible.iter().filter(|&&v| v).count() > 1)
             || self.histogram.is_some();

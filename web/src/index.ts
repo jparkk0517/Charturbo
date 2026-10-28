@@ -85,6 +85,7 @@ export {
   type BarLabelContext,
   type BarErrorValue,
   type BarErrorBarStyle,
+  type BarBackgroundOptions,
   type ChartHoverStyle,
   type ChartGridStyle,
   type ChartAxisOptions,

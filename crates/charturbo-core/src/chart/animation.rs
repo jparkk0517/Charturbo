@@ -537,6 +537,7 @@ impl ChartState {
 
     fn enter_layers(&mut self, view: &ChartView, e: f32, clip: &mut Option<[u32; 4]>, used: &mut AnimLayers) {
         let style = self.enter_style();
+        let tracks = self.bar_track_count();
         let a = &mut self.anim;
         if style == EnterStyle::Reveal {
             if let Some(rect) = reveal_clip(view, &self.series, &self.fills, &self.bars, e) {
@@ -551,8 +552,12 @@ impl ChartState {
         // Bars: grow (Grow), else fade
         if !self.bars.is_empty() {
             if style == EnterStyle::Grow {
-                let base = bar_baselines(&self.bars);
-                map_into(&self.bars, &mut a.out.bars, |b| grow_bar(b, &base, e));
+                // Background tracks lead the layer and stay at full length
+                let (tracks, bars) = self.bars.split_at(tracks.min(self.bars.len()));
+                let base = bar_baselines(bars);
+                a.out.bars.clear();
+                a.out.bars.extend_from_slice(tracks);
+                a.out.bars.extend(bars.iter().map(|&b| grow_bar(b, &base, e)));
             } else {
                 map_into(&self.bars, &mut a.out.bars, |b| ChartBarRaw { color: fade(b.color, e), ..b });
             }
@@ -831,6 +836,30 @@ mod tests {
             let want = 0.5 * (full[k].rect[3] + to[k].rect[3]);
             assert!((mid[k].rect[3] - want).abs() < 1e-3, "bar {k}");
         }
+    }
+
+    #[test]
+    fn background_tracks_stay_put_while_the_bars_grow() {
+        let mut cam = flat_camera();
+        let mut scene = SceneWorld::new();
+        let mut chart = bars(vec![10.0, 20.0, -5.0], &mut scene);
+        chart.frame_camera(&mut cam, (1600.0, 900.0));
+        assert!(chart.set_bar_background(Some([0.5, 0.5, 0.5, 0.2])));
+        chart.arm_animation(opts(), None);
+        chart.animation_tick(0.0);
+        chart.animation_tick(50.0);
+        let half = chart.prepare_layers(&view(&cam)).bars.unwrap().to_vec();
+        let mut done = chart.clone();
+        done.finish_animation();
+        let full = done.prepare_layers(&view(&cam)).bars.unwrap().to_vec();
+        assert_eq!(half.len(), 6);
+        assert_eq!(half[..3], full[..3], "tracks at full length");
+        // The bars grow from the zero line (not from the track bottom)
+        let zero = full[3].rect[1];
+        for (h, f) in half[3..].iter().zip(&full[3..]) {
+            assert!(((h.rect[3] - h.rect[1]) - 0.5 * (f.rect[3] - f.rect[1])).abs() < 1e-4);
+        }
+        assert!((half[5].rect[3] - zero).abs() < 1e-4, "negative bar grows down from zero");
     }
 
     #[test]
