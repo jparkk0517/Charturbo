@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### 추가 — 선 구간 색칠 · 막대 배경 · 라벨 회전 · 회귀선 (병렬 구현)
+
+- 선 · 영역 `pieces` / `piecesBy`(ECharts piecewise `visualMap`): 값 구간마다 색. 경계를 지나는 지점에서 선분을 잘라 색이 경계값에서 정확히 바뀌고, 영역은 경계 띠로 잘라 채웁니다. 예제 `line/12-pieces`, fixture `line-pieces` · `area-pieces`.
+- 막대 `background`(ECharts `showBackground`): 값 축 전체 길이의 배경 트랙. 기본은 테마 `baseline` × 0.2 알파. 예제 `bar/04-background`, fixture `bar-background` · `bar-background-horizontal`.
+- 막대 값 라벨 `labels.rotate`, x축 라벨 `axes.x.labelRotate`: 회전된 상자로 배치 · 충돌 판정 · 솎기를 하고 아래 여백이 늘어납니다. 회전한 카테고리 이름은 줄이지 않습니다. 예제 `bar/05-label-rotation`, fixture `bar-label-rotation`.
+- 산점도 `trendline`(ECharts ecStat): 선형 · 지수(y 가중 로그 최소제곱) · 로그 · 다항식(2~6차, Givens QR) 회귀선과 R², 범례 수식, `getScatterTrendlines()`. 예제 `scatter/06-trendline`, fixture `scatter-trendline`.
+- WASM 추가: `set_line_series_pieces`, `chart_line_piece_color`, `set_chart_bar_background`, `set_bar_label_boxes`, `set_bar_axis_label_rotation`, `set_chart_scatter_trendlines`, `chart_scatter_trend_fits`. 기존 시그니처는 그대로이며 SDK와 WASM을 함께 재빌드해야 합니다.
+
+### 수정
+
+- 배경 트랙 수가 다른 막대 차트로 바뀔 때 업데이트 애니메이션이 트랙과 막대를 짝지어 보간하던 문제: 트랙 수가 다르면 등장 애니메이션으로 그립니다.
+- 단일 시리즈 막대 · 폭포 차트에서 `legend.position` / `overflow`가 무시되던 문제.
+
 ### 추가 — 산점도 지터
 
 - `ScatterChartOptions.jitter: { x, y, seed }`: ggplot2 `geom_jitter`처럼 데이터 단위 균등 오프셋으로 겹친 점을 흩뜨립니다. 점마다 고정(PCG 해시)이라 다시 그려도 같고, hover · 브러시가 흩뜨린 위치를 따르며 툴팁 · 표는 원래 값입니다.
