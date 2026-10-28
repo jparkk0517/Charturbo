@@ -2,7 +2,7 @@
 
 Charturbo 是一个在 GPU 上绘制的 Web 图表库。数据处理在编译为 WebAssembly 的 Rust 中进行，渲染使用 WebGPU（不可用时自动回退到 WebGL2），DOM 只负责标题、图例、坐标轴标签和提示框等文本。它面向在一百万到一千万个数据点下仍需保持流畅交互的图表。
 
-[在线示例](https://jparkk0517.github.io/Charturbo/)
+[在线示例](https://jparkk0517.github.io/Charturbo/gallery.html)
 
 ## 架构
 

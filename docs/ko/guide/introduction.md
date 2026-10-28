@@ -2,7 +2,7 @@
 
 Charturbo는 GPU로 그리는 웹 차트 라이브러리입니다. 데이터 처리는 WebAssembly로 컴파일한 Rust에서 하고, 렌더링은 WebGPU(없으면 WebGL2로 자동 전환)로 하며, DOM은 제목·범례·축 라벨·툴팁 같은 텍스트만 담당합니다. 포인트가 100만~1000만 개여도 상호작용이 끊기지 않아야 하는 차트를 위해 만들었습니다.
 
-[라이브 예제](https://jparkk0517.github.io/Charturbo/)
+[라이브 예제](https://jparkk0517.github.io/Charturbo/gallery.html)
 
 ## 구조
 

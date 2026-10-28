@@ -55,6 +55,13 @@ export function t(key: MessageKey, vars?: Record<string, string | number>): stri
   return vars ? text.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match)) : text;
 }
 
+/**
+ * Docs-site URL (VitePress, served under `docs/` next to these pages) in the current language.
+ * The API reference is English only.
+ */
+export const docsHref = (path: string) =>
+  `./docs/${lang === 'en' || path.startsWith('api/') ? '' : `${lang}/`}${path}`;
+
 /** Store the language and reload the page in it. */
 export function setLang(next: Lang): void {
   if (next === lang) return;

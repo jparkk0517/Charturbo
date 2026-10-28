@@ -14,7 +14,7 @@ hero:
       link: /charts/line
     - theme: alt
       text: Live Examples
-      link: https://jparkk0517.github.io/Charturbo/
+      link: https://jparkk0517.github.io/Charturbo/gallery.html
 
 features:
   - title: Fast on big data

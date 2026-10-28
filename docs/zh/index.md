@@ -14,7 +14,7 @@ hero:
       link: /zh/charts/line
     - theme: alt
       text: 在线示例
-      link: https://jparkk0517.github.io/Charturbo/
+      link: https://jparkk0517.github.io/Charturbo/gallery.html
 
 features:
   - title: 大数据量下依然流畅

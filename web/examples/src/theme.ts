@@ -9,11 +9,17 @@ export const THEMES = {
 } as const;
 export type ThemeName = keyof typeof THEMES;
 const STORAGE_KEY = 'charturbo-examples-theme';
+// The docs site (VitePress, same origin) keeps light / dark here ('auto' = follow the OS)
+const DOCS_KEY = 'vitepress-theme-appearance';
 let theme: ThemeName = 'dark';
 try {
   const saved = localStorage.getItem(STORAGE_KEY)
     ?? JSON.parse(localStorage.getItem('charturbo-examples-scene-design') ?? 'null')?.theme;
   if (typeof saved === 'string' && Object.hasOwn(THEMES, saved)) theme = saved as ThemeName;
+  // Both keys are written together here, so a different light/dark means the docs switched since
+  let docs = localStorage.getItem(DOCS_KEY);
+  if (docs === 'auto') docs = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  if ((docs === 'dark' || docs === 'light') && THEMES[theme].base !== docs) theme = docs;
 } catch { /* Preferences also work without storage. */ }
 const listeners = new Set<() => void>();
 export const getThemeName = () => theme;
@@ -24,7 +30,10 @@ export function chartTheme(): CharturboThemeInput {
 export function setThemeName(next: ThemeName): void {
   theme = next;
   document.documentElement.dataset.theme = theme;
-  try { localStorage.setItem(STORAGE_KEY, theme); } catch { /* In-memory fallback. */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, theme);
+    localStorage.setItem(DOCS_KEY, THEMES[theme].base);
+  } catch { /* In-memory fallback. */ }
   for (const listener of listeners) listener();
 }
 export function subscribeTheme(listener: () => void): () => void {

@@ -1,4 +1,4 @@
-import { lang, languageControl, t } from './i18n';
+import { docsHref, lang, languageControl, t } from './i18n';
 import { themeControl } from './theme';
 
 /** Pages of the examples site (one HTML page per family, demos in src/demos/<id>/). */
@@ -82,34 +82,51 @@ export const FAMILIES: Family[] = FAMILIES_EN.map((f) => {
   return text ? { id: f.id, title: text[0], description: text[1] } : f;
 });
 
-/** Top navigation shared by the gallery and the family pages. */
+/** Docs page of each family (chart manual, or the guide page for the feature demos). */
+export const DOC_PAGES: Record<string, string> = {
+  scientific3d: 'charts/scientific-3d', line: 'charts/line', bar: 'charts/bar', scatter: 'charts/scatter',
+  candlestick: 'charts/candlestick', heatmap: 'charts/heatmap', box: 'charts/box-violin', pie: 'charts/pie',
+  combo: 'charts/combo', business: 'charts/radar', hierarchy: 'charts/treemap-sunburst', graph: 'charts/graph-3d',
+  embeddings: 'charts/embeddings', scene: 'charts/scene-3d', sparklines: 'charts/sparkline',
+  animation: 'guide/animation', export: 'guide/export', react: 'guide/react', vue: 'guide/vue',
+};
+
+function navLink(href: string, text: string, current = false): HTMLAnchorElement {
+  const a = document.createElement('a');
+  a.href = href;
+  a.textContent = text;
+  if (current) a.setAttribute('aria-current', 'page');
+  return a;
+}
+
+/**
+ * Site header, the same sections as the docs nav: guide, chart manuals, API, examples,
+ * benchmarks. On the gallery and the family pages a second row switches between examples.
+ */
 export function renderHeader(active: string): HTMLElement {
   const header = document.createElement('header');
   header.className = 'site-header';
-  const brand = document.createElement('a');
-  brand.href = './index.html';
+  const brand = navLink('./index.html', 'Charturbo');
   brand.className = 'brand';
-  brand.textContent = 'Charturbo';
   brand.setAttribute('aria-label', t('site.home'));
   const nav = document.createElement('nav');
   nav.setAttribute('aria-label', t('site.mainNav'));
-  const gallery = document.createElement('a');
-  gallery.href = './gallery.html';
-  gallery.textContent = t('site.examples');
-  if (active === 'gallery') gallery.setAttribute('aria-current', 'page');
-  nav.appendChild(gallery);
-  const benchmarks = document.createElement('a');
-  benchmarks.href = './benchmarks.html';
-  benchmarks.textContent = t('site.benchmarks');
-  if (active === 'benchmarks') benchmarks.setAttribute('aria-current', 'page');
-  nav.appendChild(benchmarks);
-  for (const f of FAMILIES) {
-    const a = document.createElement('a');
-    a.href = `./${f.id}.html`;
-    a.textContent = f.title.split(' · ')[0];
-    if (f.id === active) a.setAttribute('aria-current', 'page');
-    nav.appendChild(a);
-  }
+  const examples = active !== 'benchmarks';
+  nav.append(
+    navLink(docsHref('guide/getting-started'), t('site.guide')),
+    navLink(docsHref('charts/line'), t('site.charts')),
+    navLink(docsHref('api/index.html'), t('site.api')),
+    navLink('./gallery.html', t('site.examples'), examples),
+    navLink('./benchmarks.html', t('site.benchmarks'), !examples),
+    navLink('https://github.com/jparkk0517/Charturbo', 'GitHub ↗'),
+  );
   header.append(brand, nav, themeControl(), languageControl());
+  if (examples) {
+    const tabs = header.appendChild(document.createElement('nav'));
+    tabs.className = 'site-tabs';
+    tabs.setAttribute('aria-label', t('site.familyNav'));
+    tabs.append(navLink('./gallery.html', t('site.all'), active === 'gallery'));
+    for (const f of FAMILIES) tabs.append(navLink(`./${f.id}.html`, f.title.split(' · ')[0], f.id === active));
+  }
   return header;
 }

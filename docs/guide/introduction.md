@@ -2,7 +2,7 @@
 
 Charturbo is a charting library for the web that draws on the GPU. Data processing runs in Rust compiled to WebAssembly, rendering uses WebGPU with an automatic WebGL2 fallback, and the DOM only carries text such as titles, legends, axis labels and tooltips. It is built for charts that must stay interactive with one to ten million points.
 
-[Live examples](https://jparkk0517.github.io/Charturbo/)
+[Live examples](https://jparkk0517.github.io/Charturbo/gallery.html)
 
 ## Architecture
 

@@ -1,0 +1,18 @@
+/* Brand colors of the examples site (web/examples/src/style.css: --accent #3987e5, dark --bg #05070d)
+   so the docs and the examples read as one site. Light values keep 4.5:1 text contrast on white. */
+:root {
+  --vp-c-brand-1: #2470c9;
+  --vp-c-brand-2: #2a6fc9;
+  --vp-c-brand-3: #2563c0;
+  --vp-c-brand-soft: rgba(57, 135, 229, 0.14);
+}
+.dark {
+  --vp-c-bg: #05070d;
+  --vp-c-bg-alt: #090b14;
+  --vp-c-bg-elv: #0d111b;
+  --vp-c-bg-soft: #111827;
+  --vp-c-brand-1: #6aa8f0;
+  --vp-c-brand-2: #3987e5;
+  --vp-c-brand-3: #2563c0;
+  --vp-c-brand-soft: rgba(57, 135, 229, 0.18);
+}
