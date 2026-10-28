@@ -230,8 +230,8 @@ export default defineConfig({
   base: process.env.DOCS_BASE ?? '/',
   cleanUrls: true,
   lastUpdated: true,
-  // Bench raw output and the agent hand-off note are not pages
-  srcExclude: ['bench/**', 'HANDOFF.md'],
+  // Bench raw output, the agent hand-off note and the ECharts parity checklist are not pages
+  srcExclude: ['bench/**', 'HANDOFF.md', 'ECHARTS-PARITY.md'],
   head: [['meta', { name: 'theme-color', content: '#080b12' }]],
   locales: {
     root: {

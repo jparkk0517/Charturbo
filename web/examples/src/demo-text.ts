@@ -29,6 +29,14 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '50만 샘플 히스토그램', description: 'Rust에서 O(n) 구간 분할(기본값: Freedman–Diaconis 규칙).' },
     zh: { title: '50 万样本直方图', description: '在 Rust 中进行 O(n) 分箱（默认采用 Freedman–Diaconis 规则）。' },
   },
+  'bar/04-background': {
+    ko: { title: '배경 트랙이 있는 막대', description: 'background: 값 축 전체 길이에 걸친 옅은 트랙을 막대마다 뒤에 그립니다(그룹형은 막대 칸마다, 누적형은 카테고리마다 하나).' },
+    zh: { title: '带背景轨道的柱状图', description: 'background：在每根柱子后方绘制贯穿整个数值轴的浅色轨道（分组时每个柱位一条，堆叠时每个类别一条）。' },
+  },
+  'bar/05-label-rotation': {
+    ko: { title: '라벨 회전', description: '막대 값은 막대 안에서 90° 회전하고, 긴 카테고리 이름은 x축에서 회전하며 회전된 크기 기준으로 솎아 냅니다.' },
+    zh: { title: '标签旋转', description: '柱值在柱内旋转 90°；较长的类别名称在 x 轴上旋转，并按旋转后的占位进行抽稀。' },
+  },
   'box/01-boxplot': {
     ko: { title: '상자 그림', description: 'Rust에서 정렬 없이 선택 알고리즘으로 사분위수를 구하고, Tukey 수염, 샘플링된 이상값, 평균 마커를 표시합니다.' },
     zh: { title: '箱线图', description: '在 Rust 中通过选择算法（无需排序）计算四分位数，并显示 Tukey 须线、抽样异常值和均值标记。' },
@@ -109,6 +117,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '생키 에너지 흐름', description: 'Rust에서 d3-sankey 방식 레이아웃(열 배정, 완화, 충돌 해소)을 계산합니다. 호버하면 연결된 흐름을 강조합니다.' },
     zh: { title: '桑基图能量流', description: '在 Rust 中实现 d3-sankey 风格布局（列分配、松弛、碰撞消解）；悬停高亮相连的流。' },
   },
+  'hierarchy/04-sankey-vertical': {
+    ko: { title: '그라데이션 링크와 단계 스타일의 세로 생키', description: 'orient: vertical은 흐름을 위에서 아래로 그립니다. 리본은 출발 색에서 도착 색으로 섞이고, levels가 열의 색과 링크 불투명도를 정합니다.' },
+    zh: { title: '带渐变连线和层级样式的纵向桑基图', description: 'orient: vertical 让流向自上而下；连线由源节点颜色渐变到目标节点颜色；levels 设置各列的颜色和连线不透明度。' },
+  },
   'line/01-million': {
     ko: { title: '100만 포인트 선', description: 'Rust의 픽셀 열 단위 M4 데시메이션으로 모든 스파이크를 유지합니다. 휠 = 확대/축소, 드래그 = 이동, 더블클릭 = 초기화.' },
     zh: { title: '100 万点折线图', description: 'Rust 中按像素列进行 M4 抽稀，保留每个尖峰。滚轮 = 缩放，拖动 = 平移，双击 = 重置。' },
@@ -149,6 +161,14 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '임펄스 · 독립 이벤트 줄기', description: '사용자 지정 기준선에서 뻗는 양수, 음수, 길이 0인 줄기입니다. 끝 마커는 선택 사항이며, 선 데시메이션이나 이벤트 사이 연결은 없습니다.' },
     zh: { title: '脉冲图 · 独立事件线', description: '从自定义基线出发的正向、负向和零长度线段。端点标记可选；不进行折线抽稀，事件之间也不相连。' },
   },
+  'line/11-legend-paged': {
+    ko: { title: '범례 위치와 페이지', description: 'legend.position은 범례를 원하는 쪽에 둡니다. 한 줄을 넘는 항목은 ‹ › 페이지로 넘깁니다(overflow: "wrap"은 기존 줄바꿈 유지).' },
+    zh: { title: '图例位置与分页', description: 'legend.position 可将图例放在任意一侧；超出一行的条目通过 ‹ › 翻页（overflow: "wrap" 保留原来的换行方式）。' },
+  },
+  'line/12-pieces': {
+    ko: { title: '구간별 색 (대기질)', description: 'pieces는 값 구간에 따라 선 색을 바꿉니다(ECharts visualMap pieces). 어떤 줌에서도 50 / 100 / 150 / 200 / 300을 지나는 지점에서 정확히 색이 바뀌고, 마커와 툴팁 견본도 따라갑니다.' },
+    zh: { title: '分段着色（空气质量）', description: 'pieces 按数值区间为折线着色（ECharts visualMap pieces）：无论缩放到何种程度，都会在穿过 50 / 100 / 150 / 200 / 300 的位置准确变色，标记点和提示框色块随之变化。' },
+  },
   'pie/01-pie': {
     ko: { title: '바깥 레이블이 있는 파이', description: '정렬, 작은 조각을 "기타" 하나로 묶기, 각도, 지시선 배치를 Rust에서 계산합니다. 호버하면 조각이 튀어나옵니다.' },
     zh: { title: '带外部标签的饼图', description: '排序、将小扇区合并为"其他"、角度和引导线布局均在 Rust 中计算。悬停时扇区会向外拉出。' },
@@ -156,6 +176,22 @@ const DEMO_TEXT: Record<string, Entry> = {
   'pie/02-donut': {
     ko: { title: '가운데 합계가 있는 도넛', description: '가운데 레이블은 보이는 항목의 합계나 호버한 조각을 표시합니다. 범례를 클릭하면 조각이 숨겨집니다.' },
     zh: { title: '中心显示总计的环形图', description: '中心标签显示可见部分的总计或当前悬停的扇区。点击图例可隐藏扇区。' },
+  },
+  'pie/03-rose': {
+    ko: { title: '나이팅게일 로즈', description: '각도는 같고 조각 넓이가 값에 비례합니다(r ∝ √값, 도넛 구멍 포함). 범례를 클릭하면 나머지 조각의 크기를 다시 맞춥니다.' },
+    zh: { title: '南丁格尔玫瑰图', description: '各扇区角度相同，面积与数值成正比（r ∝ √数值，带环形内孔）。点击图例会重新缩放其余扇区。' },
+  },
+  'pie/04-half-donut': {
+    ko: { title: '반 도넛', description: 'endAngle로 위쪽 절반만 그립니다. 차트가 반원에 맞춰 배치되어 카드를 채웁니다.' },
+    zh: { title: '半环形图', description: 'endAngle 将绘制范围限制在上半部分；图表按半环取景，因而填满卡片。' },
+  },
+  'pie/05-rounded': {
+    ko: { title: '조각 간격이 있는 둥근 도넛', description: 'padAngle은 조각 사이에 각도 간격을 두고, cornerRadius는 모든 모서리를 CSS px 단위로 둥글게 합니다(얇은 조각에서는 모서리가 겹치지 않도록 줄어듭니다).' },
+    zh: { title: '带间隔角的圆角环形图', description: 'padAngle 在扇区之间留出角度间隔；cornerRadius 以 CSS px 为单位圆化每个角（在细扇区上会自动缩小，避免圆角交叠）。' },
+  },
+  'pie/06-nested': {
+    ko: { title: '중첩 링', description: '독립된 링 두 개: 퍼센트, 접기, 라벨을 링마다 계산합니다. "Direct"는 두 링에 모두 있어 색과 범례 항목을 하나로 공유합니다.' },
+    zh: { title: '嵌套环', description: '两个独立的环：百分比、折叠和标签按环分别计算。"Direct" 同时出现在两个环中，因此共享同一颜色和图例项。' },
   },
   'react/01-react': {
     ko: { title: 'React <CharturboChart>', description: 'data / options는 참조로 비교합니다. 메모이즈해 두면 값이 바뀔 때만 차트가 다시 렌더링됩니다.' },
@@ -168,6 +204,22 @@ const DEMO_TEXT: Record<string, Entry> = {
   'scatter/02-bubble': {
     ko: { title: '버블 차트', description: '포인트별 반지름(CSS px)과 배경색 테두리, 로그 x축.' },
     zh: { title: '气泡图', description: '逐点半径（CSS px），带背景色描边环；x 轴为对数刻度。' },
+  },
+  'scatter/03-symbols': {
+    ko: { title: '시리즈별 심볼', description: 'seriesSymbols: 원, 사각형, 마름모, 삼각형 점(셰이더 signed distance, 안티에일리어싱). 범례 견본도 같은 모양을 씁니다.' },
+    zh: { title: '按系列设置标记形状', description: 'seriesSymbols：圆形、方形、菱形和三角形数据点（着色器有向距离，抗锯齿）；图例色块随之变化。' },
+  },
+  'scatter/04-ripple': {
+    ko: { title: '파동 강조', description: '한 시리즈에 ripple(ECharts effectScatter): 점 셰이더에서 고리가 커지며 사라집니다. 파동이 보일 때만 프레임 루프가 돌고, 동작 줄이기 설정에서는 멈춥니다.' },
+    zh: { title: '涟漪高亮', description: '在一个系列上启用 ripple（ECharts effectScatter）：圆环在点着色器中扩散并淡出；仅在显示涟漪时运行帧循环（减少动态效果时保持静止）。' },
+  },
+  'scatter/05-jitter': {
+    ko: { title: '지터 스트립 플롯', description: 'jitter는 x가 같은 점을 흩뜨립니다(ggplot2 geom_jitter: 데이터 단위 균등 오프셋, 점마다 고정). 툴팁은 원래 값을 보여 줍니다.' },
+    zh: { title: '抖动条带图', description: 'jitter 将 x 相同的点散开（ggplot2 geom_jitter：以数据单位的均匀偏移，每个点固定）；提示框仍显示原始数值。' },
+  },
+  'scatter/06-trendline': {
+    ko: { title: '회귀 추세선', description: 'trendline은 시리즈마다 최소제곱으로 회귀하고(ECharts ecStat 선형 / 지수 / 로그 / 다항식) 보이는 x 범위에 그립니다. 범례에 수식과 R²가 표시되고, 줌·팬하면 곡선을 다시 그립니다.' },
+    zh: { title: '回归趋势线', description: 'trendline 按最小二乘法逐系列拟合（ECharts ecStat 线性 / 指数 / 对数 / 多项式），并在可见 x 范围内绘制；图例显示方程和 R²。缩放和平移时重新绘制曲线。' },
   },
   'scene/01-rigid-bodies': {
     ko: { title: '레이캐스트 선택이 가능한 강체 낙하', description: '물체는 회전 없이 출발하지만, 중심에서 벗어난 충돌로 회전하고 마찰로 구가 구릅니다. 상자는 방향이 있는 접촉 매니폴드를, 원기둥은 상자 모양 충돌체를 사용합니다. 클릭해 선택합니다. 드래그는 궤도 회전, Shift + 드래그는 이동, 휠은 확대/축소입니다.' },
