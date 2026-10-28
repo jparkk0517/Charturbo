@@ -205,11 +205,62 @@ impl Default for DatasetConfig {
     }
 }
 
+/// Undirected compressed sparse row index over `GraphDataset::edges`. Row `i` lists every
+/// incident edge of node `i` in edge insertion order; a self-loop appears once.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Adjacency {
+    /// `offsets[i]..offsets[i + 1]` is row `i` (length `node_count + 1`)
+    pub offsets: Vec<u32>,
+    /// Opposite endpoint of each incident edge
+    pub neighbors: Vec<u32>,
+    /// Index into `edges()` of each incident edge
+    pub edge_ids: Vec<u32>,
+}
+
+impl Adjacency {
+    fn build(node_count: usize, edges: &[EdgeData]) -> Self {
+        let mut offsets = vec![0u32; node_count + 1];
+        for e in edges {
+            offsets[e.source as usize + 1] += 1;
+            if e.target != e.source {
+                offsets[e.target as usize + 1] += 1;
+            }
+        }
+        for i in 0..node_count {
+            offsets[i + 1] += offsets[i];
+        }
+        let total = offsets[node_count] as usize;
+        let (mut neighbors, mut edge_ids) = (vec![0u32; total], vec![0u32; total]);
+        let mut cursor: Vec<u32> = offsets[..node_count].to_vec();
+        let mut put = |row: u32, neighbor: u32, edge: usize| {
+            let at = &mut cursor[row as usize];
+            neighbors[*at as usize] = neighbor;
+            edge_ids[*at as usize] = edge as u32;
+            *at += 1;
+        };
+        for (i, e) in edges.iter().enumerate() {
+            put(e.source, e.target, i);
+            if e.target != e.source {
+                put(e.target, e.source, i);
+            }
+        }
+        Self { offsets, neighbors, edge_ids }
+    }
+
+    /// Neighbors and edge ids of `node`.
+    pub fn row(&self, node: u32) -> (&[u32], &[u32]) {
+        let r = self.offsets[node as usize] as usize..self.offsets[node as usize + 1] as usize;
+        (&self.neighbors[r.clone()], &self.edge_ids[r])
+    }
+}
+
 /// Encapsulates the graph/embedding dataset and enforces integrity invariants.
 #[derive(Debug, Clone)]
 pub struct GraphDataset {
     nodes: Vec<NodeData>,
     edges: Vec<EdgeData>,
+    /// Built on first neighbor query; reset whenever the edge list changes
+    adjacency: std::sync::OnceLock<Adjacency>,
     selected_count: usize,
     embedding_dim: usize,
     normalized_embeddings: Vec<f32>,
@@ -239,6 +290,7 @@ impl GraphDataset {
         Self {
             nodes: Vec::new(),
             edges: Vec::new(),
+            adjacency: Default::default(),
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -257,6 +309,7 @@ impl GraphDataset {
         Ok(Self {
             nodes,
             edges,
+            adjacency: Default::default(),
             selected_count,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -348,6 +401,7 @@ impl GraphDataset {
         Ok(Self {
             nodes: node_vec,
             edges: edge_vec,
+            adjacency: Default::default(),
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -418,6 +472,7 @@ impl GraphDataset {
         Self {
             nodes,
             edges,
+            adjacency: Default::default(),
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -450,6 +505,11 @@ impl GraphDataset {
     #[inline]
     pub fn edges(&self) -> &[EdgeData] {
         &self.edges
+    }
+
+    /// Undirected CSR neighbor index, built lazily in O(V + E).
+    pub fn adjacency(&self) -> &Adjacency {
+        self.adjacency.get_or_init(|| Adjacency::build(self.nodes.len(), &self.edges))
     }
 
     #[inline]
@@ -513,6 +573,7 @@ impl GraphDataset {
             return Err("Edge references node index out of bounds");
         }
         self.edges.push(EdgeData::new(source, target, weight));
+        self.adjacency = Default::default();
         Ok(())
     }
 
@@ -615,19 +676,14 @@ impl GraphDataset {
                 break;
             }
             let mut next_frontier = Vec::new();
-            for edge in &self.edges {
-                let u = edge.source;
-                let v = edge.target;
-                let u_vis = visited[u as usize];
-                let v_vis = visited[v as usize];
-                if u_vis && !v_vis && frontier.contains(&u) {
-                    visited[v as usize] = true;
-                    next_frontier.push(v);
-                    all_selected.push(v);
-                } else if v_vis && !u_vis && frontier.contains(&v) {
-                    visited[u as usize] = true;
-                    next_frontier.push(u);
-                    all_selected.push(u);
+            let adjacency = self.adjacency.get_or_init(|| Adjacency::build(n, &self.edges));
+            for &u in &frontier {
+                for &v in adjacency.row(u).0 {
+                    if !visited[v as usize] {
+                        visited[v as usize] = true;
+                        next_frontier.push(v);
+                        all_selected.push(v);
+                    }
                 }
             }
             frontier = next_frontier;
@@ -668,14 +724,7 @@ impl GraphDataset {
         if (node_id as usize) >= self.nodes.len() {
             return Vec::new();
         }
-        let mut neighbors = Vec::new();
-        for edge in &self.edges {
-            if edge.source == node_id {
-                neighbors.push(edge.target);
-            } else if edge.target == node_id {
-                neighbors.push(edge.source);
-            }
-        }
+        let mut neighbors = self.adjacency().row(node_id).0.to_vec();
         neighbors.sort_unstable();
         neighbors.dedup();
         neighbors
@@ -686,10 +735,7 @@ impl GraphDataset {
         if (node_id as usize) >= self.nodes.len() {
             return 0;
         }
-        self.edges
-            .iter()
-            .filter(|e| e.source == node_id || e.target == node_id)
-            .count()
+        self.adjacency().row(node_id).0.len()
     }
 
     /// Updates the visual style (`color`, `mass`, `cluster_id`) of `node_id`.
@@ -726,13 +772,7 @@ impl GraphDataset {
             return vec![start_id];
         }
 
-        // Build adjacency list for fast BFS
-        let mut adj: Vec<Vec<u32>> = vec![Vec::new(); n];
-        for e in &self.edges {
-            adj[e.source as usize].push(e.target);
-            adj[e.target as usize].push(e.source);
-        }
-
+        let adjacency = self.adjacency.get_or_init(|| Adjacency::build(n, &self.edges));
         let mut parent: Vec<Option<u32>> = vec![None; n];
         let mut visited = vec![false; n];
         let mut queue = std::collections::VecDeque::new();
@@ -746,7 +786,7 @@ impl GraphDataset {
                 found = true;
                 break;
             }
-            for &next in &adj[curr as usize] {
+            for &next in adjacency.row(curr).0 {
                 if !visited[next as usize] {
                     visited[next as usize] = true;
                     parent[next as usize] = Some(curr);
@@ -1165,6 +1205,7 @@ impl GraphDataset {
         Ok(Self {
             nodes,
             edges,
+            adjacency: Default::default(),
             selected_count: 0,
             embedding_dim: dim,
             normalized_embeddings: normalized,
@@ -1466,5 +1507,88 @@ mod tests {
         // A freshly built dataset never reuses an old revision
         let other = GraphDataset::from_raw_buffers(&pos, None, None, None, &[], None).unwrap();
         assert_ne!(other.revision(), ds.revision());
+    }
+
+    /// Edge-scan references of the pre-CSR implementations: the index must match them exactly,
+    /// including multi-edges, self-loops and BFS tie order.
+    fn scan_neighbors(ds: &GraphDataset, id: u32) -> Vec<u32> {
+        let mut v: Vec<u32> = ds.edges().iter().filter_map(|e| if e.source() == id { Some(e.target()) } else if e.target() == id { Some(e.source()) } else { None }).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    fn scan_hops(ds: &GraphDataset, center: u32, hops: usize) -> Vec<u32> {
+        let mut visited = vec![false; ds.node_count()];
+        visited[center as usize] = true;
+        let (mut frontier, mut all) = (vec![center], vec![center]);
+        for _ in 0..hops {
+            let mut next = Vec::new();
+            for e in ds.edges() {
+                let (u, v) = (e.source(), e.target());
+                if visited[u as usize] && !visited[v as usize] && frontier.contains(&u) { visited[v as usize] = true; next.push(v); all.push(v); }
+                else if visited[v as usize] && !visited[u as usize] && frontier.contains(&v) { visited[u as usize] = true; next.push(u); all.push(u); }
+            }
+            frontier = next;
+        }
+        all.sort_unstable();
+        all
+    }
+
+    fn scan_path(ds: &GraphDataset, start: u32, end: u32) -> Vec<u32> {
+        let n = ds.node_count();
+        let mut adj: Vec<Vec<u32>> = vec![Vec::new(); n];
+        for e in ds.edges() { adj[e.source() as usize].push(e.target()); adj[e.target() as usize].push(e.source()); }
+        let mut parent = vec![None; n];
+        let mut visited = vec![false; n];
+        let mut queue = std::collections::VecDeque::from([start]);
+        visited[start as usize] = true;
+        while let Some(c) = queue.pop_front() {
+            if c == end { break; }
+            for &x in &adj[c as usize] { if !visited[x as usize] { visited[x as usize] = true; parent[x as usize] = Some(c); queue.push_back(x); } }
+        }
+        if start != end && parent[end as usize].is_none() { return Vec::new(); }
+        let mut path = vec![end];
+        while *path.last().unwrap() != start { path.push(parent[*path.last().unwrap() as usize].unwrap()); }
+        path.reverse();
+        path
+    }
+
+    fn messy_graph() -> GraphDataset {
+        // Sparse random edges plus duplicates and self-loops; node 59 stays isolated.
+        let mut rng = DeterministicRng::new(7);
+        let mut ds = GraphDataset::generate_seeded(&DatasetConfig { node_count: 60, edge_count: 0, ..Default::default() });
+        for _ in 0..90 { let (a, b) = (rng.next_u32() % 59, rng.next_u32() % 59); ds.add_edge(a, b, 1.0).unwrap(); }
+        for (a, b) in [(3, 3), (4, 5), (4, 5), (5, 4)] { ds.add_edge(a, b, 1.0).unwrap(); }
+        ds
+    }
+
+    #[test]
+    fn csr_adjacency_lists_each_incident_edge_in_insertion_order() {
+        let ds = GraphDataset::new(
+            (0..4).map(|i| NodeData::new(i, Vec3::ZERO, 0, 1.0, [1.0; 4])).collect(),
+            vec![EdgeData::new(0, 1, 1.0), EdgeData::new(2, 0, 1.0), EdgeData::new(1, 1, 1.0), EdgeData::new(0, 1, 1.0)],
+        ).unwrap();
+        let a = ds.adjacency();
+        assert_eq!(a.offsets, vec![0, 3, 6, 7, 7]);
+        // Self-loops appear once; undirected edges in both endpoint rows.
+        assert_eq!(a.neighbors, vec![1, 2, 1, 0, 1, 0, 0]);
+        assert_eq!(a.edge_ids, vec![0, 1, 3, 0, 2, 3, 1]);
+        assert_eq!(a.row(1), (&[0, 1, 0][..], &[0, 2, 3][..]));
+    }
+
+    #[test]
+    fn csr_queries_match_edge_scans_and_follow_new_edges() {
+        let mut ds = messy_graph();
+        for id in 0..60 {
+            assert_eq!(ds.neighbors_of(id), scan_neighbors(&ds, id), "neighbors {id}");
+            assert_eq!(ds.degree_of(id), ds.edges().iter().filter(|e| e.source() == id || e.target() == id).count(), "degree {id}");
+            for hops in 0..4 { assert_eq!(ds.clone().select_neighbors(id, hops), scan_hops(&ds, id, hops), "hops {id} {hops}"); }
+            for end in [0, 17, 42, 59] { assert_eq!(ds.clone().select_shortest_path(id, end), scan_path(&ds, id, end), "path {id}->{end}"); }
+        }
+        assert!(ds.neighbors_of(59).is_empty());
+        ds.add_edge(59, 0, 1.0).unwrap();
+        assert_eq!(ds.neighbors_of(59), vec![0]);
+        assert_eq!(ds.select_shortest_path(59, 0), vec![59, 0]);
     }
 }
