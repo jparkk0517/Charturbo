@@ -4,10 +4,10 @@
  * failures are shown in the card and logged with `console.error`.
  */
 // First: sets <html lang> (the library's default locale) before anything else runs.
-import { t, setPageMeta } from './i18n';
+import { docsHref, t, setPageMeta } from './i18n';
 import './style.css';
 import { demoText } from './demo-text';
-import { FAMILIES, renderHeader } from './families';
+import { DOC_PAGES, FAMILIES, renderHeader } from './families';
 import { highlight } from './highlight';
 import { Charturbo } from 'charturbo';
 import { bindTheme } from './theme';
@@ -42,6 +42,13 @@ async function main() {
   intro.innerHTML = `<h1></h1><p></p>`;
   intro.querySelector('h1')!.textContent = family?.title ?? familyId;
   intro.querySelector('p')!.textContent = family?.description ?? '';
+  if (DOC_PAGES[familyId]) {
+    const links = intro.appendChild(document.createElement('p'));
+    links.className = 'intro-links';
+    const docs = links.appendChild(document.createElement('a'));
+    docs.href = docsHref(DOC_PAGES[familyId]);
+    docs.textContent = t('page.docs');
+  }
   mainEl.appendChild(intro);
   if (familyId === 'scene') {
     const { mountSceneDesignControls } = await import('./scene-design');

@@ -143,10 +143,10 @@ function sidebar(lang: Lang, groups: Group[]): DefaultTheme.SidebarItem[] {
   }));
 }
 
-const UI: Record<Lang, { guide: string; charts: string; api: string; examples: string; contributing: string }> = {
-  en: { guide: 'Guide', charts: 'Charts', api: 'API', examples: 'Examples', contributing: 'Contributing' },
-  ko: { guide: '가이드', charts: '차트', api: 'API', examples: '예제', contributing: '기여하기' },
-  zh: { guide: '指南', charts: '图表', api: 'API', examples: '示例', contributing: '参与贡献' },
+const UI: Record<Lang, { guide: string; charts: string; api: string; examples: string; benchmarks: string; contributing: string }> = {
+  en: { guide: 'Guide', charts: 'Charts', api: 'API', examples: 'Examples', benchmarks: 'Benchmarks', contributing: 'Contributing' },
+  ko: { guide: '가이드', charts: '차트', api: 'API', examples: '예제', benchmarks: '벤치마크', contributing: '기여하기' },
+  zh: { guide: '指南', charts: '图表', api: 'API', examples: '示例', benchmarks: '基准测试', contributing: '参与贡献' },
 };
 
 /** Default-theme labels that VitePress ships only in English */
@@ -202,8 +202,20 @@ const SEARCH_TEXT: Record<Exclude<Lang, 'en'>, DefaultTheme.LocalSearchOptions['
   },
 };
 
-// The examples site is deployed at the Pages root and this site under /docs/ (pages.yml)
-const EXAMPLES_URL = 'https://jparkk0517.github.io/Charturbo/';
+// One site: the examples (home, gallery, benchmarks) at the root and these docs under docs/
+// (pages.yml; locally `npm run site:dev` in web/ proxies /docs/ to this dev server).
+const BASE = process.env.DOCS_BASE ?? '/docs/';
+const SITE_ROOT = BASE.replace(/docs\/$/, '');
+// Pages link the examples by their published URL, which also works on GitHub; the site build
+// rewrites those links to SITE_ROOT so they stay on the same host (local dev, previews).
+const PUBLISHED_SITE = 'https://jparkk0517.github.io/Charturbo/';
+
+/** Examples-site URL for `rest` (e.g. `line.html#06-band`), keeping the page language. */
+function siteHref(rest: string, lang: Lang, root = SITE_ROOT): string {
+  const [path, hash] = rest.split('#');
+  return `${root}${path}?lang=${lang}${hash ? `#${hash}` : ''}`;
+}
+const langOf = (relativePath: string): Lang => (relativePath.startsWith('ko/') ? 'ko' : relativePath.startsWith('zh/') ? 'zh' : 'en');
 
 function themeConfig(lang: Lang): DefaultTheme.Config {
   const p = prefix(lang);
@@ -214,8 +226,11 @@ function themeConfig(lang: Lang): DefaultTheme.Config {
       { text: ui.charts, link: `${p}charts/line`, activeMatch: `^${p}charts/` },
       // TypeDoc output (npm run docs) is copied verbatim from docs/public/api/; English only
       { text: ui.api, link: '/api/index.html', target: '_self' },
-      { text: ui.examples, link: EXAMPLES_URL },
+      { component: 'SiteLink', props: { text: ui.examples, path: 'gallery.html' } },
+      { component: 'SiteLink', props: { text: ui.benchmarks, path: 'benchmarks.html' } },
     ],
+    // The logo leads to the site home, not the docs home
+    logoLink: { link: siteHref('index.html', lang), target: '_self' },
     sidebar: {
       [`${p}guide/`]: sidebar(lang, GUIDE),
       [`${p}charts/`]: sidebar(lang, CHARTS),
@@ -227,12 +242,37 @@ function themeConfig(lang: Lang): DefaultTheme.Config {
 
 export default defineConfig({
   title: 'Charturbo',
-  base: process.env.DOCS_BASE ?? '/',
+  base: BASE,
+  // Same default as the examples site
+  appearance: 'dark',
   cleanUrls: true,
   lastUpdated: true,
   // Bench raw output, the agent hand-off note and the ECharts parity checklist are not pages
   srcExclude: ['bench/**', 'HANDOFF.md', 'ECHARTS-PARITY.md'],
   head: [['meta', { name: 'theme-color', content: '#080b12' }]],
+  markdown: {
+    config(md) {
+      const linkOpen = md.renderer.rules.link_open!;
+      md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+        const href = tokens[idx].attrGet('href');
+        if (!href?.startsWith(PUBLISHED_SITE)) return linkOpen(tokens, idx, options, env, self);
+        // A full page load: the router would look for a docs page at that path
+        tokens[idx].attrSet('href', siteHref(href.slice(PUBLISHED_SITE.length), langOf(env.relativePath)));
+        tokens[idx].attrSet('target', '_self');
+        return self.renderToken(tokens, idx, options);
+      };
+    },
+  },
+  transformPageData(page) {
+    // Hero buttons prefix every `/...` link with the docs base, so these are relative: one `../`
+    // per directory of the page URL, plus one for docs/ itself
+    const up = '../'.repeat(page.relativePath.split('/').length);
+    for (const action of page.frontmatter.hero?.actions ?? []) {
+      if (!action.link?.startsWith(PUBLISHED_SITE)) continue;
+      action.link = siteHref(action.link.slice(PUBLISHED_SITE.length), langOf(page.relativePath), up);
+      action.target = '_self';
+    }
+  },
   locales: {
     root: {
       label: 'English',

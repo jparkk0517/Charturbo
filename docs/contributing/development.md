@@ -33,6 +33,7 @@ Run `npm pack --dry-run` before publishing to confirm that only `dist-lib/*`, `R
 cd web
 npm run docs            # TypeDoc → docs/public/api/ (src/index.ts, react, vue entries)
 npm run examples:dev    # examples site dev server (web/examples/, one page per chart family + source)
+npm run site:dev        # the whole site on http://localhost:5310/: examples + these docs under /docs/ (add `-- --host` for a phone)
 npm run examples:build  # static build → web/examples-dist/
 ```
 
@@ -41,7 +42,7 @@ This documentation site is a [VitePress](https://vitepress.dev/) project in `doc
 ```bash
 cd docs
 npm install
-npm run dev             # VitePress dev server
+npm run dev             # VitePress dev server, docs only (http://localhost:5173/docs/)
 npm run build           # static build → docs/.vitepress/dist/
 npm run preview         # preview the build output
 npm run check           # locale parity check: every page must exist in en / ko / zh

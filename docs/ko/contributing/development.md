@@ -33,6 +33,7 @@ npm publish --access public
 cd web
 npm run docs            # TypeDoc → docs/public/api/ (src/index.ts, react, vue 엔트리)
 npm run examples:dev    # 예제 사이트 개발 서버 (web/examples/, 차트 종류별 페이지 + 소스)
+npm run site:dev        # 사이트 전체를 http://localhost:5310/에서: 예제 + /docs/ 아래 이 문서 (폰에서 보려면 `-- --host`)
 npm run examples:build  # 정적 빌드 → web/examples-dist/
 ```
 
@@ -41,7 +42,7 @@ npm run examples:build  # 정적 빌드 → web/examples-dist/
 ```bash
 cd docs
 npm install
-npm run dev             # VitePress 개발 서버
+npm run dev             # VitePress 개발 서버, 문서만 (http://localhost:5173/docs/)
 npm run build           # 정적 빌드 → docs/.vitepress/dist/
 npm run preview         # 빌드 결과 미리 보기
 npm run check           # 로캘 대응 검사: 모든 페이지가 en / ko / zh에 모두 있어야 함

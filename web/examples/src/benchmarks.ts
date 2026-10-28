@@ -1,5 +1,5 @@
 // First: sets <html lang> before the chart engine loads.
-import { lang, setPageMeta, t } from './i18n';
+import { docsHref, lang, setPageMeta, t } from './i18n';
 import { MESSAGES, type MessageKey } from './messages';
 import './style.css';
 import './benchmarks.css';
@@ -35,7 +35,7 @@ main.className = 'bench';
 setPageMeta(t('bench.title'), t('bench.description'));
 const esc = (text: string) => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 main.innerHTML = `
-  <section class="intro"><p class="eyebrow">${esc(t('bench.eyebrow'))}</p><h1>${t('bench.headingHtml')}</h1><p>${esc(t('bench.intro'))}</p><p class="links"><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/${lang === 'en' ? '' : `${lang}/`}contributing/benchmarks.md">${esc(t('bench.methodology'))}</a><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/bench/results.json">${esc(t('bench.raw'))}</a><a href="https://github.com/jparkk0517/Charturbo">GitHub ↗</a></p></section>
+  <section class="intro"><p class="eyebrow">${esc(t('bench.eyebrow'))}</p><h1>${t('bench.headingHtml')}</h1><p>${esc(t('bench.intro'))}</p><p class="links"><a href="${docsHref('contributing/benchmarks')}">${esc(t('bench.methodology'))}</a><a href="https://github.com/jparkk0517/Charturbo/blob/main/docs/bench/results.json">${esc(t('bench.raw'))}</a><a href="https://github.com/jparkk0517/Charturbo">GitHub ↗</a></p></section>
   <nav class="scenario-nav" aria-label="${esc(t('bench.scenarioNav'))}"></nav>
   <p id="status" role="status" aria-live="polite">${esc(t('bench.loading'))}</p>
   <div id="scenarios"></div>

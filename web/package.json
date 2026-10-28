@@ -152,6 +152,7 @@
     "test:visual": "node e2e/run-visual.mjs",
     "docs": "typedoc",
     "examples:dev": "vite --config examples/vite.config.ts",
+    "site:dev": "node examples/scripts/site-dev.mjs",
     "examples:build": "tsc -p examples/tsconfig.json && vite build --config examples/vite.config.ts",
     "examples:preview": "vite preview --config examples/vite.config.ts",
     "examples:shots": "npm run examples:build && node examples/scripts/capture-screens.mjs",

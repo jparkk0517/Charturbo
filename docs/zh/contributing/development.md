@@ -33,6 +33,7 @@ npm publish --access public
 cd web
 npm run docs            # TypeDoc → docs/public/api/（src/index.ts、react、vue 入口）
 npm run examples:dev    # 示例站点开发服务器（web/examples/，按图表类型分页 + 源码）
+npm run site:dev        # 整个站点 http://localhost:5310/：示例 + /docs/ 下的本文档（在手机上查看请加 `-- --host`）
 npm run examples:build  # 静态构建 → web/examples-dist/
 ```
 
@@ -41,7 +42,7 @@ npm run examples:build  # 静态构建 → web/examples-dist/
 ```bash
 cd docs
 npm install
-npm run dev             # VitePress 开发服务器
+npm run dev             # VitePress 开发服务器，仅文档（http://localhost:5173/docs/）
 npm run build           # 静态构建 → docs/.vitepress/dist/
 npm run preview         # 预览构建结果
 npm run check           # 语言对应检查：每个页面都必须同时存在于 en / ko / zh

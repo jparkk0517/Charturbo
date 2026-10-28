@@ -14,7 +14,7 @@ hero:
       link: /ko/charts/line
     - theme: alt
       text: 라이브 예제
-      link: https://jparkk0517.github.io/Charturbo/
+      link: https://jparkk0517.github.io/Charturbo/gallery.html
 
 features:
   - title: 큰 데이터에서 빠름

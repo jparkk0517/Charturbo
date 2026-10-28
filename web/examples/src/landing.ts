@@ -1,9 +1,11 @@
 // First: sets <html lang> (the library's default locale) before anything else runs.
-import { applyTranslations, languageControl, t } from './i18n';
+import { applyTranslations, docsHref, languageControl, t } from './i18n';
 import { createDemoPlayback } from './demo-playback';
 
 // The markup is English (also the no-JS fallback); translate it and add the language switcher.
 applyTranslations();
+// Docs links follow the site language (the docs keep each language under its own path)
+for (const a of document.querySelectorAll<HTMLAnchorElement>('a[data-docs]')) a.href = docsHref(a.dataset.docs!);
 document.querySelector('header.nav')?.append(languageControl());
 
 const host = document.querySelector<HTMLElement>('[data-live-demo]')!;
