@@ -301,6 +301,32 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // Bar values rotated 90° from the base; long category names rotated 40° on the x axis
+    name: 'bar-label-rotation',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const categories = ['Northern Europe', 'Southern Europe', 'North America', 'South America', 'East Asia', 'Oceania'];
+        sdk.renderGroupedBarChart(
+          {
+            categories,
+            series: [
+              { name: 'Forest', values: [320, 332, 301, 390, 330, 280], color: firstColor(ctx) },
+              { name: 'Desert', values: [150, 232, 201, 190, 330, 360] },
+            ],
+          },
+          {
+            mode: 'grouped',
+            title: 'Label rotation',
+            padding: { ...PADDING, bottom: 84 },
+            legend: false,
+            labels: { rotate: 90, position: 'insideBase', format: (v, c) => `${v} ${c.seriesName}` },
+            axes: { x: { labelRotate: 40, format: (i) => categories[i] ?? '' } },
+          }
+        );
+      }),
+  },
+  {
     name: 'scatter',
     theme: 'dark',
     render: (ctx) =>

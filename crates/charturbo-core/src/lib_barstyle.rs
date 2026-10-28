@@ -52,6 +52,25 @@ impl WasmCharturboEngine {
         self.inner.chart_mut().is_some_and(|c| c.set_bar_labels(opts, sizes))
     }
 
+    /// `set_bar_labels` with one text box per label: `widths` / `heights` CSS px per bar id (NaN
+    /// = no label). Rotated labels send their axis-aligned rotated boxes, so the anchors, fit
+    /// tests and collision hiding use the rotated footprint.
+    pub fn set_bar_label_boxes(&mut self, mode: u8, position: u8, widths: &[f32], heights: &[f32], pad_px: f32) -> bool {
+        let opts = BarLabelOptions {
+            mode: BarLabelMode::from_u8(mode),
+            position: BarLabelPosition::from_u8(position),
+            pad_px: if pad_px.is_finite() { pad_px } else { 4.0 },
+        };
+        let sizes = widths.iter().enumerate().map(|(i, &w)| [w, heights.get(i).copied().unwrap_or(f32::NAN)]).collect();
+        self.inner.chart_mut().is_some_and(|c| c.set_bar_labels(opts, sizes))
+    }
+
+    /// Rotation (degrees) of the category tick labels of the current vertical 2D bar / waterfall
+    /// chart: category ticks are thinned by the rotated label footprint. False otherwise.
+    pub fn set_bar_axis_label_rotation(&mut self, deg: f32) -> bool {
+        self.inner.chart_mut().is_some_and(|c| c.set_bar_axis_label_rotation(deg))
+    }
+
     /// `[revision, count, (bar id, center_x, center_y, inside) * count]` of the shown data labels
     /// (CSS px from the canvas top-left; inside 1 = over the bar fill), empty without a bar chart.
     pub fn chart_bar_labels(&self) -> Vec<f64> {

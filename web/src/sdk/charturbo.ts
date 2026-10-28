@@ -69,7 +69,7 @@ export type { ChartSvgOptions } from './chart-svg';
 import { readRenderStats, type RenderStatsBackend, type CharturboRenderStats } from './chart-stats';
 export type { RenderStatsBackend, CharturboRenderStats } from './chart-stats';
 import { canCopyImage, canvasToPdf, copyPngToClipboard } from './chart-pdf';
-import { thinCenteredLabels } from './chart-labels';
+import { labelRotation, rotatedLabelReserve, thinCenteredLabels, thinRotatedLabels, X_LABEL_LINE_PX } from './chart-labels';
 import {
   buildTimeZoneTable,
   intlTimeZone,
@@ -297,6 +297,7 @@ import {
   resolveBarLabels,
   sendBarLabels,
   sendBarStyle,
+  tallestLabel,
   widestLabel,
   type BarErrorBarStyle,
   type BarErrorValue,
@@ -613,6 +614,13 @@ export interface ChartAxisOptions {
    * compiled once for the chart locale (time axes: the spec formats epoch ms as a number).
    */
   format?: ChartFormatSpec | ((value: number, granularity?: ChartTimeGranularity) => string);
+  /**
+   * Tick label rotation in degrees, positive = anticlockwise like ECharts `axisLabel.rotate`
+   * (-90..90; default 0). x axes only: rotated labels end at their tick (negative angles start
+   * there), are thinned by their rotated footprint, and grow the derived bottom padding (not an
+   * explicit `padding.bottom`)
+   */
+  labelRotate?: number;
 }
 
 /** x axis of a line chart. */
@@ -1872,6 +1880,10 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   ): boolean;
   /** Bar data labels: mode 0 off / 1 show / 2 auto, position code, text width per bar id (NaN = none), height, pad */
   set_bar_labels?(mode: number, position: number, widths: Float32Array, height: number, padPx: number): boolean;
+  /** `set_bar_labels` with one text box (`widths[id]` x `heights[id]`) per label */
+  set_bar_label_boxes?(mode: number, position: number, widths: Float32Array, heights: Float32Array, padPx: number): boolean;
+  /** Category tick label rotation (degrees) of a vertical 2D bar / waterfall chart */
+  set_bar_axis_label_rotation?(deg: number): boolean;
   /** `[revision, count, (bar id, x, y, inside) * count]` (CSS px, text box centers) */
   chart_bar_labels?(): Float64Array;
   /** Releases the WASM engine (wasm-bindgen) */
@@ -2020,6 +2032,8 @@ interface ChartPresentation {
   zoomY?: boolean;
   /** `granularity`: engine time-tick code (0 = not a time tick) */
   formatX: (value: number, granularity?: number) => string;
+  /** Category x axes: ticks are `0..count-1` (rotated labels size the bottom padding up front) */
+  xCategoryCount?: number;
   /** Author description for assistive tech (see chart-a11y.ts) */
   description?: string;
   /** Chart-level locale override (line `locale` option); else the SDK locale */
@@ -2389,6 +2403,10 @@ export class Charturbo {
   /** Range selector of the active 2D line / area chart (`null` = none) */
   private chartNavigator: { height: number } | null = null;
   private chartPadding: Required<ChartPaddingOptions> = { top: 16, right: 16, bottom: 32, left: 56 };
+  /** Room (CSS px) below the upright x label row that rotated x labels take */
+  private xLabelReserve = 0;
+  /** The bottom padding is derived (not given) and grows with the laid-out rotated x labels */
+  private xLabelReserveGrows = false;
   private chartHover: ChartHoverStyle | undefined;
   private chartGrid: ChartGridStyle | undefined;
   private chartGridShown = true;
@@ -5772,7 +5790,18 @@ export class Charturbo {
     const column = side === 'left' || side === 'right' ? legendColumnWidth(this.legendNames()) + LEGEND_SIDE_GAP_PX : 0;
     const top = 12 + (p.title ? 24 : 0) + (side === 'top' ? LEGEND_ROW_PX : 0);
     const left = (p.yAxis.show === false ? 12 : 56) + (p.yAxis.title ? 20 : 0) + (side === 'left' ? column : 0);
-    const bottom = (p.xAxis.show === false ? 12 : 30) + (p.xAxis.title ? 20 : 0) + (side === 'bottom' ? LEGEND_ROW_PX : 0);
+    // Rotated x labels hang below the upright row: room for the known category labels (other
+    // axes grow it once their ticks are laid out, see updateChartOverlay)
+    const rotate = p.xAxis.show === false ? 0 : labelRotation(p.xAxis.labelRotate);
+    const font = this.theme.fontFamily;
+    const categories = rotate ? Array.from({ length: p.xCategoryCount ?? 0 }, (_, i) => p.formatX(i)) : [];
+    this.xLabelReserve = rotatedLabelReserve(
+      categories.map((c): [number, number] => [measureLabel(c, font), X_LABEL_LINE_PX]),
+      rotate
+    );
+    this.xLabelReserveGrows = rotate !== 0 && overrides?.bottom === undefined;
+    const bottom =
+      (p.xAxis.show === false ? 12 : 30) + this.xLabelReserve + (p.xAxis.title ? 20 : 0) + (side === 'bottom' ? LEGEND_ROW_PX : 0);
     const right = (p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16) + (side === 'right' ? column : 0);
     const pad = { top, right, bottom, left, ...overrides };
     this.backend.set_chart_padding?.(pad.top, pad.right, pad.bottom, pad.left);
@@ -6117,6 +6146,7 @@ export class Charturbo {
         el.style.left = `${x}px`;
         el.style.top = `${y + 6}px`;
         el.style.transform = 'translate(-50%, 0)';
+        el.style.transformOrigin = '';
         xLabels.push({ el, x, value });
       } else if (axis === 2) {
         el.style.left = `${x + 8}px`;
@@ -6129,10 +6159,26 @@ export class Charturbo {
       }
     }
     for (let k = used; k < o.ticks.length; k++) o.ticks[k].style.display = 'none';
-    thinCenteredLabels(xLabels, [0, canvas.offsetWidth]);
+    const rotate = labelRotation(p.xAxis.labelRotate);
+    if (rotate) {
+      // Grow the derived bottom padding when laid-out labels hang deeper than reserved (only
+      // grows, so it settles; the engine re-lays out the axes for the next frame)
+      const need = rotatedLabelReserve(xLabels.map((l): [number, number] => [l.el.offsetWidth ?? 0, l.el.offsetHeight ?? 0]), rotate);
+      if (need > this.xLabelReserve) {
+        if (this.xLabelReserveGrows) {
+          const pad = this.chartPadding;
+          pad.bottom += need - this.xLabelReserve;
+          this.backend.set_chart_padding?.(pad.top, pad.right, pad.bottom, pad.left);
+        }
+        this.xLabelReserve = need;
+      }
+      thinRotatedLabels(xLabels, rotate);
+    } else {
+      thinCenteredLabels(xLabels, [0, canvas.offsetWidth]);
+    }
 
     o.xTitle.style.left = `${plotL + plotW / 2}px`;
-    o.xTitle.style.top = `${plotT + plotH + (p.xAxis.show === false ? 6 : 24)}px`;
+    o.xTitle.style.top = `${plotT + plotH + (p.xAxis.show === false ? 6 : 24 + this.xLabelReserve)}px`;
     const meta = this.chartMeta;
     const horizontalBars = (meta?.kind === 'bar' || meta?.kind === 'bar-multi') && meta.barStyle?.orientation === 'horizontal';
     // Horizontal bars size the left margin to the category labels: the title sits at its edge
@@ -6919,7 +6965,7 @@ export class Charturbo {
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
-      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, {}),
+      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, {}, n),
       legend: { show: legendShown, toggle: false, emphasize: false },
       navigable: false,
     };
@@ -6961,8 +7007,9 @@ export class Charturbo {
     style: BarStyleState | undefined,
     axes: { x?: ChartAxisOptions; y?: ChartAxisOptions },
     category: (i: number) => string,
-    valueAxis: ChartAxisOptions
-  ): Pick<ChartPresentation, 'xAxis' | 'yAxis' | 'formatX'> {
+    valueAxis: ChartAxisOptions,
+    categoryCount: number
+  ): Pick<ChartPresentation, 'xAxis' | 'yAxis' | 'formatX' | 'xCategoryCount'> {
     if (!flat) return { xAxis: { show: false }, yAxis: { show: false }, formatX: (v) => category(v) };
     if (style?.orientation === 'horizontal') {
       const xAxis = { ...valueAxis, ...(axes.x ?? {}) };
@@ -6973,12 +7020,15 @@ export class Charturbo {
         formatX: (v) => (formatValue ? formatValue(v) : formatTickValue(v, this.chartLocale())),
       };
     }
-    // Category axis: no time granularity
+    // Category axis: no time granularity; rotated labels thin by their footprint in the engine
     const formatCategory = resolveFormatLive(axes.x?.format, () => this.chartLocale());
+    const rotate = labelRotation(axes.x?.labelRotate);
+    if (rotate) this.backend.set_bar_axis_label_rotation?.(rotate);
     return {
       xAxis: axes.x ?? {},
       yAxis: { ...valueAxis, ...(axes.y ?? {}) },
       formatX: (v) => (formatCategory ? formatCategory(v) : category(v)),
+      xCategoryCount: categoryCount,
     };
   }
 
@@ -7003,7 +7053,9 @@ export class Charturbo {
         right: 16 + (outside ? Math.min(120, widestLabel(style, font) + 6) : 0),
       };
     }
-    return outside ? { top: 12 + (p.title ? 24 : 0) + (legend ? 28 : 0) + 16 } : {};
+    // Rotated labels: room for the tallest rotated box
+    const above = style.labels?.rotate ? Math.max(16, Math.min(120, tallestLabel(style, font) + 6)) : 16;
+    return outside ? { top: 12 + (p.title ? 24 : 0) + (legend ? 28 : 0) + above } : {};
   }
 
   /** Re-formats and re-measures bar data labels (render, visibility toggles, theme). */
@@ -7131,7 +7183,7 @@ export class Charturbo {
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
-      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, percentAxis),
+      ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, percentAxis, n),
       legend,
       navigable: false,
     };
@@ -8197,7 +8249,7 @@ export class Charturbo {
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
-      ...this.barAxes(true, meta.barStyle, options?.axes ?? {}, category, valueAxis),
+      ...this.barAxes(true, meta.barStyle, options?.axes ?? {}, category, valueAxis, meta.categories.length),
       legend,
       navigable: false,
     };

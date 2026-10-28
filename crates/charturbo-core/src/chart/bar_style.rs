@@ -60,6 +60,10 @@ impl Default for BarStyle {
 const ERROR_Z: f32 = 0.05;
 /// Px kept between neighbouring labels in `Auto` mode.
 const LABEL_GAP_PX: f32 = 2.0;
+/// Px per upright category tick label along a vertical bar chart's x axis.
+const CATEGORY_TICK_PX: f32 = 88.0;
+/// Px across one rotated category label: its line box (14) plus the SDK's label gap (8).
+const ROTATED_TICK_PX: f32 = 22.0;
 
 impl BarStyle {
     /// `(minus, plus)` value-unit error of a value, `None` without one.
@@ -242,6 +246,20 @@ impl BarChart {
                 }
             }
         }
+    }
+
+    /// CSS px kept per category tick label on a vertical chart's x axis. Rotated labels are
+    /// parallel strips: neighbours `d` apart clear each other across the text when
+    /// `d * sin(a) >= line + gap`, or along it when `d * cos(a) >= 88` (the upright budget), so
+    /// the smaller of the two is the spacing (the SDK thins the shown labels by their real size).
+    pub(crate) fn category_tick_px(&self) -> f32 {
+        let a = self.category_label_deg.to_radians();
+        let (sin, cos) = (a.sin().abs(), a.cos().abs());
+        if sin < 1e-3 {
+            return CATEGORY_TICK_PX;
+        }
+        let across = ROTATED_TICK_PX / sin;
+        if cos < 1e-3 { across } else { across.min(CATEGORY_TICK_PX / cos) }
     }
 
     /// Lays out the data labels of the visible bars / segments for `view` (see `BarLabelMode`).
@@ -427,6 +445,23 @@ impl ChartState {
         b.labels.opts = opts;
         b.labels.sizes = sizes;
         b.labels.key = None;
+        true
+    }
+
+    /// Rotation (degrees) of the category tick labels of a vertical 2D bar chart (bars or
+    /// waterfall): category ticks are thinned by the rotated label footprint instead of the
+    /// upright one. Returns false otherwise (horizontal bars, histograms, 3D, other charts).
+    pub fn set_bar_axis_label_rotation(&mut self, deg: f32) -> bool {
+        let b = match &mut self.kind {
+            ChartKind::Bar(b) => b,
+            ChartKind::Waterfall(w) => &mut w.bar,
+            _ => return false,
+        };
+        if b.horizontal() || b.histogram.is_some() || b.layout.view != ChartViewMode::Flat {
+            return false;
+        }
+        b.category_label_deg = if deg.is_finite() { deg } else { 0.0 };
+        self.axes_key = None;
         true
     }
 
@@ -751,6 +786,53 @@ mod tests {
         // Same view, nothing changed: no new revision
         st.prepare_layers(&view(&cam));
         assert_eq!(st.bar_labels().unwrap().1, rev2);
+    }
+
+    #[test]
+    fn rotated_label_boxes_anchor_and_fit_by_their_own_size() {
+        // 90° labels: the SDK sends each rotated box (line height across, text width along)
+        let (mut st, cam) = state(vec![100.0, 10.0], 1, BarMode::Grouped, BarStyle::default());
+        let opts = BarLabelOptions { mode: BarLabelMode::Show, position: BarLabelPosition::Outside, pad_px: 4.0 };
+        st.set_bar_labels(opts, vec![[14.0, 60.0], [14.0, 20.0]]);
+        st.prepare_layers(&view(&cam));
+        let out = st.bar_labels().unwrap().0.to_vec();
+        // Box bottom = bar top - pad, per label height
+        assert!((out[0].y_css + 30.0 - (bar_css(&st, &cam, 0)[1] - 4.0)).abs() < 1e-3);
+        assert!((out[1].y_css + 10.0 - (bar_css(&st, &cam, 1)[1] - 4.0)).abs() < 1e-3);
+        // Auto inside: the tall box does not fit the short bar and moves outside
+        let auto = BarLabelOptions { mode: BarLabelMode::Auto, position: BarLabelPosition::Inside, ..opts };
+        st.set_bar_labels(auto, vec![[14.0, 90.0], [14.0, 90.0]]);
+        st.prepare_layers(&view(&cam));
+        let out = st.bar_labels().unwrap().0.to_vec();
+        assert!(out.iter().find(|l| l.global == 0).unwrap().inside);
+        assert!(!out.iter().find(|l| l.global == 1).unwrap().inside);
+    }
+
+    #[test]
+    fn rotated_category_labels_thin_out_by_their_rotated_footprint() {
+        let values: Vec<f32> = (0..200).map(|i| i as f32).collect();
+        let (mut st, cam) = state(values, 1, BarMode::Grouped, BarStyle::default());
+        let cats = |st: &ChartState| st.axes().ticks.iter().filter(|k| k.axis == 0).map(|k| k.x_css).collect::<Vec<_>>();
+        st.prepare_layers(&view(&cam));
+        let upright = cats(&st);
+        assert!(upright.windows(2).all(|p| p[1] - p[0] >= 87.9));
+        // 90°: one line box + gap per label; the axes are re-laid out without a new view
+        assert!(st.set_bar_axis_label_rotation(90.0));
+        st.prepare_layers(&view(&cam));
+        let vertical = cats(&st);
+        assert!(vertical.len() > upright.len() * 3, "{} vs {}", vertical.len(), upright.len());
+        assert!(vertical.windows(2).all(|p| p[1] - p[0] >= 21.9));
+        // 45°: in between; 0° keeps the upright spacing
+        assert!(st.set_bar_axis_label_rotation(-45.0));
+        st.prepare_layers(&view(&cam));
+        let n45 = cats(&st).len();
+        assert!(n45 > upright.len() && n45 < vertical.len(), "{n45}");
+        assert!(st.set_bar_axis_label_rotation(0.0));
+        st.prepare_layers(&view(&cam));
+        assert_eq!(cats(&st).len(), upright.len());
+        // Horizontal bars (categories on y) ignore it
+        let (mut st, _) = state(vec![1.0, 2.0], 1, BarMode::Grouped, horizontal());
+        assert!(!st.set_bar_axis_label_rotation(90.0));
     }
 
     #[test]
