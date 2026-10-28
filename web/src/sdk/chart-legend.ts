@@ -4,6 +4,7 @@
  * (left / right) and pages the entries that do not fit behind ‹ › buttons, so a long legend never
  * covers the plot. Page breaks use the measured entry sizes and keep whole entries per page.
  */
+import { getMessages } from './i18n';
 
 export type ChartLegendPosition = 'top' | 'bottom' | 'left' | 'right';
 
@@ -103,7 +104,8 @@ export class LegendPager {
   constructor(
     private readonly items: HTMLElement[],
     private readonly vertical: boolean,
-    color: string
+    color: string,
+    locale?: string
   ) {
     this.root = document.createElement('div');
     this.root.className = 'charturbo-sdk-legend-pager';
@@ -127,8 +129,9 @@ export class LegendPager {
       b.addEventListener('click', () => this.show(this.page + step));
       return b;
     };
-    this.prev = button('‹', 'Previous legend page', -1);
-    this.next = button('›', 'Next legend page', 1);
+    const m = getMessages(locale).core;
+    this.prev = button('‹', m.prevLegendPage, -1);
+    this.next = button('›', m.nextLegendPage, 1);
     this.label = document.createElement('span');
     this.root.append(this.prev, this.label, this.next);
   }

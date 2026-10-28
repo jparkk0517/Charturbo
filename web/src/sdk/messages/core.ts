@@ -55,6 +55,22 @@ const en = {
   pdfTitle: 'Chart',
   /** Default name of the `index`-th ring of a multi-ring pie (1-based) */
   ringName: (index: number) => `Ring ${index}`,
+  /** Legend pager buttons */
+  prevLegendPage: 'Previous legend page',
+  nextLegendPage: 'Next legend page',
+  /** Scatter trendlines: model name (`order` only for polynomials) */
+  trendKind: (type: 'linear' | 'exponential' | 'logarithmic' | 'polynomial', order: string) =>
+    type === 'polynomial' ? `polynomial (order ${order})` : type,
+  r2Unavailable: 'R² n/a',
+  /** `; 2 points with y ≤ 0 skipped` (`points` from common.points, `domain` like `y ≤ 0`) */
+  trendSkipped: (points: string, domain: string) => `; ${points} with ${domain} skipped`,
+  /** Legend text of a model without a fit */
+  trendNoFit: (type: string, points: string, skipped: string) => `no ${type} fit (${points}${skipped})`,
+  /** Subject of the accessible trendline sentence */
+  trendHead: (series: string, hidden: boolean, kind: string) => `${series}${hidden ? ' (hidden)' : ''} ${kind} trend line`,
+  trendNotEnough: (head: string, points: string, skipped: string) => `${head}: not enough points to fit (${points}${skipped}).`,
+  trendFitted: (head: string, expression: string, r2: string, points: string, skipped: string) =>
+    `${head}: ${expression}, ${r2}, fitted to ${points}${skipped}.`,
   /** 3D chart kind names (summary, data table caption) */
   pointCloud3d: '3D point cloud',
   surface3d: '3D surface',
@@ -101,6 +117,16 @@ const ko: CoreMessages = {
   colorScale: (title, lo, hi, mid) => `${title} 색상 척도, ${lo}~${hi}${mid !== undefined ? `, 중간값 ${mid}` : ''}`,
   pdfTitle: '차트',
   ringName: (index) => `링 ${index}`,
+  prevLegendPage: '이전 범례 페이지',
+  nextLegendPage: '다음 범례 페이지',
+  trendKind: (type, order) =>
+    ({ linear: '선형', exponential: '지수', logarithmic: '로그', polynomial: `${order}차 다항식` })[type],
+  r2Unavailable: 'R² 없음',
+  trendSkipped: (points, domain) => `; ${domain}인 ${points} 제외`,
+  trendNoFit: (type, points, skipped) => `${type} 회귀 불가(${points}${skipped})`,
+  trendHead: (series, hidden, kind) => `${series}${hidden ? '(숨김)' : ''} ${kind} 추세선`,
+  trendNotEnough: (head, points, skipped) => `${head}: 회귀에 필요한 점이 부족합니다(${points}${skipped}).`,
+  trendFitted: (head, expression, r2, points, skipped) => `${head}: ${expression}, ${r2}, ${points}로 회귀${skipped}.`,
   pointCloud3d: '3D 포인트 클라우드',
   surface3d: '3D 곡면',
   samples: (_n, count) => `샘플 ${count}개`,
@@ -141,6 +167,16 @@ const zh: CoreMessages = {
   colorScale: (title, lo, hi, mid) => `${title}色阶，从 ${lo} 到 ${hi}${mid !== undefined ? `，中点 ${mid}` : ''}`,
   pdfTitle: '图表',
   ringName: (index) => `环 ${index}`,
+  prevLegendPage: '上一页图例',
+  nextLegendPage: '下一页图例',
+  trendKind: (type, order) =>
+    ({ linear: '线性', exponential: '指数', logarithmic: '对数', polynomial: `${order} 次多项式` })[type],
+  r2Unavailable: 'R² 不可用',
+  trendSkipped: (points, domain) => `；已排除 ${domain} 的 ${points}`,
+  trendNoFit: (type, points, skipped) => `无法进行${type}拟合（${points}${skipped}）`,
+  trendHead: (series, hidden, kind) => `${series}${hidden ? '（已隐藏）' : ''}${kind}趋势线`,
+  trendNotEnough: (head, points, skipped) => `${head}：数据点不足，无法拟合（${points}${skipped}）。`,
+  trendFitted: (head, expression, r2, points, skipped) => `${head}：${expression}，${r2}，基于 ${points}拟合${skipped}。`,
   pointCloud3d: '3D 点云',
   surface3d: '3D 曲面',
   samples: (_n, count) => `${count} 个样本`,

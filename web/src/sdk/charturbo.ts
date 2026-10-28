@@ -6112,7 +6112,7 @@ export class Charturbo {
     }
     // One row / column: entries that do not fit page behind ‹ › (laid out once attached)
     const legendItems = Array.from(legend.children) as HTMLElement[];
-    const legendPager = !legendWrap && legendItems.length > 1 ? new LegendPager(legendItems, legendSide === 'left' || legendSide === 'right', t.textSecondary) : undefined;
+    const legendPager = !legendWrap && legendItems.length > 1 ? new LegendPager(legendItems, legendSide === 'left' || legendSide === 'right', t.textSecondary, this.chartLocale()) : undefined;
     if (legendPager) legend.appendChild(legendPager.root);
 
     const xTitle = div(
@@ -7460,7 +7460,8 @@ export class Charturbo {
 
   /** Legend text of a scatter trendline (series name first with several series). */
   private trendLabel(meta: ScatterChartMeta, fit: ScatterTrendlineFit): string {
-    return trendLegendLabel(fit, meta.names.length > 1 ? (meta.names[fit.series] ?? `Series ${fit.series}`) : null);
+    const name = meta.names[fit.series] ?? getMessages(this.chartLocale()).common.seriesName(fit.series + 1);
+    return trendLegendLabel(fit, meta.names.length > 1 ? name : null, this.chartLocale());
   }
 
   /** Fits of the scatter chart's trendlines (`ScatterChartOptions.trendline`); empty for other charts. */

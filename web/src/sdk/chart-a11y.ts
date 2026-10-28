@@ -621,7 +621,7 @@ export function buildA11yModel(
       kind: 'scatter',
       ...common,
       series,
-      trendlines: fits.map((fit) => trendDescription(fit, series[fit.series]?.name ?? `Series ${fit.series + 1}`, !(series[fit.series]?.visible ?? true))),
+      trendlines: fits.map((fit) => trendDescription(fit, series[fit.series]?.name ?? seriesName(fit.series), !(series[fit.series]?.visible ?? true), loc)),
       length: data.length,
       scatter: data,
       xValue: (i, s = 0) => clean(Number(data.x[pointId(s, i)])),

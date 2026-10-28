@@ -7,6 +7,7 @@
  */
 import { parseColor, type ColorInput, type RgbaTuple } from './color';
 import { dashPattern } from './chart-linestyle';
+import { formatCount, getMessages } from './i18n';
 
 export type ScatterTrendlineType = 'linear' | 'exponential' | 'logarithmic' | 'polynomial';
 
@@ -184,26 +185,35 @@ export function trendExpression(fit: Pick<ScatterTrendlineFit, 'type' | 'coeffic
 }
 
 /** `R² = 0.9523` (4 decimals, like spreadsheet trendline labels); `R² n/a` when undefined. */
-export function r2Text(r2: number): string {
-  return Number.isFinite(r2) ? `R² = ${r2.toFixed(4)}` : 'R² n/a';
+export function r2Text(r2: number, locale?: string): string {
+  return Number.isFinite(r2) ? `R² = ${r2.toFixed(4)}` : getMessages(locale).core.r2Unavailable;
 }
 
 const DOMAIN_NOTE: Partial<Record<ScatterTrendlineType, string>> = { exponential: 'y ≤ 0', logarithmic: 'x ≤ 0' };
 
+/** `n points` in the locale */
+const pointsText = (n: number, locale?: string) => getMessages(locale).common.points(n, formatCount(n, locale));
+
+/** Note about points left out of the fit (empty when none). */
+function skippedText(fit: ScatterTrendlineFit, locale?: string): string {
+  return fit.skipped > 0 ? getMessages(locale).core.trendSkipped(pointsText(fit.skipped, locale), DOMAIN_NOTE[fit.type] ?? '') : '';
+}
+
 /** Legend text of a fit: equation, R², and any points left out of the fit. */
-export function trendLegendLabel(fit: ScatterTrendlineFit, seriesName: string | null): string {
+export function trendLegendLabel(fit: ScatterTrendlineFit, seriesName: string | null, locale?: string): string {
+  const m = getMessages(locale).core;
   const head = seriesName ? `${seriesName}: ` : '';
-  const skipped = fit.skipped > 0 ? `; ${fit.skipped} ${fit.skipped === 1 ? 'point' : 'points'} with ${DOMAIN_NOTE[fit.type]} skipped` : '';
-  if (!fit.coefficients.length) return `${head}no ${fit.type} fit (${fit.points} ${fit.points === 1 ? 'point' : 'points'}${skipped})`;
-  return `${head}${fit.expression} (${r2Text(fit.r2)}${skipped})`;
+  const skipped = skippedText(fit, locale);
+  if (!fit.coefficients.length) return `${head}${m.trendNoFit(m.trendKind(fit.type, String(fit.order)), pointsText(fit.points, locale), skipped)}`;
+  return `${head}${fit.expression} (${r2Text(fit.r2, locale)}${skipped})`;
 }
 
 /** Sentence of the accessible description about a fit. */
-export function trendDescription(fit: ScatterTrendlineFit, seriesName: string, hidden: boolean): string {
-  const kind = fit.type === 'polynomial' ? `polynomial (order ${fit.order})` : fit.type;
-  const head = `${seriesName}${hidden ? ' (hidden)' : ''} ${kind} trend line`;
-  const pts = `${fit.points} ${fit.points === 1 ? 'point' : 'points'}`;
-  const skipped = fit.skipped > 0 ? `; ${fit.skipped} ${fit.skipped === 1 ? 'point' : 'points'} with ${DOMAIN_NOTE[fit.type]} skipped` : '';
-  if (!fit.coefficients.length) return `${head}: not enough points to fit (${pts}${skipped}).`;
-  return `${head}: ${fit.expression}, ${r2Text(fit.r2)}, fitted to ${pts}${skipped}.`;
+export function trendDescription(fit: ScatterTrendlineFit, seriesName: string, hidden: boolean, locale?: string): string {
+  const m = getMessages(locale).core;
+  const head = m.trendHead(seriesName, hidden, m.trendKind(fit.type, String(fit.order)));
+  const pts = pointsText(fit.points, locale);
+  const skipped = skippedText(fit, locale);
+  if (!fit.coefficients.length) return m.trendNotEnough(head, pts, skipped);
+  return m.trendFitted(head, fit.expression, r2Text(fit.r2, locale), pts, skipped);
 }
