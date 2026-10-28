@@ -294,8 +294,8 @@ impl WasmCharturboEngine {
         }
     }
 
-    pub fn complete_gpu_physics(&mut self, ticket: u32, forces: &[f32]) -> Result<f32, JsValue> {
-        self.inner.complete_gpu_physics(ticket, forces).map_err(JsValue::from_str)
+    pub fn complete_gpu_physics(&mut self, ticket: u32, state: &[f32]) -> Result<f32, JsValue> {
+        self.inner.complete_gpu_physics(ticket, state).map_err(JsValue::from_str)
     }
 
     /// Auto-sleep for the graph layout. `sleep_threshold` is the MEAN kinetic energy per free

@@ -1,18 +1,18 @@
-//! Opt-in hybrid layout: parallel GPU Barnes-Hut repulsion, CPU springs/integration/index.
-//! Readback completes before CPU positions change, preserving picking and export semantics.
+//! Parallel GPU Barnes-Hut repulsion over a CPU-built octree snapshot (first pass of the
+//! GPU layout step, see `gpu_layout.rs`).
 use crate::physics::ForceConfig;
 use crate::spatial::RepulsionSnapshot;
 use wgpu::util::DeviceExt;
 
 const SHADER: &str = include_str!("gpu_repulsion.wgsl");
 
-struct Storage {
-    buffer: wgpu::Buffer,
-    bytes: u64,
+pub(super) struct Storage {
+    pub(super) buffer: wgpu::Buffer,
+    pub(super) bytes: u64,
 }
 
 impl Storage {
-    fn new(device: &wgpu::Device, bytes: u64) -> Self {
+    pub(super) fn new(device: &wgpu::Device, bytes: u64) -> Self {
         Self {
             buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("layout-storage"), size: bytes.max(32),
@@ -23,7 +23,7 @@ impl Storage {
         }
     }
 
-    fn ensure(&mut self, device: &wgpu::Device, bytes: u64, max: u64) {
+    pub(super) fn ensure(&mut self, device: &wgpu::Device, bytes: u64, max: u64) {
         if bytes > self.bytes { *self = Self::new(device, bytes.next_power_of_two().min(max)); }
     }
 }
@@ -34,11 +34,6 @@ pub struct GpuRepulsion {
     cells: Storage,
     forces: Storage,
     params: wgpu::Buffer,
-}
-
-pub struct GpuReadback {
-    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    buffer: wgpu::Buffer,
 }
 
 impl GpuRepulsion {
@@ -61,7 +56,8 @@ impl GpuRepulsion {
         }
     }
 
-    pub fn submit(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, snapshot: &RepulsionSnapshot, config: ForceConfig) -> Result<GpuReadback, String> {
+    /// Records the repulsion pass into `encoder`; results land in `forces()` (xyzw per body).
+    pub fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, snapshot: &RepulsionSnapshot, config: ForceConfig) -> Result<(), String> {
         let limits = device.limits();
         let max = u64::from(limits.max_storage_buffer_binding_size).min(limits.max_buffer_size);
         let bodies = bytemuck::cast_slice(&snapshot.bodies);
@@ -84,49 +80,16 @@ impl GpuRepulsion {
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("layout-bind"), layout: &self.pipeline.get_bind_group_layout(0), entries: &entries,
         });
-        // A job owns its staging buffer: another request cannot reuse a mapped/in-flight readback.
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("layout-readback"), size: bytes,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
-        });
-        let mut encoder = device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("layout-repulsion"), timestamp_writes: None });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind, &[]);
-            pass.dispatch_workgroups(groups, 1, 1);
-        }
-        encoder.copy_buffer_to_buffer(&self.forces.buffer, 0, &buffer, 0, bytes);
-        queue.submit(Some(encoder.finish()));
-        Ok(GpuReadback { buffer })
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("layout-repulsion"), timestamp_writes: None });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.dispatch_workgroups(groups, 1, 1);
+        Ok(())
     }
+
+    pub fn forces(&self) -> &wgpu::Buffer { &self.forces.buffer }
 
     pub fn bytes(&self) -> u64 { self.bodies.bytes + self.cells.bytes + self.forces.bytes + 48 }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl GpuReadback {
-    /// Resolve [ticket, Float32Array] without borrowing the engine while the GPU runs.
-    pub fn into_promise(self, ticket: u32) -> js_sys::Promise {
-        js_sys::Promise::new(&mut move |resolve, reject| {
-            let buffer = self.buffer.clone();
-            self.buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
-                match result {
-                    Ok(()) => {
-                        let mapped = buffer.slice(..).get_mapped_range();
-                        let values = js_sys::Float32Array::from(bytemuck::cast_slice::<u8, f32>(&mapped));
-                        drop(mapped);
-                        buffer.unmap();
-                        let response = js_sys::Array::new();
-                        response.push(&ticket.into());
-                        response.push(&values);
-                        let _ = resolve.call1(&wasm_bindgen::JsValue::NULL, &response);
-                    }
-                    Err(e) => { let _ = reject.call1(&wasm_bindgen::JsValue::NULL, &js_sys::Error::new(&format!("GPU layout readback failed: {e}"))); }
-                }
-            });
-        })
-    }
 }
 
 #[cfg(test)]

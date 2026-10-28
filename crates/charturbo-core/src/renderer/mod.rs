@@ -4,6 +4,7 @@ use bytemuck::{Pod, Zeroable};
 
 mod fill_style;
 pub mod gpu_context;
+pub mod gpu_layout;
 pub mod gpu_repulsion;
 mod heatmap;
 pub mod shader;
@@ -471,7 +472,7 @@ impl InstancePacker {
 /// keep the last uploaded buffers and redraw them as-is.
 pub trait RenderBackend {
     fn supports_gpu_physics(&self) -> bool { false }
-    fn gpu_repulsion(&mut self, _snapshot: &crate::spatial::RepulsionSnapshot, _config: crate::physics::ForceConfig) -> Result<gpu_repulsion::GpuReadback, String> {
+    fn gpu_layout(&mut self, _step: &gpu_layout::GpuLayoutStep) -> Result<gpu_layout::GpuReadback, String> {
         Err("GPU physics requires a WebGPU device".into())
     }
     /// Node instances (`opaque_nodes` leading opaque ones, then translucent) and graph edges.

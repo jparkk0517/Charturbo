@@ -63,7 +63,7 @@ pub const SLEEP_CALM_STEPS: u32 = 30;
 
 pub enum GpuPhysicsRequest {
     Immediate(f32),
-    Pending(u32, crate::renderer::gpu_repulsion::GpuReadback),
+    Pending(u32, crate::renderer::gpu_layout::GpuReadback),
 }
 
 struct PendingPhysics {
@@ -234,7 +234,8 @@ impl VisualizationEngine {
             return Ok(GpuPhysicsRequest::Immediate(self.step_physics(dt)));
         };
         let config = self.simulator.force_config();
-        let readback = self.renderer.gpu_repulsion(&snapshot, config)?;
+        let step = crate::renderer::gpu_layout::GpuLayoutStep::new(&self.dataset, &snapshot, config, dt);
+        let readback = self.renderer.gpu_layout(&step)?;
         self.physics_ticket = self.physics_ticket.wrapping_add(1).max(1);
         self.pending_physics = Some(PendingPhysics {
             ticket: self.physics_ticket, revision: self.dataset.revision(), config, dt,
@@ -242,7 +243,8 @@ impl VisualizationEngine {
         Ok(GpuPhysicsRequest::Pending(self.physics_ticket, readback))
     }
 
-    pub fn complete_gpu_physics(&mut self, ticket: u32, forces: &[f32]) -> Result<f32, &'static str> {
+    /// `state` is the GPU layout readback: 8 floats of state per node, then 1 energy per node.
+    pub fn complete_gpu_physics(&mut self, ticket: u32, state: &[f32]) -> Result<f32, &'static str> {
         if self.pending_physics.as_ref().map(|p| p.ticket) != Some(ticket) {
             return Err("GPU physics request was superseded");
         }
@@ -251,8 +253,8 @@ impl VisualizationEngine {
         if !self.graph_visible || self.dataset.revision() != pending.revision || self.simulator.force_config() != pending.config {
             return Err("Graph changed while GPU physics was running; result discarded");
         }
-        if !self.simulator.step_with_repulsion(&mut self.dataset, pending.dt, forces) {
-            return Err("Invalid GPU repulsion result");
+        if !self.simulator.apply_gpu_step(&mut self.dataset, state) {
+            return Err("Invalid GPU layout result");
         }
         let scene_ke = self.scene.step_physics(pending.dt);
         Ok(self.finish_physics_step(scene_ke))

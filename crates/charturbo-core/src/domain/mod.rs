@@ -150,8 +150,10 @@ impl NodeData {
     }
 }
 
-/// Represents a weighted edge connecting two nodes in the graph.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Represents a weighted edge connecting two nodes in the graph. 12-byte storage layout shared
+/// with the GPU layout step.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EdgeData {
     source: u32,
     target: u32,
@@ -261,6 +263,8 @@ pub struct GraphDataset {
     edges: Vec<EdgeData>,
     /// Built on first neighbor query; reset whenever the edge list changes
     adjacency: std::sync::OnceLock<Adjacency>,
+    /// Globally unique id of the current edge list (GPU uploads the CSR only when it changes)
+    topology: u64,
     selected_count: usize,
     embedding_dim: usize,
     normalized_embeddings: Vec<f32>,
@@ -291,6 +295,7 @@ impl GraphDataset {
             nodes: Vec::new(),
             edges: Vec::new(),
             adjacency: Default::default(),
+            topology: next_dataset_revision(),
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -310,6 +315,7 @@ impl GraphDataset {
             nodes,
             edges,
             adjacency: Default::default(),
+            topology: next_dataset_revision(),
             selected_count,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -402,6 +408,7 @@ impl GraphDataset {
             nodes: node_vec,
             edges: edge_vec,
             adjacency: Default::default(),
+            topology: next_dataset_revision(),
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -473,6 +480,7 @@ impl GraphDataset {
             nodes,
             edges,
             adjacency: Default::default(),
+            topology: next_dataset_revision(),
             selected_count: 0,
             embedding_dim: 0,
             normalized_embeddings: Vec::new(),
@@ -505,6 +513,11 @@ impl GraphDataset {
     #[inline]
     pub fn edges(&self) -> &[EdgeData] {
         &self.edges
+    }
+
+    /// Changes whenever the edge list does; stable across position / style mutations.
+    pub fn topology_revision(&self) -> u64 {
+        self.topology
     }
 
     /// Undirected CSR neighbor index, built lazily in O(V + E).
@@ -574,6 +587,7 @@ impl GraphDataset {
         }
         self.edges.push(EdgeData::new(source, target, weight));
         self.adjacency = Default::default();
+        self.topology = next_dataset_revision();
         Ok(())
     }
 
@@ -1206,6 +1220,7 @@ impl GraphDataset {
             nodes,
             edges,
             adjacency: Default::default(),
+            topology: next_dataset_revision(),
             selected_count: 0,
             embedding_dim: dim,
             normalized_embeddings: normalized,

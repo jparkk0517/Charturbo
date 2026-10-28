@@ -169,7 +169,7 @@ pub struct WgpuRenderBackend {
     clear_color: wgpu::Color,
     /// Upload / frame counters of `stats` (byte totals are computed on demand)
     counters: RenderStats,
-    gpu_physics: Option<super::gpu_repulsion::GpuRepulsion>,
+    gpu_physics: Option<super::gpu_layout::GpuLayout>,
 }
 
 /// GPU buffers of one annotation layer (see `ChartAnnotationLayer`).
@@ -1167,10 +1167,10 @@ impl RenderBackend for WgpuRenderBackend {
         self.device.limits().max_compute_workgroups_per_dimension > 0
     }
 
-    fn gpu_repulsion(&mut self, snapshot: &crate::spatial::RepulsionSnapshot, config: crate::physics::ForceConfig) -> Result<super::gpu_repulsion::GpuReadback, String> {
+    fn gpu_layout(&mut self, step: &super::gpu_layout::GpuLayoutStep) -> Result<super::gpu_layout::GpuReadback, String> {
         if !self.supports_gpu_physics() { return Err("GPU physics requires WebGPU".into()); }
-        self.gpu_physics.get_or_insert_with(|| super::gpu_repulsion::GpuRepulsion::new(&self.device))
-            .submit(&self.device, &self.queue, snapshot, config)
+        self.gpu_physics.get_or_insert_with(|| super::gpu_layout::GpuLayout::new(&self.device))
+            .submit(&self.device, &self.queue, step)
     }
 
     fn sync_graph(&mut self, nodes: &[NodeInstanceRaw], opaque_nodes: usize, edge_vertices: &[EdgeVertexRaw]) {
