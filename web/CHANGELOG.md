@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 산점도 심볼 모양
+
+- `ScatterChartOptions.symbol` · `seriesSymbols`: 시리즈마다 원 · 사각형 · 마름모 · 삼각형 점. 모양은 점 인스턴스의 시리즈 슬롯 칸에 함께 실려 업로드 크기가 같고, 원은 이전과 같은 픽셀입니다.
+- hover 마커 · SVG 내보내기 · 범례 견본이 같은 모양을 씁니다.
+- WASM `set_chart_scatter_shapes(shapes)`를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `scatter/03-symbols`, WebGPU/WebGL2 fixture `scatter-symbols`를 추가했습니다.
+
 ### 추가 — 범례 위치 · 페이지 넘김
 
 - `legend.position: 'top' | 'bottom' | 'left' | 'right'`: 범례를 플롯의 원하는 쪽에 두고 그쪽 여백을 잡습니다. 왼쪽 · 오른쪽은 가장 긴 이름에 맞춘 세로 열입니다.

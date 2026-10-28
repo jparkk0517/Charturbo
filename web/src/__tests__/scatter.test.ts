@@ -147,6 +147,21 @@ describe('Native scatter chart (SDK binding)', () => {
     expect(sdk.getNodeDetails(2)).toBeNull();
   });
 
+  it('symbols: one shape for every series, per-series overrides, none sent for plain circles', () => {
+    const { backend, calls } = mockBackend(4);
+    backend.set_chart_scatter_shapes = (s: Uint8Array) => {
+      (calls.set_chart_scatter_shapes ??= []).push([Array.from(s)]);
+      return true;
+    };
+    const sdk = Charturbo.fromBackend(backend);
+    const data = { x: [0, 1, 2, 3], y: [0, 1, 2, 3], clusters: [0, 1, 2, 3] };
+    sdk.renderScatterChart(data, { symbol: 'diamond', seriesSymbols: ['square', undefined, 'triangle'] });
+    // circle 0, square 1, diamond 2, triangle 3; series 3 takes the chart symbol
+    expect(calls.set_chart_scatter_shapes).toEqual([[[1, 2, 3, 2]]]);
+    sdk.renderScatterChart(data);
+    expect(calls.set_chart_scatter_shapes.at(-1)).toEqual([[]]);
+  });
+
   it('legend visibility / emphasis and x+y navigation are thin engine calls', () => {
     const { backend, calls } = mockBackend(3);
     const sdk = Charturbo.fromBackend(backend);

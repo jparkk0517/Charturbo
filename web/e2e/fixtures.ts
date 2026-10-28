@@ -430,6 +430,27 @@ export const FIXTURES: Fixture[] = [
   pieFixture('donut', 0.6),
   pieFixture('pie-rose', 0.2, { rose: 'area' }),
   {
+    // Four series, four symbols; the legend swatches follow
+    name: 'scatter-symbols',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 160;
+        const x = Float32Array.from({ length: n }, (_, i) => (i % 40) + (i >> 5) * 0.3);
+        const y = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.37) * 8 + (i % 4) * 6);
+        const clusters = Uint16Array.from({ length: n }, (_, i) => i % 4);
+        sdk.renderScatterChart(
+          { x, y, clusters },
+          {
+            title: 'Symbols',
+            pointRadius: 5,
+            seriesNames: ['circle', 'square', 'diamond', 'triangle'],
+            seriesSymbols: ['circle', 'square', 'diamond', 'triangle'],
+          }
+        );
+      }),
+  },
+  {
     // Side legend column sized to the names; 14 entries page behind ‹ ›
     name: 'legend-right-paged',
     theme: 'light',

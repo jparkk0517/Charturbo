@@ -5,7 +5,7 @@ use super::line::DIMMED_SERIES_ALPHA;
 use super::scale::{log_nice_domain, AxisScale};
 use super::finite::{max_f64, min_f64};
 use super::*;
-use crate::renderer::{ChartPointRaw, ChartPointStyleRaw, MAX_POINT_SERIES};
+use crate::renderer::{ChartPointRaw, ChartPointStyleRaw, MAX_POINT_SERIES, POINT_SHAPE_STRIDE};
 
 /// Point fill when neither per-point nor series colors are given.
 const DEFAULT_POINT_COLOR: [f32; 4] = [0.224, 0.529, 0.898, 1.0];
@@ -150,6 +150,8 @@ pub(crate) struct ScatterChart {
     /// beyond `MAX_POINT_SERIES` series, where they are baked into the packed points instead
     series_in_uniform: bool,
     pub(crate) emphasis: Option<usize>,
+    /// Shape code per series id (0 circle, 1 square, 2 diamond, 3 triangle; missing = circle)
+    shapes: Vec<u8>,
     grid: PointGrid,
     max_radius_px: f32,
     /// x tick target for the current plot width (about one tick per 90 CSS px)
@@ -206,6 +208,7 @@ impl ScatterChart {
             visible: vec![true; series_count],
             series_in_uniform: series_count <= MAX_POINT_SERIES,
             emphasis: None,
+            shapes: Vec::new(),
             grid: PointGrid::default(),
             max_radius_px,
             x_tick_target: 5,
@@ -280,6 +283,20 @@ impl ScatterChart {
 
     pub(crate) fn series_of(&self, i: usize) -> usize {
         self.series.get(i).copied().unwrap_or(0) as usize
+    }
+
+    /// Sets the shape of each series id (unknown codes = circle). True when it changed.
+    pub(crate) fn set_shapes(&mut self, shapes: &[u8]) -> bool {
+        let shapes: Vec<u8> = shapes.iter().map(|&c| if c <= 3 { c } else { 0 }).collect();
+        let changed = shapes != self.shapes;
+        self.shapes = shapes;
+        changed
+    }
+
+    /// Point slot channel: the series slot plus the series' shape (see `POINT_SHAPE_STRIDE`).
+    #[inline]
+    fn packed_slot(&self, slot: f32, series: usize) -> f32 {
+        slot + POINT_SHAPE_STRIDE * self.shapes.get(series).copied().unwrap_or(0) as f32
     }
 
     #[inline]
@@ -444,7 +461,7 @@ impl ScatterChart {
                     alpha *= DIMMED_SERIES_ALPHA;
                 }
                 color[3] = alpha.round() as u8;
-                let slot = if baked { 0.0 } else { s as f32 };
+                let slot = self.packed_slot(if baked { 0.0 } else { s as f32 }, s);
                 out.push(ChartPointRaw {
                     center_radius: [(t[0] - 0.5) * w, (t[1] - 0.5) * h, slot, self.radius(i)],
                     color,
@@ -602,13 +619,29 @@ impl ScatterChart {
                 center_radius: [p.x, p.y, p.z, style.marker_radius_px.max(self.radius(i))],
                 fill: [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, 1.0],
                 ring: style.marker_ring_color,
-                params: [style.marker_ring_px, 0.0, 0.0, 0.0],
+                params: [style.marker_ring_px, self.shapes.get(self.series_of(i)).copied().unwrap_or(0) as f32, 0.0, 0.0],
             });
         }
     }
 
     pub(crate) fn frame_camera(&self, camera: &mut OrbitCamera, css: (f32, f32), padding: &ChartPadding) {
         frame_flat(camera, css, self.layout.width, self.layout.height, padding);
+    }
+}
+
+impl ChartState {
+    /// Shape per scatter series id (0 circle, 1 square, 2 diamond, 3 triangle); rebuilds the
+    /// points when it changed. False (no-op) for other charts.
+    pub fn set_scatter_shapes(&mut self, shapes: &[u8]) -> bool {
+        let ChartKind::Scatter(s) = &mut self.kind else {
+            return false;
+        };
+        let changed = s.set_shapes(shapes);
+        if changed {
+            self.dirty.points = true;
+            self.dirty.overlay = true;
+        }
+        changed
     }
 }
 
@@ -640,7 +673,7 @@ impl ScatterChart {
                 let mut color = self.colors[i];
                 let alpha = color[3] as f32 * opacity * if pass { 1.0 } else { DIMMED_SERIES_ALPHA };
                 color[3] = alpha.round() as u8;
-                let slot = if baked { 0.0 } else { s as f32 };
+                let slot = self.packed_slot(if baked { 0.0 } else { s as f32 }, s);
                 out.push(ChartPointRaw {
                     center_radius: [(t[0] - 0.5) * w, (t[1] - 0.5) * h, slot, self.radius(i)],
                     color,
@@ -699,6 +732,32 @@ mod tests {
         let p = chart.sample(i).unwrap().3;
         let n = cam.project_to_ndc(p).unwrap();
         (n.x, n.y)
+    }
+
+    #[test]
+    fn series_shapes_ride_in_the_slot_channel_and_export_as_paths() {
+        use crate::renderer::{point_shape, point_slot};
+        let mut chart = scatter(vec![0.0, 1.0, 2.0, 3.0], vec![0.0, 1.0, 2.0, 3.0], vec![0, 1, 2, 3]);
+        // Series 1 square, 2 diamond, 3 beyond the list: circle; unknown codes fall back to circles
+        assert!(chart.set_scatter_shapes(&[0, 1, 2]));
+        assert!(!chart.set_scatter_shapes(&[0, 1, 2]), "unchanged");
+        let cam = framed(&chart);
+        let pts = chart.prepare_layers(&view(&cam)).points.unwrap().to_vec();
+        let decoded: Vec<(usize, f32)> = pts.iter().map(|p| (point_slot(p.center_radius[2]), point_shape(p.center_radius[2]))).collect();
+        assert_eq!(decoded, vec![(0, 0.0), (1, 1.0), (2, 2.0), (3, 0.0)]);
+        chart.set_scatter_shapes(&[9, 3]);
+        let pts = chart.prepare_layers(&view(&cam)).points.unwrap().to_vec();
+        assert_eq!((point_shape(pts[0].center_radius[2]), point_shape(pts[1].center_radius[2])), (0.0, 3.0));
+        // Legend emphasis still finds the series slot under the shape bits
+        chart.set_emphasis(Some(1));
+        let style = chart.prepare_layers(&view(&cam)).point_style.unwrap();
+        assert_eq!(style.emphasized_slot(), Some(1));
+        // SVG: circles stay <circle>, other shapes are paths
+        chart.set_emphasis(None);
+        let svg = chart.export_svg(&view(&cam), 1000, "t").markup;
+        let points = &svg[svg.find("data-layer=\"points\"").expect("points layer")..];
+        assert_eq!(points.matches("<circle").count(), 3, "{points}");
+        assert_eq!(points.matches("<path d=\"M").count(), 1, "the triangle");
     }
 
     #[test]

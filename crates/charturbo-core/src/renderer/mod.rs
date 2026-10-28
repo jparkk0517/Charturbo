@@ -90,6 +90,20 @@ pub struct ChartBarRaw {
 /// back to re-packing points on legend changes.
 pub const MAX_POINT_SERIES: usize = 256;
 
+/// Point shapes ride in the series slot channel: `slot + POINT_SHAPE_STRIDE * shape` (0 circle,
+/// 1 square, 2 diamond, 3 triangle).
+pub const POINT_SHAPE_STRIDE: f32 = MAX_POINT_SERIES as f32;
+
+/// Series slot of a packed point slot channel.
+pub fn point_slot(packed: f32) -> usize {
+    (packed.max(0.0) as usize % MAX_POINT_SERIES).min(MAX_POINT_SERIES - 1)
+}
+
+/// Shape code of a packed point slot channel.
+pub fn point_shape(packed: f32) -> f32 {
+    (packed.max(0.0) / POINT_SHAPE_STRIDE).floor()
+}
+
 /// Scatter point instance (20 bytes): base world position, series slot, radius in CSS px,
 /// RGBA8 fill. Zoom / pan / legend emphasis / visibility never touch these: the layer
 /// transform and per-series alpha live in `ChartPointStyleRaw`. Points lie in the plane z = 0.

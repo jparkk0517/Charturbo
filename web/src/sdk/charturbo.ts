@@ -181,8 +181,18 @@ import {
   type PieChartOptions,
   type PieRingsData,
 } from './chart-pie';
-import { LEGEND_ROW_PX, LEGEND_SIDE_GAP_PX, LegendPager, legendColumnWidth, legendStyle, type ChartLegendPosition } from './chart-legend';
-export type { ChartLegendPosition } from './chart-legend';
+import {
+  LEGEND_ROW_PX,
+  LEGEND_SIDE_GAP_PX,
+  LegendPager,
+  SCATTER_SYMBOL_CODES,
+  legendColumnWidth,
+  legendStyle,
+  symbolSwatch,
+  type ChartLegendPosition,
+  type ScatterSymbol,
+} from './chart-legend';
+export type { ChartLegendPosition, ScatterSymbol } from './chart-legend';
 export type { PieChartData, PieChartOptions, PieLabelMode, PieRingData, PieRingsData, PieRoseMode } from './chart-pie';
 import {
   comboMeta,
@@ -948,6 +958,10 @@ export interface ScatterChartOptions {
   seriesColors?: ColorInput[];
   /** Point radius in CSS pixels when `sizes` is not given (default: 3) */
   pointRadius?: number;
+  /** Point symbol of every series (default `'circle'`) */
+  symbol?: ScatterSymbol;
+  /** Symbol per series id (missing entries: `symbol`); the legend swatches follow */
+  seriesSymbols?: (ScatterSymbol | undefined)[];
   /** Fill alpha multiplier; lower values reveal density (default: 0.85) */
   opacity?: number;
   /** Ring in the chart surface color around each point, CSS px (default: 1 with `sizes`, else 0) */
@@ -1454,6 +1468,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     gapPx: number,
     viewMode: number
   ): number;
+  /** Symbol code per scatter series id (0 circle, 1 square, 2 diamond, 3 triangle); empty = circles */
+  set_chart_scatter_shapes?(shapes: Uint8Array): boolean;
   set_scatter_chart?(
     xs: Float32Array,
     ys: Float32Array,
@@ -2055,6 +2071,8 @@ interface ScatterChartMeta {
   series: Uint16Array | null;
   /** Per-point RGBA (`4 * N`) or null */
   pointColors: Float32Array | null;
+  /** Symbol per series id */
+  symbols: ScatterSymbol[];
 }
 
 /** Candlestick chart: candle id = index; the OHLC arrays are the caller's (or converted copies). */
@@ -5828,8 +5846,13 @@ export class Charturbo {
           background: rgbaToCss(meta.colors[i]),
           flex: 'none',
         });
-        // Combo: each series keeps the swatch of its mark
+        // Combo: each series keeps the swatch of its mark; scatter: its symbol
         if (meta.kind === 'combo') Object.assign(swatch.style, comboSwatch(meta.types[i], rgbaToCss(meta.colors[i])));
+        if (meta.kind === 'scatter') {
+          const sw = symbolSwatch(meta.symbols[i] ?? 'circle', rgbaToCss(meta.colors[i]));
+          Object.assign(swatch.style, { borderRadius: '0px', background: 'none', ...sw.style });
+          if (sw.text) swatch.textContent = sw.text;
+        }
         const label = document.createElement('span');
         label.textContent = name;
         label.style.whiteSpace = 'nowrap';
@@ -7125,6 +7148,10 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
     const seriesCount = this.backend.chart_series_count?.() ?? (n > 0 ? 1 : 0);
+    // Symbol per series id (nothing to send when every series is a circle)
+    const symbols = Array.from({ length: seriesCount }, (_, i): ScatterSymbol => options?.seriesSymbols?.[i] ?? options?.symbol ?? 'circle');
+    const shaped = symbols.some((sym) => sym !== 'circle');
+    this.backend.set_chart_scatter_shapes?.(shaped ? Uint8Array.from(symbols, (sym) => SCATTER_SYMBOL_CODES[sym] ?? 0) : new Uint8Array(0));
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const legend: ChartLegendState = {
       show: legendOpt.show ?? seriesCount >= 2,
@@ -7143,6 +7170,7 @@ export class Charturbo {
       y: ys,
       series: ids,
       pointColors,
+      symbols,
     };
     this.flatCameraView = true;
     const formatScatterX = resolveFormatLive(options?.axes?.x?.format, () => this.chartLocale());

@@ -323,8 +323,28 @@ fn fs_segment(in: SegmentOut) -> @location(0) vec4<f32> {
 
 /// Screen-space circular markers with a separating ring (hover points).
 pub fn chart_marker_wgsl() -> String {
-    format!("{CHART_PRELUDE_WGSL}{CHART_MARKER_BODY_WGSL}")
+    format!("{CHART_PRELUDE_WGSL}{MARKER_SD_WGSL}{CHART_MARKER_BODY_WGSL}")
 }
+
+/// Signed distance of the marker / point shapes (shared by the marker and scatter point shaders).
+const MARKER_SD_WGSL: &str = r#"
+// Signed distance (px, < 0 inside) of a marker of size `r` at `p` (+y up). Shapes are scaled
+// to a similar visual weight as the circle of radius `r`.
+fn marker_sd(p: vec2<f32>, r: f32, shape: f32) -> f32 {
+    let a = abs(p);
+    if (shape > 2.5) {
+        // Equilateral triangle: circumradius 1.25 r, inradius 0.625 r
+        return max(-p.y, 0.8660254 * a.x + 0.5 * p.y) - 0.625 * r;
+    }
+    if (shape > 1.5) {
+        return (a.x + a.y - 1.2 * r) * 0.70710678;
+    }
+    if (shape > 0.5) {
+        return max(a.x, a.y) - 0.85 * r;
+    }
+    return length(p) - r;
+}
+"#;
 
 const CHART_MARKER_BODY_WGSL: &str = r#"
 struct MarkerInstance {
@@ -370,23 +390,6 @@ fn vs_marker(@builtin(vertex_index) vi: u32, inst: MarkerInstance) -> MarkerOut 
     out.ring = inst.ring;
     out.shape = inst.params.y;
     return out;
-}
-
-// Signed distance (px, < 0 inside) of a marker of size `r` at `p` (+y up). Shapes are scaled
-// to a similar visual weight as the circle of radius `r`.
-fn marker_sd(p: vec2<f32>, r: f32, shape: f32) -> f32 {
-    let a = abs(p);
-    if (shape > 2.5) {
-        // Equilateral triangle: circumradius 1.25 r, inradius 0.625 r
-        return max(-p.y, 0.8660254 * a.x + 0.5 * p.y) - 0.625 * r;
-    }
-    if (shape > 1.5) {
-        return (a.x + a.y - 1.2 * r) * 0.70710678;
-    }
-    if (shape > 0.5) {
-        return max(a.x, a.y) - 0.85 * r;
-    }
-    return length(p) - r;
 }
 
 @fragment
@@ -509,7 +512,7 @@ fn fs_dash(in: DashOut) -> @location(0) vec4<f32> {
 /// uniform, so points are uploaded only once. Vertices 0..6 draw the base pass, 6..12 the
 /// emphasized series on top (second draw call, only while a series is emphasized).
 pub fn chart_point_wgsl() -> String {
-    format!("{CHART_PRELUDE_WGSL}{CHART_POINT_BODY_WGSL}")
+    format!("{CHART_PRELUDE_WGSL}{MARKER_SD_WGSL}{CHART_POINT_BODY_WGSL}")
 }
 
 const CHART_POINT_BODY_WGSL: &str = r#"
@@ -527,7 +530,7 @@ struct PointStyle {
 var<uniform> point_style: PointStyle;
 
 struct PointInstance {
-    // [x, y, series_slot, radius_css_px]
+    // [x, y, series_slot + 256 * shape, radius_css_px] (shape: see marker_sd)
     @location(0) center_radius: vec4<f32>,
     @location(1) color: vec4<f32>,
 };
@@ -538,6 +541,7 @@ struct PointOut {
     // (fill radius px, outer radius px)
     @location(1) radii: vec2<f32>,
     @location(2) color: vec4<f32>,
+    @location(3) shape: f32,
 };
 
 @vertex
@@ -547,7 +551,9 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
     );
     let corner = corners[vi % 6u];
-    let slot = min(u32(max(inst.center_radius.z, 0.0)), 255u);
+    let packed = max(inst.center_radius.z, 0.0);
+    let slot = min(u32(packed) % 256u, 255u);
+    let shape = floor(packed / 256.0);
     let alpha = point_style.series_alpha[slot / 4u][slot % 4u];
     let emphasized = i32(slot) == i32(point_style.params.y);
     // Pass 0 skips the emphasized slot, pass 1 draws only it
@@ -560,6 +566,7 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
         out.local = vec2<f32>(0.0);
         out.radii = vec2<f32>(0.0);
         out.color = vec4<f32>(0.0);
+        out.shape = 0.0;
         return out;
     }
 
@@ -567,7 +574,8 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
     // Sub-pixel points still cover about one pixel
     let r = max(inst.center_radius.w * pr, 0.5);
     let outer = r + max(point_style.params.x, 0.0) * pr;
-    let ext = outer + 1.0;
+    // Diamonds / triangles reach past the radius (see marker_sd)
+    let ext = select(outer, outer * 1.25, shape > 0.5) + 1.0;
 
     let xy = inst.center_radius.xy * point_style.transform.xy + point_style.transform.zw;
     let c = to_clip(vec3<f32>(xy, 0.0));
@@ -577,20 +585,21 @@ fn vs_point(@builtin(vertex_index) vi: u32, inst: PointInstance) -> PointOut {
     out.local = corner * ext;
     out.radii = vec2<f32>(r, outer);
     out.color = vec4<f32>(inst.color.rgb, inst.color.a * min(alpha, 1.0));
+    out.shape = shape;
     return out;
 }
 
 @fragment
 fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
-    let d = length(in.local);
-    let coverage = clamp(in.radii.y + 0.5 - d, 0.0, 1.0);
+    // Circles: 0.5 - (d - outer) and d - r + 0.5, as before the shapes
+    let coverage = clamp(0.5 - marker_sd(in.local, in.radii.y, in.shape), 0.0, 1.0);
     if (coverage <= 0.0) {
         discard;
     }
     var c = in.color;
     if (in.radii.y > in.radii.x) {
         let ring = vec4<f32>(point_style.ring_color.rgb, point_style.ring_color.a * in.color.a);
-        c = mix(in.color, ring, clamp(d - in.radii.x + 0.5, 0.0, 1.0));
+        c = mix(in.color, ring, clamp(marker_sd(in.local, in.radii.x, in.shape) + 0.5, 0.0, 1.0));
     }
     return vec4<f32>(c.rgb, c.a * coverage);
 }

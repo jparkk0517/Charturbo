@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { legendColumnWidth, legendPages } from '../sdk/chart-legend';
+import { legendColumnWidth, legendPages, symbolSwatch } from '../sdk/chart-legend';
 
 describe('legend layout helpers', () => {
   it('pages fill the available length with whole entries', () => {
@@ -12,6 +12,13 @@ describe('legend layout helpers', () => {
     expect(legendPages([], 10, 100)).toEqual([0]);
     // No room measured (hidden canvas): one page, nothing to page
     expect(legendPages([50, 50], 10, 0)).toEqual([0]);
+  });
+
+  it('scatter swatches follow the series symbol (glyph triangle exports as text)', () => {
+    expect(symbolSwatch('circle', 'red')).toEqual({ style: { width: '8px', height: '8px', borderRadius: '50%', background: 'red' } });
+    expect(symbolSwatch('square', 'red').style).toMatchObject({ width: '8px', height: '8px', borderRadius: '1px', background: 'red' });
+    expect(symbolSwatch('diamond', 'red').style).toMatchObject({ transform: 'rotate(45deg)', width: '7px', background: 'red' });
+    expect(symbolSwatch('triangle', 'red')).toEqual({ style: { color: 'red', fontSize: '10px', lineHeight: '10px', width: '10px', textAlign: 'center' }, text: '▲' });
   });
 
   it('side legends size their column to the longest name', () => {

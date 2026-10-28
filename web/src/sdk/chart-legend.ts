@@ -7,6 +7,27 @@
 
 export type ChartLegendPosition = 'top' | 'bottom' | 'left' | 'right';
 
+/** Scatter point symbol (engine shape codes 0..3 in this order). */
+export type ScatterSymbol = 'circle' | 'square' | 'diamond' | 'triangle';
+export const SCATTER_SYMBOL_CODES: Record<ScatterSymbol, number> = { circle: 0, square: 1, diamond: 2, triangle: 3 };
+
+/**
+ * Legend swatch of a scatter series drawn with `shape`: CSS boxes (the diamond a rotated square)
+ * and a `▲` glyph for the triangle, so image exports (boxes, rotations, text) reproduce them.
+ */
+export function symbolSwatch(shape: ScatterSymbol, color: string): { style: Partial<CSSStyleDeclaration>; text?: string } {
+  switch (shape) {
+    case 'square':
+      return { style: { width: '8px', height: '8px', borderRadius: '1px', background: color } };
+    case 'diamond':
+      return { style: { width: '7px', height: '7px', borderRadius: '1px', background: color, transform: 'rotate(45deg)' } };
+    case 'triangle':
+      return { style: { color, fontSize: '10px', lineHeight: '10px', width: '10px', textAlign: 'center' }, text: '▲' };
+    default:
+      return { style: { width: '8px', height: '8px', borderRadius: '50%', background: color } };
+  }
+}
+
 /** Height a top / bottom legend row reserves (CSS px). */
 export const LEGEND_ROW_PX = 28;
 /** Gap between a side legend column and the plot / canvas edge (CSS px). */

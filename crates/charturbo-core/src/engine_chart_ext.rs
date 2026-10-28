@@ -18,6 +18,11 @@ impl VisualizationEngine {
         }
     }
 
+    /// Shape per scatter series id (see `ChartState::set_scatter_shapes`).
+    pub fn set_chart_scatter_shapes(&mut self, shapes: &[u8]) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_scatter_shapes(shapes))
+    }
+
     pub fn chart_animation(&self) -> Option<AnimationOptions> {
         self.chart_animation
     }

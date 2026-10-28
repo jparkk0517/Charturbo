@@ -95,6 +95,7 @@ export {
   type ChartTimeGranularity,
   type ChartLegendOptions,
   type ChartLegendPosition,
+  type ScatterSymbol,
   type ChartPaddingOptions,
   type CharturboTheme,
   type NodeHoverStyle,
