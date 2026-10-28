@@ -21,7 +21,8 @@ impl WasmCharturboEngine {
     /// for outside labels; `rose` 0 = none, 1 = radius (angles by share), 2 = area (equal angles):
     /// slice area proportional to the value; `end_angle_deg` where the last slice ends (NaN = a
     /// full turn, see `PieOptions::end_angle_deg`); `pad_angle_deg` angular gap between slices (NaN /
-    /// negative = none). Returns the displayed slice count.
+    /// negative = none); `corner_radius_px` slice corner rounding (0 = sharp). Returns the displayed
+    /// slice count.
     #[allow(clippy::too_many_arguments)]
     pub fn set_pie_chart(
         &mut self,
@@ -39,6 +40,7 @@ impl WasmCharturboEngine {
         rose: u8,
         end_angle_deg: f32,
         pad_angle_deg: f32,
+        corner_radius_px: f32,
     ) -> Result<usize, JsValue> {
         validate_pie(values).map_err(|e| JsValue::from_str(&e))?;
         let d = PieOptions::default();
@@ -48,6 +50,7 @@ impl WasmCharturboEngine {
             start_angle_deg,
             end_angle_deg,
             pad_angle_deg,
+            corner_radius_px,
             clockwise,
             inner_ratio,
             labels: PieLabelMode::from_u8(labels),

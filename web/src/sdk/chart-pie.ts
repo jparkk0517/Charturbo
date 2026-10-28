@@ -48,6 +48,8 @@ export interface PieChartOptions {
    * gap. Slices narrower than it are not drawn (legend / tooltip / table still list them)
    */
   padAngle?: number;
+  /** Rounds every slice corner by this many CSS px (default 0), shrunk per slice so corners never cross; a pie's center stays sharp */
+  cornerRadius?: number;
   /** Default `'clockwise'` */
   direction?: 'clockwise' | 'counterclockwise';
   /** Nightingale rose chart (default: off, every slice reaches the full radius) */
@@ -170,7 +172,8 @@ export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData,
       sy,
       options?.rose ? (ROSE_CODES[options.rose] ?? 0) : 0,
       options?.endAngle ?? NaN,
-      options?.padAngle ?? 0
+      options?.padAngle ?? 0,
+      options?.cornerRadius ?? 0
     ) ?? 0
   );
 }

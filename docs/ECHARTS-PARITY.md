@@ -20,7 +20,7 @@ HANDOFF의 계약을 따른다.
   - [x] rose(nightingale): 넓이 비례(표준)로 구현, ECharts 선형 대응은 미채택
   - [x] padAngle: 기존 2px 간격 위에 각도 간격 추가
   - [x] `endAngle`(반 도넛): 범위 bbox에 맞춰 화면을 잡음
-  - [ ] 모서리 둥글게
+  - [x] 모서리 둥글게: CSS px 단위, d3-shape `cornerRadius` 작도
   - [ ] 중첩 링
 - [ ] 생키: 세로 방향(orient), levels 스타일, 그라데이션 링크 (sankey 7)
 - [ ] 범례: 위치 지정, 넘침 시 스크롤/페이지

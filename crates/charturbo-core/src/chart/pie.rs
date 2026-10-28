@@ -21,7 +21,7 @@
 //! places the text at the exported anchors.
 
 use super::*;
-use std::f32::consts::{FRAC_PI_2, TAU};
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 /// Default displayed slices; the smallest of the rest fold into "Other".
 pub const DEFAULT_PIE_MAX_SLICES: usize = 8;
@@ -122,6 +122,8 @@ pub struct PieOptions {
     /// Angular gap between neighbouring slices (degrees, clamped to [0, 45]) on top of the 2 px
     /// surface gap; angles, percents and the hit test keep the unpadded layout
     pub pad_angle_deg: f32,
+    /// Corner rounding radius in CSS px (0 = sharp), clamped per slice so corners never cross
+    pub corner_radius_px: f32,
     pub clockwise: bool,
     /// Donut hole radius / outer radius (0 = pie; clamped to [0, 0.95])
     pub inner_ratio: f32,
@@ -144,6 +146,7 @@ impl Default for PieOptions {
             start_angle_deg: 0.0,
             end_angle_deg: f32::NAN,
             pad_angle_deg: 0.0,
+            corner_radius_px: 0.0,
             clockwise: true,
             inner_ratio: 0.0,
             labels: PieLabelMode::Outside,
@@ -296,6 +299,8 @@ pub(crate) struct SliceShape {
     pub r_in: f32,
     /// The only visible slice: a full disk / ring without gaps
     pub full: bool,
+    /// Corner rounding radius (world units; 0 = sharp), see `tessellate_rounded`
+    pub corner: f32,
 }
 
 /// World point at compass angle `phi` (0 = up, clockwise) and radius `r` around `c`.
@@ -318,6 +323,13 @@ pub(crate) fn tessellate_slice(
     let r_i = if shape.r_in > 0.0 { shape.r_in + half_aa } else { 0.0 };
     if r_o <= 0.0 || r_i >= r_o {
         return false;
+    }
+    // Edge inset: half the gap + half the AA stroke
+    let d = (0.5 * PIE_GAP_PX + 0.5 * AA_PX) * wpp;
+    if shape.corner > 0.0 && !shape.full && d < r_o {
+        if let Some(drawn) = tessellate_rounded(shape, wpp, offset, color, (r_o, r_i, d), fills, edges) {
+            return drawn;
+        }
     }
     let vtx = |p: (f32, f32)| ChartFillRaw { position: [p.0, p.1, 0.0, 0.0], color };
     let mut stroke = |a: (f32, f32), b: (f32, f32)| {
@@ -347,8 +359,7 @@ pub(crate) fn tessellate_slice(
         return true;
     }
 
-    // Both edges move `d` along their normal into the slice: half the gap + half the AA stroke
-    let d = (0.5 * PIE_GAP_PX + 0.5 * AA_PX) * wpp;
+    // Both edges move `d` along their normal into the slice
     if d >= r_o {
         return false;
     }
@@ -402,6 +413,113 @@ pub(crate) fn tessellate_slice(
     true
 }
 
+/// Rounded slice: each corner circle is tangent to the inset edge and to the rim (or the hole's
+/// arc), the d3-shape `cornerRadius` construction, and shrinks so the two corners of an arc never
+/// cross (`(d + rc) / (r - rc) = sin(half)` at the rim, `(d + rc) / (r_in + rc)` at the hole) or
+/// overlap across the ring. A pie apex, and a hole too small for its corners, stay sharp. `radii`
+/// = AA-inset rim and hole radii and the edge inset `d` of `tessellate_slice`. `None` when not
+/// even the rim corners reach half a CSS px (the caller draws the slice sharp).
+fn tessellate_rounded(
+    shape: &SliceShape,
+    wpp: f32,
+    offset: (f32, f32),
+    color: [f32; 4],
+    (r_o, r_i, d): (f32, f32, f32),
+    fills: &mut Vec<ChartFillRaw>,
+    edges: &mut Vec<ChartSegmentRaw>,
+) -> Option<bool> {
+    let (lo, hi) = (shape.lo, shape.hi);
+    let half = 0.5 * (hi - lo);
+    let s = half.sin();
+    let depth = 0.5 * (r_o - r_i);
+    let rc_o = shape.corner.min(depth).min(if half >= FRAC_PI_2 { f32::MAX } else { (r_o * s - d) / (1.0 + s) });
+    if rc_o < 0.5 * wpp || d + rc_o >= r_o - rc_o {
+        return None;
+    }
+    let rc_i = if r_i >= d { shape.corner.min(depth).min(if half >= FRAC_PI_2 { f32::MAX } else { (r_i * s - d) / (1.0 - s) }) } else { 0.0 };
+    let o = (0.0, 0.0);
+    // Appends the arc of radius `r` around `c` from compass angle `a0` to `a1`
+    let arc = |out: &mut Vec<(f32, f32)>, c: (f32, f32), a0: f32, a1: f32, r: f32| {
+        let n = arc_segments((a1 - a0).abs(), r / wpp).max(1);
+        out.extend((0..=n).map(|k| polar(c, a0 + (a1 - a0) * k as f32 / n as f32, r)));
+    };
+
+    // Rim, lo edge -> hi edge: corner (from the edge foot to the rim), rim arc, corner back
+    let mut outer = Vec::new();
+    let alpha = ((d + rc_o) / (r_o - rc_o)).asin();
+    arc(&mut outer, polar(o, lo + alpha, r_o - rc_o), lo - FRAC_PI_2, lo + alpha, rc_o);
+    arc(&mut outer, o, lo + alpha, hi - alpha, r_o);
+    arc(&mut outer, polar(o, hi - alpha, r_o - rc_o), hi - alpha, hi + FRAC_PI_2, rc_o);
+
+    // Hole side, lo -> hi: rounded hole corners, else the sharp boundary of `tessellate_slice`
+    let mut inner = Vec::new();
+    if rc_i >= 0.5 * wpp {
+        let beta = ((d + rc_i) / (r_i + rc_i)).asin();
+        arc(&mut inner, polar(o, lo + beta, r_i + rc_i), lo - FRAC_PI_2, lo + beta - PI, rc_i);
+        arc(&mut inner, o, lo + beta, hi - beta, r_i);
+        arc(&mut inner, polar(o, hi - beta, r_i + rc_i), hi - beta + PI, hi + FRAC_PI_2, rc_i);
+    } else if r_i >= d && half > (d / r_i).asin() {
+        let a = (d / r_i).asin();
+        arc(&mut inner, o, lo + a, hi - a, r_i);
+    } else if half > FRAC_PI_2 && r_i < d {
+        arc(&mut inner, o, lo + FRAC_PI_2, hi - FRAC_PI_2, d);
+    } else {
+        inner.push(polar(o, lo + half, d / s));
+    }
+    for path in [&mut outer, &mut inner] {
+        path.dedup_by(|a, b| (a.0 - b.0).hypot(a.1 - b.1) < 1e-6);
+        for p in path.iter_mut() {
+            *p = (p.0 + offset.0, p.1 + offset.1);
+        }
+    }
+
+    let vtx = |p: (f32, f32)| ChartFillRaw { position: [p.0, p.1, 0.0, 0.0], color };
+    if let [apex] = inner[..] {
+        for w in outer.windows(2) {
+            fills.extend([vtx(apex), vtx(w[0]), vtx(w[1])]);
+        }
+    } else {
+        zipper(&outer, &inner, vtx, fills);
+    }
+    let mut stroke = |a: (f32, f32), b: (f32, f32)| {
+        edges.push(ChartSegmentRaw { p0_width: [a.0, a.1, 0.0, AA_PX], p1_pad: [b.0, b.1, 0.0, 0.0], color });
+    };
+    let (first, last) = (inner[0], inner[inner.len() - 1]);
+    stroke(first, outer[0]);
+    for w in outer.windows(2) {
+        stroke(w[0], w[1]);
+    }
+    stroke(outer[outer.len() - 1], last);
+    for w in inner.windows(2).rev() {
+        stroke(w[1], w[0]);
+    }
+    Some(true)
+}
+
+/// Triangles between two polylines running the same way with any vertex counts: advances along
+/// whichever side is behind in normalized length, keeping every vertex.
+fn zipper(a: &[(f32, f32)], b: &[(f32, f32)], vtx: impl Fn((f32, f32)) -> ChartFillRaw, fills: &mut Vec<ChartFillRaw>) {
+    let progress = |p: &[(f32, f32)]| -> Vec<f32> {
+        let mut acc = vec![0.0f32];
+        for w in p.windows(2) {
+            acc.push(acc[acc.len() - 1] + (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1));
+        }
+        let total = acc[acc.len() - 1].max(f32::MIN_POSITIVE);
+        acc.iter().map(|v| v / total).collect()
+    };
+    let (ta, tb) = (progress(a), progress(b));
+    let (mut i, mut j) = (0, 0);
+    while i + 1 < a.len() || j + 1 < b.len() {
+        if j + 1 >= b.len() || (i + 1 < a.len() && ta[i + 1] <= tb[j + 1]) {
+            fills.extend([vtx(a[i]), vtx(b[j]), vtx(a[i + 1])]);
+            i += 1;
+        } else {
+            fills.extend([vtx(a[i]), vtx(b[j]), vtx(b[j + 1])]);
+            j += 1;
+        }
+    }
+}
+
 /// Quad strip between two arcs with the same vertex count.
 fn strip(
     outer: &[(f32, f32)],
@@ -445,6 +563,7 @@ impl PieChart {
         opts.inner_ratio = clean(opts.inner_ratio, 0.0).clamp(0.0, 0.95);
         opts.start_angle_deg = clean(opts.start_angle_deg, 0.0);
         opts.pad_angle_deg = clean(opts.pad_angle_deg, 0.0).clamp(0.0, 45.0);
+        opts.corner_radius_px = clean(opts.corner_radius_px, 0.0).max(0.0);
         opts.label_min_angle_deg = clean(opts.label_min_angle_deg, d.label_min_angle_deg).max(0.0);
         opts.label_line_px = clean(opts.label_line_px, d.label_line_px).max(1.0);
         opts.label_space_px = opts.label_space_px.map(|v| clean(v, 0.0).clamp(0.0, 2048.0));
@@ -705,7 +824,8 @@ impl PieChart {
             } else {
                 (0.0, 0.0)
             };
-            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full };
+            let corner = self.opts.corner_radius_px * wpp;
+            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full, corner };
             tessellate_slice(&shape, wpp, offset, self.display_color(k), fills, edges);
         }
     }
@@ -740,7 +860,8 @@ impl PieChart {
             let Some((lo, hi)) = self.padded(self.compass(&PieSlice { start, end, ..*s }), full) else {
                 continue;
             };
-            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full };
+            let corner = self.opts.corner_radius_px * wpp;
+            let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: self.r_in(), full, corner };
             tessellate_slice(&shape, wpp, (0.0, 0.0), self.display_color(k), fills, edges);
         }
     }
@@ -1114,7 +1235,7 @@ mod tests {
             let (mut fills, mut edges) = (Vec::new(), Vec::new());
             // Two slices meeting at the 90 degree ray, plus a reflex slice (pie: rounded center)
             for (lo, hi) in [(0.0, FRAC_PI_2), (FRAC_PI_2, TAU)] {
-                let shape = SliceShape { lo, hi, r_out: PIE_RADIUS, r_in, full: false };
+                let shape = SliceShape { lo, hi, r_out: PIE_RADIUS, r_in, full: false, corner: 0.0 };
                 assert!(tessellate_slice(&shape, wpp, (0.0, 0.0), [1.0; 4], &mut fills, &mut edges));
             }
             // Every fill vertex keeps >= d from both dividing lines on its side, so the AA ramp
@@ -1154,11 +1275,11 @@ mod tests {
 
         // A single visible slice is a full disk without gaps
         let (mut fills, mut edges) = (Vec::new(), Vec::new());
-        let shape = SliceShape { lo: 0.0, hi: TAU, r_out: PIE_RADIUS, r_in: 0.0, full: true };
+        let shape = SliceShape { lo: 0.0, hi: TAU, r_out: PIE_RADIUS, r_in: 0.0, full: true, corner: 0.0 };
         assert!(tessellate_slice(&shape, wpp, (0.0, 0.0), [1.0; 4], &mut fills, &mut edges));
         assert!(fills.iter().any(|v| v.position[0].abs() < 1e-6 && v.position[1] > 0.0), "covers the top ray");
         // A sliver thinner than the gap disappears instead of folding over
-        let sliver = SliceShape { lo: 0.0, hi: 0.01, r_out: PIE_RADIUS, r_in: 0.0, full: false };
+        let sliver = SliceShape { lo: 0.0, hi: 0.01, r_out: PIE_RADIUS, r_in: 0.0, full: false, corner: 0.0 };
         assert!(!tessellate_slice(&sliver, wpp, (0.0, 0.0), [1.0; 4], &mut fills, &mut edges));
     }
 
@@ -1363,6 +1484,93 @@ mod tests {
         got.sort_by(f32::total_cmp);
         for (g, w) in got.iter().zip(&want) {
             assert!((g - w).abs() < 0.05, "leader starts {got:?} vs rims {want:?}");
+        }
+    }
+
+    /// Area of a triangle list.
+    fn fill_area(fills: &[ChartFillRaw]) -> f32 {
+        fills
+            .chunks(3)
+            .map(|t| {
+                let [a, b, c] = [t[0].position, t[1].position, t[2].position];
+                0.5 * ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs()
+            })
+            .sum()
+    }
+
+    #[test]
+    fn corner_radius_rounds_the_slice_corners_inside_the_sharp_outline() {
+        let wpp = 0.25;
+        let rc = 12.0 * wpp; // 12 CSS px
+        let d = (0.5 * PIE_GAP_PX + 0.5 * AA_PX) * wpp;
+        let (r_o, r_i) = (PIE_RADIUS - 0.5 * AA_PX * wpp, 20.0 + 0.5 * AA_PX * wpp);
+        let tess = |corner: f32, r_in: f32| {
+            let (mut fills, mut edges) = (Vec::new(), Vec::new());
+            let shape = SliceShape { lo: 0.0, hi: FRAC_PI_2, r_out: PIE_RADIUS, r_in, full: false, corner };
+            assert!(tessellate_slice(&shape, wpp, (0.0, 0.0), [1.0; 4], &mut fills, &mut edges));
+            (fills, edges)
+        };
+        // Donut quarter: four ~right-angle corners each lose about (1 - pi/4) rc^2
+        let (sharp, _) = tess(0.0, 20.0);
+        let (round, edges) = tess(rc, 20.0);
+        let lost = fill_area(&sharp) - fill_area(&round);
+        let want = 4.0 * (1.0 - std::f32::consts::FRAC_PI_4) * rc * rc;
+        assert!((lost / want - 1.0).abs() < 0.25, "lost {lost} vs ~{want}");
+        // Everything stays inside the sharp outline: rim, hole and both inset edges
+        for f in &round {
+            let p = (f.position[0], f.position[1]);
+            let r = p.0.hypot(p.1);
+            assert!(r <= r_o + 1e-4 && r >= r_i - 1e-4, "radius {r}");
+            assert!(dist_to_ray_line(p, 0.0) >= d - 1e-4 && dist_to_ray_line(p, FRAC_PI_2) >= d - 1e-4, "{p:?}");
+        }
+        // The sharp outer corner (inset edge meets the rim) is cut by about (sqrt 2 - 1) rc
+        let corner = (d, (r_o * r_o - d * d).sqrt());
+        let nearest = round.iter().map(|f| (f.position[0] - corner.0).hypot(f.position[1] - corner.1)).fold(f32::MAX, f32::min);
+        assert!(nearest > 0.8 * (std::f32::consts::SQRT_2 - 1.0) * rc, "nearest {nearest}");
+        // The AA outline is one closed loop
+        for w in edges.windows(2) {
+            let (a, b) = (w[0].p1_pad, w[1].p0_width);
+            assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 1e-4, "outline breaks at {a:?} -> {b:?}");
+        }
+        let (first, last) = (edges[0].p0_width, edges[edges.len() - 1].p1_pad);
+        assert!((first[0] - last[0]).hypot(first[1] - last[1]) < 1e-4, "outline closes");
+
+        // Pie wedge: the apex stays sharp, the outer corners round
+        let (sharp, _) = tess(0.0, 0.0);
+        let (round, _) = tess(rc, 0.0);
+        let apex = |fills: &[ChartFillRaw]| fills.iter().map(|f| f.position[0].hypot(f.position[1])).fold(f32::MAX, f32::min);
+        assert!((apex(&round) - apex(&sharp)).abs() < 1e-4);
+        let lost = fill_area(&sharp) - fill_area(&round);
+        assert!((lost / (2.0 * (1.0 - std::f32::consts::FRAC_PI_4) * rc * rc) - 1.0).abs() < 0.25, "pie lost {lost}");
+
+        // Huge radii clamp: neighbouring corners never cross, the shape stays finite and visible
+        for (r_in, hi) in [(20.0, FRAC_PI_2), (0.0, 0.3), (20.0, 0.3), (0.0, 5.0), (40.0, 5.0)] {
+            let (mut fills, mut edges) = (Vec::new(), Vec::new());
+            let shape = SliceShape { lo: 0.0, hi, r_out: PIE_RADIUS, r_in, full: false, corner: 1000.0 };
+            assert!(tessellate_slice(&shape, wpp, (0.0, 0.0), [1.0; 4], &mut fills, &mut edges), "r_in {r_in} hi {hi}");
+            assert!(fills.iter().all(|f| f.position[0].is_finite() && f.position[1].is_finite()));
+            assert!(fill_area(&fills) > 0.0);
+        }
+        // A full ring ignores the corners
+        let (mut fills, mut edges) = (Vec::new(), Vec::new());
+        let ring = SliceShape { lo: 0.0, hi: TAU, r_out: PIE_RADIUS, r_in: 20.0, full: true, corner: rc };
+        assert!(tessellate_slice(&ring, wpp, (0.0, 0.0), [1.0; 4], &mut fills, &mut edges));
+        let full_ring = std::f32::consts::PI * (r_o * r_o - r_i * r_i);
+        assert!((fill_area(&fills) / full_ring - 1.0).abs() < 0.01);
+
+        // Chart option: CSS px, so the drawn corner follows the screen scale
+        let opts = PieOptions { corner_radius_px: 12.0, inner_ratio: 0.5, labels: PieLabelMode::None, ..Default::default() };
+        let (mut chart, cam) = pie(&[1.0, 1.0, 1.0, 1.0], opts);
+        chart.prepare_layers(&view(&cam));
+        let (mut plain, cam) = pie(&[1.0, 1.0, 1.0, 1.0], PieOptions { corner_radius_px: 0.0, ..opts });
+        plain.prepare_layers(&view(&cam));
+        let wpp = inner(&chart).screen.unwrap().wpp;
+        let lost = fill_area(&plain.fills) - fill_area(&chart.fills);
+        let want = 16.0 * (1.0 - std::f32::consts::FRAC_PI_4) * (12.0 * wpp).powi(2);
+        assert!((lost / want - 1.0).abs() < 0.25, "chart lost {lost} vs ~{want}");
+        for (px, want) in [(f32::NAN, 0.0), (-3.0, 0.0), (8.0, 8.0)] {
+            let (c, _) = pie(&[1.0], PieOptions { corner_radius_px: px, ..Default::default() });
+            assert_eq!(inner(&c).opts.corner_radius_px, want);
         }
     }
 

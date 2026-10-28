@@ -431,6 +431,7 @@ export const FIXTURES: Fixture[] = [
   pieFixture('pie-rose', 0.2, { rose: 'area' }),
   pieFixture('pie-half-donut', 0.55, { startAngle: -90, endAngle: 90 }),
   pieFixture('pie-pad-angle', 0.5, { padAngle: 4 }),
+  pieFixture('pie-rounded', 0.5, { padAngle: 3, cornerRadius: 8 }),
   {
     name: 'combo',
     theme: 'dark',
@@ -774,7 +775,7 @@ function hierarchyData() {
 function pieFixture(
   name: string,
   donut: number,
-  extra: { rose?: 'radius' | 'area'; startAngle?: number; endAngle?: number; padAngle?: number } = {}
+  extra: { rose?: 'radius' | 'area'; startAngle?: number; endAngle?: number; padAngle?: number; cornerRadius?: number } = {}
 ): Fixture {
   return {
     name,
@@ -784,7 +785,7 @@ function pieFixture(
         sdk.renderPieChart(
           { labels: ['Search', 'Direct', 'Social', 'Email', 'Ads', 'Other'], values: [420, 260, 180, 90, 40, 25] },
           {
-            title: extra.rose ? 'Rose' : extra.endAngle !== undefined ? 'Half donut' : extra.padAngle ? 'Padded donut' : donut > 0 ? 'Donut' : 'Pie',
+            title: extra.rose ? 'Rose' : extra.endAngle !== undefined ? 'Half donut' : extra.cornerRadius ? 'Rounded donut' : extra.padAngle ? 'Padded donut' : donut > 0 ? 'Donut' : 'Pie',
             donut,
             ...extra,
             sort: 'desc',

@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 파이 둥근 모서리
+
+- `PieChartOptions.cornerRadius`(CSS px)를 추가했습니다. 모서리 원은 안쪽으로 민 가장자리와 호에 접하며(d3-shape 작도), 얇은 조각·고리에서는 겹치지 않도록 줄어듭니다. 파이 중심은 뾰족하게 유지합니다.
+- 길이가 다른 두 경계선을 꼭짓점 손실 없이 잇는 삼각 분할을 추가했습니다. 기존 뾰족한 경로는 바뀌지 않았습니다(기존 pie·donut·sunburst·gauge 화면 차이 0%).
+- WASM `set_pie_chart`에 마지막 인자 `corner_radius_px`를 추가했습니다. SDK와 WASM을 함께 재빌드해야 합니다.
+- 예제 `pie/05-pad-angle`을 `pie/05-rounded`(둥근 모서리 + 각도 간격)로 바꾸고, WebGPU/WebGL2 fixture `pie-rounded`를 추가했습니다.
+
 ### 추가 — 파이 조각 각도 간격
 
 - `PieChartOptions.padAngle`(도, 기본 0, 최대 45)을 추가했습니다. 기존 2px 간격 위에 각도 간격을 더하며, 각도 · 퍼센트 · hit test는 바뀌지 않습니다.

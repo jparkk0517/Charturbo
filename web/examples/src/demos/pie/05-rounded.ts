@@ -1,8 +1,8 @@
 import { Charturbo } from 'charturbo';
 
 export const meta = {
-  title: 'Donut with pad angle',
-  description: 'padAngle opens an angular gap between slices on top of the 2 px surface gap; angles and percents keep the unpadded layout.',
+  title: 'Rounded donut with pad angle',
+  description: 'padAngle opens an angular gap between slices; cornerRadius rounds every corner in CSS px (shrunk on thin slices so corners never cross).',
 };
 
 export default async function mount(host: HTMLElement) {
@@ -11,7 +11,7 @@ export default async function mount(host: HTMLElement) {
 
   sdk.renderPieChart(
     { labels: ['Search', 'Direct', 'Email', 'Union ads', 'Video ads'], values: [1048, 735, 580, 484, 300] },
-    { title: 'Access source', donut: 0.55, padAngle: 5, labels: 'outside' }
+    { title: 'Access source', donut: 0.55, padAngle: 5, cornerRadius: 10, labels: 'outside' }
   );
   sdk.enableNodeInteractions(canvas, { autoRender: true });
   sdk.render();

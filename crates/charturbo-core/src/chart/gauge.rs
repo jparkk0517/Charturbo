@@ -288,7 +288,7 @@ impl GaugeChart {
     /// Tessellates value range `(from, to)` between radii `(r_out, r_in)`.
     fn piece(&self, (from, to): (f64, f64), (r_out, r_in): (f32, f32), wpp: f32, color: [f32; 4], fills: &mut Vec<ChartFillRaw>, edges: &mut Vec<ChartSegmentRaw>) {
         let full = (self.opts.end_angle_deg - self.opts.start_angle_deg) >= 359.99 && from <= self.opts.min && to >= self.opts.max;
-        let shape = SliceShape { lo: self.angle_of(from), hi: self.angle_of(to), r_out, r_in, full };
+        let shape = SliceShape { lo: self.angle_of(from), hi: self.angle_of(to), r_out, r_in, full, corner: 0.0 };
         tessellate_slice(&shape, wpp, self.center, color, fills, edges);
     }
 

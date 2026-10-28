@@ -1661,7 +1661,7 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_box_outliers?(group: number): Float32Array;
   /** `[lo, hi, bandwidth, density * 128]` of a violin group */
   chart_box_kde?(group: number): Float64Array;
-  /** Pie / donut (chart-pie.ts): values >= 0; `maxSlices` < 0 = default, 0 = no folding; `labels` 0 none, 1 outside, 2 inside; `rose` 0 none, 1 radius, 2 area; `endAngleDeg` NaN = full turn; `padAngleDeg` gap between slices */
+  /** Pie / donut (chart-pie.ts): values >= 0; `maxSlices` < 0 = default, 0 = no folding; `labels` 0 none, 1 outside, 2 inside; `rose` 0 none, 1 radius, 2 area; `endAngleDeg` NaN = full turn; `padAngleDeg` gap between slices; `cornerRadiusPx` 0 = sharp */
   set_pie_chart?(
     values: Float64Array,
     sort: number,
@@ -1676,7 +1676,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     labelSpaceY: number,
     rose: number,
     endAngleDeg: number,
-    padAngleDeg: number
+    padAngleDeg: number,
+    cornerRadiusPx: number
   ): number;
   /** RGBA floats: palette (display order), per-value colors (NaN = palette), other / leader / surface */
   set_chart_pie_style?(palette: Float32Array, colors: Float32Array, other: Float32Array, leader: Float32Array, surface: Float32Array): void;

@@ -233,7 +233,7 @@ impl SunburstChart {
         fills.clear();
         edges.clear();
         let half = 0.5 * SUNBURST_GAP_PX * wpp;
-        let center = SliceShape { lo: 0.0, hi: TAU, r_out: self.r0 - half, r_in: 0.0, full: true };
+        let center = SliceShape { lo: 0.0, hi: TAU, r_out: self.r0 - half, r_in: 0.0, full: true, corner: 0.0 };
         let center_color = if hovered == Some(self.root) { mix(self.center_color(), self.style.highlight, 0.12) } else { self.center_color() };
         tessellate_slice(&center, wpp, (0.0, 0.0), center_color, fills, edges);
         let mut stack: Vec<u32> = self.tree.shown_children(self.root).to_vec();
@@ -248,7 +248,7 @@ impl SunburstChart {
                 continue;
             }
             let full = hi - lo >= TAU * 0.99999;
-            let shape = SliceShape { lo, hi, r_out: r_out - half, r_in: r_in + half, full };
+            let shape = SliceShape { lo, hi, r_out: r_out - half, r_in: r_in + half, full, corner: 0.0 };
             if tessellate_slice(&shape, wpp, (0.0, 0.0), self.display_color(v, hovered), fills, edges) {
                 stack.extend_from_slice(self.tree.shown_children(v));
             }
