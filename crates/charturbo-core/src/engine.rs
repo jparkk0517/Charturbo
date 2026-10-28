@@ -229,12 +229,8 @@ impl VisualizationEngine {
             || (self.auto_sleep_enabled && self.sleeping) || !dt.is_finite() || dt <= 0.0 {
             return Ok(GpuPhysicsRequest::Immediate(self.step_physics(dt)));
         }
-        self.ensure_spatial_index();
-        let Some(snapshot) = self.simulator.spatial_index().repulsion_snapshot() else {
-            return Ok(GpuPhysicsRequest::Immediate(self.step_physics(dt)));
-        };
         let config = self.simulator.force_config();
-        let step = crate::renderer::gpu_layout::GpuLayoutStep::new(&self.dataset, &snapshot, config, dt);
+        let step = crate::renderer::gpu_layout::GpuLayoutStep::new(&self.dataset, config, dt);
         let readback = self.renderer.gpu_layout(&step)?;
         self.physics_ticket = self.physics_ticket.wrapping_add(1).max(1);
         self.pending_physics = Some(PendingPhysics {

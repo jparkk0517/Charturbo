@@ -141,7 +141,7 @@ pub struct SpatialBody {
     pub mass: f32,
 }
 
-/// GPU force traversal input; both records match the WGSL storage layouts (32 bytes).
+/// GPU octree records written by `renderer/gpu_tree.wgsl` (32 bytes each, WGSL layouts).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuForceCell {
@@ -161,15 +161,8 @@ pub struct GpuForceBody {
     pub pad: [u32; 2],
 }
 
-pub struct RepulsionSnapshot {
-    pub cells: Vec<GpuForceCell>,
-    pub bodies: Vec<GpuForceBody>,
-}
-
 /// Abstraction for 3D spatial indexing, decoupling physics & picking from concrete tree data structures.
 pub trait SpatialIndex {
-    /// Optional immutable snapshot for GPU repulsion. CPU query APIs stay authoritative.
-    fn repulsion_snapshot(&self) -> Option<RepulsionSnapshot> { None }
     /// Rebuilds the spatial index from a slice of bodies.
     fn rebuild(&mut self, bodies: &[SpatialBody]);
 
@@ -296,7 +289,7 @@ fn coincident_dir(a: u32, b: u32) -> Vec3 {
 
 /// Repulsion of one body on `target_pos` (coincident bodies get a tiny deterministic separation).
 #[inline]
-fn pair_repulsion(target_id: u32, target_pos: Vec3, body: &SpatialBody, strength: f32, softening: f32) -> Vec3 {
+pub(crate) fn pair_repulsion(target_id: u32, target_pos: Vec3, body: &SpatialBody, strength: f32, softening: f32) -> Vec3 {
     let mut delta = target_pos - body.position;
     let mut len_sq = delta.length_squared();
     if len_sq < 1e-12 {
@@ -414,19 +407,6 @@ impl Default for OctreeSpatialIndex {
 }
 
 impl SpatialIndex for OctreeSpatialIndex {
-    fn repulsion_snapshot(&self) -> Option<RepulsionSnapshot> {
-        Some(RepulsionSnapshot {
-            cells: self.force_cells.iter().map(|c| GpuForceCell {
-                com_mass: [c.center_of_mass.x, c.center_of_mass.y, c.center_of_mass.z, c.mass],
-                size_sq: c.size_sq, escape: c.escape, body: c.body.unwrap_or(u32::MAX), pad: 0,
-            }).collect(),
-            bodies: self.bodies.iter().enumerate().map(|(i, b)| GpuForceBody {
-                position_mass: [b.position.x, b.position.y, b.position.z, b.mass],
-                id: b.id, next: self.next_in_leaf[i].unwrap_or(u32::MAX), pad: [0; 2],
-            }).collect(),
-        })
-    }
-
     fn rebuild(&mut self, bodies: &[SpatialBody]) {
         self.cells.clear();
         self.force_cells.clear();

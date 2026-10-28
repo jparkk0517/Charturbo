@@ -1,12 +1,15 @@
-// Same Barnes-Hut acceptance test, softening and leaf order as the CPU octree.
+// Same Barnes-Hut acceptance test, softening and leaf order as the CPU octree, over the
+// GPU-built tree (gpu_tree.wgsl): bodies in node order, cells in DFS order.
 // xyzw records keep CPU/GPU alignment explicit; w of the output is reserved.
 struct Body { position_mass: vec4<f32>, id: u32, next: u32, pad: vec2<u32> }
 struct Cell { com_mass: vec4<f32>, size_sq: f32, escape: u32, body: u32, pad: u32 }
-struct Params { count: u32, cells: u32, theta_sq: f32, strength: f32, softening: f32, pad: vec3<f32> }
+struct Params { count: u32, pad0: u32, theta_sq: f32, strength: f32, softening: f32, pad: vec3<f32> }
+struct Header { center: vec3<f32>, half: f32, cells: u32, pad0: u32, pad1: u32, pad2: u32 }
 @group(0) @binding(0) var<storage, read> bodies: array<Body>;
 @group(0) @binding(1) var<storage, read> cells: array<Cell>;
 @group(0) @binding(2) var<storage, read_write> forces: array<vec4<f32>>;
 @group(0) @binding(3) var<uniform> params: Params;
+@group(0) @binding(4) var<storage, read> header: Header;
 
 fn pair_force(subject: Body, other: Body) -> vec3<f32> {
     var delta = subject.position_mass.xyz - other.position_mass.xyz;
@@ -38,7 +41,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     } else {
         var cell_index = 0u;
-        while cell_index < params.cells {
+        while cell_index < header.cells {
             let cell = cells[cell_index];
             if cell.com_mass.w <= 0.0 { cell_index = cell.escape; continue; }
             if cell.body != 0xffffffffu {

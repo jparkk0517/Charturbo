@@ -1,10 +1,11 @@
 //! GPU layout step: Barnes-Hut repulsion, center gravity, CSR spring gather and
 //! semi-implicit Euler integration in one submission, matching `ForceDirectedSimulator::step`.
-//! The CPU still builds the octree and applies the read-back state (`apply_gpu_step`).
+//! The octree is built on the GPU (`gpu_tree.rs`); the CPU applies the read-back state
+//! (`apply_gpu_step`).
 use super::gpu_repulsion::{GpuRepulsion, Storage};
+use super::gpu_tree::GpuTree;
 use crate::domain::{EdgeData, GraphDataset};
 use crate::physics::ForceConfig;
-use crate::spatial::RepulsionSnapshot;
 use wgpu::util::DeviceExt;
 
 const STEP_SHADER: &str = include_str!("gpu_layout_step.wgsl");
@@ -20,7 +21,6 @@ pub struct GpuNodeState {
 /// One layout step's inputs. The CSR (`offsets`, `edge_ids`, `edges`) is uploaded only when
 /// `topology` differs from the last upload.
 pub struct GpuLayoutStep<'a> {
-    pub snapshot: &'a RepulsionSnapshot,
     pub nodes: Vec<GpuNodeState>,
     pub offsets: &'a [u32],
     pub edge_ids: &'a [u32],
@@ -31,17 +31,18 @@ pub struct GpuLayoutStep<'a> {
 }
 
 impl<'a> GpuLayoutStep<'a> {
-    pub fn new(dataset: &'a GraphDataset, snapshot: &'a RepulsionSnapshot, config: ForceConfig, dt: f32) -> Self {
+    pub fn new(dataset: &'a GraphDataset, config: ForceConfig, dt: f32) -> Self {
         let adjacency = dataset.adjacency();
         let nodes = dataset.nodes().iter().map(|n| {
             let (p, v) = (n.position(), n.velocity());
             GpuNodeState { position_mass: [p.x, p.y, p.z, n.mass()], velocity_pinned: [v.x, v.y, v.z, if n.is_pinned() { 1.0 } else { 0.0 }] }
         }).collect();
-        Self { snapshot, nodes, offsets: &adjacency.offsets, edge_ids: &adjacency.edge_ids, edges: dataset.edges(), topology: dataset.topology_revision(), config, dt }
+        Self { nodes, offsets: &adjacency.offsets, edge_ids: &adjacency.edge_ids, edges: dataset.edges(), topology: dataset.topology_revision(), config, dt }
     }
 }
 
 pub struct GpuLayout {
+    tree: GpuTree,
     repulsion: GpuRepulsion,
     pipeline: wgpu::ComputePipeline,
     state_in: Storage,
@@ -71,7 +72,7 @@ impl GpuLayout {
         });
         let storage = || Storage::new(device, 32);
         Self {
-            repulsion: GpuRepulsion::new(device), pipeline,
+            tree: GpuTree::new(device), repulsion: GpuRepulsion::new(device), pipeline,
             state_in: storage(), state_out: storage(), energy: storage(), offsets: storage(), edge_ids: storage(), edges: storage(),
             params: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("layout-step-params"), contents: &[0; 32],
@@ -86,16 +87,17 @@ impl GpuLayout {
         let max = u64::from(limits.max_storage_buffer_binding_size).min(limits.max_buffer_size);
         let n = step.nodes.len() as u64;
         let (state_bytes, edge_bytes) = (n * 32, std::mem::size_of_val(step.edges) as u64);
-        if n != step.snapshot.bodies.len() as u64 || step.offsets.len() as u64 != n + 1 || [state_bytes, edge_bytes, step.offsets.len() as u64 * 4, step.edge_ids.len() as u64 * 4].iter().any(|&b| b > max) {
+        if n == 0 || step.offsets.len() as u64 != n + 1 || [state_bytes, edge_bytes, step.offsets.len() as u64 * 4, step.edge_ids.len() as u64 * 4].iter().any(|&b| b > max) {
             return Err("Graph exceeds GPU layout buffer/dispatch limits".into());
         }
         let dt = if step.dt.is_finite() { step.dt.clamp(0.0, 0.05) } else { 0.0 };
         let c = step.config;
-        let mut encoder = device.create_command_encoder(&Default::default());
-        self.repulsion.encode(device, queue, &mut encoder, step.snapshot, c)?;
         for s in [&mut self.state_in, &mut self.state_out] { s.ensure(device, state_bytes, max); }
         self.energy.ensure(device, n * 4, max);
         queue.write_buffer(&self.state_in.buffer, 0, bytemuck::cast_slice(&step.nodes));
+        let mut encoder = device.create_command_encoder(&Default::default());
+        self.tree.encode(device, queue, &mut encoder, &self.state_in.buffer, n as u32)?;
+        self.repulsion.encode(device, queue, &mut encoder, &self.tree, n as u32, c)?;
         if self.topology != Some(step.topology) {
             for (storage, data) in [(&mut self.offsets, bytemuck::cast_slice(step.offsets)), (&mut self.edge_ids, bytemuck::cast_slice(step.edge_ids)), (&mut self.edges, bytemuck::cast_slice(step.edges))] {
                 storage.ensure(device, data.len() as u64, max);
@@ -128,7 +130,7 @@ impl GpuLayout {
     }
 
     pub fn bytes(&self) -> u64 {
-        self.repulsion.bytes() + [&self.state_in, &self.state_out, &self.energy, &self.offsets, &self.edge_ids, &self.edges].iter().map(|s| s.bytes).sum::<u64>() + 32
+        self.tree.bytes() + self.repulsion.bytes() + [&self.state_in, &self.state_out, &self.energy, &self.offsets, &self.edge_ids, &self.edges].iter().map(|s| s.bytes).sum::<u64>() + 32
     }
 }
 
@@ -172,7 +174,7 @@ impl GpuReadback {
 
 /// Native (Metal / Vulkan / DX12) device for GPU parity tests; None without an adapter.
 #[cfg(test)]
-mod test_device {
+pub(crate) mod test_device {
     use std::future::Future;
     use std::task::{Context, Poll, Waker};
 
@@ -237,8 +239,7 @@ mod tests {
         let pinned = gpu_ds.nodes()[2].position();
         for _ in 0..steps {
             cpu.step(&mut cpu_ds, 0.016);
-            let snapshot = gpu.spatial_index().repulsion_snapshot().unwrap();
-            let readback = layout.submit(&device, &queue, &GpuLayoutStep::new(&gpu_ds, &snapshot, config, 0.016)).unwrap();
+            let readback = layout.submit(&device, &queue, &GpuLayoutStep::new(&gpu_ds, config, 0.016)).unwrap();
             let values = readback.read_blocking(&device).unwrap();
             assert!(gpu.apply_gpu_step(&mut gpu_ds, &values));
         }

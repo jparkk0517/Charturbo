@@ -5,6 +5,7 @@ use bytemuck::{Pod, Zeroable};
 mod fill_style;
 pub mod gpu_context;
 pub mod gpu_layout;
+mod gpu_tree;
 pub mod gpu_repulsion;
 mod heatmap;
 pub mod shader;

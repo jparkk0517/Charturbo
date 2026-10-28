@@ -1,7 +1,7 @@
-//! Parallel GPU Barnes-Hut repulsion over a CPU-built octree snapshot (first pass of the
-//! GPU layout step, see `gpu_layout.rs`).
+//! Parallel GPU Barnes-Hut repulsion over the GPU-built octree (`gpu_tree.rs`), the first
+//! force pass of the GPU layout step (`gpu_layout.rs`).
+use super::gpu_tree::GpuTree;
 use crate::physics::ForceConfig;
-use crate::spatial::RepulsionSnapshot;
 use wgpu::util::DeviceExt;
 
 const SHADER: &str = include_str!("gpu_repulsion.wgsl");
@@ -30,8 +30,6 @@ impl Storage {
 
 pub struct GpuRepulsion {
     pipeline: wgpu::ComputePipeline,
-    bodies: Storage,
-    cells: Storage,
     forces: Storage,
     params: wgpu::Buffer,
 }
@@ -47,7 +45,7 @@ impl GpuRepulsion {
         });
         Self {
             pipeline,
-            bodies: Storage::new(device, 32), cells: Storage::new(device, 32), forces: Storage::new(device, 32),
+            forces: Storage::new(device, 32),
             // WGSL vec3 padding starts at byte 32, giving the uniform a 48-byte footprint.
             params: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("layout-params"), contents: &[0; 48],
@@ -56,26 +54,20 @@ impl GpuRepulsion {
         }
     }
 
-    /// Records the repulsion pass into `encoder`; results land in `forces()` (xyzw per body).
-    pub fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, snapshot: &RepulsionSnapshot, config: ForceConfig) -> Result<(), String> {
+    /// Records the repulsion pass over `tree` (built for `count` bodies); results land in
+    /// `forces()` (xyzw per node).
+    pub fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, tree: &GpuTree, count: u32, config: ForceConfig) -> Result<(), String> {
         let limits = device.limits();
         let max = u64::from(limits.max_storage_buffer_binding_size).min(limits.max_buffer_size);
-        let bodies = bytemuck::cast_slice(&snapshot.bodies);
-        let cells = bytemuck::cast_slice(&snapshot.cells);
-        let count = snapshot.bodies.len() as u32;
         let bytes = u64::from(count) * 16;
         let groups = count.div_ceil(64);
-        if count == 0 || bodies.len() as u64 > max || cells.len() as u64 > max || bytes > max || groups > limits.max_compute_workgroups_per_dimension {
+        if count == 0 || bytes > max || groups > limits.max_compute_workgroups_per_dimension {
             return Err("Graph exceeds GPU layout buffer/dispatch limits".into());
         }
-        self.bodies.ensure(device, bodies.len() as u64, max);
-        self.cells.ensure(device, cells.len() as u64, max);
         self.forces.ensure(device, bytes, max);
-        queue.write_buffer(&self.bodies.buffer, 0, bodies);
-        queue.write_buffer(&self.cells.buffer, 0, cells);
-        let params = [count, snapshot.cells.len() as u32, (config.theta * config.theta).to_bits(), config.repulsion_strength.to_bits(), config.softening.to_bits(), 0, 0, 0, 0, 0, 0, 0];
+        let params = [count, 0, (config.theta * config.theta).to_bits(), config.repulsion_strength.to_bits(), config.softening.to_bits(), 0, 0, 0, 0, 0, 0, 0];
         queue.write_buffer(&self.params, 0, bytemuck::cast_slice(&params));
-        let buffers = [&self.bodies.buffer, &self.cells.buffer, &self.forces.buffer, &self.params];
+        let buffers = [tree.bodies(), tree.cells(), &self.forces.buffer, &self.params, tree.header()];
         let entries: Vec<_> = buffers.iter().enumerate().map(|(i, b)| wgpu::BindGroupEntry { binding: i as u32, resource: b.as_entire_binding() }).collect();
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("layout-bind"), layout: &self.pipeline.get_bind_group_layout(0), entries: &entries,
@@ -89,7 +81,7 @@ impl GpuRepulsion {
 
     pub fn forces(&self) -> &wgpu::Buffer { &self.forces.buffer }
 
-    pub fn bytes(&self) -> u64 { self.bodies.bytes + self.cells.bytes + self.forces.bytes + 48 }
+    pub fn bytes(&self) -> u64 { self.forces.bytes + 48 }
 }
 
 #[cfg(test)]
