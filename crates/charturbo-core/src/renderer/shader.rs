@@ -67,6 +67,30 @@ fn fs_node(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// GPU-resident layout state (`gpu_layout.rs`) for graph shaders that read positions on the GPU.
+const LAYOUT_STATE_WGSL: &str = "struct LayoutState { position_mass: vec4<f32>, velocity_pinned: vec4<f32> };
+@group(1) @binding(0) var<storage, read> layout_state: array<LayoutState>;
+";
+
+/// `NODE_BILLBOARD_WGSL` for a GPU-resident layout: `position_radius.x` holds the node index
+/// (an exact float below 2^24); the center comes from the layout buffer.
+pub fn node_billboard_resident_wgsl() -> String {
+    let src = NODE_BILLBOARD_WGSL.replace(
+        "let center = instance.position_radius.xyz;",
+        "let center = layout_state[u32(instance.position_radius.x)].position_mass.xyz;",
+    );
+    format!("{LAYOUT_STATE_WGSL}{src}")
+}
+
+/// `EDGE_LINE_WGSL` for a GPU-resident layout: `position_pad.x` holds the endpoint's node index.
+pub fn edge_line_resident_wgsl() -> String {
+    let src = EDGE_LINE_WGSL.replace(
+        "vec4<f32>(v.position_pad.xyz, 1.0)",
+        "vec4<f32>(layout_state[u32(v.position_pad.x)].position_mass.xyz, 1.0)",
+    );
+    format!("{LAYOUT_STATE_WGSL}{src}")
+}
+
 /// WGSL shader for single-draw-call translucent graph edges.
 pub const EDGE_LINE_WGSL: &str = r#"
 struct CameraUniform {
@@ -863,6 +887,14 @@ mod tests {
     }
 
     #[test]
+    fn resident_graph_shaders_read_positions_from_the_gpu_layout() {
+        for src in [node_billboard_resident_wgsl(), edge_line_resident_wgsl()] {
+            assert!(src.contains("var<storage, read> layout_state: array<LayoutState>"));
+            assert!(src.contains("layout_state[u32("), "positions must come from the layout buffer");
+        }
+    }
+
+    #[test]
     fn every_shader_parses_and_validates() {
         let sources = [
             ("node", NODE_BILLBOARD_WGSL.to_string()),
@@ -875,6 +907,8 @@ mod tests {
             ("chart-point", chart_point_wgsl()),
             ("chart-fill", chart_fill_wgsl()),
             ("chart-heatmap", chart_heatmap_wgsl()),
+            ("node-resident", node_billboard_resident_wgsl()),
+            ("edge-resident", edge_line_resident_wgsl()),
         ];
         for (name, src) in sources {
             let module = naga::front::wgsl::parse_str(&src)

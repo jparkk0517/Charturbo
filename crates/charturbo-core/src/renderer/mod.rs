@@ -304,6 +304,8 @@ pub struct InstancePacker {
     translucent_scratch: Vec<NodeInstanceRaw>,
     edge_vertices: Vec<EdgeVertexRaw>,
     opaque_node_count: usize,
+    /// Pack node indexes instead of positions (GPU-resident layout drawing)
+    pub resident: bool,
 }
 
 impl InstancePacker {
@@ -360,6 +362,9 @@ impl InstancePacker {
         self.node_instances.clear();
         self.translucent_scratch.clear();
         self.edge_vertices.clear();
+        // Resident layouts draw GPU positions: store each node's index where the position goes
+        let resident = self.resident;
+        let at = |i: usize, node: &crate::domain::NodeData| if resident { glam::Vec3::new(i as f32, 0.0, 0.0) } else { node.position() };
 
         let nodes = dataset.nodes();
         let has_sel = dataset.has_selection();
@@ -372,7 +377,7 @@ impl InstancePacker {
                 }
             }
 
-            let pos = node.position();
+            let pos = at(idx, node);
             let is_hovered = hover_style.enabled && hovered_node_id == Some(node.id());
             let is_selected = node.is_selected();
 
@@ -435,8 +440,8 @@ impl InstancePacker {
 
             let src = &nodes[src_idx];
             let dst = &nodes[dst_idx];
-            let src_pos = src.position();
-            let dst_pos = dst.position();
+            let src_pos = at(src_idx, src);
+            let dst_pos = at(dst_idx, dst);
 
             let alpha = if has_sel {
                 if src.is_selected() && dst.is_selected() {
@@ -487,8 +492,10 @@ pub trait RenderBackend {
     }
     fn gpu_layout_take_sync(&mut self) -> Option<gpu_layout::GpuLayoutReadback> { None }
     /// Node instances (`opaque_nodes` leading opaque ones, then translucent) and graph edges.
+    /// `resident`: positions are node indexes into the GPU-resident layout (`InstancePacker::resident`).
     fn sync_graph(
         &mut self,
+        resident: bool,
         nodes: &[NodeInstanceRaw],
         opaque_nodes: usize,
         edge_vertices: &[EdgeVertexRaw],
@@ -570,19 +577,49 @@ pub struct MockRenderBackend {
     pub rendered_frames: usize,
     pub last_camera: Option<CameraUniformRaw>,
     pub viewport_size: (u32, u32),
+    /// Last `sync_graph` held node indexes for a GPU-resident layout
+    pub graph_resident: bool,
+    /// Fake GPU layout: reports compute support, records steps `(full upload, node count)` and
+    /// node-write ids, and serves queued readbacks.
+    pub gpu_physics: bool,
+    pub gpu_steps: Vec<(bool, u32)>,
+    pub gpu_writes: Vec<Vec<u32>>,
+    pub gpu_readbacks: Vec<gpu_layout::GpuLayoutReadback>,
 }
 
 impl RenderBackend for MockRenderBackend {
     fn sync_graph(
         &mut self,
+        resident: bool,
         nodes: &[NodeInstanceRaw],
         opaque_nodes: usize,
         edge_vertices: &[EdgeVertexRaw],
     ) {
+        self.graph_resident = resident;
         self.synced_node_count = nodes.len();
         self.synced_opaque_node_count = opaque_nodes;
         self.synced_edge_vertex_count = edge_vertices.len();
         self.graph_uploads += 1;
+    }
+
+    fn supports_gpu_physics(&self) -> bool {
+        self.gpu_physics
+    }
+
+    fn gpu_layout_step(&mut self, step: &gpu_layout::GpuLayoutStep) -> Result<(), String> {
+        self.gpu_steps.push((matches!(step.write, gpu_layout::GpuStateWrite::Full(_)), step.count));
+        Ok(())
+    }
+
+    fn gpu_layout_write(&mut self, write: gpu_layout::GpuStateWrite) -> Result<(), String> {
+        if let gpu_layout::GpuStateWrite::Nodes(nodes) = write {
+            self.gpu_writes.push(nodes.iter().map(|(id, _)| *id).collect());
+        }
+        Ok(())
+    }
+
+    fn gpu_layout_readback(&mut self) -> Option<gpu_layout::GpuLayoutReadback> {
+        self.gpu_readbacks.pop()
     }
 
     fn sync_scene_geometry(&mut self, vertices: &[MeshVertexRaw], indices: &[u32]) {
@@ -819,5 +856,21 @@ mod tests {
         assert_eq!(nodes.len(), 2); // Only nodes 0 and 1 packed
         // Edge 0-1 is on screen; edge 1-2 leaves the screen but stays (GPU clips it)
         assert_eq!(edge_verts.len(), 4);
+    }
+
+    #[test]
+    fn resident_packing_stores_node_ids_instead_of_positions() {
+        let positions = [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 1.0, 2.0];
+        let edges = [2u32, 0];
+        let ds = GraphDataset::from_raw_buffers(&positions, None, None, None, &edges, None).unwrap();
+        let mut packer = InstancePacker::new();
+        packer.resident = true;
+        let (nodes, edge_verts) = packer.pack_dataset_with_culling(&ds, None, None, &NodeHoverStyle::default());
+        // Exact float ids (up to 2^24) for the shaders' `layout[u32(x)]` lookup; radius / color kept
+        let ids: Vec<[f32; 3]> = nodes.iter().map(|n| [n.position_radius[0], n.position_radius[1], n.position_radius[2]]).collect();
+        assert_eq!(ids, vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
+        assert_eq!(nodes[1].position_radius[3], ds.nodes()[1].mass() * 0.95);
+        assert_eq!(edge_verts[0].position_pad, [2.0, 0.0, 0.0, 1.0]);
+        assert_eq!(edge_verts[1].position_pad, [0.0, 0.0, 0.0, 1.0]);
     }
 }
