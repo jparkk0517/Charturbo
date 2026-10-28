@@ -9,6 +9,7 @@
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import type { ChartAnimationInput } from './chart-animation';
+import { formatCount, getMessages, resolveLocale } from './i18n';
 
 export interface PieChartData {
   /** One name per value (legend, labels, tooltip, a11y table) */
@@ -37,7 +38,7 @@ export interface PieChartOptions {
   colors?: (ColorInput | null | undefined)[];
   /** Color of the "Other" slice (default: the theme's neutral baseline color) */
   otherColor?: ColorInput;
-  /** Name of the folded slice (default `'Other'`) */
+  /** Name of the folded slice (default: `'Other'` in the chart language) */
   otherLabel?: string;
   /** Default `'outside'` */
   labels?: PieLabelMode;
@@ -45,7 +46,7 @@ export interface PieChartOptions {
   labelMinAngle?: number;
   /**
    * Donut center text: the visible total (the hovered slice while hovering). `true` (default for
-   * donuts) captions it `Total`, a string replaces the caption, `false` hides it
+   * donuts) captions it `Total` (in the chart language), a string replaces the caption, `false` hides it
    */
   centerLabel?: boolean | string;
   title?: string;
@@ -54,7 +55,7 @@ export interface PieChartOptions {
   /** Legend of the displayed slices (default: shown); click toggles a slice, hover emphasizes it */
   legend?: ChartLegendOptions | boolean;
   padding?: ChartPaddingOptions;
-  /** Tooltip / table name of the values (default `'Value'`) */
+  /** Tooltip / table name of the values (default: `'Value'` in the chart language) */
   valueLabel?: string;
   /** Value text of labels, tooltip and center (default: locale number) */
   format?: (value: number) => string;
@@ -89,8 +90,12 @@ const LABEL_CODES: Record<PieLabelMode, number> = { none: 0, outside: 1, percent
 /** Label line height (CSS px): the engine keeps outside labels this far apart. */
 const LABEL_LINE_PX = 16;
 
-/** Builds the display meta; slice fields are filled from the engine by `syncPieSlices`. */
-export function pieMeta(data: PieChartData, options?: PieChartOptions): PieChartMeta {
+/**
+ * Builds the display meta; slice fields are filled from the engine by `syncPieSlices`.
+ * `locale`: default value / "Other" / center names.
+ */
+export function pieMeta(data: PieChartData, options?: PieChartOptions, locale?: string): PieChartMeta {
+  const m = getMessages(locale).common;
   const donut = Math.min(0.95, Math.max(0, Number(options?.donut) || 0));
   const center = options?.centerLabel ?? donut > 0;
   return {
@@ -103,11 +108,11 @@ export function pieMeta(data: PieChartData, options?: PieChartOptions): PieChart
     sources: [],
     other: [],
     inputLabels: [...data.labels],
-    valueLabel: options?.valueLabel ?? 'Value',
-    otherLabel: options?.otherLabel ?? 'Other',
+    valueLabel: options?.valueLabel ?? m.value,
+    otherLabel: options?.otherLabel ?? m.other,
     labelMode: options?.labels ?? 'outside',
     donut,
-    center: { show: center !== false && donut > 0, caption: typeof center === 'string' ? center : 'Total' },
+    center: { show: center !== false && donut > 0, caption: typeof center === 'string' ? center : m.total },
     format: options?.format,
     colorInputs: options?.colors,
     otherColor: options?.otherColor,
@@ -196,7 +201,9 @@ export function pieOtherMembers(meta: PieChartMeta): string[] {
 
 /** Percent text, e.g. `12.5%`. */
 export function formatPercent(p: number, locale?: string): string {
-  return Number.isFinite(p) ? `${p.toLocaleString(locale, { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%` : '—';
+  return Number.isFinite(p)
+    ? `${p.toLocaleString(resolveLocale(locale), { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%`
+    : getMessages(locale).common.dash;
 }
 
 /** Tooltip context of displayed slice `k` (`nodeId` = slice index). */
@@ -226,10 +233,11 @@ export function pieTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, 
   if (!it || !s) return '';
   const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const swatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;flex:none;background:${it.color};"></span>`;
-  const members = s.members?.length
-    ? `<div style="color:${theme.textMuted};font-size:11px;margin-top:4px;max-width:220px;white-space:normal;">${esc(
-        s.members.slice(0, 6).join(', ') + (s.members.length > 6 ? `, +${s.members.length - 6}` : '')
-      )}</div>`
+  const m = getMessages(locale).common;
+  // Up to 6 names, then "and N more"
+  const shown = s.members && [...s.members.slice(0, 6), ...(s.members.length > 6 ? [m.andMore(formatCount(s.members.length - 6, locale))] : [])];
+  const members = shown?.length
+    ? `<div style="color:${theme.textMuted};font-size:11px;margin-top:4px;max-width:220px;white-space:normal;">${esc(shown.join(m.listSeparator))}</div>`
     : '';
   return `
         <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;">

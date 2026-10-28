@@ -23,6 +23,7 @@ import type {
   NodeMetadata,
 } from './charturbo';
 import type { CharturboTimeZone } from './chart-timezone';
+import { formatCount, getMessages } from './i18n';
 
 export type ComboSeriesType = 'bar' | 'line' | 'area';
 
@@ -240,9 +241,16 @@ export function drawnAxes(types: ComboSeriesType[], axes: ArrayLike<number>): nu
   return out;
 }
 
-/** Chart meta of an encoded combo chart. */
-export function comboMeta(enc: ComboEncoded, data: ComboChartData, barMode: ComboChartMeta['barMode'], formatX: (x: number) => string): ComboChartMeta {
+/** Chart meta of an encoded combo chart (`locale`: default item labels). */
+export function comboMeta(
+  enc: ComboEncoded,
+  data: ComboChartData,
+  barMode: ComboChartMeta['barMode'],
+  formatX: (x: number) => string,
+  locale?: string
+): ComboChartMeta {
   const n = enc.n;
+  const item = getMessages(locale).common.itemName;
   const categories = data.categories ? [...data.categories] : null;
   const xs = data.x ? enc.x : null;
   return {
@@ -254,7 +262,7 @@ export function comboMeta(enc: ComboEncoded, data: ComboChartData, barMode: Comb
     values: enc.names.map((_, k) => enc.values.subarray(k * n, (k + 1) * n)),
     categories,
     xs,
-    label: (i) => (categories ? (categories[i] ?? `#${i + 1}`) : xs && i < xs.length ? formatX(xs[i]) : `#${i + 1}`),
+    label: (i) => (categories ? (categories[i] ?? item(i + 1)) : xs && i < xs.length ? formatX(xs[i]) : item(i + 1)),
     visible: enc.names.map(() => true),
     barMode,
   };
@@ -274,15 +282,17 @@ export function comboTooltipContext(
   meta: ComboChartMeta,
   hit: ArrayLike<number>,
   css: (c: RgbaTuple) => string,
-  details: (id: number) => NodeDetails | null
+  details: (id: number) => NodeDetails | null,
+  locale?: string
 ): ChartTooltipContext | null {
   const count = hit.length >= 3 ? hit[2] : 0;
   if (count < 1) return null;
   const items: ChartTooltipItem[] = [];
+  const seriesName = getMessages(locale).common.seriesName;
   for (let k = 0; k < count; k++) {
     const at = 3 + k * 4;
     const s = hit[at];
-    items.push({ seriesName: meta.names[s] ?? `Series ${s + 1}`, value: hit[at + 2], color: css(meta.colors[s] ?? [0.5, 0.5, 0.5, 1]), nodeId: hit[at + 3] });
+    items.push({ seriesName: meta.names[s] ?? seriesName(s + 1), value: hit[at + 2], color: css(meta.colors[s] ?? [0.5, 0.5, 0.5, 1]), nodeId: hit[at + 3] });
   }
   const primary = Math.min(hit[1], count - 1);
   const index = hit[3 + primary * 4 + 1];
@@ -297,8 +307,15 @@ export function comboTooltipContext(
   };
 }
 
-/** Details metadata of point `id` (`series * categories + category`). */
-export function comboPointMetadata(meta: ComboChartMeta, id: number): { series: number; color: RgbaTuple; metadata: NodeMetadata } | null {
+/**
+ * Details metadata of point `id` (`series * categories + category`). The description follows
+ * `locale`; tags / attributes stay programmatic.
+ */
+export function comboPointMetadata(
+  meta: ComboChartMeta,
+  id: number,
+  locale?: string
+): { series: number; color: RgbaTuple; metadata: NodeMetadata } | null {
   const n = Math.max(1, meta.values[0]?.length ?? 0);
   const series = Math.floor(id / n);
   const i = id % n;
@@ -312,7 +329,7 @@ export function comboPointMetadata(meta: ComboChartMeta, id: number): { series: 
     metadata: {
       label: `${name} · ${where}`,
       category: name,
-      description: `${where} 항목의 ${name} 시리즈 값입니다.`,
+      description: getMessages(locale).combo.pointDescription(name, where),
       tags: ['combo-chart', meta.types[series], name.toLowerCase()],
       attributes: {
         series: name,
@@ -339,20 +356,24 @@ export interface A11yComboData {
 }
 
 type Loose = Record<string, unknown>;
-type Common = Pick<A11yChartModel, 'title' | 'description' | 'xTitle' | 'yTitle' | 'formatValue'>;
+type Common = Pick<A11yChartModel, 'title' | 'description' | 'xTitle' | 'yTitle' | 'formatValue' | 'locale'>;
 
-/** Normalizes a combo meta for the a11y model (focus: `series`, `index` = category). */
-export function comboA11yModel(m: Loose, p: Loose, common: Common, gray: RgbaTuple): A11yChartModel {
+/**
+ * Normalizes a combo meta for the a11y model (focus: `series`, `index` = category). Default
+ * names follow `locale`, else `common.locale`.
+ */
+export function comboA11yModel(m: Loose, p: Loose, common: Common, gray: RgbaTuple, locale?: string): A11yChartModel {
+  const t = getMessages(locale ?? common.locale).common;
   const names = (Array.isArray(m.names) ? m.names : []) as string[];
   const colors = (Array.isArray(m.colors) ? m.colors : []) as RgbaTuple[];
   const visible = (Array.isArray(m.visible) ? m.visible : []) as boolean[];
   const values = (Array.isArray(m.values) ? m.values : []) as Float32Array[];
   const types = (Array.isArray(m.types) ? m.types : []) as ComboSeriesType[];
   const axes = (Array.isArray(m.axes) ? m.axes : []) as number[];
-  const label = typeof m.label === 'function' ? (m.label as (i: number) => string) : (i: number) => `#${i + 1}`;
+  const label = typeof m.label === 'function' ? (m.label as (i: number) => string) : (i: number) => t.itemName(i + 1);
   const xs = ArrayBuffer.isView(m.xs) ? (m.xs as Float64Array) : null;
   const series: A11ySeries[] = values.map((v, s) => ({
-    name: names[s] ?? `Series ${s + 1}`,
+    name: names[s] ?? t.seriesName(s + 1),
     values: v,
     visible: visible[s] ?? true,
     f32: v instanceof Float32Array,
@@ -370,14 +391,13 @@ export function comboA11yModel(m: Loose, p: Loose, common: Common, gray: RgbaTup
     xLabel: (i) => label(i),
     formatX: (x) => label(x),
     pointId: (s, i) => s * n + i,
-    itemName: (s) => series[s]?.name ?? `Series ${s + 1}`,
+    itemName: (s) => series[s]?.name ?? t.seriesName(s + 1),
     itemColor: (s) => colors[s] ?? gray,
   };
 }
 
-const enCount = (v: number) => v.toLocaleString('en-US');
-const plural = (n: number, word: string, many = `${word}s`) => `${enCount(n)} ${n === 1 ? word : many}`;
-const TYPE_WORD: Record<ComboSeriesType, string> = { bar: 'bars', line: 'line', area: 'area' };
+/** Locale of the a11y text: explicit, else the model's chart locale. */
+const textLocale = (model: A11yChartModel, locale?: string): string | undefined => locale ?? model.locale;
 
 /** Finite min / max / mean of a series with their category indices. */
 function stats(values: ArrayLike<number>): { count: number; min: number; max: number; mean: number; minIndex: number; maxIndex: number } {
@@ -399,61 +419,74 @@ function stats(values: ArrayLike<number>): { count: number; min: number; max: nu
 }
 
 /** Series role, e.g. `bars, left axis` (axis only on dual-axis charts). */
-function role(c: A11yComboData, s: number): string {
-  const dual = c.axes.includes(1);
-  const t = TYPE_WORD[c.types[s]] ?? 'line';
-  return dual ? `${t}, ${c.axes[s] === 1 ? 'right' : 'left'} axis` : t;
+function role(c: A11yComboData, s: number, locale?: string): string {
+  const t = getMessages(locale).combo;
+  const word = t.type[c.types[s]] ?? t.type.line;
+  if (!c.axes.includes(1)) return word;
+  return c.axes[s] === 1 ? t.onRightAxis(word) : t.onLeftAxis(word);
 }
 
-/** Canvas `aria-label`, e.g. `Combo chart, 12 categories, 3 series (bars: Revenue, Cost; line: Margin); ...`. */
-export function comboSummary(model: A11yChartModel): string {
+/**
+ * Canvas `aria-label`, e.g. `Combo chart, 12 categories, 3 series (bars: Revenue, Cost; line: Margin); ...`
+ * (`locale`: default the model's).
+ */
+export function comboSummary(model: A11yChartModel, locale?: string): string {
   const c = model.combo!;
-  const head = model.title ? `${model.title}. ` : '';
+  const loc = textLocale(model, locale);
+  const { common: m, combo: t } = getMessages(loc);
   const groups = (['bar', 'line', 'area'] as const)
-    .map((t) => {
-      const names = model.series.filter((_, s) => c.types[s] === t).map((s) => s.name);
-      return names.length ? `${TYPE_WORD[t]}: ${names.join(', ')}` : '';
+    .map((type) => {
+      const names = model.series.filter((_, s) => c.types[s] === type).map((s) => s.name);
+      return names.length ? t.typeGroup(t.type[type], names.join(m.listSeparator)) : '';
     })
     .filter(Boolean);
   const parts = model.series.slice(0, 5).map((s) => {
     const st = stats(s.values);
-    return st.count ? `${s.name} ranges ${model.formatValue(st.min)}–${model.formatValue(st.max)}` : `${s.name} has no data`;
+    return st.count ? t.seriesRange(s.name, m.range(model.formatValue(st.min), model.formatValue(st.max))) : t.seriesNoData(s.name);
   });
-  if (model.series.length > 5) parts.push(`and ${model.series.length - 5} more`);
-  const dual = c.axes.includes(1) ? ', two y axes' : '';
-  return (
-    `${head}Combo chart, ${plural(model.length, 'category', 'categories')}, ${model.series.length} series ` +
-    `(${groups.join('; ')})${dual}${parts.length ? `; ${parts.join('; ')}` : ''}.`
+  if (model.series.length > 5) parts.push(m.andMore(formatCount(model.series.length - 5, loc)));
+  const overview = t.overview(
+    m.categories(model.length, formatCount(model.length, loc)),
+    m.seriesCount(model.series.length, formatCount(model.series.length, loc)),
+    groups,
+    c.axes.includes(1)
   );
+  return t.summary(model.title, overview, parts);
 }
 
-/** Long description lines: axes, bar layout, per-series extremes with their role / axis. */
-export function comboDescription(model: A11yChartModel): string[] {
+/** Long description lines: axes, bar layout, per-series extremes with their role / axis (`locale`: default the model's). */
+export function comboDescription(model: A11yChartModel, locale?: string): string[] {
   const c = model.combo!;
   const f = model.formatValue;
+  const loc = textLocale(model, locale);
+  const { common: m, combo: t } = getMessages(loc);
   const out: string[] = [];
-  if (model.xTitle) out.push(`X axis: ${model.xTitle}.`);
-  if (model.yTitle) out.push(`${c.axes.includes(1) ? 'Left y axis' : 'Y axis'}: ${model.yTitle}.`);
-  if (c.y2Title) out.push(`Right y axis: ${c.y2Title}.`);
-  const bars = c.types.filter((t) => t === 'bar').length;
-  out.push(`${plural(model.length, 'category', 'categories')}${bars > 1 ? `, bars ${c.barMode}` : ''}.`);
+  if (model.xTitle) out.push(t.xAxisTitle(model.xTitle));
+  if (model.yTitle) out.push(c.axes.includes(1) ? t.leftAxisTitle(model.yTitle) : t.yAxisTitle(model.yTitle));
+  if (c.y2Title) out.push(t.rightAxisTitle(c.y2Title));
+  const bars = c.types.filter((type) => type === 'bar').length;
+  out.push(t.layout(m.categories(model.length, formatCount(model.length, loc)), bars > 1 ? t.barMode[c.barMode] : undefined));
   model.series.forEach((s, k) => {
     const st = stats(s.values);
-    out.push(
-      st.count
-        ? `${s.name} (${role(c, k)})${s.visible ? '' : ' (hidden)'}: highest ${model.xLabel(st.maxIndex)} ${f(st.max)}, ` +
-            `lowest ${model.xLabel(st.minIndex)} ${f(st.min)}, average ${f(st.mean)}.`
-        : `${s.name} (${role(c, k)}): no data.`
-    );
+    const r = role(c, k, loc);
+    if (!st.count) {
+      out.push(t.seriesEmpty(t.seriesLabel(s.name, r)));
+      return;
+    }
+    const label = s.visible ? t.seriesLabel(s.name, r) : t.seriesLabelHidden(s.name, r);
+    out.push(t.seriesDetail(label, model.xLabel(st.maxIndex), f(st.max), model.xLabel(st.minIndex), f(st.min), f(st.mean)));
   });
   return out;
 }
 
-/** Live-region text of a focused point, e.g. `Q3, Margin (line) 15%. 3 of 4.`. */
-export function comboAnnouncement(model: A11yChartModel, focus: A11yFocus, value: string): string {
+/** Live-region text of a focused point, e.g. `Q3, Margin (line) 15%. 3 of 4.` (`locale`: default the model's). */
+export function comboAnnouncement(model: A11yChartModel, focus: A11yFocus, value: string, locale?: string): string {
   const c = model.combo!;
+  const loc = textLocale(model, locale);
+  const { common: m, combo: t } = getMessages(loc);
   const s = model.series[focus.series];
-  return `${model.xLabel(focus.index)}, ${s?.name ?? ''} (${role(c, focus.series)}) ${value}. ${focus.index + 1} of ${model.length}.`;
+  const text = t.announce(model.xLabel(focus.index), t.seriesLabel(s?.name ?? '', role(c, focus.series, loc)), value);
+  return `${text} ${m.position(formatCount(focus.index + 1, loc), formatCount(model.length, loc))}`;
 }
 
 /** Tick label of a combo x tick: category label (truncated) or formatted x. */

@@ -5,6 +5,7 @@
 import type { RgbaTuple } from './color';
 import type { A11yFocus, ChartDataTable } from './chart-a11y';
 import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
+import { getMessages, resolveLocale } from './i18n';
 
 /** CSS `rgb()` of a tuple (alpha ignored: swatches are opaque). */
 export function rgbCss(c: RgbaTuple | undefined): string {
@@ -17,9 +18,11 @@ export function esc(t: string): string {
   return t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-/** Percent text with one decimal (`'—'` when undefined). */
+/** Percent text with one decimal in the locale (a dash when undefined). */
 export function percentText(p: number, locale?: string): string {
-  return Number.isFinite(p) ? `${p.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : '—';
+  return Number.isFinite(p)
+    ? `${p.toLocaleString(resolveLocale(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+    : getMessages(locale).common.dash;
 }
 
 /** Absolutely positioned, non-interactive overlay element. */
@@ -98,6 +101,8 @@ export interface A11yCommon {
   xTitle?: string;
   yTitle?: string;
   formatValue: (v: number) => string;
+  /** Chart locale of built-in text (`getMessages(locale)`); absent = page / browser language */
+  locale?: string;
 }
 
 /** Keyboard step over `count` stops of one series (Left / Right / Up / Down / Page / Home / End). */
@@ -129,7 +134,3 @@ export function stepSingle(focus: A11yFocus | null, key: string, count: number):
   }
   return { series: 0, index: Math.max(0, Math.min(count - 1, i)) };
 }
-
-export const enNumber = (v: number, digits = 2): string => v.toLocaleString('en-US', { maximumFractionDigits: digits });
-
-export const plural = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;

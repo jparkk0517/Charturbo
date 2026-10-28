@@ -17,6 +17,7 @@ import type {
   CharturboTheme,
 } from './charturbo';
 import type { ChartAnimationInput } from './chart-animation';
+import { formatCount, formatNumber, getMessages } from './i18n';
 
 /** One series: one sample array per category (empty / missing = no box). */
 export interface BoxPlotSeries {
@@ -153,9 +154,10 @@ export interface BoxEncoded {
 
 /**
  * Flattens the series (one copy of the samples) and resolves colors. Without explicit colors,
- * more series than palette entries fold into an "Other" series (pooled samples, neutral color).
+ * more series than palette entries fold into an "Other" series (pooled samples, neutral color,
+ * named in `locale`).
  */
-export function encodeBoxPlot(data: BoxPlotData, palette: RgbaTuple[], other: RgbaTuple, colors?: ColorInput[]): BoxEncoded {
+export function encodeBoxPlot(data: BoxPlotData, palette: RgbaTuple[], other: RgbaTuple, colors?: ColorInput[], locale?: string): BoxEncoded {
   const n = data.categories.length;
   let series: { name: string; color?: RgbaTuple; groups: ArrayLike<number>[][] }[] = data.series.map((s, k) => ({
     name: s.name,
@@ -167,7 +169,7 @@ export function encodeBoxPlot(data: BoxPlotData, palette: RgbaTuple[], other: Rg
     const tail = series.slice(limit - 1);
     series = [
       ...series.slice(0, limit - 1),
-      { name: 'Other', color: other, groups: Array.from({ length: n }, (_, i) => tail.flatMap((s) => s.groups[i])) },
+      { name: getMessages(locale).common.other, color: other, groups: Array.from({ length: n }, (_, i) => tail.flatMap((s) => s.groups[i])) },
     ];
   }
   const counts = new Uint32Array(series.length * n);
@@ -245,16 +247,17 @@ export function boxStatsAt(stats: ArrayLike<number>, g: number): ChartBoxStats |
 }
 
 /** Tooltip payload of an engine hit item (`series`, `category`, `value`, `id`). */
-export function boxTooltipOf(meta: BoxChartMeta, series: number, category: number, value: number, id: number): ChartBoxTooltip | null {
+export function boxTooltipOf(meta: BoxChartMeta, series: number, category: number, value: number, id: number, locale?: string): ChartBoxTooltip | null {
   const n = meta.categories.length;
   const st = boxStatsAt(meta.stats, series * n + category);
   if (!st) return null;
+  const t = getMessages(locale).common;
   return {
     ...st,
     series,
     category,
-    seriesName: meta.names[series] ?? `Series ${series + 1}`,
-    categoryLabel: meta.categories[category] ?? `#${category + 1}`,
+    seriesName: meta.names[series] ?? t.seriesName(series + 1),
+    categoryLabel: meta.categories[category] ?? t.itemName(category + 1),
     violin: meta.violin,
     // Ids past the boxes are outliers
     ...(id >= meta.names.length * n ? { outlier: value } : {}),
@@ -262,17 +265,26 @@ export function boxTooltipOf(meta: BoxChartMeta, series: number, category: numbe
 }
 
 /** Whisker rule in words (`'1.5 IQR'`, `'min / max'`, `'5th–95th percentile'`). */
-export function whiskerLabel(w: BoxChartMeta['whiskers'], iqrFactor = 1.5): string {
-  if (w === 'minmax') return 'min / max';
-  if (Array.isArray(w)) return `${w[0]}th–${w[1]}th percentile`;
-  return `${iqrFactor} IQR`;
+export function whiskerLabel(w: BoxChartMeta['whiskers'], iqrFactor = 1.5, locale?: string): string {
+  const t = getMessages(locale).box;
+  const num = (v: number) => formatNumber(v, locale, 6);
+  if (w === 'minmax') return t.whiskersMinMax;
+  if (Array.isArray(w)) return t.whiskersPercentile(w[0], w[1], num(w[0]), num(w[1]));
+  return t.whiskersIqr(num(iqrFactor));
 }
 
-/** Default tooltip HTML of a box / outlier hit. */
-export function boxTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, format: (v: number) => string, count: (v: number) => string): string {
+/** Default tooltip HTML of a box / outlier hit (labels in `locale`). */
+export function boxTooltipHtml(
+  ctx: ChartTooltipContext,
+  theme: CharturboTheme,
+  format: (v: number) => string,
+  count: (v: number) => string,
+  locale?: string
+): string {
   const b = ctx.box;
   const it = ctx.items[0];
   if (!b || !it) return '';
+  const { common: c, box: t } = getMessages(locale);
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const fmt = (v: number) => esc(format(v));
   const swatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;flex:none;background:${it.color};"></span>`;
@@ -284,22 +296,22 @@ export function boxTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, 
   const head = `
         <div style="color:${theme.textMuted};font-size:11px;margin-bottom:4px;">${esc(b.categoryLabel)}</div>
         <div style="display:flex;align-items:center;color:${theme.textSecondary};margin-bottom:4px;">${swatch}${esc(b.seriesName)}</div>`;
-  if (b.outlier !== undefined) return `${head}${row('Outlier', fmt(b.outlier))}${row('Median', fmt(b.median))}`;
+  if (b.outlier !== undefined) return `${head}${row(esc(t.outlier), fmt(b.outlier))}${row(esc(c.median), fmt(b.median))}`;
   // Violins span min..max: no whiskers / outlier points to describe
   const whiskers =
     !b.violin && (b.whiskerLo !== b.min || b.whiskerHi !== b.max)
-      ? row('Whiskers', `${fmt(b.whiskerLo)} – ${fmt(b.whiskerHi)}`)
+      ? row(esc(t.whiskers), c.range(fmt(b.whiskerLo), fmt(b.whiskerHi)))
       : '';
   return `${head}
-        ${row('Max', fmt(b.max))}
-        ${row('Q3', fmt(b.q3))}
-        ${row('Median', fmt(b.median))}
-        ${row('Q1', fmt(b.q1))}
-        ${row('Min', fmt(b.min))}
-        ${row('Mean', fmt(b.mean))}
+        ${row(esc(c.max), fmt(b.max))}
+        ${row(esc(t.q3), fmt(b.q3))}
+        ${row(esc(c.median), fmt(b.median))}
+        ${row(esc(t.q1), fmt(b.q1))}
+        ${row(esc(c.min), fmt(b.min))}
+        ${row(esc(c.mean), fmt(b.mean))}
         ${whiskers}
-        ${row('n', esc(count(b.n)))}
-        ${b.violin ? '' : row('Outliers', esc(count(b.outliers)))}`;
+        ${row(esc(t.n), esc(count(b.n)))}
+        ${b.violin ? '' : row(esc(t.outliers), esc(count(b.outliers)))}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,8 +328,8 @@ export interface A11yBoxData {
   stats(series: number, category: number): ChartBoxStats | null;
 }
 
-/** Normalizes a box meta for the a11y model (medians are the per-series values). */
-export function boxA11yData(m: Record<string, unknown>): { box: A11yBoxData; medians: Float64Array[]; names: string[] } {
+/** Normalizes a box meta for the a11y model (medians are the per-series values; default value label in `locale`). */
+export function boxA11yData(m: Record<string, unknown>, locale?: string): { box: A11yBoxData; medians: Float64Array[]; names: string[] } {
   const categories = (Array.isArray(m.categories) ? m.categories : []) as string[];
   const names = (Array.isArray(m.names) ? m.names : []) as string[];
   const stats = (ArrayBuffer.isView(m.stats) ? m.stats : new Float64Array(0)) as Float64Array;
@@ -331,7 +343,7 @@ export function boxA11yData(m: Record<string, unknown>): { box: A11yBoxData; med
       violin: m.violin === true,
       whiskers: w === 'minmax' || Array.isArray(w) ? (w as BoxChartMeta['whiskers']) : 'tukey',
       iqrFactor: typeof m.iqrFactor === 'number' && Number.isFinite(m.iqrFactor) ? m.iqrFactor : 1.5,
-      valueLabel: typeof m.valueLabel === 'string' && m.valueLabel ? m.valueLabel : 'Value',
+      valueLabel: typeof m.valueLabel === 'string' && m.valueLabel ? m.valueLabel : getMessages(locale).common.value,
       stats: at,
     },
     medians,
@@ -339,8 +351,8 @@ export function boxA11yData(m: Record<string, unknown>): { box: A11yBoxData; med
   };
 }
 
-const enCount = (v: number) => v.toLocaleString('en-US');
-const pluralize = (n: number, word: string, many = `${word}s`) => `${enCount(n)} ${n === 1 ? word : many}`;
+/** Locale of the a11y text: explicit, else the model's chart locale. */
+const textLocale = (model: A11yChartModel, locale?: string): string | undefined => locale ?? model.locale;
 
 /** Every non-empty group of a series. */
 function seriesGroups(box: A11yBoxData, s: number): { i: number; st: ChartBoxStats }[] {
@@ -352,49 +364,57 @@ function seriesGroups(box: A11yBoxData, s: number): { i: number; st: ChartBoxSta
   return out;
 }
 
-/** Canvas `aria-label`, e.g. `Box plot, 3 categories, 2 series, 30,000 samples; A medians 4.1–9.3; ...`. */
-export function boxSummary(model: A11yChartModel): string {
+/**
+ * Canvas `aria-label`, e.g. `Box plot, 3 categories, 2 series, 30,000 samples; A medians 4.1–9.3; ...`
+ * (`locale`: default the model's).
+ */
+export function boxSummary(model: A11yChartModel, locale?: string): string {
   const box = model.box!;
   const f = model.formatValue;
-  const head = model.title ? `${model.title}. ` : '';
+  const loc = textLocale(model, locale);
+  const { common: c, box: t } = getMessages(loc);
   let samples = 0;
   let outliers = 0;
   const parts = model.series.slice(0, 5).map((s, k) => {
     const groups = seriesGroups(box, k);
-    if (!groups.length) return `${s.name} has no data`;
+    if (!groups.length) return t.seriesNoData(s.name);
     const meds = groups.map((g) => g.st.median);
-    return `${s.name} medians ${f(Math.min(...meds))}–${f(Math.max(...meds))}`;
+    return t.seriesMedians(s.name, c.range(f(Math.min(...meds)), f(Math.max(...meds))));
   });
-  if (model.series.length > 5) parts.push(`and ${model.series.length - 5} more`);
+  if (model.series.length > 5) parts.push(c.andMore(formatCount(model.series.length - 5, loc)));
   model.series.forEach((_, k) =>
     seriesGroups(box, k).forEach(({ st }) => {
       samples += st.n;
       outliers += st.outliers;
     })
   );
-  const kind = box.violin ? 'Violin plot' : 'Box plot';
-  const out = !box.violin && outliers > 0 ? ` (${pluralize(outliers, 'outlier')})` : '';
-  return (
-    `${head}${kind}, ${pluralize(box.categories.length, 'category', 'categories')}, ${model.series.length} series, ` +
-    `${pluralize(samples, 'sample')}${out}${parts.length ? `; ${parts.join('; ')}` : ''}.`
+  const categories = box.categories.length;
+  const overview = t.overview(
+    box.violin ? t.violinPlot : t.boxPlot,
+    c.categories(categories, formatCount(categories, loc)),
+    c.seriesCount(model.series.length, formatCount(model.series.length, loc)),
+    t.samples(samples, formatCount(samples, loc)),
+    !box.violin && outliers > 0 ? t.outlierCount(outliers, formatCount(outliers, loc)) : undefined
   );
+  return t.summary(model.title, overview, parts);
 }
 
-/** Long description lines: axes, whisker rule, per-series median extremes. */
-export function boxDescription(model: A11yChartModel): string[] {
+/** Long description lines: axes, whisker rule, per-series median extremes (`locale`: default the model's). */
+export function boxDescription(model: A11yChartModel, locale?: string): string[] {
   const box = model.box!;
   const f = model.formatValue;
+  const loc = textLocale(model, locale);
+  const { common: c, box: t } = getMessages(loc);
   const out: string[] = [];
-  if (model.xTitle) out.push(`X axis: ${model.xTitle}.`);
-  if (model.yTitle) out.push(`Y axis: ${model.yTitle}.`);
-  out.push(
-    `${pluralize(box.categories.length, 'category', 'categories')}; ${box.violin ? 'violins show the estimated density, ' : ''}` +
-      `whiskers at ${whiskerLabel(box.whiskers, box.iqrFactor)}.`
-  );
+  if (model.xTitle) out.push(t.xAxisTitle(model.xTitle));
+  if (model.yTitle) out.push(t.yAxisTitle(model.yTitle));
+  const categories = c.categories(box.categories.length, formatCount(box.categories.length, loc));
+  const whiskers = whiskerLabel(box.whiskers, box.iqrFactor, loc);
+  out.push(box.violin ? t.layoutViolin(categories, whiskers) : t.layoutBox(categories, whiskers));
   model.series.forEach((s, k) => {
     const groups = seriesGroups(box, k);
     if (!groups.length) {
-      out.push(`${s.name}: no data.`);
+      out.push(t.seriesEmpty(s.name));
       return;
     }
     const hi = groups.reduce((a, b) => (b.st.median > a.st.median ? b : a));
@@ -402,63 +422,84 @@ export function boxDescription(model: A11yChartModel): string[] {
     const n = groups.reduce((sum, g) => sum + g.st.n, 0);
     const outliers = groups.reduce((sum, g) => sum + g.st.outliers, 0);
     out.push(
-      `${s.name}${s.visible ? '' : ' (hidden)'}: highest median ${box.categories[hi.i]} ${f(hi.st.median)}, ` +
-        `lowest median ${box.categories[lo.i]} ${f(lo.st.median)}, ${pluralize(n, 'sample')}` +
-        `${box.violin ? '' : `, ${pluralize(outliers, 'outlier')}`}.`
+      t.seriesDetail(
+        s.visible ? s.name : t.hiddenName(s.name),
+        box.categories[hi.i],
+        f(hi.st.median),
+        box.categories[lo.i],
+        f(lo.st.median),
+        t.samples(n, formatCount(n, loc)),
+        box.violin ? undefined : t.outlierCount(outliers, formatCount(outliers, loc))
+      )
     );
   });
   return out;
 }
 
-/** Live-region text of a focused group. */
-export function boxAnnouncement(model: A11yChartModel, focus: A11yFocus): string {
+/** Live-region text of a focused group (`locale`: default the model's). */
+export function boxAnnouncement(model: A11yChartModel, focus: A11yFocus, locale?: string): string {
   const box = model.box!;
   const f = model.formatValue;
+  const loc = textLocale(model, locale);
+  const { common: c, box: t } = getMessages(loc);
   const name = model.series[focus.series]?.name ?? '';
-  const where = `${box.categories[focus.index] ?? `#${focus.index + 1}`}, ${name}`;
+  const category = box.categories[focus.index] ?? c.itemName(focus.index + 1);
   const st = box.stats(focus.series, focus.index);
-  const pos = `${focus.index + 1} of ${box.categories.length}.`;
-  if (!st) return `${where}: no data. ${pos}`;
-  return (
-    `${where}: median ${f(st.median)}, quartiles ${f(st.q1)} to ${f(st.q3)}, ` +
-    `whiskers ${f(st.whiskerLo)} to ${f(st.whiskerHi)}, mean ${f(st.mean)}, ${pluralize(st.n, 'sample')}` +
-    `${box.violin ? '' : `, ${pluralize(st.outliers, 'outlier')}`}. ${pos}`
+  const pos = c.position(formatCount(focus.index + 1, loc), formatCount(box.categories.length, loc));
+  if (!st) return `${t.announceEmpty(category, name)} ${pos}`;
+  const text = t.announce(
+    category,
+    name,
+    f(st.median),
+    f(st.q1),
+    f(st.q3),
+    f(st.whiskerLo),
+    f(st.whiskerHi),
+    f(st.mean),
+    t.samples(st.n, formatCount(st.n, loc)),
+    box.violin ? undefined : t.outlierCount(st.outliers, formatCount(st.outliers, loc))
   );
+  return `${text} ${pos}`;
 }
 
-/** Data table: one row per category x series with every statistic (cells raw, formats per column). */
-export function boxDataTable(model: A11yChartModel, pick: (n: number) => number[]): ChartDataTable {
+/**
+ * Data table: one row per category x series with every statistic (cells raw, formats per column;
+ * headers and counts in `locale`, default the model's).
+ */
+export function boxDataTable(model: A11yChartModel, pick: (n: number) => number[], locale?: string): ChartDataTable {
   const box = model.box!;
   const s = model.series.length;
   const total = box.categories.length * s;
   const value = model.formatValue;
-  const count = (v: number) => enCount(v);
+  const loc = textLocale(model, locale);
+  const { common: c, box: t } = getMessages(loc);
+  const count = (v: number) => formatCount(v, loc);
   const cols: [string, keyof ChartBoxStats, (v: number) => string][] = [
-    ['n', 'n', count],
-    ['Min', 'min', value],
-    ['Q1', 'q1', value],
-    ['Median', 'median', value],
-    ['Q3', 'q3', value],
-    ['Max', 'max', value],
-    ['Mean', 'mean', value],
-    ['Lower whisker', 'whiskerLo', value],
-    ['Upper whisker', 'whiskerHi', value],
-    ['Outliers', 'outliers', count],
+    [t.n, 'n', count],
+    [c.min, 'min', value],
+    [t.q1, 'q1', value],
+    [c.median, 'median', value],
+    [t.q3, 'q3', value],
+    [c.max, 'max', value],
+    [c.mean, 'mean', value],
+    [t.lowerWhisker, 'whiskerLo', value],
+    [t.upperWhisker, 'whiskerHi', value],
+    [t.outliers, 'outliers', count],
   ];
   const indices = pick(total);
   const rows = indices.map((r) => {
     const i = Math.floor(r / Math.max(1, s));
     const k = r % Math.max(1, s);
     const st = box.stats(k, i);
-    const row: ChartDataCell[] = [box.categories[i] ?? `#${i + 1}`, model.series[k]?.name ?? `Series ${k + 1}`];
+    const row: ChartDataCell[] = [box.categories[i] ?? c.itemName(i + 1), model.series[k]?.name ?? c.seriesName(k + 1)];
     for (const [, key] of cols) row.push(st && Number.isFinite(st[key]) ? st[key] : null);
     return row;
   });
   return {
-    columns: [model.xTitle ?? 'Category', 'Series', ...cols.map((c) => c[0])],
+    columns: [model.xTitle ?? c.category, c.series, ...cols.map((col) => col[0])],
     rows,
     totalRows: total,
     sampled: indices.length < total,
-    formats: [undefined, undefined, ...cols.map((c) => c[2])],
+    formats: [undefined, undefined, ...cols.map((col) => col[2])],
   };
 }

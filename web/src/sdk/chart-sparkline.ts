@@ -9,6 +9,7 @@
 
 import { parseColor, type ColorInput, type RgbaTuple } from './color';
 import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
+import { formatCount, formatNumber, getMessages } from './i18n';
 
 export type SparklineType = 'line' | 'area' | 'bar' | 'winloss';
 
@@ -167,7 +168,7 @@ export function resolveSparkline(
   const height = o.height ?? Math.max(1, canvasCss[1] - 2 * p);
   const muted = color(theme.textMuted, theme.grid);
   const band = o.band && Number.isFinite(o.band[0]) && Number.isFinite(o.band[1]) ? o.band : null;
-  const fmt = o.formatValue ?? ((v: number) => v.toLocaleString(locale, { maximumFractionDigits: 2 }));
+  const fmt = o.formatValue ?? ((v: number) => formatNumber(v, locale, 2));
   return {
     type,
     values: winloss ? winLossValues(raw) : raw,
@@ -189,7 +190,7 @@ export function resolveSparkline(
     bandColor: o.bandColor !== undefined ? color(o.bandColor, muted) : [muted[0], muted[1], muted[2], 0.15],
     zeroLine: winloss ? theme.baseline : null,
     tooltip: o.tooltip ?? false,
-    name: o.label ?? 'Sparkline',
+    name: o.label ?? getMessages(locale).common.kind.sparkline,
     description: o.description,
     format: fmt,
     input: { data, options },
@@ -268,7 +269,10 @@ export function readSparklineSummary(backend: WasmCharturboEngineBackend, values
  */
 export function sparklineLabel(spec: SparklineSpec, s: SparklineSummary | null, locale?: string): string {
   if (spec.description) return spec.description;
-  const head = `${spec.name}: `;
+  const m = getMessages(locale);
+  const t = m.sparkline;
+  // The default name follows the label's locale (it may have changed since `resolveSparkline`)
+  const label = (text: string) => t.labelled(spec.input.options?.label ?? m.common.kind.sparkline, text);
   if (spec.type === 'winloss') {
     let [wins, losses, ties, last] = [0, 0, 0, ''];
     for (let i = 0; i < spec.raw.length; i++) {
@@ -277,22 +281,21 @@ export function sparklineLabel(spec: SparklineSpec, s: SparklineSummary | null, 
       if (v > 0) wins++;
       else if (v < 0) losses++;
       else ties++;
-      last = v > 0 ? 'win' : v < 0 ? 'loss' : 'tie';
+      last = v > 0 ? t.win : v < 0 ? t.loss : t.tie;
     }
-    const n = (k: number, w: string, many: string) => `${k} ${k === 1 ? w : many}`;
-    const parts = [n(wins, 'win', 'wins'), n(losses, 'loss', 'losses')];
-    if (ties) parts.push(n(ties, 'tie', 'ties'));
-    return `${head}${parts.join(', ')}${last ? `, last: ${last}` : ''}`;
+    const count = (k: number) => formatCount(k, locale);
+    const parts = [t.wins(wins, count(wins)), t.losses(losses, count(losses))];
+    if (ties) parts.push(t.ties(ties, count(ties)));
+    const tally = parts.join(m.common.listSeparator);
+    return label(last ? t.winLossLast(tally, last) : tally);
   }
-  if (!s) return `${head}no data`;
+  if (!s) return label(m.common.noData);
   const f = spec.format;
-  const range = `, min ${f(s.min)}, max ${f(s.max)}`;
-  if (s.count === 1 || s.last === s.first) return `${head}flat at ${f(s.last)}${s.count > 1 ? range : ''}`;
-  const dir = s.last > s.first ? 'up' : 'down';
-  const pct = Number.isFinite(s.changePct)
-    ? ` ${Math.abs(s.changePct).toLocaleString(locale, { maximumFractionDigits: Math.abs(s.changePct) < 10 ? 1 : 0 })}%`
-    : '';
-  return `${head}trend ${dir}${pct} from ${f(s.first)} to ${f(s.last)}${range}`;
+  if (s.count === 1 || s.last === s.first) return label(s.count > 1 ? t.flatRange(f(s.last), f(s.min), f(s.max)) : t.flat(f(s.last)));
+  const change = Math.abs(s.changePct);
+  const pct = Number.isFinite(change) ? formatNumber(change, locale, change < 10 ? 1 : 0) : null;
+  const trend = s.last > s.first ? t.trendUp : t.trendDown;
+  return label(trend(pct, f(s.first), f(s.last), f(s.min), f(s.max)));
 }
 
 /** An auto-sized sparkline whose canvas aspect changed by more than 1% (re-render to refit). */

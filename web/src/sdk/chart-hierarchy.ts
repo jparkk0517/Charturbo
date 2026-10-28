@@ -9,8 +9,9 @@
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartValueFormat } from './chart-format';
 import type { A11yChartModel, ChartDataCell } from './chart-a11y';
-import type { A11yCustomModel } from './chart-business-util';
+import type { A11yCommon, A11yCustomModel } from './chart-business-util';
 import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
+import { formatCount, formatNumber, getMessages, resolveLocale } from './i18n';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -63,9 +64,9 @@ export interface HierarchyChartOptions {
   legend?: ChartLegendOptions | boolean;
   /** Plot margins (CSS px) */
   padding?: ChartPaddingOptions;
-  /** Tooltip / table name of the values (default `'Value'`) */
+  /** Tooltip / table name of the values (default: `'Value'` in the chart language) */
   valueLabel?: string;
-  /** Name of the synthetic root above several roots (default `'All'`) */
+  /** Name of the synthetic root above several roots (default: `'All'` in the chart language) */
   rootLabel?: string;
 }
 
@@ -180,8 +181,8 @@ export interface EncodedHierarchy {
   colors: (ColorInput | undefined)[];
 }
 
-/** Flattens a nested tree (depth-first) or indexes flat rows by id. */
-export function encodeHierarchy(data: HierarchyData): EncodedHierarchy {
+/** Flattens a nested tree (depth-first) or indexes flat rows by id (`locale`: default node names). */
+export function encodeHierarchy(data: HierarchyData, locale?: string): EncodedHierarchy {
   const names: string[] = [];
   const ids: (string | number | undefined)[] = [];
   const colors: (ColorInput | undefined)[] = [];
@@ -226,7 +227,7 @@ export function encodeHierarchy(data: HierarchyData): EncodedHierarchy {
       const i = names.length;
       parents.push(parent);
       values.push(num(node.value));
-      names.push(node.name ?? `#${i + 1}`);
+      names.push(node.name ?? getMessages(locale).common.itemName(i + 1));
       ids.push(undefined);
       colors.push(node.color);
       const kids = node.children ?? [];
@@ -280,6 +281,8 @@ interface HierarchyMetaFields {
   palette?: ColorInput[];
   colormap: number;
   labels: boolean;
+  /** `valueLabel` / `rootLabel` options (absent = built-in text of the locale) */
+  labelOptions?: { valueLabel?: string; rootLabel?: string };
   engine?: HierarchyEngineHooks;
 }
 
@@ -304,17 +307,23 @@ export interface SankeyChartMeta {
   valueLabel: string;
   palette?: ColorInput[];
   labels: boolean;
+  /** `valueLabel` option (absent = built-in text of the locale) */
+  labelOptions?: { valueLabel?: string };
   engine?: HierarchyEngineHooks;
 }
 
-/** Uploads a treemap / sunburst; returns the meta (fields filled by `syncHierarchy`). */
+/**
+ * Uploads a treemap / sunburst; returns the meta (fields filled by `syncHierarchy`). `locale`:
+ * default value / root / node names (`syncHierarchy` re-applies them).
+ */
 export function sendHierarchy(
   backend: WasmCharturboEngineBackend,
   kind: 'treemap' | 'sunburst',
   data: HierarchyData,
-  options?: TreemapChartOptions
+  options?: TreemapChartOptions,
+  locale?: string
 ): HierarchyChartMeta {
-  const enc = encodeHierarchy(data);
+  const enc = encodeHierarchy(data, locale);
   const o = options ?? {};
   const colorBy = COLOR_BY[o.colorBy ?? 'auto'] ?? 0;
   const labels = o.labels ?? true;
@@ -327,7 +336,8 @@ export function sendHierarchy(
   } catch (e) {
     throw nameEngineError(e, enc.names);
   }
-  const rootLabel = o.rootLabel ?? 'All';
+  const m = getMessages(locale);
+  const rootLabel = o.rootLabel ?? m.hierarchy.rootLabel;
   return {
     kind,
     names: [],
@@ -342,15 +352,16 @@ export function sendHierarchy(
     inputColors: enc.colors,
     treeRoot: 0,
     root: 0,
-    valueLabel: o.valueLabel ?? 'Value',
+    valueLabel: o.valueLabel ?? m.common.value,
     palette: o.colors,
     colormap: COLORMAPS[o.colormap ?? 'sequential'] ?? 0,
     labels,
+    labelOptions: { valueLabel: o.valueLabel, rootLabel: o.rootLabel },
   };
 }
 
-/** Uploads a sankey; returns the meta (fields filled by `syncSankey`). */
-export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChartData, options?: SankeyChartOptions): SankeyChartMeta {
+/** Uploads a sankey; returns the meta (fields filled by `syncSankey`; `locale`: default value name). */
+export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChartData, options?: SankeyChartOptions, locale?: string): SankeyChartMeta {
   const o = options ?? {};
   const nodes = data.nodes ?? [];
   const index = new Map<string, number>();
@@ -409,9 +420,10 @@ export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChar
     nodeColors: new Float32Array(0),
     inputColors: nodes.map((n) => n.color),
     groups,
-    valueLabel: o.valueLabel ?? 'Value',
+    valueLabel: o.valueLabel ?? getMessages(locale).common.value,
     palette: o.colors,
     labels: o.labels ?? true,
+    labelOptions: { valueLabel: o.valueLabel },
   };
 }
 
@@ -440,8 +452,13 @@ export function sendHierarchyStyle(backend: WasmCharturboEngineBackend, meta: Hi
 
 const rgbaAt = (a: ArrayLike<number>, i: number): RgbaTuple => [a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]];
 
-/** Re-reads values, colors, legend and the current root of a treemap / sunburst. */
-export function syncHierarchy(backend: WasmCharturboEngineBackend, meta: HierarchyChartMeta): void {
+/**
+ * Re-reads values, colors, legend and the current root of a treemap / sunburst; default names
+ * (value, synthetic root, folded "Other" group) follow `locale`.
+ */
+export function syncHierarchy(backend: WasmCharturboEngineBackend, meta: HierarchyChartMeta, locale?: string): void {
+  const m = getMessages(locale);
+  if (meta.labelOptions) meta.valueLabel = meta.labelOptions.valueLabel ?? m.common.value;
   meta.values = backend.chart_hierarchy_values?.() ?? meta.values;
   meta.nodeColors = backend.chart_hierarchy_colors?.() ?? meta.nodeColors;
   const info = backend.chart_hierarchy_info?.();
@@ -451,6 +468,9 @@ export function syncHierarchy(backend: WasmCharturboEngineBackend, meta: Hierarc
     // The synthetic root's name sits after the input names
     if (info[2] === 0) meta.nodeNames.length = Math.min(meta.nodeNames.length, info[0]);
   }
+  if (meta.labelOptions && meta.labelOptions.rootLabel === undefined && meta.nodeNames.length > meta.parents.length) {
+    meta.nodeNames[meta.parents.length] = m.hierarchy.rootLabel;
+  }
   const legend = backend.chart_hierarchy_legend?.() ?? new Float64Array(0);
   meta.names = [];
   meta.colors = [];
@@ -458,14 +478,15 @@ export function syncHierarchy(backend: WasmCharturboEngineBackend, meta: Hierarc
   for (let k = 0; k + 4 < legend.length; k += 5) {
     const node = legend[k];
     meta.legendNodes.push(node);
-    meta.names.push(node < 0 ? 'Other' : (meta.nodeNames[node] ?? `#${node + 1}`));
+    meta.names.push(node < 0 ? m.common.other : (meta.nodeNames[node] ?? m.common.itemName(node + 1)));
     meta.colors.push([legend[k + 1], legend[k + 2], legend[k + 3], legend[k + 4]]);
   }
   meta.visible = meta.names.map(() => true);
 }
 
-/** Re-reads node / link values, shares, colors and the group legend of a sankey. */
-export function syncSankey(backend: WasmCharturboEngineBackend, meta: SankeyChartMeta): void {
+/** Re-reads node / link values, shares, colors and the group legend of a sankey (`locale`: default value name). */
+export function syncSankey(backend: WasmCharturboEngineBackend, meta: SankeyChartMeta, locale?: string): void {
+  if (meta.labelOptions) meta.valueLabel = meta.labelOptions.valueLabel ?? getMessages(locale).common.value;
   meta.nodes = backend.chart_sankey_nodes?.() ?? meta.nodes;
   meta.links = backend.chart_sankey_links?.() ?? meta.links;
   meta.nodeColors = backend.chart_hierarchy_colors?.() ?? meta.nodeColors;
@@ -495,6 +516,9 @@ export function hierarchyParent(meta: HierarchyChartMeta, node: number): number 
   return p < 0 && meta.treeRoot >= meta.parents.length ? meta.treeRoot : p;
 }
 
+/** Name of node `v` (default `#n` when it has none). */
+const nodeName = (names: string[], v: number, locale?: string) => names[v] ?? getMessages(locale).common.itemName(v + 1);
+
 const pct = (part: number, whole: number) => (whole > 0 && Number.isFinite(part) ? (part / whole) * 100 : NaN);
 
 /** Tooltip data of a node. */
@@ -506,8 +530,8 @@ export function hierarchyNodeInfo(meta: HierarchyChartMeta, node: number): Chart
   for (let v = node; hierarchyParent(meta, v) >= 0 && depth <= meta.nodeNames.length; v = hierarchyParent(meta, v)) depth++;
   return {
     node,
-    name: meta.nodeNames[node] ?? `#${node + 1}`,
-    path: hierarchyPath(meta, node).map((v) => meta.nodeNames[v] ?? `#${v + 1}`),
+    name: nodeName(meta.nodeNames, node),
+    path: hierarchyPath(meta, node).map((v) => nodeName(meta.nodeNames, v)),
     value,
     percentOfParent: parent >= 0 ? pct(value, meta.values[parent]) : NaN,
     percentOfTotal: pct(value, meta.values[meta.treeRoot]),
@@ -550,8 +574,8 @@ export function sankeyTooltipContext(meta: SankeyChartMeta, series: number, inde
   const at = index * 4;
   if (index < 0 || at + 3 >= meta.links.length) return null;
   const [s, t, value, share] = [meta.links[at], meta.links[at + 1], meta.links[at + 2], meta.links[at + 3]];
-  const source = meta.nodeNames[s] ?? `#${s + 1}`;
-  const target = meta.nodeNames[t] ?? `#${t + 1}`;
+  const source = nodeName(meta.nodeNames, s);
+  const target = nodeName(meta.nodeNames, t);
   return {
     chartType: 'sankey',
     index,
@@ -562,8 +586,10 @@ export function sankeyTooltipContext(meta: SankeyChartMeta, series: number, inde
   };
 }
 
+/** Share text with one decimal, e.g. `27.3%` (`—` when undefined). */
 export function formatShare(p: number, locale?: string): string {
-  return Number.isFinite(p) ? `${p.toLocaleString(locale, { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%` : '—';
+  if (!Number.isFinite(p)) return getMessages(locale).common.dash;
+  return `${p.toLocaleString(resolveLocale(locale), { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%`;
 }
 
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -579,13 +605,14 @@ export function hierarchyTooltipHtml(ctx: ChartTooltipContext, theme: CharturboT
           <span style="display:flex;align-items:center;color:${theme.textSecondary};">${swatch}${esc(name)}</span>
           <span style="color:${theme.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${value}</span>
         </div>`;
+  const t = getMessages(locale).hierarchy;
   const h = ctx.hierarchy;
   if (h) {
     const up = h.path.slice(0, -1);
     const crumbs = up.length ? `<div style="color:${theme.textMuted};font-size:11px;margin-bottom:4px;max-width:260px;white-space:normal;">${esc(up.join(' › '))} ›</div>` : '';
     const shares = [
-      Number.isFinite(h.percentOfParent) ? `${formatShare(h.percentOfParent, locale)} of parent` : '',
-      Number.isFinite(h.percentOfTotal) && h.path.length > 1 ? `${formatShare(h.percentOfTotal, locale)} of total` : '',
+      Number.isFinite(h.percentOfParent) ? t.ofParent(formatShare(h.percentOfParent, locale)) : '',
+      Number.isFinite(h.percentOfTotal) && h.path.length > 1 ? t.ofTotal(formatShare(h.percentOfTotal, locale)) : '',
     ].filter(Boolean);
     return `${crumbs}${head(h.name, esc(formatValue(h.value)))}${shares.length ? muted(shares.join(' · ')) : ''}`;
   }
@@ -593,12 +620,12 @@ export function hierarchyTooltipHtml(ctx: ChartTooltipContext, theme: CharturboT
   if (!f) return '';
   if (f.kind === 'link') {
     // Names on one line, then `value (x% of A)`: long names never squeeze the numbers
-    const share = Number.isFinite(f.percentOfSource ?? NaN) ? ` <span style="color:${theme.textMuted};">(${formatShare(f.percentOfSource!, locale)} of ${esc(f.source)})</span>` : '';
+    const share = Number.isFinite(f.percentOfSource ?? NaN) ? ` <span style="color:${theme.textMuted};">${esc(t.ofSource(formatShare(f.percentOfSource!, locale), f.source))}</span>` : '';
     return `
         <div style="display:flex;align-items:center;color:${theme.textSecondary};white-space:nowrap;">${swatch}${esc(f.source)} → ${esc(f.target ?? '')}</div>
         <div style="margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap;"><span style="color:${theme.textPrimary};font-weight:600;">${esc(formatValue(f.value))}</span>${share}</div>`;
   }
-  const flows = [f.inflow ? `in ${esc(formatValue(f.inflow))}` : '', f.outflow ? `out ${esc(formatValue(f.outflow))}` : ''].filter(Boolean);
+  const flows = [f.inflow ? esc(t.inflow(formatValue(f.inflow))) : '', f.outflow ? esc(t.outflow(formatValue(f.outflow))) : ''].filter(Boolean);
   return `${head(f.source, esc(formatValue(f.value)))}${flows.length ? muted(flows.join(' · ')) : ''}`;
 }
 
@@ -610,11 +637,11 @@ export function hierarchyTooltipHtml(ctx: ChartTooltipContext, theme: CharturboT
 /** Hierarchy / flow a11y behavior: the shared custom model with every hook implemented. */
 export type A11yCustom = A11yCustomModel & Required<Pick<A11yCustomModel, 'step' | 'key' | 'table' | 'hover'>>;
 
-const enNum = (v: number, digits = 2) =>
-  Number.isFinite(v) ? v.toLocaleString('en-US', { maximumFractionDigits: digits }) : 'no data';
-const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+type Common = A11yCommon;
 
-type Common = Pick<A11yChartModel, 'title' | 'description' | 'xTitle' | 'yTitle' | 'formatValue'>;
+/** Share text of the a11y summary / table (`50%`; no-data text when undefined). */
+const shareText = (v: number, locale: string | undefined, digits: number) =>
+  Number.isFinite(v) ? `${formatNumber(v, locale, digits)}%` : getMessages(locale).common.noData;
 
 /** A11y model of a treemap / sunburst / sankey meta (`null` for other kinds). */
 export function hierarchyA11yModel(m: Record<string, unknown>, common: Common): A11yChartModel | null {
@@ -622,33 +649,36 @@ export function hierarchyA11yModel(m: Record<string, unknown>, common: Common): 
   if (m.kind !== 'treemap' && m.kind !== 'sunburst') return null;
   const meta = m as unknown as HierarchyChartMeta;
   const f = common.formatValue;
-  const name = (v: number) => meta.nodeNames[v] ?? `#${v + 1}`;
+  const locale = common.locale;
+  const msg = getMessages(locale);
+  const t = msg.hierarchy;
+  const num = (n: number) => formatCount(n, locale);
+  const share = (v: number, digits = 1) => shareText(v, locale, digits);
+  const name = (v: number) => nodeName(meta.nodeNames, v, locale);
   const children = (v: number) => meta.engine?.children(v) ?? [];
-  const head = common.title ? `${common.title}. ` : '';
-  const label = meta.kind === 'treemap' ? 'Treemap' : 'Sunburst chart';
   const siblings = (v: number) => children(hierarchyParent(meta, v));
   const count = meta.parents.length;
   const total = meta.values[meta.treeRoot] ?? NaN;
   const topShares = () =>
     children(meta.root)
       .slice(0, 3)
-      .map((c) => `${name(c)} ${enNum(pct(meta.values[c], meta.values[meta.root]), 1)}%`);
+      .map((c) => `${name(c)} ${share(pct(meta.values[c], meta.values[meta.root]))}`);
   const custom: A11yCustom = {
-    kindLabel: meta.kind === 'treemap' ? 'Treemap' : 'Sunburst',
-    help:
-      'Keyboard: focus the chart, then use Left and Right arrows to move between siblings, Down for the first child, ' +
-      'Up for the parent, Home and End for the first and last sibling, Enter to drill into the focused node, ' +
-      'and Escape to go back up (or clear).',
+    kindLabel: meta.kind === 'treemap' ? msg.common.kind.treemap : msg.common.kind.sunburst,
+    help: t.treeHelp,
     summary() {
       const kids = children(meta.root);
-      const more = kids.length > 3 ? `, and ${kids.length - 3} more` : '';
-      const at = meta.root !== meta.treeRoot ? `, showing ${hierarchyPath(meta, meta.root).map(name).join(' › ')}` : '';
-      return `${head}${label}, ${plural(count, 'node')}, total ${f(total)}${at}; largest: ${topShares().join(', ')}${more}.`;
+      const more = kids.length > 3 ? num(kids.length - 3) : null;
+      const at = meta.root !== meta.treeRoot ? hierarchyPath(meta, meta.root).map(name).join(' › ') : null;
+      const chart = meta.kind === 'treemap' ? t.treemapName : t.sunburstName;
+      const text = t.treeSummary(chart, t.nodes(count, num(count)), f(total), at, topShares().join(msg.common.listSeparator), more);
+      return common.title ? t.titled(common.title, text) : text;
     },
     description() {
       const out: string[] = [];
       for (const c of children(meta.root).slice(0, 20)) {
-        out.push(`${name(c)}: ${f(meta.values[c])} (${enNum(pct(meta.values[c], meta.values[meta.root]), 1)}%), ${plural(children(c).length, 'child', 'children')}.`);
+        const k = children(c).length;
+        out.push(t.treeItem(name(c), f(meta.values[c]), share(pct(meta.values[c], meta.values[meta.root])), t.children(k, num(k))));
       }
       return out;
     },
@@ -692,9 +722,12 @@ export function hierarchyA11yModel(m: Record<string, unknown>, common: Common): 
       if (!info) return '';
       const sib = siblings(v);
       const parent = hierarchyParent(meta, v);
-      const share = Number.isFinite(info.percentOfParent) ? `, ${enNum(info.percentOfParent, 1)}% of ${name(parent)}` : '';
-      const kids = info.children ? ` ${plural(info.children, 'child', 'children')}; press Enter to drill down.` : '';
-      return `${info.name}, ${f(info.value)}${share}. ${sib.indexOf(v) + 1} of ${sib.length}, level ${info.depth}.${kids}`;
+      const parts = [
+        t.nodeAnnounce(info.name, f(info.value), Number.isFinite(info.percentOfParent) ? share(info.percentOfParent) : null, name(parent)),
+        t.nodePosition(num(sib.indexOf(v) + 1), num(sib.length), num(info.depth)),
+      ];
+      if (info.children) parts.push(t.drillHint(t.children(info.children, num(info.children))));
+      return parts.join(t.sentenceSeparator);
     },
     table(pick) {
       // One row per node in input order (tree input: depth-first), the synthetic root excluded
@@ -704,13 +737,13 @@ export function hierarchyA11yModel(m: Record<string, unknown>, common: Common): 
         const cell = (x: number) => (Number.isFinite(x) ? Math.round(x * 100) / 100 : null);
         return [info.path.join(' › '), Number.isFinite(info.value) ? info.value : null, cell(info.percentOfParent), cell(info.percentOfTotal)];
       });
-      const share = (x: number) => `${enNum(x, 2)}%`;
+      const tableShare = (x: number) => share(x, 2);
       return {
-        columns: ['Path', meta.valueLabel, 'Share of parent', 'Share of total'],
+        columns: [t.path, meta.valueLabel, t.shareOfParent, t.shareOfTotal],
         rows,
         totalRows: n,
         sampled: rows.length < n,
-        formats: [undefined, undefined, share, share],
+        formats: [undefined, undefined, tableShare, tableShare],
       };
     },
     hover(focus) {
@@ -735,32 +768,35 @@ export function hierarchyA11yModel(m: Record<string, unknown>, common: Common): 
 
 function sankeyA11yModel(meta: SankeyChartMeta, common: Common): A11yChartModel {
   const f = common.formatValue;
+  const locale = common.locale;
+  const msg = getMessages(locale);
+  const t = msg.hierarchy;
+  const num = (n: number) => formatCount(n, locale);
   const nNodes = meta.nodeNames.length;
   const nLinks = meta.sources.length;
-  const name = (v: number) => meta.nodeNames[v] ?? `#${v + 1}`;
+  const name = (v: number) => nodeName(meta.nodeNames, v, locale);
   const link = (l: number) => ({
     s: meta.sources[l],
     t: meta.targets[l],
     value: meta.links[l * 4 + 2] ?? NaN,
     share: meta.links[l * 4 + 3] ?? NaN,
   });
-  const head = common.title ? `${common.title}. ` : '';
   const custom: A11yCustom = {
-    kindLabel: 'Sankey',
-    help:
-      'Keyboard: focus the chart, then use Left and Right arrows to move between links, Page Up and Page Down ' +
-      'to jump 10 links, Home and End for the first and last link, and Escape to clear.',
+    kindLabel: msg.common.kind.sankey,
+    help: t.sankeyHelp,
     summary() {
       const order = Array.from({ length: nLinks }, (_, l) => l).sort((a, b) => link(b).value - link(a).value || a - b);
-      const top = order.slice(0, 3).map((l) => `${name(link(l).s)} to ${name(link(l).t)} ${f(link(l).value)}`);
+      const top = order.slice(0, 3).map((l) => t.flowItem(name(link(l).s), name(link(l).t), f(link(l).value)));
       const cols = nNodes ? Math.max(...Array.from({ length: nNodes }, (_, v) => meta.nodes[v * 8] ?? 0)) + 1 : 0;
-      return `${head}Sankey diagram, ${plural(nNodes, 'node')} in ${plural(cols, 'column')}, ${plural(nLinks, 'link')}${top.length ? `; largest flows: ${top.join(', ')}` : ''}.`;
+      const largest = top.length ? top.join(msg.common.listSeparator) : null;
+      const text = t.sankeySummary(t.sankeyName, t.nodes(nNodes, num(nNodes)), t.columns(cols, num(cols)), t.links(nLinks, num(nLinks)), largest);
+      return common.title ? t.titled(common.title, text) : text;
     },
     description() {
       const out: string[] = [];
       for (let v = 0; v < Math.min(nNodes, 30); v++) {
         const at = v * 8;
-        out.push(`${name(v)}: ${f(meta.nodes[at + 1])} (in ${f(meta.nodes[at + 2])}, out ${f(meta.nodes[at + 3])}).`);
+        out.push(t.sankeyNode(name(v), f(meta.nodes[at + 1]), f(meta.nodes[at + 2]), f(meta.nodes[at + 3])));
       }
       return out;
     },
@@ -774,8 +810,8 @@ function sankeyA11yModel(meta: SankeyChartMeta, common: Common): A11yChartModel 
     key: () => null,
     announce(focus) {
       const l = link(focus.index);
-      const share = Number.isFinite(l.share) ? `, ${enNum(l.share, 1)}% of ${name(l.s)}` : '';
-      return `${name(l.s)} to ${name(l.t)}: ${f(l.value)}${share}. Link ${focus.index + 1} of ${nLinks}.`;
+      const share = Number.isFinite(l.share) ? shareText(l.share, locale, 1) : null;
+      return t.linkAnnounce(name(l.s), name(l.t), f(l.value), share, num(focus.index + 1), num(nLinks));
     },
     table(pick) {
       const rows = pick(nLinks).map((l): ChartDataCell[] => {
@@ -783,11 +819,11 @@ function sankeyA11yModel(meta: SankeyChartMeta, common: Common): A11yChartModel 
         return [name(k.s), name(k.t), Number.isFinite(k.value) ? k.value : null, Number.isFinite(k.share) ? Math.round(k.share * 100) / 100 : null];
       });
       return {
-        columns: ['Source', 'Target', meta.valueLabel, 'Share of source'],
+        columns: [t.source, t.target, meta.valueLabel, t.shareOfSource],
         rows,
         totalRows: nLinks,
         sampled: rows.length < nLinks,
-        formats: [undefined, undefined, undefined, (x) => `${enNum(x, 2)}%`],
+        formats: [undefined, undefined, undefined, (x) => shareText(x, locale, 2)],
       };
     },
     hover(focus) {
@@ -868,7 +904,7 @@ export class HierarchyLabelLayer {
     if (meta.kind !== 'sankey') {
       this.crumbs = div('charturbo-sdk-breadcrumb', { display: 'flex', alignItems: 'center', gap: '2px', fontSize: '12px', whiteSpace: 'nowrap', pointerEvents: 'auto' });
       this.crumbs.setAttribute('role', 'navigation');
-      this.crumbs.setAttribute('aria-label', 'Drill path');
+      this.crumbs.setAttribute('aria-label', getMessages().hierarchy.drillPath);
       this.root.append(this.crumbs);
     }
     if (meta.kind === 'sunburst') {
@@ -973,18 +1009,19 @@ export class HierarchyLabelLayer {
       for (let k = count; k < this.labels.length; k++) this.labels[k].style.display = 'none';
     }
     if (meta.kind === 'sankey' || !layout || layout.length < 10) return;
-    this.updateCrumbs(meta, layout, theme);
+    this.updateCrumbs(meta, layout, theme, locale);
     this.updateCenter(meta, layout, theme, formatValue, locale);
   }
 
-  private updateCrumbs(meta: HierarchyChartMeta, layout: Float64Array, theme: CharturboTheme): void {
+  private updateCrumbs(meta: HierarchyChartMeta, layout: Float64Array, theme: CharturboTheme, locale?: string): void {
     const el = this.crumbs;
     if (!el) return;
     const root = layout[0];
     const { left, top } = this.crumbAt;
-    const key = `${root}|${theme.name}`;
+    const key = `${root}|${theme.name}|${locale}`;
     if (key === this.crumbKey) return;
     this.crumbKey = key;
+    el.setAttribute('aria-label', getMessages(locale).hierarchy.drillPath);
     // From the top root (synthetic or not) down to the current root
     const chain: number[] = [];
     for (let v = root, guard = 0; v >= 0 && guard <= meta.nodeNames.length; guard++, v = hierarchyParent(meta, v)) chain.push(v);
@@ -993,7 +1030,7 @@ export class HierarchyLabelLayer {
     Object.assign(el.style, { left: `${left}px`, top: `${top}px` });
     chain.forEach((v, k) => {
       const last = k === chain.length - 1;
-      const name = meta.nodeNames[v] ?? `#${v + 1}`;
+      const name = nodeName(meta.nodeNames, v, locale);
       if (k > 0) {
         const sep = document.createElement('span');
         sep.textContent = '›';
@@ -1060,8 +1097,8 @@ export function drillEvent(meta: HierarchyChartMeta, node: number): CharturboDri
     kind: meta.kind,
     node,
     id: meta.ids[node],
-    name: meta.nodeNames[node] ?? `#${node + 1}`,
-    path: path.map((v) => meta.nodeNames[v] ?? `#${v + 1}`),
+    name: nodeName(meta.nodeNames, node),
+    path: path.map((v) => nodeName(meta.nodeNames, v)),
   };
 }
 

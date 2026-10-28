@@ -29,7 +29,8 @@ import type {
   CharturboTheme,
   WasmCharturboEngineBackend,
 } from './charturbo';
-import { esc, plural, rgbCss, stepSingle, tooltipHeader, tooltipRow, type A11yCommon, type A11yCustomModel, type BusinessLabelLayer } from './chart-business-util';
+import { esc, rgbCss, stepSingle, tooltipHeader, tooltipRow, type A11yCommon, type A11yCustomModel, type BusinessLabelLayer } from './chart-business-util';
+import { formatCount, getMessages } from './i18n';
 
 export interface WaterfallChartData {
   /** Category names, one per value */
@@ -43,7 +44,7 @@ export interface WaterfallChartData {
 export type WaterfallItemKind = 'increase' | 'decrease' | 'total';
 
 export interface WaterfallChartOptions {
-  /** Appends a final total bar: `true` (named `'Total'`) or its name */
+  /** Appends a final total bar: `true` (named `'Total'` in the chart locale) or its name */
   total?: boolean | string;
   /** `'vertical'` (default) or `'horizontal'` (categories down the left axis) */
   orientation?: BarOrientation;
@@ -51,7 +52,7 @@ export interface WaterfallChartOptions {
   connectors?: boolean;
   /** Colors (default: first / second palette slots and the theme's neutral baseline color) */
   colors?: { increase?: ColorInput; decrease?: ColorInput; total?: ColorInput; connector?: ColorInput };
-  /** Legend / tooltip names of the kinds (default `Increase` / `Decrease` / `Total`) */
+  /** Legend / tooltip names of the kinds (default: `Increase` / `Decrease` / `Total` in the chart locale) */
   names?: { increase?: string; decrease?: string; total?: string };
   /**
    * Value labels: `'auto'` (default: hidden where they collide), `true`, `false`, or bar label
@@ -72,7 +73,7 @@ export interface WaterfallChartOptions {
   /** Legend of the kinds present (default: shown with 2+ kinds; static) */
   legend?: ChartLegendOptions | boolean;
   padding?: ChartPaddingOptions;
-  /** Tooltip / table name of the changes (default `'Change'`) */
+  /** Tooltip / table name of the changes (default: `'Change'` in the chart locale) */
   valueLabel?: string;
   /** Value text of labels, tooltip and a11y (spec, Intl options or function; default: locale number) */
   format?: ChartValueFormat;
@@ -104,6 +105,10 @@ export interface WaterfallChartMeta {
   valueLabel: string;
   format: (value: number) => string;
   colorInputs: WaterfallChartOptions['colors'];
+  /** Locale of the default names (`localizeWaterfallMeta`) */
+  locale?: string;
+  /** Names as given (absent = the localized default) */
+  nameInputs: Pick<WaterfallChartOptions, 'names' | 'total' | 'valueLabel'>;
 }
 
 /** Hovered waterfall bar. */
@@ -121,7 +126,8 @@ const KIND_CODES: WaterfallItemKind[] = ['increase', 'decrease', 'total'];
 export function waterfallMeta(
   data: WaterfallChartData,
   options: WaterfallChartOptions | undefined,
-  format: (v: number) => string
+  format: (v: number) => string,
+  locale?: string
 ): WaterfallChartMeta {
   const n = data.labels.length;
   if (data.values.length !== n) throw new RangeError(`waterfall: ${data.values.length} values for ${n} labels`);
@@ -132,12 +138,13 @@ export function waterfallMeta(
   const categories = [...data.labels];
   const values = Array.from(data.values, (v) => (v === null || v === undefined ? NaN : Number(v)));
   if (options?.total) {
-    categories.push(typeof options.total === 'string' ? options.total : 'Total');
+    // Name filled in by `localizeWaterfallMeta`
+    categories.push('');
     values.push(NaN);
     totals.push(true);
   }
   const labels = resolveBarLabels(options?.labels === undefined ? 'auto' : (options.labels as boolean | 'auto' | BarLabelOptions));
-  return {
+  const meta: WaterfallChartMeta = {
     kind: 'waterfall',
     categories,
     values: Float64Array.from(values),
@@ -147,11 +154,7 @@ export function waterfallMeta(
     colors: [],
     visible: [],
     kindColors: { increase: [0, 0, 0, 1], decrease: [0, 0, 0, 1], total: [0, 0, 0, 1] },
-    kindNames: {
-      increase: options?.names?.increase ?? 'Increase',
-      decrease: options?.names?.decrease ?? 'Decrease',
-      total: options?.names?.total ?? 'Total',
-    },
+    kindNames: { increase: '', decrease: '', total: '' },
     barStyle: {
       orientation: options?.orientation === 'horizontal' ? 'horizontal' : 'vertical',
       labels,
@@ -160,10 +163,27 @@ export function waterfallMeta(
       errorBar: {},
       texts: [],
     },
-    valueLabel: options?.valueLabel ?? 'Change',
+    valueLabel: '',
     format,
     colorInputs: options?.colors,
+    nameInputs: { names: options?.names, total: options?.total, valueLabel: options?.valueLabel },
   };
+  localizeWaterfallMeta(meta, locale);
+  return meta;
+}
+
+/**
+ * Default kind names, value label and appended total name in `locale` (names given in the options
+ * win); refreshes the legend names.
+ */
+export function localizeWaterfallMeta(meta: WaterfallChartMeta, locale: string | undefined): void {
+  const { common: cm, business: bm } = getMessages(locale);
+  const { names, total, valueLabel } = meta.nameInputs;
+  meta.locale = locale;
+  meta.kindNames = { increase: names?.increase ?? bm.increase, decrease: names?.decrease ?? bm.decrease, total: names?.total ?? cm.total };
+  meta.valueLabel = valueLabel ?? bm.change;
+  if (total) meta.categories[meta.categories.length - 1] = typeof total === 'string' ? total : cm.total;
+  syncLegend(meta);
 }
 
 function styleArray(meta: WaterfallChartMeta, theme: CharturboTheme): Float32Array {
@@ -243,14 +263,14 @@ export function waterfallTooltipContext(meta: WaterfallChartMeta, i: number, det
   return {
     chartType: 'waterfall',
     index: i,
-    xLabel: meta.categories[i] ?? `#${i + 1}`,
+    xLabel: meta.categories[i] ?? getMessages(meta.locale).common.itemName(i + 1),
     items: [{ seriesName: meta.kindNames[it.kind], value: it.value, color: rgbCss(meta.kindColors[it.kind]), nodeId: i }],
     waterfall: { kind: it.kind, change: it.value, start: it.start, end: it.end },
     details: details(i),
   };
 }
 
-export function waterfallTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string): string {
+export function waterfallTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): string {
   const w = ctx.waterfall;
   const it = ctx.items[0];
   if (!w || !it) return '';
@@ -258,7 +278,7 @@ export function waterfallTooltipHtml(ctx: ChartTooltipContext, theme: CharturboT
   const sign = w.change > 0 ? '+' : w.change < 0 ? '−' : '';
   return `${tooltipHeader(theme, ctx.xLabel)}${tooltipRow(theme, it.seriesName, esc(`${sign}${formatValue(Math.abs(w.change))}`), it.color)}${tooltipRow(
     theme,
-    'Running total',
+    getMessages(locale).business.runningTotal,
     esc(formatValue(w.end))
   )}`;
 }
@@ -270,7 +290,7 @@ export function waterfallPointMetadata(meta: WaterfallChartMeta, i: number): { s
     series: 0,
     color: meta.kindColors[it.kind],
     metadata: {
-      label: meta.categories[i] ?? `#${i + 1}`,
+      label: meta.categories[i] ?? getMessages(meta.locale).common.itemName(i + 1),
       category: meta.kindNames[it.kind],
       tags: ['waterfall-chart', it.kind],
       attributes: { kind: it.kind, change: it.value, start: it.start, end: it.end },
@@ -282,7 +302,12 @@ export function waterfallPointMetadata(meta: WaterfallChartMeta, i: number): { s
 export function waterfallA11yModel(meta: WaterfallChartMeta, c: A11yCommon): A11yChartModel {
   const n = meta.items.length;
   const f = c.formatValue;
-  const label = (i: number) => meta.categories[i] ?? `#${i + 1}`;
+  const locale = c.locale ?? meta.locale;
+  const { common: cm, business: bm } = getMessages(locale);
+  const num = (v: number) => formatCount(v, locale);
+  const label = (i: number) => meta.categories[i] ?? cm.itemName(i + 1);
+  /** Total name inside a sentence: the `names.total` option, else the localized default */
+  const totalInSentence = meta.nameInputs.names?.total ?? bm.totalInSentence;
   const signed = (v: number) => (v > 0 ? `+${f(v)}` : v < 0 ? `−${f(-v)}` : f(v));
   const changes = meta.items.map((it) => (it.kind === 'total' ? NaN : it.value));
   const ends = meta.items.map((it) => it.end);
@@ -294,37 +319,39 @@ export function waterfallA11yModel(meta: WaterfallChartMeta, c: A11yCommon): A11
     return k;
   };
   const custom: A11yCustomModel = {
-    kindLabel: 'Waterfall',
+    kindLabel: cm.kind.waterfall,
     summary: () => {
-      const head = c.title ? `${c.title}. ` : '';
       const parts: string[] = [];
       const up = extreme(1);
       const down = extreme(-1);
-      if (up >= 0) parts.push(`largest increase ${label(up)} ${signed(changes[up])}`);
-      if (down >= 0) parts.push(`largest decrease ${label(down)} ${signed(changes[down])}`);
-      const final = n ? `, ending at ${f(ends[n - 1])}` : '';
-      return `${head}Waterfall chart, ${plural(n, 'item')}${final}${parts.length ? `; ${parts.join('; ')}` : ''}.`;
+      if (up >= 0) parts.push(bm.largestIncrease(label(up), signed(changes[up])));
+      if (down >= 0) parts.push(bm.largestDecrease(label(down), signed(changes[down])));
+      const text = bm.waterfallSummary(cm.items(n, num(n)), n ? f(ends[n - 1]) : '', parts);
+      return c.title ? bm.titled(c.title, text) : text;
     },
     description: () =>
       meta.items.map((it, i) =>
-        it.kind === 'total' ? `${label(i)}: ${meta.kindNames.total.toLowerCase()} ${f(it.end)}.` : `${label(i)}: ${signed(it.value)}, running total ${f(it.end)}.`
+        it.kind === 'total' ? bm.waterfallTotal(label(i), totalInSentence, f(it.end)) : bm.waterfallChange(label(i), signed(it.value), f(it.end))
       ),
-    help: 'Keyboard: focus the chart, then use Left and Right arrows to move between bars, Home and End for the first and last bar, and Escape to clear.',
+    help: bm.waterfallHelp,
     announce: (focus) => {
       const i = focus.index;
       const it = meta.items[i];
       if (!it) return '';
-      const text = it.kind === 'total' ? `${meta.kindNames.total} ${f(it.end)}` : `${signed(it.value)}, running total ${f(it.end)}`;
-      return `${label(i)}, ${text}. ${i + 1} of ${n}.`;
+      const position = cm.position(num(i + 1), num(n));
+      return it.kind === 'total'
+        ? bm.waterfallTotalAnnounce(label(i), meta.kindNames.total, f(it.end), position)
+        : bm.waterfallChangeAnnounce(label(i), signed(it.value), f(it.end), position);
     },
     step: (focus, key) => stepSingle(focus, key, n),
   };
   return {
     kind: 'waterfall',
     ...c,
+    locale,
     series: [
       { name: meta.valueLabel, values: changes, visible: true, f32: false },
-      { name: 'Running total', values: ends, visible: true, f32: false },
+      { name: bm.runningTotal, values: ends, visible: true, f32: false },
     ],
     length: n,
     custom,

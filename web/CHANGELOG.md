@@ -1,9 +1,29 @@
 # 변경 이력 (Changelog)
 
 이 파일은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/) 형식을 따르며, 버전은
-[유의적 버전(SemVer)](https://semver.org/lang/ko/)의 0.x 규칙을 따릅니다 (`docs/RELEASING.md` 참고).
+[유의적 버전(SemVer)](https://semver.org/lang/ko/)의 0.x 규칙을 따릅니다 (`docs/ko/contributing/releasing.md` 참고).
 
 ## [Unreleased]
+
+### 변경 (호환성 깨짐) — 그래프 레이아웃 GPU 상주
+
+- `stepPhysicsAsync`가 GPU에 상주하는 배치를 진행합니다. 위치·속도는 GPU 버퍼에 남고, CPU는 자신의 배치 편집만 올리며 비동기 readback을 1~2 프레임 뒤에 반영합니다. 자동 sleep 판정은 매 스텝 GPU에서 셉니다. GPU 상주 중에는 절두체 컬링을 생략합니다.
+- `stepPhysicsAsync`는 readback 후가 아니라 제출 시점에 resolve하며, GPU 작업 중 CPU 편집은 거부되지 않고 순서대로 적용됩니다. 피킹·내보내기처럼 현재 위치가 필요하면 새 `syncPhysicsPositions()`를 await하세요.
+
+### 추가 — 내장 문구 다국어(영어 · 한국어 · 중국어 간체)
+
+- 접근성 요약·키보드 도움말·스크린 리더 안내, 데이터 표 제목·머리글·CSV 머리글, 기본 툴팁, 범례·브레드크럼·컬러바 라벨, 기본 시리즈·값 이름, PDF 기본 제목이 차트 로캘을 따릅니다. 로캘 순서: 차트 `locale` → SDK 로캘(`create({ locale })`·`setLocale`) → `<html lang>` → `navigator.language`. `ko*`는 한국어, `zh*`는 중국어 간체, 그 외는 영어입니다.
+- `registerMessages(locale, messages)`로 문구를 덮어쓰거나 언어를 추가하고, `getMessages`·`resolveLanguage`·`CHARTURBO_LANGUAGES`·`CharturboMessages` 타입으로 조회합니다.
+- `setLocale`이 접근성 문구, 범례 `aria-label`, 컬러바, 비즈니스·계층 차트의 기본 이름(범례·상태·루트·기타)까지 바로 갱신합니다. 다른 차트의 기본 시리즈 이름은 다음 렌더링부터 바뀝니다.
+- PDF 제목의 비ASCII 문자를 UTF-16으로 기록해 한국어·중국어 제목이 사라지지 않습니다.
+- 문서 사이트(VitePress, `docs/`)를 3개 언어로 추가했고, 예제 사이트에 언어 선택을 추가했습니다.
+
+### 변경 — 영어 출력
+
+- 숫자가 `en-US` 고정이 아니라 차트 로캘로 형식화됩니다(로캘이 없으면 페이지·브라우저 언어).
+- 산점도 기본 시리즈 이름이 0부터가 아니라 1부터 셉니다(`Series 1`).
+- 박스 플롯 백분위 수염 서수(`1th` → `1st`), OHLC 키보드 도움말과 데이터 표 제목(`OHLC chart data`), 파이 기타 항목 툴팁(`and 2 more`), 콤보 설명(`bars stacked to 100%`)을 고쳤습니다.
+- 콤보·선·막대 점의 `getNodeDetails().metadata.description`이 항상 한국어였던 문제를 고쳐 로캘을 따릅니다.
 
 ### 추가 — Surface3D 등고선
 
@@ -31,7 +51,7 @@
 - `renderPointCloud3D`·`renderSurface3D`, React/Vue `type="pointCloud3d"`·`type="surface3d"`를 추가했습니다.
 - XYZ billboard와 Y-up row-major surface를 전용 깊이 처리로 렌더링합니다. scalar 색상, grid hole, wireframe, 조명, 시리즈 가시성·강조, orbit/pan/zoom을 지원합니다.
 - 원본 XYZ 툴팁·키보드·CSV, surface ray intersection, SVG raster fallback, 예제 3개와 WebGPU/WebGL2 fixture를 연결했습니다. 투명도 0 표면의 선택·렌더와 resize 시 카메라 초기화를 수정했습니다.
-- 전체 교체 API에 더해 위 스트리밍·축·투영 API를 제공합니다. 정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/GUIDE.md`를 참조하세요.
+- 전체 교체 API에 더해 위 스트리밍·축·투영 API를 제공합니다. 정확한 투명면 합성 등은 후속 범위입니다. 자세한 계약은 `docs/ko/charts/scientific-3d.md`를 참조하세요.
 
 ### 추가 — 독립 ErrorBar · Impulse
 
@@ -82,7 +102,7 @@
 - CPU Barnes-Hut 탐색에서 질량 중심 캐시와 스택 없는 DFS 레코드를 사용합니다.
 - `supportsGpuPhysics()`와 `stepPhysicsAsync()`를 추가했습니다. WebGPU 반발력 + CPU 스프링·적분·공간 인덱스의 선택적 하이브리드 경로이며, WebGL2에서는 CPU로 폴백합니다.
 - 비동기 완료 후 좌표 조회·피킹이 갱신된 위치를 사용합니다. 중복 비동기 호출과 데이터/힘 설정 변경으로 오래된 결과, dispose 후 결과 적용을 거부합니다.
-- Apple M1에서 100k 노드 물리 시간 310.30→41.87 ms, FPS 3.5→19.6을 측정했습니다(GPU 왕복 포함). 자세한 조건은 `docs/BENCHMARKS.md`를 참고하세요.
+- Apple M1에서 100k 노드 물리 시간 310.30→41.87 ms, FPS 3.5→19.6을 측정했습니다(GPU 왕복 포함). 자세한 조건은 `docs/ko/contributing/benchmarks.md`를 참고하세요.
 - cosmos 벤치마크의 프레임당 중복 물리 실행을 수정하고, 대시보드에는 시나리오별 CPU·하이브리드 GPU 중 FPS가 높은 모드를 Charturbo 한 항목으로 표시합니다(동률이면 물리 시간이 짧은 모드).
 
 ### 추가 — 3D 데모 디자인 설정

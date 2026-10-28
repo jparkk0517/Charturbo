@@ -13,5 +13,6 @@ export default defineConfig({
     alias: { charturbo: fileURLToPath(new URL('./src/index.ts', import.meta.url)) },
     environment: 'node',
     include: ['src/**/*.test.{ts,tsx}'],
+    setupFiles: ['src/__tests__/setup-locale.ts'],
   },
 });

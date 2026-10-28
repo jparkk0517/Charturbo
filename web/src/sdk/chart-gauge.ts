@@ -13,7 +13,6 @@ import {
   esc,
   overlayDiv,
   placeAt,
-  plural,
   rgbCss,
   stepSingle,
   tooltipHeader,
@@ -22,6 +21,7 @@ import {
   type A11yCustomModel,
   type BusinessLabelLayer,
 } from './chart-business-util';
+import { formatCount, getMessages } from './i18n';
 
 /** Reserved status scale (dataviz status palette; never themed, never used for series). */
 export type GaugeStatus = 'good' | 'warning' | 'serious' | 'critical';
@@ -33,12 +33,15 @@ export const GAUGE_STATUS_COLORS: Record<GaugeStatus, string> = {
   critical: '#d03b3b',
 };
 
-/** Status shape + name: a status color never carries the meaning alone. */
-export const GAUGE_STATUS_LABELS: Record<GaugeStatus, { icon: string; label: string }> = {
-  good: { icon: '✓', label: 'Good' },
-  warning: { icon: '▲', label: 'Warning' },
-  serious: { icon: '◆', label: 'Serious' },
-  critical: { icon: '✖', label: 'Critical' },
+/**
+ * Status shapes shown beside the (localized) status name: a status color never carries the
+ * meaning alone.
+ */
+export const GAUGE_STATUS_ICONS: Record<GaugeStatus, string> = {
+  good: '✓',
+  warning: '▲',
+  serious: '◆',
+  critical: '✖',
 };
 
 export interface GaugeBandOptions {
@@ -48,7 +51,7 @@ export interface GaugeBandOptions {
   status?: GaugeStatus;
   /** Band color (default: the status color, else the theme palette slot) */
   color?: ColorInput;
-  /** Label beside the band and in tooltips (default: the status name) */
+  /** Label beside the band and in tooltips (default: the status name in the chart locale) */
   label?: string;
 }
 
@@ -87,7 +90,7 @@ export interface GaugeChartOptions {
   /** Accessible name of the canvas */
   description?: string;
   padding?: ChartPaddingOptions;
-  /** Tooltip / table name of the value (default `'Value'`) */
+  /** Tooltip / table name of the value (default: `'Value'` in the chart locale) */
   valueLabel?: string;
   /** Value / min / max text (spec, Intl options or function; default: locale number) */
   format?: ChartValueFormat;
@@ -123,6 +126,10 @@ export interface GaugeChartMeta {
   inputs: Pick<GaugeChartOptions, 'trackColor' | 'color' | 'needleColor'>;
   /** Input bands (colors follow the theme for palette-colored bands) */
   bandInputs: GaugeBandOptions[];
+  /** Locale of the default names (`localizeGaugeMeta`) */
+  locale?: string;
+  /** Value label as given (absent = the localized default) */
+  valueLabelInput?: string;
 }
 
 /** Gauge tooltip: the value, range, and the band under the pointer / containing the value. */
@@ -134,9 +141,14 @@ export interface ChartGaugeTooltip {
 }
 
 /** Builds the display meta (bands are filled from the engine by `sendGauge`). */
-export function gaugeMeta(data: GaugeChartData, options: GaugeChartOptions | undefined, format: (v: number) => string): GaugeChartMeta {
+export function gaugeMeta(
+  data: GaugeChartData,
+  options: GaugeChartOptions | undefined,
+  format: (v: number) => string,
+  locale?: string
+): GaugeChartMeta {
   const bands = options?.bands ?? [];
-  return {
+  const meta: GaugeChartMeta = {
     kind: 'gauge',
     value: Number(data.value),
     min: options?.min ?? 0,
@@ -148,19 +160,29 @@ export function gaugeMeta(data: GaugeChartData, options: GaugeChartOptions | und
     names: [],
     colors: [],
     visible: [true],
-    valueLabel: options?.valueLabel ?? 'Value',
+    valueLabel: '',
     format,
     inputs: { trackColor: options?.trackColor, color: options?.color, needleColor: options?.needleColor },
     bandInputs: bands,
+    valueLabelInput: options?.valueLabel,
   };
+  localizeGaugeMeta(meta, locale);
+  return meta;
+}
+
+/** Default value label / status band names in `locale` (labels given in the options win). */
+export function localizeGaugeMeta(meta: GaugeChartMeta, locale: string | undefined): void {
+  meta.locale = locale;
+  meta.valueLabel = meta.valueLabelInput ?? getMessages(locale).common.value;
+  for (const b of meta.bands) b.label = bandLabel(meta.bandInputs[b.source], locale);
 }
 
 function bandColor(b: GaugeBandOptions, k: number, theme: CharturboTheme): RgbaTuple {
   return parseOptionalColor(b.color) ?? (b.status ? parseColor(GAUGE_STATUS_COLORS[b.status]) : (theme.palette[k] ?? theme.baseline));
 }
 
-function bandLabel(b: GaugeBandOptions): string {
-  return b.label ?? (b.status ? GAUGE_STATUS_LABELS[b.status].label : '');
+function bandLabel(b: GaugeBandOptions, locale: string | undefined): string {
+  return b.label ?? (b.status ? getMessages(locale).business.status[b.status] : '');
 }
 
 function styleArray(meta: GaugeChartMeta, theme: CharturboTheme): Float32Array {
@@ -175,14 +197,15 @@ export function sendGauge(backend: WasmCharturboEngineBackend, meta: GaugeChartM
   const inputs = meta.bandInputs;
   const ranges = new Float64Array(inputs.length * 2);
   const colors = new Float32Array(inputs.length * 4);
-  const showBandLabels = options?.bandLabels ?? inputs.some((b) => bandLabel(b));
-  const labeled = Uint8Array.from(inputs, (b) => (showBandLabels && bandLabel(b) ? 1 : 0));
+  const label = (b: GaugeBandOptions) => bandLabel(b, meta.locale);
+  const showBandLabels = options?.bandLabels ?? inputs.some((b) => label(b));
+  const labeled = Uint8Array.from(inputs, (b) => (showBandLabels && label(b) ? 1 : 0));
   inputs.forEach((b, k) => {
     ranges[k * 2] = Number(b.from);
     ranges[k * 2 + 1] = Number(b.to);
     colors.set(bandColor(b, k, theme), k * 4);
   });
-  const longest = Math.max(0, ...inputs.filter((_, k) => labeled[k]).map((b) => bandLabel(b).length));
+  const longest = Math.max(0, ...inputs.filter((_, k) => labeled[k]).map((b) => label(b).length));
   const beside = longest > 0 ? Math.min(160, longest * 6.5 + 28) : 0;
   const n =
     backend.set_gauge_chart?.(
@@ -213,7 +236,7 @@ export function syncGaugeBands(backend: WasmCharturboEngineBackend, meta: GaugeC
     const src = a[k];
     const b = meta.bandInputs[src];
     if (!b) continue;
-    meta.bands.push({ from: a[k + 1], to: a[k + 2], color: bandColor(b, src, theme), label: bandLabel(b), ...(b.status ? { status: b.status } : {}), source: src });
+    meta.bands.push({ from: a[k + 1], to: a[k + 2], color: bandColor(b, src, theme), label: bandLabel(b, meta.locale), ...(b.status ? { status: b.status } : {}), source: src });
   }
 }
 
@@ -238,15 +261,17 @@ export function gaugeBandOf(meta: GaugeChartMeta, value: number): number {
   return -1;
 }
 
-const bandName = (b: GaugeBandMeta, k: number) => b.label || `Band ${k + 1}`;
+/** Band label, else the localized `Band k` */
+const bandName = (b: GaugeBandMeta, k: number, locale: string | undefined) =>
+  b.label || getMessages(locale).business.bandName(formatCount(k + 1, locale));
 
 /** Tooltip of gauge point `id` (0 = value, `1 + k` = band `k`). */
 export function gaugeTooltipContext(meta: GaugeChartMeta, id: number, details: (id: number) => ChartTooltipContext['details']): ChartTooltipContext | null {
   const k = id === 0 ? gaugeBandOf(meta, meta.value) : id - 1;
   const b = meta.bands[k];
   if (id > meta.bands.length || (id > 0 && !b)) return null;
-  const band = b ? { band: { label: bandName(b, k), from: b.from, to: b.to, ...(b.status ? { status: b.status } : {}) } } : {};
-  const name = id === 0 ? meta.valueLabel : bandName(b, k);
+  const band = b ? { band: { label: bandName(b, k, meta.locale), from: b.from, to: b.to, ...(b.status ? { status: b.status } : {}) } } : {};
+  const name = id === 0 ? meta.valueLabel : bandName(b, k, meta.locale);
   return {
     chartType: 'gauge',
     index: id,
@@ -257,20 +282,27 @@ export function gaugeTooltipContext(meta: GaugeChartMeta, id: number, details: (
   };
 }
 
-export function gaugeTooltipHtml(ctx: ChartTooltipContext, meta: GaugeChartMeta, theme: CharturboTheme, formatValue: (v: number) => string): string {
+export function gaugeTooltipHtml(
+  ctx: ChartTooltipContext,
+  meta: GaugeChartMeta,
+  theme: CharturboTheme,
+  formatValue: (v: number) => string,
+  locale?: string
+): string {
   const g = ctx.gauge;
   if (!g) return '';
+  const m = getMessages(locale).business;
   const status = (b: NonNullable<ChartGaugeTooltip['band']>) => {
-    const icon = b.status ? `<span style="color:${ctx.items[0]?.color};margin-right:4px;">${GAUGE_STATUS_LABELS[b.status].icon}</span>` : '';
+    const icon = b.status ? `<span style="color:${ctx.items[0]?.color};margin-right:4px;">${GAUGE_STATUS_ICONS[b.status]}</span>` : '';
     return `${icon}${esc(b.label)}`;
   };
   const range = (from: number, to: number) => `${esc(formatValue(from))} – ${esc(formatValue(to))}`;
   if (ctx.index === 0) {
-    return `${tooltipHeader(theme, meta.valueLabel)}${tooltipRow(theme, meta.valueLabel, esc(Number.isFinite(g.value) ? formatValue(g.value) : 'no value'))}${
-      g.band ? tooltipRow(theme, 'Status', status(g.band)) : ''
-    }${tooltipRow(theme, 'Range', range(g.min, g.max))}`;
+    return `${tooltipHeader(theme, meta.valueLabel)}${tooltipRow(theme, meta.valueLabel, esc(Number.isFinite(g.value) ? formatValue(g.value) : m.noValue))}${
+      g.band ? tooltipRow(theme, m.statusLabel, status(g.band)) : ''
+    }${tooltipRow(theme, m.range, range(g.min, g.max))}`;
   }
-  return g.band ? `${tooltipHeader(theme, 'Band')}${tooltipRow(theme, status(g.band), range(g.band.from, g.band.to), ctx.items[0]?.color, true)}` : '';
+  return g.band ? `${tooltipHeader(theme, m.band)}${tooltipRow(theme, status(g.band), range(g.band.from, g.band.to), ctx.items[0]?.color, true)}` : '';
 }
 
 export function gaugePointMetadata(meta: GaugeChartMeta, id: number): { series: number; color: RgbaTuple; metadata: NodeMetadata } | null {
@@ -283,7 +315,7 @@ export function gaugePointMetadata(meta: GaugeChartMeta, id: number): { series: 
         label: meta.valueLabel,
         category: 'gauge',
         tags: ['gauge'],
-        attributes: { value: Number.isFinite(meta.value) ? meta.value : 'none', min: meta.min, max: meta.max, ...(k >= 0 ? { band: bandName(meta.bands[k], k) } : {}) },
+        attributes: { value: Number.isFinite(meta.value) ? meta.value : 'none', min: meta.min, max: meta.max, ...(k >= 0 ? { band: bandName(meta.bands[k], k, meta.locale) } : {}) },
       },
     };
   }
@@ -292,7 +324,7 @@ export function gaugePointMetadata(meta: GaugeChartMeta, id: number): { series: 
   return {
     series: 0,
     color: b.color,
-    metadata: { label: bandName(b, id - 1), category: 'gauge band', tags: ['gauge', ...(b.status ? [b.status] : [])], attributes: { from: b.from, to: b.to } },
+    metadata: { label: bandName(b, id - 1, meta.locale), category: 'gauge band', tags: ['gauge', ...(b.status ? [b.status] : [])], attributes: { from: b.from, to: b.to } },
   };
 }
 
@@ -300,39 +332,45 @@ export function gaugePointMetadata(meta: GaugeChartMeta, id: number): { series: 
 export function gaugeA11yModel(meta: GaugeChartMeta, c: A11yCommon): A11yChartModel {
   const f = c.formatValue;
   const count = 1 + meta.bands.length;
-  const label = (i: number) => (i === 0 ? meta.valueLabel : bandName(meta.bands[i - 1], i - 1));
-  const statusOf = (k: number) => (k >= 0 ? ` (${bandName(meta.bands[k], k)})` : '');
+  const locale = c.locale ?? meta.locale;
+  const { common: cm, business: bm } = getMessages(locale);
+  const num = (v: number) => formatCount(v, locale);
+  const name = (k: number) => bandName(meta.bands[k], k, locale);
+  const label = (i: number) => (i === 0 ? meta.valueLabel : name(i - 1));
+  /** Name of the band containing the value (`''` = none) */
+  const statusOf = (k: number) => (k >= 0 ? name(k) : '');
+  const valueText = () => (Number.isFinite(meta.value) ? f(meta.value) : bm.noValue);
   const custom: A11yCustomModel = {
-    kindLabel: 'Gauge',
+    kindLabel: cm.kind.gauge,
     summary: () => {
-      const head = c.title ? `${c.title}. ` : '';
-      const v = Number.isFinite(meta.value) ? f(meta.value) : 'no value';
-      return `${head}Gauge, ${v}${statusOf(gaugeBandOf(meta, meta.value))} on a scale from ${f(meta.min)} to ${f(meta.max)}${
-        meta.bands.length ? `, ${plural(meta.bands.length, 'band')}` : ''
-      }.`;
+      const n = meta.bands.length;
+      const text = bm.gaugeSummary(valueText(), statusOf(gaugeBandOf(meta, meta.value)), f(meta.min), f(meta.max), n, num(n));
+      return c.title ? bm.titled(c.title, text) : text;
     },
-    description: () => meta.bands.map((b, k) => `${bandName(b, k)}: ${f(b.from)} to ${f(b.to)}.`),
-    help: 'Keyboard: focus the chart, then use Left and Right arrows to move between the value and the bands, Home and End for the first and last, and Escape to clear.',
+    description: () => meta.bands.map((b, k) => bm.gaugeBand(name(k), f(b.from), f(b.to))),
+    help: bm.gaugeHelp,
     announce: (focus) => {
       const i = focus.index;
-      if (i === 0) return `${meta.valueLabel} ${Number.isFinite(meta.value) ? f(meta.value) : 'no value'}${statusOf(gaugeBandOf(meta, meta.value))}. 1 of ${count}.`;
+      const position = cm.position(num(i + 1), num(count));
+      if (i === 0) return bm.gaugeValueAnnounce(meta.valueLabel, valueText(), statusOf(gaugeBandOf(meta, meta.value)), position);
       const b = meta.bands[i - 1];
-      return b ? `${bandName(b, i - 1)} band, ${f(b.from)} to ${f(b.to)}. ${i + 1} of ${count}.` : '';
+      return b ? bm.gaugeBandAnnounce(name(i - 1), f(b.from), f(b.to), position) : '';
     },
     step: (focus, key) => stepSingle(focus, key, count),
     table: (pick): ChartDataTable => {
       const rows = pick(count).map((i) => {
         if (i === 0) return [meta.valueLabel, Number.isFinite(meta.value) ? meta.value : null, meta.min, meta.max];
         const b = meta.bands[i - 1];
-        return [bandName(b, i - 1), null, b.from, b.to];
+        return [name(i - 1), null, b.from, b.to];
       });
-      return { columns: ['Item', 'Value', 'From', 'To'], rows, totalRows: count, sampled: rows.length < count };
+      return { columns: [bm.item, cm.value, bm.from, bm.to], rows, totalRows: count, sampled: rows.length < count };
     },
   };
   const values = [meta.value, ...meta.bands.map((b) => b.to)];
   return {
     kind: 'gauge',
     ...c,
+    locale,
     series: [{ name: meta.valueLabel, values, visible: true, f32: false }],
     length: count,
     custom,
@@ -377,7 +415,7 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
     this.key = '';
   }
 
-  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme): void {
+  update(backend: WasmCharturboEngineBackend, theme: CharturboTheme, locale?: string): void {
     const a = backend.chart_gauge_labels?.();
     if (!a || a.length < 2) return;
     const meta = this.meta;
@@ -390,7 +428,7 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
       const at = 2 + k * 6;
       const [kind, index, x, y, ha, va] = [a[at], a[at + 1], a[at + 2], a[at + 3], a[at + 4], a[at + 5]];
       if (kind === 2) {
-        this.layoutValue(theme, x, y, va);
+        this.layoutValue(theme, x, y, va, locale);
         continue;
       }
       if (kind !== 3 && !meta.showMinMax) continue;
@@ -407,7 +445,7 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
         const b = meta.bands[index];
         if (b?.status) {
           const icon = document.createElement('span');
-          icon.textContent = GAUGE_STATUS_LABELS[b.status].icon;
+          icon.textContent = GAUGE_STATUS_ICONS[b.status];
           // The shape beside the text carries the status color; the text stays in text tokens
           Object.assign(icon.style, { color: rgbCss(b.color), marginRight: '4px' });
           el.appendChild(icon);
@@ -425,10 +463,10 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
     for (let k = used; k < this.labels.length; k++) this.labels[k].style.display = 'none';
   }
 
-  private layoutValue(theme: CharturboTheme, x: number, y: number, va: number): void {
+  private layoutValue(theme: CharturboTheme, x: number, y: number, va: number, locale: string | undefined): void {
     const meta = this.meta;
     this.value.style.display = 'block';
-    this.valueText.textContent = Number.isFinite(meta.value) ? meta.format(meta.value) : '—';
+    this.valueText.textContent = Number.isFinite(meta.value) ? meta.format(meta.value) : getMessages(locale).common.dash;
     this.valueText.style.color = theme.textPrimary;
     this.caption.textContent = meta.caption;
     this.caption.style.display = meta.caption ? 'block' : 'none';
@@ -439,7 +477,7 @@ export class GaugeLabelLayer implements BusinessLabelLayer {
     if (b && b.label) {
       if (b.status) {
         const icon = document.createElement('span');
-        icon.textContent = GAUGE_STATUS_LABELS[b.status].icon;
+        icon.textContent = GAUGE_STATUS_ICONS[b.status];
         Object.assign(icon.style, { color: rgbCss(b.color), marginRight: '4px' });
         this.status.appendChild(icon);
       }

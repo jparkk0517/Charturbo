@@ -8,6 +8,7 @@
  */
 import { heatmapAxisLabel, heatmapRowLabel, type HeatmapChartMeta } from './chart-heatmap';
 import { createFormatter } from './chart-format';
+import { formatCount, formatNumber, getMessages } from './i18n';
 import { boxA11yData, boxAnnouncement, boxDataTable, boxDescription, boxSummary, type A11yBoxData } from './chart-boxplot';
 import { comboA11yModel, comboAnnouncement, comboDescription, comboSummary, type A11yComboData } from './chart-combo';
 import { businessA11yModel, isBusinessKind } from './chart-business';
@@ -106,6 +107,8 @@ export interface A11yChartModel {
   description?: string;
   xTitle?: string;
   yTitle?: string;
+  /** Chart locale of built-in text and numbers (`getMessages(locale)`); absent = page / browser language */
+  locale?: string;
   series: A11ySeries[];
   /** Max series length (line) / category count (bar, bar-multi) / point count (scatter) */
   length: number;
@@ -154,8 +157,6 @@ const isArrayLike = (v: unknown): v is ArrayLike<unknown> =>
 const isNumberArray = (v: unknown): v is ArrayLike<number> =>
   ArrayBuffer.isView(v) || (Array.isArray(v) && (v.length === 0 || typeof v[0] === 'number'));
 
-const enNumber = (v: number, digits = 2): string =>
-  v.toLocaleString('en-US', { maximumFractionDigits: digits });
 
 /** Shortest decimal that rounds back to the same f32 (avoids `135.89999389648438`). */
 export function f32ToShortest(v: number): number {
@@ -281,9 +282,15 @@ export function buildA11yModel(
       return null;
     }
   };
+  // Chart locale of built-in text and default number text
+  const loc = locale ?? str(p.locale);
+  const t = getMessages(loc).common;
+  const num = (v: number, digits = 2) => formatNumber(v, loc, digits);
+  const seriesName = (s: number) => t.seriesName(s + 1);
+  const itemName = (i: number) => t.itemName(i + 1);
   const yFormat = axisFormat(yAxis.format);
   const formatXFn = typeof p.formatX === 'function' ? (p.formatX as (v: number) => string) : null;
-  const formatValue = (v: number) => (Number.isFinite(v) ? (yFormat ? yFormat(v) : enNumber(v)) : 'no data');
+  const formatValue = (v: number) => (Number.isFinite(v) ? (yFormat ? yFormat(v) : num(v)) : t.noData);
   const colors = (Array.isArray(m.colors) ? m.colors : []) as RgbaTuple[];
   const names = (Array.isArray(m.names) ? m.names : []) as string[];
   const visible = (Array.isArray(m.visible) ? m.visible : []) as boolean[];
@@ -294,6 +301,7 @@ export function buildA11yModel(
     xTitle: str(xAxis.title),
     yTitle: str(yAxis.title),
     formatValue,
+    ...(loc ? { locale: loc } : {}),
   };
 
   if (m.kind === 'treemap' || m.kind === 'sunburst' || m.kind === 'sankey') return hierarchyA11yModel(m, common);
@@ -305,7 +313,7 @@ export function buildA11yModel(
     const prefix = typeof m.xPrefix === 'string' ? m.xPrefix : 'T';
     const bands = (Array.isArray(m.bands) ? m.bands : []) as ({ lower: ArrayLike<number>; upper: ArrayLike<number> } | null)[];
     const series: A11ySeries[] = values.map((v, s) => ({
-      name: names[s] ?? `Series ${s + 1}`,
+      name: names[s] ?? seriesName(s),
       values: isArrayLike(v) ? v : [],
       visible: visible[s] ?? true,
       f32: v instanceof Float32Array,
@@ -313,7 +321,7 @@ export function buildA11yModel(
     }));
     const xOf = pickX(m);
     const xValue = (i: number, s = 0) => (xOf ? xOf(i, s) : i);
-    const formatX = (x: number) => (formatXFn ? formatXFn(x) : `${prefix}+${enNumber(x, 4)}`);
+    const formatX = (x: number) => (formatXFn ? formatXFn(x) : `${prefix}+${num(x, 4)}`);
     const area = m.area;
     return {
       kind: 'line',
@@ -329,14 +337,14 @@ export function buildA11yModel(
       formatX,
       xLabel: (i, s = 0) => formatX(xValue(i, s)),
       pointId: (s, i) => (offsets[s] ?? 0) + i,
-      itemName: (s) => series[s]?.name ?? `Series ${s + 1}`,
+      itemName: (s) => series[s]?.name ?? seriesName(s),
       itemColor: (s) => colors[s] ?? gray,
     };
   }
 
   if (m.kind === 'bar') {
     const metadata = (Array.isArray(m.metadata) ? m.metadata : []) as NodeMetadata[];
-    const labels = metadata.map((d, i) => d?.label ?? `#${i + 1}`);
+    const labels = metadata.map((d, i) => d?.label ?? itemName(i));
     const values = metadata.map((d, i) => {
       const exact = sample?.(i);
       if (exact && exact.length >= 3 && Number.isFinite(exact[2])) return f32ToShortest(exact[2]);
@@ -346,7 +354,7 @@ export function buildA11yModel(
     return {
       kind: 'bar',
       ...common,
-      series: [{ name: common.yTitle ?? 'Value', values, visible: true, f32: false }],
+      series: [{ name: common.yTitle ?? t.value, values, visible: true, f32: false }],
       length: labels.length,
       xValue: (i) => labels[i] ?? String(i),
       xLabel: (i) => labels[i] ?? String(i),
@@ -364,14 +372,14 @@ export function buildA11yModel(
     const seriesCount = Math.max(names.length, n > 0 ? Math.floor(flat.length / n) : 0);
     const f32 = flat instanceof Float32Array;
     const series: A11ySeries[] = Array.from({ length: n > 0 ? seriesCount : 0 }, (_, s) => ({
-      name: names[s] ?? `Series ${s + 1}`,
+      name: names[s] ?? seriesName(s),
       values: ArrayBuffer.isView(flat)
         ? (flat as Float32Array).subarray(s * n, (s + 1) * n)
         : Array.prototype.slice.call(flat, s * n, (s + 1) * n),
       visible: visible[s] ?? true,
       f32,
     }));
-    const label = (i: number) => categories[i] ?? `#${i + 1}`;
+    const label = (i: number) => categories[i] ?? itemName(i);
     const mode = m.mode === 'stacked' || m.mode === 'percent' ? m.mode : 'grouped';
     return {
       kind: 'bar-multi',
@@ -383,7 +391,7 @@ export function buildA11yModel(
       xLabel: label,
       formatX: label,
       pointId: (s, i) => s * n + i,
-      itemName: (s) => series[s]?.name ?? `Series ${s + 1}`,
+      itemName: (s) => series[s]?.name ?? seriesName(s),
       itemColor: (s) => colors[s] ?? gray,
     };
   }
@@ -395,23 +403,23 @@ export function buildA11yModel(
     // Keyboard focus moves per candle only (see `navigableSeries`): the engine hover reports
     // every candle as series 0, so the hit test ignores the series.
     const cols: [string, unknown][] = [
-      ['Open', m.open],
-      ['High', m.high],
-      ['Low', m.low],
-      ['Close', m.close],
-      ...(m.volume ? ([['Volume', m.volume]] as [string, unknown][]) : []),
+      [t.open, m.open],
+      [t.high, m.high],
+      [t.low, m.low],
+      [t.close, m.close],
+      ...(m.volume ? ([[t.volume, m.volume]] as [string, unknown][]) : []),
     ];
-    const series: A11ySeries[] = cols.map(([name, v]) => ({
+    const series: A11ySeries[] = cols.map(([name, v], k) => ({
       name,
       values: isNumberArray(v) ? v : [],
       visible: true,
       f32: v instanceof Float32Array,
       // Volume is a count, not a price: no y-axis format
-      ...(name === 'Volume' ? { format: (x: number) => (Number.isFinite(x) ? enNumber(x) : 'no data') } : {}),
+      ...(k === CANDLE_VOLUME ? { format: (x: number) => (Number.isFinite(x) ? num(x) : t.noData) } : {}),
     }));
-    const t = isNumberArray(m.t) ? m.t : null;
-    const xValue = (i: number) => (t ? Number(t[i]) : i);
-    const formatX = (x: number) => (formatXFn ? formatXFn(x) : enNumber(x, 4));
+    const times = isNumberArray(m.t) ? m.t : null;
+    const xValue = (i: number) => (times ? Number(times[i]) : i);
+    const formatX = (x: number) => (formatXFn ? formatXFn(x) : num(x, 4));
     const up = colors[0] ?? gray;
     const down = colors[1] ?? up;
     const ohlcAt = (k: number, i: number) => modelValue(model, k, i);
@@ -422,7 +430,7 @@ export function buildA11yModel(
       series,
       length: series[3]?.values.length ?? 0,
       seriesX: null,
-      hasX: t !== null,
+      hasX: times !== null,
       xValue,
       formatX,
       xLabel: (i) => formatX(xValue(i)),
@@ -439,11 +447,11 @@ export function buildA11yModel(
     const cols = Math.max(0, Math.floor(Number(hm.cols) || 0));
     const values: ArrayLike<number> = isNumberArray(hm.values) ? hm.values : [];
     const f32 = values instanceof Float32Array;
-    const num = (v: number) => enNumber(v, 4);
+    const num4 = (v: number) => num(v, 4);
     // Numeric axes use the author's tick format; categorical labels are shown in full
     const xFormat = axisFormat(xAxis.format);
-    const fx = (hm.xExtent && xFormat) || num;
-    const fy = (hm.yExtent && yFormat) || num;
+    const fx = (hm.xExtent && xFormat) || num4;
+    const fy = (hm.yExtent && yFormat) || num4;
     const meta: HeatmapChartMeta = {
       ...hm,
       rows,
@@ -466,7 +474,7 @@ export function buildA11yModel(
       rows,
       cols,
       rowTop: meta.rowTop,
-      valueLabel: typeof hm.valueLabel === 'string' && hm.valueLabel ? hm.valueLabel : 'Value',
+      valueLabel: typeof hm.valueLabel === 'string' && hm.valueLabel ? hm.valueLabel : t.value,
       rowLabel,
       colLabel,
       value,
@@ -476,7 +484,7 @@ export function buildA11yModel(
       kind: 'heatmap',
       ...common,
       // The y-axis format of a categorical heatmap maps row indices to labels, not values
-      formatValue: (v) => (Number.isFinite(v) ? num(v) : 'no data'),
+      formatValue: (v) => (Number.isFinite(v) ? num4(v) : t.noData),
       series: [],
       length: rows * cols,
       heatmap,
@@ -491,15 +499,15 @@ export function buildA11yModel(
 
   if (m.kind === 'box') {
     // One stop per (series, category) group; the series values are the group medians
-    const { box, medians } = boxA11yData(m);
+    const { box, medians } = boxA11yData(m, loc);
     const series: A11ySeries[] = medians.map((v, s) => ({
-      name: names[s] ?? `Series ${s + 1}`,
+      name: names[s] ?? seriesName(s),
       values: v,
       visible: visible[s] ?? true,
       f32: false,
     }));
     const n = box.categories.length;
-    const label = (i: number) => box.categories[i] ?? `#${i + 1}`;
+    const label = (i: number) => box.categories[i] ?? itemName(i);
     return {
       kind: 'box',
       ...common,
@@ -510,7 +518,7 @@ export function buildA11yModel(
       xLabel: label,
       formatX: label,
       pointId: (s, i) => s * n + i,
-      itemName: (s) => series[s]?.name ?? `Series ${s + 1}`,
+      itemName: (s) => series[s]?.name ?? seriesName(s),
       itemColor: (s) => colors[s] ?? gray,
     };
   }
@@ -523,7 +531,7 @@ export function buildA11yModel(
     const percents = (Array.isArray(m.percents) ? m.percents : []) as number[];
     const inputLabels = (Array.isArray(m.inputLabels) ? m.inputLabels : []) as string[];
     const other = (Array.isArray(m.other) ? m.other : []) as number[];
-    const valueLabel = typeof m.valueLabel === 'string' && m.valueLabel ? m.valueLabel : 'Value';
+    const valueLabel = typeof m.valueLabel === 'string' && m.valueLabel ? m.valueLabel : t.value;
     const fmt = typeof m.format === 'function' ? (m.format as (v: number) => string) : null;
     const pie: A11yPieData = {
       names,
@@ -533,21 +541,21 @@ export function buildA11yModel(
       total: values.reduce((sum, v, k) => ((visible[k] ?? true) && Number.isFinite(v) ? sum + v : sum), 0),
       donut: Number(m.donut) > 0,
       otherSlice: (Array.isArray(m.sources) ? (m.sources as number[]) : []).indexOf(-1),
-      otherMembers: other.map((i) => inputLabels[i] ?? `#${i + 1}`),
+      otherMembers: other.map((i) => inputLabels[i] ?? itemName(i)),
     };
-    const label = (i: number) => names[i] ?? `#${i + 1}`;
+    const label = (i: number) => names[i] ?? itemName(i);
     return {
       kind: 'pie',
       ...common,
-      formatValue: (v) => (Number.isFinite(v) ? (fmt ? fmt(v) : enNumber(v)) : 'no data'),
+      formatValue: (v) => (Number.isFinite(v) ? (fmt ? fmt(v) : num(v)) : t.noData),
       series: [
         { name: valueLabel, values, visible: true, f32: false },
         {
-          name: 'Percent',
+          name: getMessages(loc).a11y.percentHeader,
           values: percents.map((p) => (Number.isFinite(p) ? Math.round(p * 100) / 100 : NaN)),
           visible: true,
           f32: false,
-          format: (p) => (Number.isFinite(p) ? `${enNumber(p, 1)}%` : 'hidden'),
+          format: (p) => (Number.isFinite(p) ? `${num(p, 1)}%` : t.hidden),
         },
       ],
       length: names.length,
@@ -576,7 +584,7 @@ export function buildA11yModel(
     const pointColors = isNumberArray(m.pointColors) ? m.pointColors : null;
     const fy = m.y instanceof Float32Array;
     const series: A11ySeries[] = Array.from({ length: seriesCount }, (_, s) => ({
-      name: names[s] ?? `Series ${s + 1}`,
+      name: names[s] ?? seriesName(s),
       get values(): ArrayLike<number> {
         let ys = idx.ys[s];
         if (!ys) {
@@ -592,7 +600,7 @@ export function buildA11yModel(
       count: idx.counts[s],
     }));
     const clean = (v: number) => (data.f32 ? f32ToShortest(v) : v);
-    const formatX = (x: number) => (formatXFn ? formatXFn(x) : enNumber(x, 4));
+    const formatX = (x: number) => (formatXFn ? formatXFn(x) : num(x, 4));
     const pointId = (s: number, i: number) => scatterOrder(idx, data, s)[i] ?? -1;
     return {
       kind: 'scatter',
@@ -604,7 +612,7 @@ export function buildA11yModel(
       xLabel: (i, s = 0) => formatX(clean(Number(data.x[pointId(s, i)]))),
       formatX,
       pointId,
-      itemName: (s) => series[s]?.name ?? `Series ${s + 1}`,
+      itemName: (s) => series[s]?.name ?? seriesName(s),
       itemColor: (s, id) =>
         pointColors && id * 4 + 3 < pointColors.length
           ? [pointColors[id * 4], pointColors[id * 4 + 1], pointColors[id * 4 + 2], pointColors[id * 4 + 3]]
@@ -616,6 +624,8 @@ export function buildA11yModel(
 
 /** Close column of a candle model (the series keyboard focus stays on). */
 const CANDLE_CLOSE = 3;
+/** Optional volume column of a candle model */
+const CANDLE_VOLUME = 4;
 
 const heatmapStatsCache = new WeakMap<object, A11yHeatmapStats>();
 
@@ -781,18 +791,23 @@ function computeSeriesStats(values: ArrayLike<number>, f32: boolean): SeriesStat
     : { count, min: clean(min), max: clean(max), mean: sum / count, minIndex, maxIndex, first: clean(first), last: clean(last) };
 }
 
-const plural = (n: number, word: string, many = `${word}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? word : many}`;
+/** Built-in text in the model's locale. */
+const messagesOf = (model: A11yChartModel) => getMessages(model.locale);
+
+/** Share text with one decimal in the model's locale (`12.5%`). */
+const percentText = (model: A11yChartModel, p: number) => `${formatNumber(p, model.locale, 1)}%`;
 
 /** Series listed by name in the short summary before collapsing into "and N more". */
 const SUMMARY_SERIES_LIMIT = 5;
 
-const BAR_MODE_LABEL = { grouped: 'Grouped', stacked: 'Stacked', percent: 'Percent stacked' } as const;
+/** Summary chart name of each multi-series bar layout. */
+const BAR_MODE_CHART = { grouped: 'groupedBar', stacked: 'stackedBar', percent: 'percentBar' } as const;
 
 /** Per-series fragments of the short summary, capped at `SUMMARY_SERIES_LIMIT`. */
 function summaryParts(model: A11yChartModel, part: (s: A11ySeries, index: number) => string): string[] {
   const parts = model.series.slice(0, SUMMARY_SERIES_LIMIT).map(part);
   const more = model.series.length - SUMMARY_SERIES_LIMIT;
-  if (more > 0) parts.push(`and ${more} more`);
+  if (more > 0) parts.push(messagesOf(model).common.andMore(formatCount(more, model.locale)));
   return parts;
 }
 
@@ -823,132 +838,128 @@ function computeScatterExtent(model: A11yChartModel): { x: [number, number]; y: 
  * `Line chart, 4 series, 5,000 points; AI-Inference-RPS ranges 52.6–247.1; ...`
  */
 export function buildChartSummary(model: A11yChartModel): string {
-  const head = model.title ? `${model.title}. ` : '';
-  const f = model.formatValue;
-  const tail = (parts: string[]) => (parts.length ? `; ${parts.join('; ')}` : '');
   if (model.custom) return model.custom.summary();
   if (model.kind === 'box' && model.box) return boxSummary(model);
   if (model.kind === 'combo' && model.combo) return comboSummary(model);
+  const body = summaryBody(model);
+  return model.title ? messagesOf(model).a11y.titled(model.title, body) : body;
+}
+
+/** Summary sentence of the built-in chart kinds (without the title). */
+function summaryBody(model: A11yChartModel): string {
+  const { common: c, a11y: t } = messagesOf(model);
+  const n = (v: number) => formatCount(v, model.locale);
+  const f = model.formatValue;
   if (model.kind === 'heatmap' && model.heatmap) {
     const h = model.heatmap;
     const st = h.stats();
-    const range = Number.isFinite(st.min) ? `, values ${f(st.min)}–${f(st.max)}` : ', no values';
-    const empty = st.empty > 0 ? ` (${plural(st.empty, 'empty cell')})` : '';
-    return `${head}Heatmap, ${plural(h.rows, 'row')} × ${plural(h.cols, 'column')}${range}${empty}.`;
+    const values = Number.isFinite(st.min) ? t.valueRange(c.range(f(st.min), f(st.max))) : t.noValues;
+    return t.sentence([
+      t.chart.heatmap,
+      t.gridSize(t.rows(h.rows, n(h.rows)), t.columns(h.cols, n(h.cols))),
+      st.empty > 0 ? t.paren(values, t.emptyCells(st.empty, n(st.empty))) : values,
+    ]);
   }
   if (model.kind === 'pie' && model.pie) {
     const p = model.pie;
     const shown = pieOrder(p);
     // Largest shares first (top 3)
     const top = [...shown].sort((a, b) => p.values[b] - p.values[a] || a - b).slice(0, 3);
-    const parts = top.map((k) => `${p.names[k]} ${enNumber(p.percents[k], 1)}%`);
+    const parts = top.map((k) => `${p.names[k]} ${percentText(model, p.percents[k])}`);
     const more = shown.length - top.length;
-    if (more > 0) parts.push(`and ${more} more`);
-    const kind = p.donut ? 'Donut chart' : 'Pie chart';
+    if (more > 0) parts.push(c.andMore(n(more)));
     const hidden = p.names.length - p.visible.filter(Boolean).length;
-    const hiddenText = hidden > 0 ? ` (${hidden} hidden)` : '';
-    return `${head}${kind}, ${plural(p.names.length, 'slice')}${hiddenText}, total ${f(p.total)}${tail(parts)}.`;
+    const slices = t.slices(p.names.length, n(p.names.length));
+    return t.sentence(
+      [p.donut ? t.chart.donut : t.chart.pie, hidden > 0 ? t.paren(slices, t.hiddenCount(n(hidden))) : slices, t.total(f(p.total))],
+      parts
+    );
   }
   if (model.kind === 'line' || model.kind === 'candle') {
-    const points = model.series.reduce((n, s) => n + s.values.length, 0);
+    const points = model.series.reduce((k, s) => k + s.values.length, 0);
     const parts = summaryParts(model, (s) => {
       if (model.standaloneBand && s.band) {
         const a = seriesStats(s.band.lower, true), b = seriesStats(s.band.upper, true);
-        return a.count || b.count ? `${s.name} ranges ${f(Math.min(a.min, b.min))}–${f(Math.max(a.max, b.max))}` : `${s.name} has no data`;
+        return a.count || b.count ? t.seriesRange(s.name, c.range(f(Math.min(a.min, b.min)), f(Math.max(a.max, b.max)))) : t.seriesNoData(s.name);
       }
       const st = seriesStats(s.values, s.f32);
       const fs = s.format ?? f;
-      return st.count ? `${s.name} ranges ${fs(st.min)}–${fs(st.max)}` : `${s.name} has no data`;
+      return st.count ? t.seriesRange(s.name, c.range(fs(st.min), fs(st.max))) : t.seriesNoData(s.name);
     });
     if (model.kind === 'candle') return model.financialMode === 'ohlc'
-      ? `${head}OHLC chart, ${plural(model.length, 'bar')}${tail(parts)}.`
-      : `${head}Candlestick chart, ${plural(model.length, 'candle')}${tail(parts)}.`;
-    const kind = model.sparse ? (model.sparse.kind === 'errorBar' ? 'Error bar chart' : 'Impulse chart') : model.standaloneBand ? 'Band chart' : model.areaMode ? AREA_MODE_LABEL[model.areaMode] : 'Line chart';
-    return `${head}${kind}, ${model.series.length} series, ${plural(points, 'point')}${tail(parts)}.`;
+      ? t.sentence([t.chart.ohlc, t.bars(model.length, n(model.length))], parts)
+      : t.sentence([t.chart.candlestick, t.candles(model.length, n(model.length))], parts);
+    const kind = model.sparse ? (model.sparse.kind === 'errorBar' ? t.chart.errorBar : t.chart.impulse) : model.standaloneBand ? t.chart.band : model.areaMode ? t.chart[AREA_MODE_CHART[model.areaMode]] : t.chart.line;
+    return t.sentence([kind, c.seriesCount(model.series.length, n(model.series.length)), c.points(points, n(points))], parts);
   }
   if (model.kind === 'bar-multi') {
     const parts = summaryParts(model, (s) => {
       const st = seriesStats(s.values, s.f32);
-      return st.count ? `${s.name} ranges ${f(st.min)}–${f(st.max)}` : `${s.name} has no data`;
+      return st.count ? t.seriesRange(s.name, c.range(f(st.min), f(st.max))) : t.seriesNoData(s.name);
     });
-    return (
-      `${head}${BAR_MODE_LABEL[model.barMode ?? 'grouped']} bar chart, ` +
-      `${plural(model.length, 'category', 'categories')}, ${model.series.length} series${tail(parts)}.`
+    return t.sentence(
+      [
+        t.chart[BAR_MODE_CHART[model.barMode ?? 'grouped']],
+        c.categories(model.length, n(model.length)),
+        c.seriesCount(model.series.length, n(model.series.length)),
+      ],
+      parts
     );
   }
   if (model.kind === 'scatter') {
-    const points = model.series.reduce((n, s) => n + seriesLength(s), 0);
+    const points = model.series.reduce((k, s) => k + seriesLength(s), 0);
     const ext = scatterExtent(model);
     const range = Number.isFinite(ext.x[0])
-      ? `; x ranges ${model.formatX(ext.x[0])}–${model.formatX(ext.x[1])}, y ranges ${f(ext.y[0])}–${f(ext.y[1])}`
-      : '';
-    const parts = model.series.length > 1 ? summaryParts(model, (s) => `${s.name} ${plural(seriesLength(s), 'point')}`) : [];
-    return `${head}Scatter chart, ${model.series.length} series, ${plural(points, 'point')}${range}${tail(parts)}.`;
+      ? [t.scatterRange(c.range(model.formatX(ext.x[0]), model.formatX(ext.x[1])), c.range(f(ext.y[0]), f(ext.y[1])))]
+      : [];
+    const parts = model.series.length > 1 ? summaryParts(model, (s) => `${s.name} ${c.points(seriesLength(s), n(seriesLength(s)))}`) : [];
+    return t.sentence(
+      [t.chart.scatter, c.seriesCount(model.series.length, n(model.series.length)), c.points(points, n(points))],
+      [...range, ...parts]
+    );
   }
   const s = model.series[0];
   const st = seriesStats(s?.values ?? []);
-  const range =
-    st.count > 0
-      ? `; values range ${f(st.min)} (${model.xLabel(st.minIndex)}) to ${f(st.max)} (${model.xLabel(st.maxIndex)})`
-      : '';
-  return `${head}Bar chart, ${plural(model.length, 'category', 'categories')}${range}.`;
+  const range = st.count > 0 ? [t.barRange(f(st.min), model.xLabel(st.minIndex), f(st.max), model.xLabel(st.maxIndex))] : [];
+  return t.sentence([t.chart.bar, c.categories(model.length, n(model.length))], range);
 }
 
-export const KEYBOARD_HELP =
-  'Keyboard: focus the chart, then use Left and Right arrows to move between data points, ' +
-  'Page Up and Page Down to jump 10 points, Home and End for the first and last point, ' +
-  'Up and Down arrows to switch series, and Escape to clear.';
-
-/** Keyboard help text per chart kind. */
-export function keyboardHelp(kind: A11yChartKind): string {
+/** Keyboard help text per chart kind (`ohlc`: OHLC bars instead of candles). */
+export function keyboardHelp(kind: A11yChartKind, locale?: string, ohlc = false): string {
+  const k = getMessages(locale).a11y.keyboard;
   switch (kind) {
     case 'bar':
-      return KEYBOARD_HELP.replace(', Up and Down arrows to switch series', '');
+      return k.bar;
     case 'bar-multi':
     case 'box':
     case 'combo':
-      return (
-        'Keyboard: focus the chart, then use Left and Right arrows to move between categories, ' +
-        'Page Up and Page Down to jump 10 categories, Home and End for the first and last category, ' +
-        'Up and Down arrows to switch series, and Escape to clear.'
-      );
+      return k.categories;
     case 'scatter':
-      return (
-        'Keyboard: focus the chart, then use Left and Right arrows to move between points of a series ' +
-        'in x order, Page Up and Page Down to jump 10 points, Home and End for the smallest and largest x, ' +
-        'Up and Down arrows to switch series, and Escape to clear.'
-      );
+      return k.scatter;
     case 'candle':
-      return (
-        'Keyboard: focus the chart, then use Left and Right arrows to move between candles, ' +
-        'Page Up and Page Down to jump 10 candles, Home and End for the first and last candle, ' +
-        'and Escape to clear.'
-      );
+      return ohlc ? k.ohlc : k.candle;
     case 'pie':
-      return (
-        'Keyboard: focus the chart, then use Left and Right arrows to move between slices, ' +
-        'Home and End for the first and last slice, and Escape to clear.'
-      );
+      return k.pie;
     case 'heatmap':
-      return (
-        'Keyboard: focus the chart, then use Left and Right arrows to move between columns, ' +
-        'Up and Down arrows to move between rows, Page Up and Page Down to jump 10 columns, ' +
-        'Home and End for the first and last column, and Escape to clear.'
-      );
+      return k.heatmap;
     default:
-      return KEYBOARD_HELP;
+      return k.default;
   }
 }
 
 /** Longer description (`aria-describedby`): axes, per-series statistics, keyboard help. */
 export function buildChartDescription(model: A11yChartModel): string {
+  const { common: c, a11y: t } = messagesOf(model);
+  const n = (v: number) => formatCount(v, model.locale);
   const f = model.formatValue;
   const out: string[] = [];
   if (model.description) out.push(model.description);
   if (model.custom) {
     out.push(...model.custom.description(), model.custom.help);
-    return out.join(' ');
+    return t.join(out);
   }
+  /** Series name, marked when hidden */
+  const named = (s: A11ySeries) => (s.visible ? s.name : t.paren(s.name, c.hidden));
   if (model.kind === 'combo' && model.combo) {
     out.push(...comboDescription(model));
   } else if (model.kind === 'box' && model.box) {
@@ -956,84 +967,87 @@ export function buildChartDescription(model: A11yChartModel): string {
   } else if (model.kind === 'heatmap' && model.heatmap) {
     const h = model.heatmap;
     const st = h.stats();
-    const span = (n: number, label: (i: number) => string) => (n > 0 ? ` from ${label(0)} to ${label(n - 1)}` : '');
-    const cellName = (id: number) => `${h.rowLabel(Math.floor(id / h.cols))}, ${h.colLabel(id % h.cols)}`;
-    out.push(`Rows${model.yTitle ? ` (${model.yTitle})` : ''}: ${plural(h.rows, 'row')}${span(h.rows, h.rowLabel)}.`);
-    out.push(`Columns${model.xTitle ? ` (${model.xTitle})` : ''}: ${plural(h.cols, 'column')}${span(h.cols, h.colLabel)}.`);
+    const cellName = (id: number) => t.cell(h.rowLabel(Math.floor(id / h.cols)), h.colLabel(id % h.cols));
+    const rows = t.rows(h.rows, n(h.rows));
+    const cols = t.columns(h.cols, n(h.cols));
+    out.push(h.rows > 0 ? t.heatmapRows(rows, model.yTitle, h.rowLabel(0), h.rowLabel(h.rows - 1)) : t.heatmapRows(rows, model.yTitle));
+    out.push(h.cols > 0 ? t.heatmapColumns(cols, model.xTitle, h.colLabel(0), h.colLabel(h.cols - 1)) : t.heatmapColumns(cols, model.xTitle));
     out.push(
       Number.isFinite(st.min)
-        ? `${h.valueLabel}: minimum ${f(st.min)} at ${cellName(st.minId)}, maximum ${f(st.max)} at ${cellName(st.maxId)}.`
-        : `${h.valueLabel}: no data.`
+        ? t.heatmapExtremes(h.valueLabel, f(st.min), cellName(st.minId), f(st.max), cellName(st.maxId))
+        : t.labelled(h.valueLabel, c.noData)
     );
-    if (st.empty > 0) out.push(`${plural(st.empty, 'empty cell')}.`);
+    if (st.empty > 0) out.push(t.sentence([t.emptyCells(st.empty, n(st.empty))]));
   } else if (model.kind === 'pie' && model.pie) {
     const p = model.pie;
     p.names.forEach((name, k) => {
-      const share = p.visible[k] ? `${enNumber(p.percents[k], 1)}%` : 'hidden';
-      out.push(`${name}: ${f(p.values[k])} (${share}).`);
+      out.push(t.sliceLine(name, f(p.values[k]), p.visible[k] ? percentText(model, p.percents[k]) : c.hidden));
     });
-    if (p.otherSlice >= 0) out.push(`${p.names[p.otherSlice]} combines ${p.otherMembers.join(', ')}.`);
+    if (p.otherSlice >= 0) out.push(t.otherCombines(p.names[p.otherSlice], p.otherMembers.join(c.listSeparator)));
   } else if (model.kind === 'line' || model.kind === 'candle') {
     // Series may have different x arrays: the range spans every series
     const [x0, x1] = lineXExtent(model);
-    const xRange = Number.isFinite(x0) ? ` from ${model.formatX(x0)} to ${model.formatX(x1)}` : '';
-    out.push(`X axis${model.xTitle ? ` (${model.xTitle})` : ''}${xRange}.`);
-    if (model.yTitle) out.push(`Y axis: ${model.yTitle}.`);
+    out.push(Number.isFinite(x0) ? t.axisRange(c.xAxis, model.xTitle, model.formatX(x0), model.formatX(x1)) : t.axisRange(c.xAxis, model.xTitle));
+    if (model.yTitle) out.push(t.axisTitle(c.yAxis, model.yTitle));
     model.series.forEach((s, k) => {
       const f = s.format ?? model.formatValue;
       if (model.standaloneBand && s.band) {
-        const a = seriesStats(s.band.lower, true), b = seriesStats(s.band.upper, true);
-        out.push(`${s.name}${s.visible ? '' : ' (hidden)'}: first edge ${a.count ? `${f(a.min)}–${f(a.max)}` : 'no data'}, second edge ${b.count ? `${f(b.min)}–${f(b.max)}` : 'no data'}.`);
+        const edge = (e: SeriesStats) => (e.count ? c.range(f(e.min), f(e.max)) : c.noData);
+        out.push(t.bandEdges(named(s), edge(seriesStats(s.band.lower, true)), edge(seriesStats(s.band.upper, true))));
         return;
       }
       const st = seriesStats(s.values, s.f32);
       if (!st.count) {
-        out.push(`${s.name}: no data.`);
+        out.push(t.labelled(s.name, c.noData));
         return;
       }
-      const trend = st.last > st.first ? 'rising' : st.last < st.first ? 'falling' : 'flat';
+      const trend = st.last > st.first ? t.trend.rising : st.last < st.first ? t.trend.falling : t.trend.flat;
       out.push(
-        `${s.name}${s.visible ? '' : ' (hidden)'}: ${plural(st.count, 'value')}, ` +
-          `minimum ${f(st.min)} at ${model.xLabel(st.minIndex, k)}, maximum ${f(st.max)} at ${model.xLabel(st.maxIndex, k)}, ` +
-          `average ${f(st.mean)}; starts at ${f(st.first)} and ends at ${f(st.last)} (${trend} overall).`
+        t.lineStats(
+          named(s),
+          t.values(st.count, n(st.count)),
+          f(st.min),
+          model.xLabel(st.minIndex, k),
+          f(st.max),
+          model.xLabel(st.maxIndex, k),
+          f(st.mean),
+          f(st.first),
+          f(st.last),
+          trend
+        )
       );
     });
   } else if (model.kind === 'bar-multi') {
-    if (model.xTitle) out.push(`X axis: ${model.xTitle}.`);
-    if (model.yTitle) out.push(`Y axis: ${model.yTitle}.`);
-    out.push(`${plural(model.length, 'category', 'categories')}, ${BAR_MODE_LABEL[model.barMode ?? 'grouped'].toLowerCase()}.`);
+    if (model.xTitle) out.push(t.axisTitle(c.xAxis, model.xTitle));
+    if (model.yTitle) out.push(t.axisTitle(c.yAxis, model.yTitle));
+    out.push(t.barLayout(c.categories(model.length, n(model.length)), t.barMode[model.barMode ?? 'grouped']));
     model.series.forEach((s) => {
       const st = seriesStats(s.values, s.f32);
       out.push(
         st.count
-          ? `${s.name}${s.visible ? '' : ' (hidden)'}: highest ${model.xLabel(st.maxIndex)} ${f(st.max)}, ` +
-              `lowest ${model.xLabel(st.minIndex)} ${f(st.min)}, average ${f(st.mean)}.`
-          : `${s.name}: no data.`
+          ? t.barStats(named(s), model.xLabel(st.maxIndex), f(st.max), model.xLabel(st.minIndex), f(st.min), f(st.mean))
+          : t.labelled(s.name, c.noData)
       );
     });
   } else if (model.kind === 'scatter') {
     const ext = scatterExtent(model);
-    const xRange = Number.isFinite(ext.x[0]) ? ` from ${model.formatX(ext.x[0])} to ${model.formatX(ext.x[1])}` : '';
-    const yRange = Number.isFinite(ext.y[0]) ? ` from ${f(ext.y[0])} to ${f(ext.y[1])}` : '';
-    out.push(`X axis${model.xTitle ? ` (${model.xTitle})` : ''}${xRange}.`);
-    out.push(`Y axis${model.yTitle ? ` (${model.yTitle})` : ''}${yRange}.`);
+    out.push(Number.isFinite(ext.x[0]) ? t.axisRange(c.xAxis, model.xTitle, model.formatX(ext.x[0]), model.formatX(ext.x[1])) : t.axisRange(c.xAxis, model.xTitle));
+    out.push(Number.isFinite(ext.y[0]) ? t.axisRange(c.yAxis, model.yTitle, f(ext.y[0]), f(ext.y[1])) : t.axisRange(c.yAxis, model.yTitle));
     model.series.forEach((s) => {
-      out.push(`${s.name}${s.visible ? '' : ' (hidden)'}: ${plural(seriesLength(s), 'point')}.`);
+      out.push(t.labelled(named(s), c.points(seriesLength(s), n(seriesLength(s)))));
     });
   } else {
     const st = seriesStats(model.series[0]?.values ?? []);
-    if (model.xTitle) out.push(`X axis: ${model.xTitle}.`);
-    if (model.yTitle) out.push(`Y axis: ${model.yTitle}.`);
+    if (model.xTitle) out.push(t.axisTitle(c.xAxis, model.xTitle));
+    if (model.yTitle) out.push(t.axisTitle(c.yAxis, model.yTitle));
     if (st.count) {
       out.push(
-        `${plural(model.length, 'category', 'categories')}: highest ${model.xLabel(st.maxIndex)} ${f(st.max)}, ` +
-          `lowest ${model.xLabel(st.minIndex)} ${f(st.min)}, average ${f(st.mean)}.`
+        t.barStats(c.categories(model.length, n(model.length)), model.xLabel(st.maxIndex), f(st.max), model.xLabel(st.minIndex), f(st.min), f(st.mean))
       );
     }
   }
-  const help = keyboardHelp(model.kind);
-  out.push(model.financialMode === 'ohlc' ? help.replace('candles', 'bars') : help);
-  return out.join(' ');
+  out.push(keyboardHelp(model.kind, model.locale, model.financialMode === 'ohlc'));
+  return t.join(out);
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,11 +1203,8 @@ function stepHeatmapFocus(model: A11yChartModel, focus: A11yFocus | null, key: s
   return { series: clamp(row, h.rows), index: clamp(col, h.cols) };
 }
 
-const AREA_MODE_LABEL = {
-  overlap: 'Area chart',
-  stacked: 'Stacked area chart',
-  percent: 'Percent stacked area chart',
-} as const;
+/** Summary chart name of each area mode. */
+const AREA_MODE_CHART = { overlap: 'area', stacked: 'stackedArea', percent: 'percentArea' } as const;
 
 /** Stacking mode of a model (stacked bars / stacked areas share totals and shares). */
 function stackMode(model: A11yChartModel): 'stacked' | 'percent' | undefined {
@@ -1206,52 +1217,52 @@ export function pointAnnouncement(model: A11yChartModel, focus: A11yFocus): stri
   if (model.custom) return model.custom.announce(focus);
   if (model.kind === 'box' && model.box) return boxAnnouncement(model, focus);
   if (model.kind === 'combo' && model.combo) return comboAnnouncement(model, focus, model.formatValue(modelValue(model, focus.series, focus.index)));
+  const { common: c, a11y: t } = messagesOf(model);
+  /** Text followed by the 1-based position of `index` among `count` stops */
+  const at = (text: string, index: number, count: number) =>
+    t.join([text, c.position(formatCount(index + 1, model.locale), formatCount(count, model.locale))]);
   if (model.kind === 'heatmap' && model.heatmap) {
     const h = model.heatmap;
     const v = h.value(focus.series, focus.index);
-    return `${h.rowLabel(focus.series)}, ${h.colLabel(focus.index)}: ${Number.isFinite(v) ? model.formatValue(v) : 'empty'}.`;
+    return t.labelled(t.cell(h.rowLabel(focus.series), h.colLabel(focus.index)), Number.isFinite(v) ? model.formatValue(v) : c.empty);
   }
   if (model.kind === 'pie' && model.pie) {
     const p = model.pie;
     const order = pieOrder(p);
     const k = focus.index;
-    return `${p.names[k] ?? ''}, ${model.formatValue(p.values[k])}, ${enNumber(p.percents[k], 1)}%. ${order.indexOf(k) + 1} of ${order.length}.`;
+    return at(t.slicePoint(p.names[k] ?? '', model.formatValue(p.values[k]), percentText(model, p.percents[k])), order.indexOf(k), order.length);
   }
   if (model.kind === 'candle') {
     const v = (k: number) => model.formatValue(modelValue(model, k, focus.index));
-    const parts = [`open ${v(0)}`, `high ${v(1)}`, `low ${v(2)}`, `close ${v(CANDLE_CLOSE)}`];
-    const vol = model.series[4];
-    if (vol) parts.push(`volume ${(vol.format ?? model.formatValue)(modelValue(model, 4, focus.index))}`);
-    return `${model.xLabel(focus.index)}, ${parts.join(', ')}. ${focus.index + 1} of ${model.length}.`;
+    const vol = model.series[CANDLE_VOLUME];
+    const volume = vol ? (vol.format ?? model.formatValue)(modelValue(model, CANDLE_VOLUME, focus.index)) : undefined;
+    return at(t.ohlcPoint(model.xLabel(focus.index), v(0), v(1), v(2), v(CANDLE_CLOSE), volume), focus.index, model.length);
   }
   const value = model.formatValue(modelValue(model, focus.series, focus.index));
   const s = model.series[focus.series];
+  const name = s?.name ?? '';
+  const x = model.xLabel(focus.index, focus.series);
   if (model.sparse) {
     const info = sparseTooltip(model.sparse, focus.series, focus.index);
-    const extra = info.errorBar ? `low ${model.formatValue(info.errorBar.low)}, high ${model.formatValue(info.errorBar.high)}, ${info.errorBar.direction}` : `baseline ${model.formatValue(info.baseline!)}`;
-    return `${model.xLabel(focus.index, focus.series)}, ${s?.name ?? ''}: ${value}, ${extra}. ${focus.index + 1} of ${model.length}.`;
+    const e = info.errorBar;
+    const text = e
+      ? t.errorBarPoint(x, name, value, model.formatValue(e.low), model.formatValue(e.high), t.direction[e.direction])
+      : t.impulsePoint(x, name, value, model.formatValue(info.baseline!));
+    return at(text, focus.index, model.length);
   }
   if (model.standaloneBand && s?.band) {
     const lo = Number(s.band.lower[focus.index]), hi = Number(s.band.upper[focus.index]);
-    return `${model.xLabel(focus.index, focus.series)}, ${s.name}: first edge ${model.formatValue(lo)}, second edge ${model.formatValue(hi)}.`;
+    return t.bandPoint(x, name, model.formatValue(lo), model.formatValue(hi));
   }
-  if (model.kind === 'bar') {
-    return `${model.xLabel(focus.index)}, ${value}. ${focus.index + 1} of ${model.length}.`;
-  }
-  if (model.kind === 'bar-multi') {
-    const total = model.barMode === 'stacked' ? categoryTotal(model, focus.index) : NaN;
-    const totalText = Number.isFinite(total) ? ` Total ${model.formatValue(total)}.` : '';
-    return `${model.xLabel(focus.index)}, ${s?.name ?? ''} ${value}.${totalText} ${focus.index + 1} of ${model.length}.`;
-  }
+  if (model.kind === 'bar') return at(t.barPoint(model.xLabel(focus.index), value), focus.index, model.length);
   if (model.kind === 'scatter') {
-    return (
-      `${s?.name ?? ''}: ${model.xTitle ?? 'x'} ${model.xLabel(focus.index, focus.series)}, ` +
-      `${model.yTitle ?? 'y'} ${value}. ${focus.index + 1} of ${seriesLength(s)}.`
-    );
+    return at(t.scatterPoint(name, model.xTitle ?? 'x', x, model.yTitle ?? 'y', value), focus.index, seriesLength(s));
   }
+  // Multi-series bars: stacked total; lines / areas: stacked area total
   const total = stackMode(model) === 'stacked' ? categoryTotal(model, focus.index) : NaN;
-  const totalText = Number.isFinite(total) ? ` Total ${model.formatValue(total)}.` : '';
-  return `${model.xLabel(focus.index, focus.series)}, ${s?.name ?? ''} ${value}.${totalText}`;
+  const text = t.seriesPoint(x, name, value);
+  const withTotal = Number.isFinite(total) ? t.join([text, t.totalPoint(model.formatValue(total))]) : text;
+  return model.kind === 'bar-multi' ? at(withTotal, focus.index, model.length) : withTotal;
 }
 
 // ---------------------------------------------------------------------------
@@ -1362,12 +1373,13 @@ function sharedX(arrays: ArrayLike<number>[]): boolean {
 export function buildDataTable(model: A11yChartModel, maxRows = Infinity, maxColumns = Infinity): ChartDataTable {
   const pick = (n: number, max = maxRows) => sampleRowIndices(n, Number.isFinite(max) ? max : n || 1);
   const cell = (v: number): ChartDataCell => (Number.isFinite(v) ? v : null);
+  const { common: c, a11y: t } = messagesOf(model);
 
   if (model.kind === 'heatmap' && model.heatmap) {
     const h = model.heatmap;
     const rowIdx = pick(h.rows);
     const colIdx = pick(h.cols, maxColumns);
-    const columns = [model.yTitle ?? 'Row', ...colIdx.map(h.colLabel)];
+    const columns = [model.yTitle ?? c.row, ...colIdx.map(h.colLabel)];
     const rows = rowIdx.map((r) => [h.rowLabel(r), ...colIdx.map((c) => cell(h.value(r, c)))]);
     return {
       columns,
@@ -1390,20 +1402,20 @@ export function buildDataTable(model: A11yChartModel, maxRows = Infinity, maxCol
     const rows = indices.map((i) => {
       const s = d.series ? d.series[i] : 0;
       const y = Number(d.y[i]);
-      return [cell(clean(Number(d.x[i]))), cell(fy ? f32ToShortest(y) : y), model.series[s]?.name ?? `Series ${s + 1}`];
+      return [cell(clean(Number(d.x[i]))), cell(fy ? f32ToShortest(y) : y), model.series[s]?.name ?? c.seriesName(s + 1)];
     });
-    const columns = [model.xTitle ?? 'X', model.yTitle ?? 'Y', 'Series'];
+    const columns = [model.xTitle ?? 'X', model.yTitle ?? 'Y', c.series];
     return { columns, rows, totalRows: d.length, sampled: indices.length < d.length };
   }
 
   const xHeader =
-    model.xTitle ?? model.custom?.xHeader ?? (model.kind === 'line' || model.kind === 'candle' ? 'X' : model.kind === 'pie' ? 'Slice' : 'Category');
+    model.xTitle ?? model.custom?.xHeader ?? (model.kind === 'line' || model.kind === 'candle' ? 'X' : model.kind === 'pie' ? t.sliceHeader : c.category);
   const total = stackMode(model) === 'stacked';
   // Band series add `lower` / `upper` columns right after their value column
   const columns = [
     xHeader,
-    ...model.series.flatMap((s) => model.sparse ? [s.name, ...(model.sparse.kind === 'errorBar' ? [`${s.name} low`, `${s.name} high`] : [`${s.name} baseline`])] : (s.band ? [...(model.standaloneBand ? [] : [s.name]), `${s.name} lower`, `${s.name} upper`] : [s.name])),
-    ...(total ? ['Total'] : []),
+    ...model.series.flatMap((s) => model.sparse ? [s.name, ...(model.sparse.kind === 'errorBar' ? [t.lowColumn(s.name), t.highColumn(s.name)] : [t.baselineColumn(s.name)])] : (s.band ? [...(model.standaloneBand ? [] : [s.name]), t.lowerColumn(s.name), t.upperColumn(s.name)] : [s.name])),
+    ...(total ? [c.total] : []),
   ];
   const bandCells = (row: ChartDataCell[], s: number, i: number) => {
     if (model.sparse) {
@@ -1466,7 +1478,7 @@ export function tableToCSV(table: Pick<ChartDataTable, 'columns' | 'rows'>): str
 export function heatmapToCSV(model: A11yChartModel): string {
   const h = model.heatmap;
   if (!h) return '';
-  const header = [model.yTitle ?? 'Row'];
+  const header = [model.yTitle ?? messagesOf(model).common.row];
   for (let c = 0; c < h.cols; c++) header.push(h.colLabel(c));
   const lines = [header.map(csvField).join(',')];
   for (let r = 0; r < h.rows; r++) {
@@ -1630,7 +1642,7 @@ export class ChartA11y {
     this.ensureDom(canvas);
     // Summary + description share their O(n) passes over the data
     const [summary, description] = withPassMemo(() => [buildChartSummary(model), buildChartDescription(model)]);
-    this.descEl!.textContent = model.description ? `${summary} ${description}` : description;
+    this.descEl!.textContent = model.description ? messagesOf(model).a11y.join([summary, description]) : description;
     this.saveAttrs(canvas);
     canvas.classList.add('charturbo-sdk-a11y-canvas');
     canvas.setAttribute('role', 'img');
@@ -1803,7 +1815,7 @@ export class ChartA11y {
     this.pointShown = false;
     this.tooltip?.(null, 0, 0);
     const h = this.host();
-    if (!buildA11yModel(h.meta, h.presentation)) return;
+    if (!buildA11yModel(h.meta, h.presentation, undefined, h.locale)) return;
     h.backend.chart_clear_hover?.();
     h.render();
   }
@@ -1869,27 +1881,29 @@ export class ChartA11y {
     wrap.replaceChildren();
     wrap.style.display = 'block';
     Object.assign(wrap.style, { color: theme.textPrimary, fontFamily: theme.fontFamily });
+    const { common: c, a11y: t } = messagesOf(model);
+    const kinds = c.kind;
     const kindLabel = {
-      scientific3d: model.custom?.kindLabel ?? '3D',
-      line: 'Line',
-      bar: 'Bar',
-      'bar-multi': 'Bar',
-      scatter: 'Scatter',
-      candle: 'Candlestick',
-      heatmap: 'Heatmap',
-      box: model.box?.violin ? 'Violin' : 'Box',
-      pie: model.pie?.donut ? 'Donut' : 'Pie',
-      combo: 'Combo',
-      radar: 'Radar',
-      gauge: 'Gauge',
-      funnel: 'Funnel',
-      waterfall: 'Waterfall',
-      treemap: 'Treemap',
-      sunburst: 'Sunburst',
-      sankey: 'Sankey',
+      scientific3d: model.custom?.kindLabel ?? kinds['3d'],
+      line: kinds.line,
+      bar: kinds.bar,
+      'bar-multi': kinds.bar,
+      scatter: kinds.scatter,
+      candle: model.financialMode === 'ohlc' ? kinds.ohlc : kinds.candlestick,
+      heatmap: kinds.heatmap,
+      box: model.box?.violin ? kinds.violin : kinds.box,
+      pie: model.pie?.donut ? kinds.donut : kinds.pie,
+      combo: kinds.combo,
+      radar: kinds.radar,
+      gauge: kinds.gauge,
+      funnel: kinds.funnel,
+      waterfall: kinds.waterfall,
+      treemap: kinds.treemap,
+      sunburst: kinds.sunburst,
+      sankey: kinds.sankey,
     }[model.kind];
-    const caption = model.title ?? `${kindLabel} chart data`;
-    wrap.setAttribute('aria-label', `Data table: ${caption}`);
+    const caption = model.title ?? t.tableCaption(kindLabel);
+    wrap.setAttribute('aria-label', t.tableLabel(caption));
 
     const table = document.createElement('table');
     Object.assign(table.style, { borderCollapse: 'collapse', fontSize: '12px', fontVariantNumeric: 'tabular-nums' });
@@ -1929,7 +1943,7 @@ export class ChartA11y {
             ? k === 0
               ? model.formatX(cell)
               : (data.formats?.[k] ?? model.series[k - 1]?.format ?? model.formatValue)(cell)
-            : (cell ?? '—');
+            : (cell ?? c.dash);
         cellStyle(el, k === 0);
         tr.appendChild(el);
       });
@@ -1940,12 +1954,11 @@ export class ChartA11y {
     if (data.sampled || data.sampledColumns) {
       const note = document.createElement('p');
       note.id = `${wrap.id}-note`;
-      const n = (v: number) => v.toLocaleString('en-US');
+      const n = (v: number) => formatCount(v, model.locale);
       const shown: string[] = [];
-      if (data.sampled) shown.push(`${n(data.rows.length)} of ${n(data.totalRows)} rows`);
-      if (data.sampledColumns) shown.push(`${n(data.columns.length - 1)} of ${n(data.totalColumns ?? 0)} columns`);
-      note.textContent =
-        `Showing ${shown.join(' and ')} ` + '(evenly sampled, first and last included). Export CSV for the full data.';
+      if (data.sampled) shown.push(t.sampledRows(n(data.rows.length), n(data.totalRows)));
+      if (data.sampledColumns) shown.push(t.sampledColumns(n(data.columns.length - 1), n(data.totalColumns ?? 0)));
+      note.textContent = t.sampledNote(shown);
       Object.assign(note.style, { margin: '4px 0', fontSize: '11px', color: theme.textMuted });
       wrap.appendChild(note);
       table.setAttribute('aria-describedby', note.id);
@@ -2002,7 +2015,7 @@ export function tooltipContext(
       index: focus.index,
       x,
       xLabel: model.xLabel(focus.index),
-      items: [{ seriesName: 'Close', value: ohlc.close, color: css(model.itemColor(0, focus.index)), nodeId: id }],
+      items: [{ seriesName: messagesOf(model).common.close, value: ohlc.close, color: css(model.itemColor(0, focus.index)), nodeId: id }],
       ohlc,
       details: details(id),
     };

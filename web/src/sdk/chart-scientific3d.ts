@@ -3,6 +3,7 @@ import { parseColor, parseOptionalColor, type ColorInput, type RgbaTuple } from 
 import type { ChartGridStyle, ChartHoverStyle, ChartLegendOptions, ChartTooltipContext, NodeDetails, Vec3Tuple } from './charturbo';
 import type { A11yChartModel, A11yFocus } from './chart-a11y';
 import { rgbCss, type A11yCommon } from './chart-business-util';
+import { formatCount, getMessages } from './i18n';
 
 export type PointCloud3DData = Float32Array | Float64Array | readonly (readonly [number, number, number] | { x: number; y: number; z: number } | null)[]
   | { x: ArrayLike<number>; y: ArrayLike<number>; z: ArrayLike<number> };
@@ -250,7 +251,8 @@ function contourRecord(s: Surface3DSeries): number[] {
   const alpha = Math.min(1, opacity * color[3] * (0.75 + 0.15 * Math.min(4, width)));
   return heights.length ? [heights.length, color[0], color[1], color[2], alpha, ...heights] : NO_CONTOURS;
 }
-function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaTuple[], surface: boolean): EncodedScientific3D {
+function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaTuple[], surface: boolean, locale?: string): EncodedScientific3D {
+  const seriesName = getMessages(locale).common.seriesName;
   const chunks: Float32Array[] = [], colors: Float32Array[] = [], shapes: number[] = [], offsets = [0], styles: number[] = [], contours: number[] = [];
   const names: string[] = [], swatches: RgbaTuple[] = [];
   const clouds: PointCloud3DSeries[] = [], surfaces: Surface3DSeries[] = [];
@@ -258,7 +260,7 @@ function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaT
     const xyz = surface ? grid((s as Surface3DSeries).data) : cloud((s as PointCloud3DSeries).data);
     const n = xyz.length / 3; count(offsets[i] + n); offsets.push(offsets[i] + n); chunks.push(xyz);
     const color: RgbaTuple = [...(parseOptionalColor(s.color) ?? palette[i % palette.length] ?? [0.2, 0.6, 1, 1])];
-    names.push(s.name ?? `Series ${i + 1}`); swatches.push(color);
+    names.push(s.name ?? seriesName(i + 1)); swatches.push(color);
     const alpha = finite(s.opacity ?? 1, 'opacity', 0, 1) * color[3];
     const solid = () => { const c = new Float32Array(n * 4); for (let j = 0; j < n; j++) c.set([color[0], color[1], color[2], alpha], j * 4); return c; };
     if (surface) {
@@ -286,8 +288,9 @@ function encode(series: (PointCloud3DSeries | Surface3DSeries)[], palette: RgbaT
     meta: { kind: 'scientific3d', mode: surface ? 'surface3d' : 'pointCloud3d', names, colors: swatches, visible: series.map(s => s.visible !== false), xyz, pointColors: rgba, offsets: boundaries, shapes: shape,
       ...(surface ? { surfaces } : { clouds }) } };
 }
-export const encodePointCloud3D = (s: PointCloud3DSeries[], palette: RgbaTuple[]): EncodedScientific3D => encode(s, palette, false);
-export const encodeSurface3D = (s: Surface3DSeries[], palette: RgbaTuple[]): EncodedScientific3D => encode(s, palette, true);
+/** `locale`: language of default series names. */
+export const encodePointCloud3D = (s: PointCloud3DSeries[], palette: RgbaTuple[], locale?: string): EncodedScientific3D => encode(s, palette, false, locale);
+export const encodeSurface3D = (s: Surface3DSeries[], palette: RgbaTuple[], locale?: string): EncodedScientific3D => encode(s, palette, true, locale);
 
 /** Prepare a single-series upload and a complete metadata commit, without mutating live state. */
 function replacement(m: Scientific3DMeta, s: number, e: EncodedScientific3D): EncodedScientific3D {
@@ -380,7 +383,8 @@ export function scientificTooltip(m: Scientific3DMeta, id: number, details: Node
     items: [{ seriesName: m.names[p.series], value: xyz[1], color: rgbCss(p.color), nodeId: id }], details };
 }
 export function scientificA11yModel(m: Scientific3DMeta, common: A11yCommon): A11yChartModel {
-  const n = m.xyz.length / 3, label = m.mode === 'pointCloud3d' ? '3D point cloud' : '3D surface';
+  const msg = getMessages(common.locale), t = msg.core;
+  const n = m.xyz.length / 3, label = m.mode === 'pointCloud3d' ? t.pointCloud3d : t.surface3d;
   const idOf = (f: A11yFocus) => m.offsets[f.series] + f.index;
   const focusOf = (id: number): A11yFocus | null => { const p = scientificSample(m, id); return p ? { series: p.series, index: p.index } : null; };
   const valid = (id: number) => { const p = scientificSample(m, id); return !!p && m.visible[p.series]; };
@@ -390,9 +394,10 @@ export function scientificA11yModel(m: Scientific3DMeta, common: A11yCommon): A1
     xValue: i => i, xLabel: i => String(i), formatX: String, pointId: (s, i) => m.offsets[s] + i,
     itemName: s => m.names[s], itemColor: s => m.colors[s],
     custom: {
-      kindLabel: label, summary: () => `${common.title ? common.title + '. ' : ''}${label}, ${n} samples, ${m.names.length} series.`,
-      description: () => ['Y-up coordinates. Nonfinite samples are gaps.'],
-      help: 'Drag to orbit, right-drag to pan, wheel to zoom. Arrow keys navigate samples; Home/End move to the first/last sample.',
+      kindLabel: label,
+      summary: () => t.scientificSummary(label, t.samples(n, formatCount(n, common.locale)), msg.common.seriesCount(m.names.length, formatCount(m.names.length, common.locale)), common.title),
+      description: () => [t.scientificDescription],
+      help: t.scientificHelp,
       step(focus, key) {
         if (!['Home', 'End', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(key)) return null;
         const dir = ['End', 'ArrowLeft', 'ArrowUp', 'PageDown'].includes(key) ? -1 : 1;
@@ -400,11 +405,11 @@ export function scientificA11yModel(m: Scientific3DMeta, common: A11yCommon): A1
         while (id >= 0 && id < n) { if (valid(id)) return focusOf(id); id += dir; }
         return focus && valid(idOf(focus)) ? focus : null;
       },
-      announce(f) { const p = scientificSample(m, idOf(f)); return p ? `${m.names[p.series]}, X ${common.formatValue(p.point[0])}, Y ${common.formatValue(p.point[1])}, Z ${common.formatValue(p.point[2])}.` : ''; },
+      announce(f) { const p = scientificSample(m, idOf(f)); return p ? t.point3d(m.names[p.series], common.formatValue(p.point[0]), common.formatValue(p.point[1]), common.formatValue(p.point[2])) : ''; },
       hover(f) { const id = idOf(f), p = scientificSample(m, id); return p ? new Float64Array([0, 0, 1, p.series, p.index, p.point[1], id]) : undefined; },
       table(pick) {
         const rows = pick(n).map(id => { const p = scientificSample(m, id); return p ? [m.names[p.series], ...p.point] : ['', null, null, null]; });
-        return { columns: ['Series', 'X', 'Y', 'Z'], rows, totalRows: n, sampled: rows.length < n };
+        return { columns: [msg.common.series, 'X', 'Y', 'Z'], rows, totalRows: n, sampled: rows.length < n };
       },
     },
   };

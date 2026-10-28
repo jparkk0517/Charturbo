@@ -10,12 +10,10 @@ import type { ChartValueFormat } from './chart-format';
 import type { A11yChartModel } from './chart-a11y';
 import type { ChartPaddingOptions, ChartTooltipContext, NodeMetadata, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import {
-  enNumber,
   esc,
   overlayDiv,
   percentText,
   placeAt,
-  plural,
   rgbCss,
   stepSingle,
   tooltipHeader,
@@ -24,6 +22,7 @@ import {
   type A11yCustomModel,
   type BusinessLabelLayer,
 } from './chart-business-util';
+import { formatCount, formatNumber, getMessages } from './i18n';
 
 export interface FunnelChartData {
   /** Stage names, first stage first */
@@ -54,7 +53,7 @@ export interface FunnelChartOptions {
   /** Accessible name of the canvas */
   description?: string;
   padding?: ChartPaddingOptions;
-  /** Tooltip / table name of the values (default `'Value'`) */
+  /** Tooltip / table name of the values (default: `'Value'` in the chart locale) */
   valueLabel?: string;
   /** Value text of labels, tooltip and a11y (spec, Intl options or function; default: locale number) */
   format?: ChartValueFormat;
@@ -79,6 +78,10 @@ export interface FunnelChartMeta {
   valueLabel: string;
   format: (value: number) => string;
   colorInputs: { color?: ColorInput; colors?: (ColorInput | null | undefined)[] };
+  /** Locale of the default names / stage labels (`localizeFunnelMeta`) */
+  locale?: string;
+  /** Value label as given (absent = the localized default) */
+  valueLabelInput?: string;
 }
 
 /** Hovered funnel stage with its conversion rates. */
@@ -90,8 +93,13 @@ export interface ChartFunnelTooltip {
   ofPrevious: number;
 }
 
-export function funnelMeta(data: FunnelChartData, options: FunnelChartOptions | undefined, format: (v: number) => string): FunnelChartMeta {
-  return {
+export function funnelMeta(
+  data: FunnelChartData,
+  options: FunnelChartOptions | undefined,
+  format: (v: number) => string,
+  locale?: string
+): FunnelChartMeta {
+  const meta: FunnelChartMeta = {
     kind: 'funnel',
     stages: [...data.labels],
     values: Array.from(data.values, Number),
@@ -104,10 +112,19 @@ export function funnelMeta(data: FunnelChartData, options: FunnelChartOptions | 
     names: [],
     colors: [],
     visible: [true],
-    valueLabel: options?.valueLabel ?? 'Value',
+    valueLabel: '',
     format,
     colorInputs: { color: options?.color, colors: options?.colors },
+    valueLabelInput: options?.valueLabel,
   };
+  localizeFunnelMeta(meta, locale);
+  return meta;
+}
+
+/** Default value label in `locale` (a `valueLabel` option wins). */
+export function localizeFunnelMeta(meta: FunnelChartMeta, locale: string | undefined): void {
+  meta.locale = locale;
+  meta.valueLabel = meta.valueLabelInput ?? getMessages(locale).common.value;
 }
 
 function stageColors(meta: FunnelChartMeta, theme: CharturboTheme): RgbaTuple[] {
@@ -124,21 +141,21 @@ function colorArray(colors: RgbaTuple[]): Float32Array {
   return a;
 }
 
-/** Stage label text, e.g. `Signups  4,200 · 42.0%`. */
-export function funnelLabelParts(meta: FunnelChartMeta, i: number, locale?: string): { name: string; value: string; conversion: string } {
+/** Stage label text, e.g. `Signups  4,200 · 42.0%` (default locale: the meta's). */
+export function funnelLabelParts(meta: FunnelChartMeta, i: number, locale = meta.locale): { name: string; value: string; conversion: string } {
+  const { common: cm, business: bm } = getMessages(locale);
   const first = percentText(meta.pctFirst[i], locale);
-  const prev = percentText(meta.pctPrev[i], locale);
   // Horizontal stages are narrow: compact wording on its own line
-  const ofPrev = meta.orientation === 'horizontal' ? 'prev.' : 'of previous';
+  const ofPrev = (meta.orientation === 'horizontal' ? bm.ofPreviousShort : bm.ofPrevious)(percentText(meta.pctPrev[i], locale));
   const conversion =
     meta.conversion === 'none' || i === 0
       ? ''
       : meta.conversion === 'previous'
-        ? `${prev} ${ofPrev}`
+        ? ofPrev
         : meta.conversion === 'both'
-          ? `${first} · ${prev} ${ofPrev}`
+          ? `${first} · ${ofPrev}`
           : first;
-  return { name: meta.stages[i] ?? `#${i + 1}`, value: meta.format(meta.values[i]), conversion };
+  return { name: meta.stages[i] ?? cm.itemName(i + 1), value: meta.format(meta.values[i]), conversion };
 }
 
 /** Label room right of a vertical funnel (~6.5 px per character) / below a horizontal one. */
@@ -188,7 +205,7 @@ export function sendFunnelColors(backend: WasmCharturboEngineBackend, meta: Funn
 
 export function funnelTooltipContext(meta: FunnelChartMeta, i: number, details: (id: number) => ChartTooltipContext['details']): ChartTooltipContext | null {
   if (i < 0 || i >= meta.values.length) return null;
-  const stage = meta.stages[i] ?? `#${i + 1}`;
+  const stage = meta.stages[i] ?? getMessages(meta.locale).common.itemName(i + 1);
   return {
     chartType: 'funnel',
     index: i,
@@ -202,8 +219,11 @@ export function funnelTooltipContext(meta: FunnelChartMeta, i: number, details: 
 export function funnelTooltipHtml(ctx: ChartTooltipContext, theme: CharturboTheme, formatValue: (v: number) => string, locale?: string): string {
   const f = ctx.funnel;
   if (!f) return '';
-  return `${tooltipHeader(theme, f.stage)}${tooltipRow(theme, ctx.items[0]?.seriesName ?? 'Value', esc(formatValue(f.value)), ctx.items[0]?.color)}${
-    ctx.index > 0 ? `${tooltipRow(theme, 'Of first stage', percentText(f.ofFirst, locale))}${tooltipRow(theme, 'Of previous stage', percentText(f.ofPrevious, locale))}` : ''
+  const { common: cm, business: bm } = getMessages(locale);
+  return `${tooltipHeader(theme, f.stage)}${tooltipRow(theme, ctx.items[0]?.seriesName ?? cm.value, esc(formatValue(f.value)), ctx.items[0]?.color)}${
+    ctx.index > 0
+      ? `${tooltipRow(theme, bm.ofFirstStage, percentText(f.ofFirst, locale))}${tooltipRow(theme, bm.ofPreviousStage, percentText(f.ofPrevious, locale))}`
+      : ''
   }`;
 }
 
@@ -214,7 +234,7 @@ export function funnelPointMetadata(meta: FunnelChartMeta, i: number): { series:
     series: 0,
     color: meta.stageColors[i] ?? [0.5, 0.5, 0.5, 1],
     metadata: {
-      label: meta.stages[i] ?? `#${i + 1}`,
+      label: meta.stages[i] ?? getMessages(meta.locale).common.itemName(i + 1),
       category: meta.valueLabel,
       tags: ['funnel-chart'],
       attributes: { value: meta.values[i], ofFirst: pct(meta.pctFirst[i]), ofPrevious: pct(meta.pctPrev[i]) },
@@ -226,35 +246,43 @@ export function funnelPointMetadata(meta: FunnelChartMeta, i: number): { series:
 export function funnelA11yModel(meta: FunnelChartMeta, c: A11yCommon): A11yChartModel {
   const n = meta.values.length;
   const f = c.formatValue;
-  const label = (i: number) => meta.stages[i] ?? `#${i + 1}`;
+  const locale = c.locale ?? meta.locale;
+  const { common: cm, business: bm } = getMessages(locale);
+  const num = (v: number) => formatCount(v, locale);
+  const label = (i: number) => meta.stages[i] ?? cm.itemName(i + 1);
   const pct = (a: number[]) => a.map((p) => (Number.isFinite(p) ? Math.round(p * 100) / 100 : NaN));
-  const pctFmt = (p: number) => (Number.isFinite(p) ? `${enNumber(p, 1)}%` : 'n/a');
+  const pctFmt = (p: number) => (Number.isFinite(p) ? `${formatNumber(p, locale, 1)}%` : cm.notAvailable);
   const custom: A11yCustomModel = {
-    kindLabel: 'Funnel',
-    xHeader: 'Stage',
+    kindLabel: cm.kind.funnel,
+    xHeader: bm.stage,
     summary: () => {
-      const head = c.title ? `${c.title}. ` : '';
       const last = n - 1;
-      const conv = n > 1 ? `; ${label(last)} is ${pctFmt(meta.pctFirst[last])} of ${label(0)}` : '';
-      return `${head}Funnel chart, ${plural(n, 'stage')}, from ${f(meta.values[0] ?? NaN)} to ${f(meta.values[last] ?? NaN)}${conv}.`;
+      const share = n > 1 ? bm.funnelShare(label(last), pctFmt(meta.pctFirst[last]), label(0)) : '';
+      const text = bm.funnelSummary(n, num(n), f(meta.values[0] ?? NaN), f(meta.values[last] ?? NaN), share);
+      return c.title ? bm.titled(c.title, text) : text;
     },
     description: () =>
-      meta.values.map((v, i) => `${label(i)}: ${f(v)}${i > 0 ? `, ${pctFmt(meta.pctFirst[i])} of first, ${pctFmt(meta.pctPrev[i])} of previous` : ''}.`),
-    help: 'Keyboard: focus the chart, then use Left and Right arrows to move between stages, Home and End for the first and last stage, and Escape to clear.',
+      meta.values.map((v, i) =>
+        i > 0 ? bm.funnelStageConversion(label(i), f(v), pctFmt(meta.pctFirst[i]), pctFmt(meta.pctPrev[i])) : bm.funnelStage(label(i), f(v))
+      ),
+    help: bm.funnelHelp,
     announce: (focus) => {
       const i = focus.index;
-      const conv = i > 0 ? ` ${pctFmt(meta.pctFirst[i])} of first, ${pctFmt(meta.pctPrev[i])} of previous.` : '';
-      return `${label(i)}, ${f(meta.values[i])}.${conv} ${i + 1} of ${n}.`;
+      const position = cm.position(num(i + 1), num(n));
+      return i > 0
+        ? bm.funnelAnnounceConversion(label(i), f(meta.values[i]), pctFmt(meta.pctFirst[i]), pctFmt(meta.pctPrev[i]), position)
+        : bm.funnelAnnounce(label(i), f(meta.values[i]), position);
     },
     step: (focus, key) => stepSingle(focus, key, n),
   };
   return {
     kind: 'funnel',
     ...c,
+    locale,
     series: [
       { name: meta.valueLabel, values: meta.values, visible: true, f32: false },
-      { name: '% of first', values: pct(meta.pctFirst), visible: true, f32: false, format: pctFmt },
-      { name: '% of previous', values: pct(meta.pctPrev), visible: true, f32: false, format: pctFmt },
+      { name: bm.percentOfFirst, values: pct(meta.pctFirst), visible: true, f32: false, format: pctFmt },
+      { name: bm.percentOfPrevious, values: pct(meta.pctPrev), visible: true, f32: false, format: pctFmt },
     ],
     length: n,
     custom,

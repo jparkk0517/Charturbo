@@ -6,6 +6,7 @@
  * as an RGB image XObject, deflated with `CompressionStream` when the runtime has it (raw
  * otherwise). The result is raster: for vector output use `exportChartSVG`.
  */
+import { getMessages } from './i18n';
 
 export interface PdfImage {
   /** Pixel size of the image */
@@ -21,7 +22,9 @@ export interface PdfPage {
   widthPt: number;
   heightPt: number;
   image: PdfImage;
+  /** Document title (default: `Chart` in the `locale` language) */
   title?: string;
+  locale?: string;
 }
 
 const enc = new TextEncoder();
@@ -30,6 +33,19 @@ const enc = new TextEncoder();
 export function pdfString(s: string): string {
   // eslint-disable-next-line no-control-regex
   return `(${s.replace(/[^\x20-\x7e]/g, '').replace(/[\\()]/g, (c) => `\\${c}`)})`;
+}
+
+/**
+ * PDF text string (document info): a literal for printable ASCII, else UTF-16BE with a byte
+ * order mark (hex), so Korean / Chinese titles survive. Control characters are dropped.
+ */
+export function pdfTextString(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  const text = s.replace(/[\x00-\x1f\x7f]/g, '');
+  if (/^[\x20-\x7e]*$/.test(text)) return pdfString(text);
+  let hex = 'FEFF';
+  for (let i = 0; i < text.length; i++) hex += text.charCodeAt(i).toString(16).padStart(4, '0').toUpperCase();
+  return `<${hex}>`;
 }
 
 /** Bytes of a one-page PDF drawing `page.image` over the whole page. */
@@ -68,7 +84,7 @@ export function buildPdf(page: PdfPage): Uint8Array {
   );
   const content = enc.encode(`q ${num(W)} 0 0 ${num(H)} 0 0 cm /Im0 Do Q`);
   obj(5, `<< /Length ${content.length} >>`, content);
-  obj(6, `<< /Producer (charturbo-engine) /Title ${pdfString(page.title ?? 'Chart')} >>`);
+  obj(6, `<< /Producer (charturbo-engine) /Title ${pdfTextString(page.title ?? getMessages(page.locale).core.pdfTitle)} >>`);
   const xref = length;
   let table = `xref\n0 7\n0000000000 65535 f \n`;
   for (let id = 1; id <= 6; id++) table += `${String(offsets[id]).padStart(10, '0')} 00000 n \n`;
@@ -108,8 +124,8 @@ export async function deflate(data: Uint8Array): Promise<Uint8Array | null> {
   }
 }
 
-/** PDF of a composited chart canvas (`cssW x cssH` CSS px page). */
-export async function canvasToPdf(canvas: HTMLCanvasElement, cssW: number, cssH: number, title?: string): Promise<Blob> {
+/** PDF of a composited chart canvas (`cssW x cssH` CSS px page); `locale`: default title language. */
+export async function canvasToPdf(canvas: HTMLCanvasElement, cssW: number, cssH: number, title?: string, locale?: string): Promise<Blob> {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('toPDF: 2D canvas unavailable');
   const rgb = rgbaToRgb(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
@@ -119,6 +135,7 @@ export async function canvasToPdf(canvas: HTMLCanvasElement, cssW: number, cssH:
     heightPt: cssH * 0.75,
     image: { width: canvas.width, height: canvas.height, data: packed ?? rgb, deflated: packed !== null },
     title,
+    locale,
   });
   return new Blob([bytes as BlobPart], { type: 'application/pdf' });
 }

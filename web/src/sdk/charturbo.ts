@@ -208,11 +208,13 @@ import {
   hasStaticSeries,
   isBusinessKind,
   isBusinessMeta,
+  localizeBusinessMeta,
   sendBusinessTheme,
   type BusinessChartMeta,
 } from './chart-business';
 import { esc, type BusinessLabelLayer } from './chart-business-util';
 import { graphTooltipHtml } from './graph-tooltip';
+import { formatCount, getMessages, resolveLocale } from './i18n';
 export { esc as escapeHtml } from './chart-business-util';
 import { radarMeta, sendRadar, type ChartRadarTooltip, type RadarChartData, type RadarChartOptions } from './chart-radar';
 import { gaugeMeta, sendGauge, type ChartGaugeTooltip, type GaugeChartData, type GaugeChartOptions } from './chart-gauge';
@@ -514,7 +516,7 @@ export interface BarChartOptions {
    * category's first bar) when items have categories, else one entry named `seriesName`
    */
   legend?: ChartLegendOptions | boolean;
-  /** Single-series charts: series name of the legend entry (default `'Value'`) */
+  /** Single-series charts: series name of the legend entry (default: `'Value'` in the chart language) */
   seriesName?: string;
 }
 
@@ -2501,21 +2503,38 @@ export class Charturbo {
     this.events.off(event, handler);
   }
 
-  /** Locale of default number / time labels and tooltip values (`undefined` = runtime locale). */
+  /**
+   * Locale of default number / time labels, tooltip values and built-in UI text (accessibility
+   * summaries, data tables, default tooltips, legend / colorbar labels; English, Korean or
+   * Simplified Chinese, see `registerMessages`). `undefined` = the page language (`<html lang>`),
+   * then the browser language. A chart's own `locale` option wins. Default names a chart got at
+   * render time (series / value names) keep their language until the next render.
+   */
   setLocale(locale: string | undefined): void {
     this.locale = locale;
     const o = this.chartOverlay;
     if (o) {
       // Re-format the tick labels with the new locale
       o.axesRevision = -1;
+      o.legend.setAttribute('aria-label', getMessages(this.chartLocale()).core.legend);
+      o.colorbar?.refresh(this.backend, this.theme, this.chartLocale());
       o.pie?.invalidate();
       o.business?.invalidate();
       o.hierarchy?.invalidate();
       this.syncBarLabels();
       // Waterfall label texts (and their measured widths) follow the locale
       if (this.chartMeta?.kind === 'waterfall') sendWaterfallLabels(this.backend, this.chartMeta, this.theme.fontFamily);
-      this.updateChartOverlay();
+      // Default names of business / hierarchy charts (legend, status, root, "Other") are rebuilt
+      const meta = this.chartMeta;
+      const relocalize = isBusinessMeta(meta) || meta?.kind === 'treemap' || meta?.kind === 'sunburst' || meta?.kind === 'sankey';
+      if (isBusinessMeta(meta)) localizeBusinessMeta(meta, this.chartLocale());
+      else if (meta?.kind === 'treemap' || meta?.kind === 'sunburst') syncHierarchy(this.backend, meta, this.chartLocale());
+      else if (meta?.kind === 'sankey') syncSankey(this.backend, meta, this.chartLocale());
+      if (relocalize) this.rebuildChartOverlay();
+      else this.updateChartOverlay();
     }
+    // Canvas ARIA, description, an open data table
+    this.a11y.refresh();
   }
 
   getLocale(): string | undefined {
@@ -2995,7 +3014,7 @@ export class Charturbo {
   getNodeMetadata(nodeId: number): NodeMetadata {
     return (
       this.nodeMetadataMap.get(nodeId) ?? {
-        label: `Node #${nodeId}`,
+        label: getMessages(this.chartLocale()).core.nodeName(String(nodeId)),
       }
     );
   }
@@ -3050,12 +3069,14 @@ export class Charturbo {
     const neighborsArr = this.backend.get_node_neighbors?.(nodeId);
     const neighbors = neighborsArr ? Array.from(neighborsArr) : [];
     const meta = this.getNodeMetadata(nodeId);
+    const t = getMessages(this.chartLocale()).core;
+    const label = meta.label ?? t.nodeName(String(nodeId));
 
     if (raw && raw.length >= 12) {
       const clusterId = Math.round(raw[4]);
       return {
         id: nodeId,
-        label: meta.label ?? `Node #${nodeId}`,
+        label,
         position: [raw[0], raw[1], raw[2]],
         mass: raw[3],
         clusterId,
@@ -3066,8 +3087,9 @@ export class Charturbo {
         neighbors,
         metadata: {
           ...meta,
-          label: meta.label ?? `Node #${nodeId}`,
-          category: meta.category ?? `Cluster ${clusterId}`,
+          label,
+          // graph-tooltip.ts recognizes this default (same message) and skips it
+          category: meta.category ?? t.clusterName(String(clusterId)),
         },
       };
     }
@@ -3081,7 +3103,7 @@ export class Charturbo {
         : [0, 0, 0];
     return {
       id: nodeId,
-      label: meta.label ?? `Node #${nodeId}`,
+      label,
       position: pos,
       mass: 1.0,
       clusterId: 0,
@@ -3092,7 +3114,7 @@ export class Charturbo {
       neighbors,
       metadata: {
         ...meta,
-        label: meta.label ?? `Node #${nodeId}`,
+        label,
       },
     };
   }
@@ -3101,6 +3123,8 @@ export class Charturbo {
   private chartPointDetails(id: number): NodeDetails | null {
     const meta = this.chartMeta;
     if (!meta || id < 0) return null;
+    const locale = this.chartLocale();
+    const msg = getMessages(locale);
     const sample = this.backend.chart_sample?.(id);
     const position: Vec3Tuple =
       sample && sample.length >= 6 ? [sample[3], sample[4], sample[5]] : [0, 0, 0];
@@ -3128,10 +3152,10 @@ export class Charturbo {
       color = meta.colors[series];
       metadata = {
         label: `${name} · ${xText}`,
-        category: `Line Series: ${name}`,
+        category: msg.core.seriesCategory(msg.common.kind.line, name),
         description: xs
-          ? `${name} 시계열의 x = ${xText} 샘플 데이터 포인트입니다.`
-          : `${name} 시계열의 ${index.toLocaleString()}번째 샘플 데이터 포인트입니다.`,
+          ? msg.core.lineSampleAtX(name, xText)
+          : msg.core.lineSampleAt(name, formatCount(index + 1, locale)),
         tags: [meta.sparse ? `${meta.sparse.kind}-chart` : meta.standaloneBand ? 'band-chart' : 'line-chart', name.toLowerCase()],
         attributes: {
           series: name,
@@ -3141,12 +3165,12 @@ export class Charturbo {
         },
       };
       if (meta.standaloneBand) {
-        metadata.category = `Band Series: ${name}`;
+        metadata.category = msg.core.seriesCategory(msg.common.kind.band, name);
         metadata.attributes = { series: name, ...(xs ? { x: xText, index } : { stepIndex: xText }),
           ...lineBandAt(this.backend, meta.bands, series, index) };
       }
       if (meta.sparse) {
-        metadata.category = `${meta.sparse.kind} Series: ${name}`;
+        metadata.category = msg.core.seriesCategory(msg.common.kind[meta.sparse.kind], name);
         const info = sparseTooltip(meta.sparse, series, index);
         metadata.attributes = { ...metadata.attributes, ...(info.errorBar ?? { baseline: info.baseline! }) };
       }
@@ -3161,7 +3185,7 @@ export class Charturbo {
       metadata = {
         label: `${name} · ${category}`,
         category: name,
-        description: `${category} 항목의 ${name} 시리즈 값입니다.`,
+        description: msg.core.groupedBarDescription(name, category),
         tags: ['bar-chart', meta.mode, name.toLowerCase()],
         attributes: { series: name, category, value: Number(value.toFixed(2)) },
       };
@@ -3176,8 +3200,8 @@ export class Charturbo {
       const xText = meta.formatXValue(meta.t ? meta.t[id] : id);
       color = meta.colors[c >= o ? 0 : 1];
       metadata = {
-        label: `Candle · ${xText}`,
-        category: 'Candlestick',
+        label: msg.core.candleLabel(xText),
+        category: msg.common.kind[meta.mode],
         tags: [`${meta.mode}-chart`, c >= o ? 'up' : 'down'],
         attributes: {
           x: xText,
@@ -3189,13 +3213,13 @@ export class Charturbo {
         },
       };
     } else if (meta.kind === 'box') {
-      const b = sample && sample.length >= 3 ? boxTooltipOf(meta, sample[0], sample[1], sample[2], id) : null;
+      const b = sample && sample.length >= 3 ? boxTooltipOf(meta, sample[0], sample[1], sample[2], id, this.chartLocale()) : null;
       if (!b) return null;
       series = b.series;
       color = meta.colors[b.series];
       const num = (v: number) => Number(v.toFixed(4));
       metadata = {
-        label: `${b.seriesName} · ${b.categoryLabel}${b.outlier !== undefined ? ' · outlier' : ''}`,
+        label: `${b.seriesName} · ${b.categoryLabel}${b.outlier !== undefined ? ` · ${msg.core.outlier}` : ''}`,
         category: b.seriesName,
         tags: [meta.violin ? 'violin-chart' : 'box-plot', b.outlier !== undefined ? 'outlier' : 'box'],
         attributes: {
@@ -3213,7 +3237,7 @@ export class Charturbo {
         },
       };
     } else if (meta.kind === 'combo') {
-      const c = comboPointMetadata(meta, id);
+      const c = comboPointMetadata(meta, id, this.chartLocale());
       if (!c) return null;
       ({ series, color, metadata } = c);
     } else if (meta.kind === 'pie') {
@@ -3256,7 +3280,7 @@ export class Charturbo {
     } else {
       if (id >= meta.x.length) return null;
       series = meta.series?.[id] ?? 0;
-      const name = meta.names[series] ?? `Series ${series}`;
+      const name = meta.names[series] ?? msg.common.seriesName(series + 1);
       const own = this.nodeMetadataMap.get(id);
       color = scatterPointColor(meta, id);
       metadata = {
@@ -3490,7 +3514,7 @@ export class Charturbo {
       matches.push({
         nodeId: id,
         cosineSimilarity: Number(sim.toFixed(4)),
-        label: meta.label ?? `Node #${id}`,
+        label: meta.label ?? getMessages(this.chartLocale()).core.nodeName(String(id)),
       });
     }
     return matches;
@@ -3511,6 +3535,7 @@ export class Charturbo {
     if (!q) return [];
     const total = this.nodeCount();
     const matches: NodeDetails[] = [];
+    const { nodeName } = getMessages(this.chartLocale()).core;
 
     // Direct numeric ID match first
     const directId = Number(q.replace(/^#/, ''));
@@ -3522,7 +3547,7 @@ export class Charturbo {
     for (let id = 0; id < total && matches.length < limit; id++) {
       if (matches.some((m) => m.id === id)) continue;
       const meta = this.nodeMetadataMap.get(id);
-      const label = (meta?.label ?? `Node #${id}`).toLowerCase();
+      const label = (meta?.label ?? nodeName(String(id))).toLowerCase();
       const category = (meta?.category ?? '').toLowerCase();
       const desc = (meta?.description ?? '').toLowerCase();
       const tagsMatch = meta?.tags?.some((t) => t.toLowerCase().includes(q)) ?? false;
@@ -3817,6 +3842,10 @@ export class Charturbo {
       const escFmt = (f: (v: number) => string) => (v: number) => esc(f(v));
       const num = (v: number) => formatChartValue(v, this.chartLocale());
       const yFmt = valueFmt(resolveFormat(this.chartPresentation?.yAxis.format, this.chartLocale()) ?? num);
+      const msg = getMessages(this.chartLocale());
+      /** Percent with exactly `digits` fraction digits in the chart locale */
+      const pct = (v: number, digits: number) =>
+        `${v.toLocaleString(resolveLocale(this.chartLocale()), { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
       const swatch = (color: string) =>
         `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;flex:none;background:${color};"></span>`;
       const rows = ctx.items
@@ -3829,14 +3858,14 @@ export class Charturbo {
               ? ` <span style="color:${t.textMuted};font-weight:400;">${esc(formatBarError(it.error, valueFmt(num)))}</span>`
               : ''
           }${
-            it.percent !== undefined ? ` <span style="color:${t.textMuted};font-weight:400;">${it.percent.toFixed(1)}%</span>` : ''
+            it.percent !== undefined ? ` <span style="color:${t.textMuted};font-weight:400;">${pct(it.percent, 1)}</span>` : ''
           }${
             it.band
               ? ` <span style="color:${t.textMuted};font-weight:400;">${escFmt(valueFmt(num))(it.band.lower)} – ${escFmt(valueFmt(num))(it.band.upper)}</span>`
               : ''
           }${
             it.errorBar ? ` <span style="color:${t.textMuted};font-weight:400;">[${escFmt(valueFmt(num))(it.errorBar.low)} – ${escFmt(valueFmt(num))(it.errorBar.high)}]</span>`
-              : it.baseline !== undefined ? ` <span style="color:${t.textMuted};font-weight:400;">baseline ${escFmt(valueFmt(num))(it.baseline)}</span>` : ''
+              : it.baseline !== undefined ? ` <span style="color:${t.textMuted};font-weight:400;">${esc(msg.core.baseline(valueFmt(num)(it.baseline)))}</span>` : ''
           }</span>
         </div>`
         )
@@ -3857,20 +3886,20 @@ export class Charturbo {
         const dir = ctx.items[0]?.color ?? t.textPrimary;
         return `
         <div style="color:${t.textMuted};font-size:11px;margin-bottom:4px;">${esc(ctx.xLabel)}${
-          o.count > 1 ? ` · ${o.count.toLocaleString(this.chartLocale())} ${ctx.chartType === 'ohlc' ? 'bars' : 'candles'}` : ''
+          o.count > 1 ? ` · ${esc(msg.core[ctx.chartType === 'ohlc' ? 'ohlcBars' : 'candles'](o.count, formatCount(o.count, this.chartLocale())))}` : ''
         }</div>
-        ${row('Open', fy(o.open))}
-        ${row('High', fy(o.high))}
-        ${row('Low', fy(o.low))}
-        ${row('Close', `${fy(o.close)} <span style="color:${dir};font-weight:400;">${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>`)}
-        ${o.volume !== undefined ? row('Volume', formatTickValue(o.volume, this.chartLocale())) : ''}
+        ${row(esc(msg.common.open), fy(o.open))}
+        ${row(esc(msg.common.high), fy(o.high))}
+        ${row(esc(msg.common.low), fy(o.low))}
+        ${row(esc(msg.common.close), `${fy(o.close)} <span style="color:${dir};font-weight:400;">${change >= 0 ? '+' : ''}${pct(change, 2)}</span>`)}
+        ${o.volume !== undefined ? row(esc(msg.common.volume), formatTickValue(o.volume, this.chartLocale())) : ''}
       `;
       }
       if (ctx.chartType === 'heatmap') {
         return heatmapTooltipHtml(ctx, t, valueFmt(num));
       }
       if (ctx.chartType === 'box') {
-        return boxTooltipHtml(ctx, t, yFmt, (v) => v.toLocaleString(this.chartLocale()));
+        return boxTooltipHtml(ctx, t, yFmt, (v) => v.toLocaleString(this.chartLocale()), this.chartLocale());
       }
       if (ctx.chartType === 'pie') {
         return pieTooltipHtml(ctx, t, valueFmt((v) => this.pieValueText(v)), this.chartLocale());
@@ -3902,18 +3931,29 @@ export class Charturbo {
       const total =
         ctx.total !== undefined
           ? `<div style="display:flex;gap:12px;justify-content:space-between;margin-top:4px;padding-top:4px;border-top:1px solid ${t.tooltipBorder};">
-          <span style="color:${t.textMuted};">Total</span>
+          <span style="color:${t.textMuted};">${esc(msg.common.total)}</span>
           <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${escFmt(valueFmt(num))(ctx.total)}</span>
         </div>`
           : '';
-      // Single-series bars list their item attributes; multi-series bars list the column instead
+      // Single-series bars list their item attributes; multi-series bars list the column instead.
+      // Built-in attributes get localized names and numbers; user attribute keys show as given
+      const builtInAttr: Record<string, string> = { shareOfTotal: msg.core.shareOfTotal, peakRatio: msg.core.peakRatio, count: msg.core.count };
+      const attrValue = (k: string, v: unknown): string => {
+        if (k === 'count' && typeof v === 'number') return formatCount(v, this.chartLocale());
+        // `shareOfTotal` / `peakRatio` are stored as `12.34%` (fixed digits): same digits, locale separators
+        if ((k === 'shareOfTotal' || k === 'peakRatio') && typeof v === 'string' && /^-?\d+(\.\d+)?%$/.test(v)) {
+          const dot = v.indexOf('.');
+          return pct(Number(v.slice(0, -1)), dot < 0 ? 0 : v.length - dot - 2);
+        }
+        return String(v);
+      };
       const extra =
         ctx.chartType === 'bar' && this.chartMeta?.kind === 'bar' && ctx.details
           ? Object.entries(ctx.details.metadata.attributes ?? {})
               .filter(([k]) => k !== 'value')
               .map(
                 ([k, v]) =>
-                  `<div style="color:${t.textMuted};font-size:11px;">${esc(k)}: <span style="color:${t.textSecondary};">${esc(String(v))}</span></div>`
+                  `<div style="color:${t.textMuted};font-size:11px;">${esc(builtInAttr[k] ?? k)}: <span style="color:${t.textSecondary};">${esc(attrValue(k, v))}</span></div>`
               )
               .join('')
           : '';
@@ -3976,11 +4016,12 @@ export class Charturbo {
       if (meta.kind === 'heatmap') return this.heatmapTooltip(meta, hit);
       if (meta.kind === 'box') return this.boxTooltip(meta, hit);
       if (meta.kind === 'pie') return this.pieTooltip(meta, hit[4]);
-      if (meta.kind === 'combo') return comboTooltipContext(meta, hit, rgbaToCss, (id) => this.getNodeDetails(id));
+      if (meta.kind === 'combo') return comboTooltipContext(meta, hit, rgbaToCss, (id) => this.getNodeDetails(id), this.chartLocale());
       if (isBusinessMeta(meta)) return businessTooltipContext(meta, hit, (id) => this.getNodeDetails(id));
       if (meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey') return this.hierarchyTooltip(meta, hit);
 
       const items: ChartTooltipItem[] = [];
+      const { seriesName } = getMessages(this.chartLocale()).common;
       for (let k = 0; k < count; k++) {
         const at = 3 + k * 4;
         const series = hit[at];
@@ -3988,7 +4029,7 @@ export class Charturbo {
         const nodeId = hit[at + 3];
         if (meta.kind === 'scatter') {
           items.push({
-            seriesName: meta.names[series] ?? `Series ${series}`,
+            seriesName: meta.names[series] ?? seriesName(series + 1),
             value: hit[at + 2],
             color: rgbaToCss(scatterPointColor(meta, index)),
             nodeId,
@@ -3996,7 +4037,7 @@ export class Charturbo {
         } else if (meta.kind !== 'bar') {
           const band = meta.kind === 'line' ? lineBandAt(this.backend, meta.bands, series, index) : undefined;
           items.push({
-            seriesName: meta.names[series] ?? `Series ${series}`,
+            seriesName: meta.names[series] ?? seriesName(series + 1),
             value: hit[at + 2],
             color: rgbaToCss(meta.colors[series]),
             nodeId,
@@ -4876,10 +4917,10 @@ export class Charturbo {
       // Hierarchy palettes / surface-derived header and fade colors follow the theme
       if (this.chartMeta?.kind === 'treemap' || this.chartMeta?.kind === 'sunburst') {
         sendHierarchyStyle(this.backend, this.chartMeta, t);
-        syncHierarchy(this.backend, this.chartMeta);
+        syncHierarchy(this.backend, this.chartMeta, this.chartLocale());
       } else if (this.chartMeta?.kind === 'sankey') {
         sendHierarchyStyle(this.backend, this.chartMeta, t);
-        syncSankey(this.backend, this.chartMeta);
+        syncSankey(this.backend, this.chartMeta, this.chartLocale());
       }
       this.rebuildChartOverlay();
     }
@@ -5546,7 +5587,7 @@ export class Charturbo {
     const cssW = canvas.clientWidth || canvas.getBoundingClientRect().width || canvas.width;
     const cssH = canvas.height / (canvas.width / Math.max(1, cssW));
     const image = await captureChartCanvas(this.exportHost(), { ...options, format: 'png' });
-    return canvasToPdf(image, cssW, cssH, this.chartPresentation?.title);
+    return canvasToPdf(image, cssW, cssH, this.chartPresentation?.title, this.chartLocale());
   }
 
   /** Downloads `toPDF()`. */
@@ -5753,7 +5794,7 @@ export class Charturbo {
       'charturbo-sdk-chart-legend'
     );
     legend.setAttribute('role', 'group');
-    legend.setAttribute('aria-label', 'Chart legend');
+    legend.setAttribute('aria-label', getMessages(this.chartLocale()).core.legend);
     const meta = this.chartMeta;
     if (meta && meta.kind !== 'bar' && meta.kind !== 'heatmap' && p.legend.show) {
       const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey';
@@ -6315,12 +6356,12 @@ export class Charturbo {
 
   /** Independent XYZ billboards with depth-tested orbit navigation. */
   renderPointCloud3D(series: PointCloud3DSeries[], options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {
-    return this.renderScientific3D(encodePointCloud3D(series, this.theme.palette), options);
+    return this.renderScientific3D(encodePointCloud3D(series, this.theme.palette, this.locale), options);
   }
 
   /** Y-up row-major height grids; nonfinite vertices make cell holes. */
   renderSurface3D(series: Surface3DSeries[], options?: Scientific3DChartOptions): { pointCount: number; seriesCount: number } {
-    return this.renderScientific3D(encodeSurface3D(series, this.theme.palette), options);
+    return this.renderScientific3D(encodeSurface3D(series, this.theme.palette, this.locale), options);
   }
 
   /** Append XYZ samples to a cloud, optionally retaining only the newest maxPoints.
@@ -6622,7 +6663,7 @@ export class Charturbo {
     this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover(options?.hover)));
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
-    const xPrefix = options?.xLabelPrefix ?? 'T';
+    const xPrefix = options?.xLabelPrefix ?? getMessages(options?.locale ?? this.locale).core.stepPrefix;
     // Chart option wins over the SDK locale (`setLocale`), read lazily so later changes apply
     const locale = () => this.chartLocale();
     const tz = () => this.chartTimeZone();
@@ -6762,13 +6803,15 @@ export class Charturbo {
     this.backend.set_chart_frame_style?.(encodeGridStyle(this.chartGridShown, this.themedGrid(options?.grid)));
 
     this.chartMode = 'bar';
+    // Default names / descriptions: bar charts have no `locale` option, the SDK locale
+    const msg = getMessages(this.locale);
     this.chartMeta = {
       kind: 'bar',
       colors: items.map((_, i) => [colors[i * 4], colors[i * 4 + 1], colors[i * 4 + 2], colors[i * 4 + 3]]),
       metadata: items.map((item) => ({
         label: item.label,
-        category: item.category ?? (viewMode === '2d' ? '2D Bar / Histogram' : '3D Matrix Column'),
-        description: `${item.label} 항목의 수치 및 전체 대비 비중 데이터입니다.`,
+        category: item.category ?? (viewMode === '2d' ? msg.core.barCategory2d : msg.core.barCategory3d),
+        description: msg.core.barDescription(item.label),
         tags: ['bar-chart', item.label.toLowerCase()],
         attributes: {
           value: Number(item.value.toFixed(2)),
@@ -6790,7 +6833,7 @@ export class Charturbo {
     // Items with categories: a key of the categories; else one entry for the series
     const legendKey = barLegendKey(items, this.chartMeta.colors);
     if (legendShown && legendKey.length > 0) this.chartMeta.legendKey = legendKey;
-    else if (legendShown) this.chartMeta.legendEntry = { name: options?.seriesName ?? 'Value', color: baseColor };
+    else if (legendShown) this.chartMeta.legendEntry = { name: options?.seriesName ?? msg.common.value, color: baseColor };
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
@@ -7076,9 +7119,10 @@ export class Charturbo {
       emphasize: legendOpt.emphasize ?? true,
     };
     this.chartMode = 'scatter';
+    const { seriesName } = getMessages(this.locale).common;
     this.chartMeta = {
       kind: 'scatter',
-      names: Array.from({ length: seriesCount }, (_, i) => options?.seriesNames?.[i] ?? `Series ${i}`),
+      names: Array.from({ length: seriesCount }, (_, i) => options?.seriesNames?.[i] ?? seriesName(i + 1)),
       colors: Array.from({ length: seriesCount }, (_, i) => palette[i % palette.length]),
       visible: Array.from({ length: seriesCount }, () => true),
       x: xs,
@@ -7124,7 +7168,7 @@ export class Charturbo {
   /** Tooltip data of a box plot hit (box: value = median; outlier ids follow the boxes). */
   private boxTooltip(meta: BoxChartMeta, hit: ArrayLike<number>): ChartTooltipContext | null {
     const [series, category, value, id] = [hit[3], hit[4], hit[5], hit[6]];
-    const box = boxTooltipOf(meta, series, category, value, id);
+    const box = boxTooltipOf(meta, series, category, value, id, this.chartLocale());
     if (!box) return null;
     return {
       chartType: 'box',
@@ -7178,7 +7222,7 @@ export class Charturbo {
       index,
       x: ohlc.x,
       xLabel,
-      items: [{ seriesName: 'Close', value: ohlc.close, color: rgbaToCss(meta.colors[up ? 0 : 1]), nodeId: index }],
+      items: [{ seriesName: getMessages(this.chartLocale()).common.close, value: ohlc.close, color: rgbaToCss(meta.colors[up ? 0 : 1]), nodeId: index }],
       ohlc,
       details: this.getNodeDetails(index),
     };
@@ -7309,7 +7353,7 @@ export class Charturbo {
     this.chartMeta = {
       kind: 'candle',
       mode,
-      names: ['Price'],
+      names: [getMessages(options?.locale ?? this.locale).core.price],
       colors: [
         [style[0], style[1], style[2], style[3]],
         [style[4], style[5], style[6], style[7]],
@@ -7393,7 +7437,7 @@ export class Charturbo {
     const locale = () => this.chartLocale();
     const userFx = resolveFormatLive(options?.axes?.x?.format, locale);
     const fx = (x: number) => (userFx ?? ((e: number) => formatTickValue(e, locale())))(x);
-    const unit = density ? 'Density' : 'Count';
+    const unit = getMessages(options?.locale ?? this.locale).core[density ? 'density' : 'count'];
     this.chartMode = 'bar';
     this.chartMeta = {
       kind: 'bar',
@@ -7439,7 +7483,8 @@ export class Charturbo {
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
 
-    const meta = heatmapMeta(data, options);
+    // These charts have no `locale` option: the SDK locale
+    const meta = heatmapMeta(data, options, this.locale);
     const cellCount = sendHeatmap(this.backend, meta, options);
     sendHeatmapColormap(this.backend, meta, this.theme);
     this.backend.set_chart_heatmap_domain?.(options?.min ?? NaN, options?.max ?? NaN, options?.center ?? NaN);
@@ -7523,7 +7568,7 @@ export class Charturbo {
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
 
-    const meta = pieMeta(data, options);
+    const meta = pieMeta(data, options, this.locale);
     const sliceCount = sendPie(this.backend, data, meta, options);
     sendPieStyle(this.backend, meta, this.theme);
     syncPieSlices(this.backend, meta);
@@ -7594,10 +7639,10 @@ export class Charturbo {
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
 
-    const meta = sendHierarchy(this.backend, kind, data, options);
+    const meta = sendHierarchy(this.backend, kind, data, options, this.locale);
     this.bindHierarchyEngine(meta);
     sendHierarchyStyle(this.backend, meta, this.theme);
-    syncHierarchy(this.backend, meta);
+    syncHierarchy(this.backend, meta, this.locale);
     return this.presentHierarchy(meta, options, meta.names.length >= 2, true);
   }
 
@@ -7616,10 +7661,10 @@ export class Charturbo {
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
 
-    const meta = sendSankey(this.backend, data, options);
+    const meta = sendSankey(this.backend, data, options, this.locale);
     this.bindHierarchyEngine(meta);
     sendHierarchyStyle(this.backend, meta, this.theme);
-    syncSankey(this.backend, meta);
+    syncSankey(this.backend, meta, this.locale);
     const { nodeCount } = this.presentHierarchy(meta, options, meta.names.length >= 2, false);
     return { nodeCount, linkCount: meta.sources.length };
   }
@@ -7790,7 +7835,7 @@ export class Charturbo {
     const formatXNumber = (v: number) => v.toLocaleString(locale(), { maximumFractionDigits: 6 });
     const formatXValue = (v: number) => (userFormatX ? userFormatX(v) : enc.timeX ? formatChartTime(v, undefined, locale(), tz()) : formatXNumber(v));
     const barMode = options?.barMode ?? 'grouped';
-    const meta = comboMeta(enc, data, barMode, formatXValue);
+    const meta = comboMeta(enc, data, barMode, formatXValue, options?.locale ?? this.locale);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const legend: Required<ChartLegendOptions> = {
       show: legendOpt.show ?? s >= 2,
@@ -7846,7 +7891,7 @@ export class Charturbo {
 
     const n = data.categories.length;
     if (n === 0 || data.series.length === 0) return { boxCount: 0, seriesCount: 0, categoryCount: 0, sampleCount: 0 };
-    const enc = encodeBoxPlot(data, this.theme.palette, this.theme.baseline, options?.colors);
+    const enc = encodeBoxPlot(data, this.theme.palette, this.theme.baseline, options?.colors, this.locale);
     const s = enc.names.length;
     const sampleCount =
       this.backend.set_box_chart?.(enc.values, enc.counts, s, n, enc.colors, encodeBoxLayout(options), encodeBoxOptions(options)) ?? 0;
@@ -7873,7 +7918,7 @@ export class Charturbo {
       violin: !!options?.violin,
       whiskers: options?.whiskers ?? 'tukey',
       iqrFactor: options?.iqrFactor !== undefined && options.iqrFactor >= 0 ? options.iqrFactor : 1.5,
-      valueLabel: options?.valueLabel ?? 'Value',
+      valueLabel: options?.valueLabel ?? getMessages(this.locale).common.value,
     };
     this.flatCameraView = true;
     const truncate = (str: string) => (str.length > 12 ? `${str.slice(0, 11)}…` : str);
@@ -7947,7 +7992,7 @@ export class Charturbo {
    */
   renderRadarChart(data: RadarChartData, options?: RadarChartOptions): { axisCount: number; seriesCount: number } {
     this.beginBusinessChart();
-    const meta = radarMeta(data, options, this.businessFormat(options?.format));
+    const meta = radarMeta(data, options, this.businessFormat(options?.format), this.locale);
     sendRadar(this.backend, meta, options, this.theme);
     const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
     const legend: Required<ChartLegendOptions> = {
@@ -7969,7 +8014,7 @@ export class Charturbo {
    */
   renderGauge(data: GaugeChartData, options?: GaugeChartOptions): { bandCount: number } {
     this.beginBusinessChart();
-    const meta = gaugeMeta(data, options, this.businessFormat(options?.format));
+    const meta = gaugeMeta(data, options, this.businessFormat(options?.format), this.locale);
     sendGauge(this.backend, meta, options, this.theme);
     const legend = { show: false, toggle: false, emphasize: false };
     this.showBusinessChart('gauge', meta, options, legend, { left: 16, right: 16, bottom: 12 });
@@ -8001,7 +8046,7 @@ export class Charturbo {
    */
   renderFunnelChart(data: FunnelChartData, options?: FunnelChartOptions): { stageCount: number } {
     this.beginBusinessChart();
-    const meta = funnelMeta(data, options, this.businessFormat(options?.format));
+    const meta = funnelMeta(data, options, this.businessFormat(options?.format), this.locale);
     const stageCount = sendFunnel(this.backend, meta, options, this.theme);
     const legend = { show: false, toggle: false, emphasize: false };
     const space = funnelLabelSpace(meta);
@@ -8019,7 +8064,7 @@ export class Charturbo {
    */
   renderWaterfallChart(data: WaterfallChartData, options?: WaterfallChartOptions): { itemCount: number } {
     this.beginBusinessChart();
-    const meta = waterfallMeta(data, options, this.businessFormat(options?.format));
+    const meta = waterfallMeta(data, options, this.businessFormat(options?.format), this.locale);
     const itemCount = sendWaterfall(this.backend, meta, options, this.theme);
     sendWaterfallLabels(this.backend, meta, this.theme.fontFamily);
     this.chartHover = options?.hover;

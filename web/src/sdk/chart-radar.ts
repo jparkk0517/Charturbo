@@ -20,7 +20,6 @@ import {
   esc,
   overlayDiv,
   placeAt,
-  plural,
   rgbCss,
   tooltipHeader,
   tooltipRow,
@@ -28,6 +27,7 @@ import {
   type A11yCustomModel,
   type BusinessLabelLayer,
 } from './chart-business-util';
+import { formatCount, getMessages } from './i18n';
 
 export interface RadarSeries {
   name: string;
@@ -70,7 +70,7 @@ export interface RadarChartOptions {
   /** Legend of the series (default: shown with 2+ series); click toggles, hover emphasizes */
   legend?: ChartLegendOptions | boolean;
   padding?: ChartPaddingOptions;
-  /** Tooltip / table name of the values (default `'Value'`) */
+  /** Tooltip / table name of the values (default: `'Value'` in the chart locale) */
   valueLabel?: string;
   /** Value text of rings, tooltip and a11y (spec, Intl options or function; default: locale number) */
   format?: ChartValueFormat;
@@ -93,6 +93,11 @@ export interface RadarChartMeta {
   valueLabel: string;
   format: (value: number) => string;
   colorInputs: (ColorInput | undefined)[];
+  /** Locale of the default names (`localizeRadarMeta`) */
+  locale?: string;
+  /** Names / value label as given (empty = the localized default) */
+  nameInputs: string[];
+  valueLabelInput?: string;
 }
 
 /** Hovered radar axis: the axis and its radial max (tooltip). */
@@ -105,7 +110,12 @@ export const MAX_RADAR_SERIES = 8;
 const GRID_CODES = { polygon: 0, circle: 1 } as const;
 
 /** Validates the shape (the engine validates values) and builds the display meta. */
-export function radarMeta(data: RadarChartData, options: RadarChartOptions | undefined, format: (v: number) => string): RadarChartMeta {
+export function radarMeta(
+  data: RadarChartData,
+  options: RadarChartOptions | undefined,
+  format: (v: number) => string,
+  locale?: string
+): RadarChartMeta {
   const n = data.axes.length;
   if (data.series.length < 1 || data.series.length > MAX_RADAR_SERIES) {
     throw new RangeError(`radar charts take 1 to ${MAX_RADAR_SERIES} series (got ${data.series.length})`);
@@ -117,20 +127,32 @@ export function radarMeta(data: RadarChartData, options: RadarChartOptions | und
       return v === null || v === undefined ? NaN : Number(v);
     });
   });
-  return {
+  const meta: RadarChartMeta = {
     kind: 'radar',
     axes: [...data.axes],
-    names: data.series.map((s, k) => s.name || `Series ${k + 1}`),
+    names: [],
     colors: [],
     visible: data.series.map(() => true),
     values,
     max: NaN,
     rings: [],
     axisMax: [],
-    valueLabel: options?.valueLabel ?? 'Value',
+    valueLabel: '',
     format,
     colorInputs: data.series.map((s) => s.color),
+    nameInputs: data.series.map((s) => s.name),
+    valueLabelInput: options?.valueLabel,
   };
+  localizeRadarMeta(meta, locale);
+  return meta;
+}
+
+/** Default series names / value label in `locale` (names given in the data / options win). */
+export function localizeRadarMeta(meta: RadarChartMeta, locale: string | undefined): void {
+  const m = getMessages(locale).common;
+  meta.locale = locale;
+  meta.names = meta.nameInputs.map((name, k) => name || m.seriesName(k + 1));
+  meta.valueLabel = meta.valueLabelInput ?? m.value;
 }
 
 /** Series colors: own color, else the palette slot (fixed order, never cycled). */
@@ -210,7 +232,7 @@ export function radarTooltipContext(
   for (let k = 0; k < count; k++) {
     const at = 3 + k * 4;
     const s = hit[at];
-    items.push({ seriesName: meta.names[s] ?? `Series ${s + 1}`, value: meta.values[s]?.[hit[at + 1]] ?? hit[at + 2], color: rgbCss(meta.colors[s]), nodeId: hit[at + 3] });
+    items.push({ seriesName: meta.names[s] ?? getMessages(meta.locale).common.seriesName(s + 1), value: meta.values[s]?.[hit[at + 1]] ?? hit[at + 2], color: rgbCss(meta.colors[s]), nodeId: hit[at + 3] });
   }
   const primary = items[Math.min(hit[1], items.length - 1)];
   return {
@@ -249,7 +271,10 @@ export function radarPointMetadata(meta: RadarChartMeta, id: number): { series: 
 export function radarA11yModel(meta: RadarChartMeta, c: A11yCommon): A11yChartModel {
   const series: A11ySeries[] = meta.names.map((name, s) => ({ name, values: meta.values[s] ?? [], visible: meta.visible[s] ?? true, f32: false }));
   const n = meta.axes.length;
-  const label = (i: number) => meta.axes[i] ?? `#${i + 1}`;
+  const locale = c.locale ?? meta.locale;
+  const { common: cm, business: bm } = getMessages(locale);
+  const label = (i: number) => meta.axes[i] ?? cm.itemName(i + 1);
+  const count = (v: number) => formatCount(v, locale);
   const f = c.formatValue;
   const best = (s: number) => {
     const v = meta.values[s];
@@ -258,36 +283,45 @@ export function radarA11yModel(meta: RadarChartMeta, c: A11yCommon): A11yChartMo
     return k;
   };
   const custom: A11yCustomModel = {
-    kindLabel: 'Radar',
-    xHeader: 'Axis',
+    kindLabel: cm.kind.radar,
+    xHeader: bm.axis,
     summary: () => {
-      const head = c.title ? `${c.title}. ` : '';
-      const parts = meta.names
+      const highs = meta.names
         .map((name, s) => ({ name, s, k: best(s) }))
         .filter((p) => meta.visible[p.s] !== false && p.k >= 0)
         .slice(0, 4)
-        .map((p) => `${p.name} highest on ${label(p.k)} (${f(meta.values[p.s][p.k])})`);
-      return `${head}Radar chart, ${plural(n, 'axis', 'axes')}, ${plural(meta.names.length, 'series', 'series')}${parts.length ? `; ${parts.join('; ')}` : ''}.`;
+        .map((p) => bm.radarHighest(p.name, label(p.k), f(meta.values[p.s][p.k])));
+      const text = bm.radarSummary(n, count(n), cm.seriesCount(meta.names.length, count(meta.names.length)), highs);
+      return c.title ? bm.titled(c.title, text) : text;
     },
     description: () => {
-      const out: string[] = [`Axes: ${meta.axes.join(', ')}.`];
+      const list = (k: number, value: (k: number) => number) => bm.namedValue(meta.axes[k], f(value(k)));
+      const out: string[] = [bm.radarAxes(meta.axes.join(cm.listSeparator))];
       const shared = meta.axisMax.every((m) => m === meta.max);
-      out.push(shared ? `Radial scale from 0 to ${f(meta.max)}.` : `Each axis has its own maximum: ${meta.axes.map((a, k) => `${a} ${f(meta.axisMax[k])}`).join(', ')}.`);
+      out.push(
+        shared
+          ? bm.radarSharedScale(f(meta.max))
+          : bm.radarAxisScales(meta.axes.map((_, k) => list(k, (i) => meta.axisMax[i])).join(cm.listSeparator))
+      );
       meta.names.forEach((name, s) => {
-        const vals = meta.axes.map((a, k) => `${a} ${f(meta.values[s][k])}`).join(', ');
-        out.push(`${name}${meta.visible[s] === false ? ' (hidden)' : ''}: ${vals}.`);
+        const vals = meta.axes.map((_, k) => list(k, (i) => meta.values[s][i])).join(cm.listSeparator);
+        out.push(meta.visible[s] === false ? bm.radarHiddenSeries(name, vals) : bm.radarSeries(name, vals));
       });
       return out;
     },
-    help:
-      'Keyboard: focus the chart, then use Left and Right arrows to move between axes, Up and Down arrows to ' +
-      'switch series, Home and End for the first and last axis, and Escape to clear.',
+    help: bm.radarHelp,
     announce: (focus) =>
-      `${label(focus.index)}, ${meta.names[focus.series] ?? ''} ${f(meta.values[focus.series]?.[focus.index] ?? NaN)}. ${focus.index + 1} of ${n}.`,
+      bm.radarAnnounce(
+        label(focus.index),
+        meta.names[focus.series] ?? '',
+        f(meta.values[focus.series]?.[focus.index] ?? NaN),
+        cm.position(count(focus.index + 1), count(n))
+      ),
   };
   return {
     kind: 'radar',
     ...c,
+    locale,
     series,
     length: n,
     custom,
@@ -295,7 +329,7 @@ export function radarA11yModel(meta: RadarChartMeta, c: A11yCommon): A11yChartMo
     xLabel: label,
     formatX: label,
     pointId: (s, i) => s * n + i,
-    itemName: (s) => meta.names[s] ?? `Series ${s + 1}`,
+    itemName: (s) => meta.names[s] ?? cm.seriesName(s + 1),
     itemColor: (s) => meta.colors[s] ?? [0.5, 0.5, 0.5, 1],
   };
 }

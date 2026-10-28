@@ -206,3 +206,12 @@ export {
   type LineStyleInput,
 } from './sdk/chart-linestyle';
 export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, Surface3DGridData, Surface3DSeries, Surface3DContourOptions, Surface3DUpdate, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions, Scientific3DAxisOptions, Scientific3DCameraOptions } from './sdk/chart-scientific3d';
+export {
+  registerMessages,
+  getMessages,
+  resolveLanguage,
+  CHARTURBO_LANGUAGES,
+  type CharturboLanguage,
+  type CharturboMessages,
+  type CharturboMessagesInput,
+} from './sdk/i18n';

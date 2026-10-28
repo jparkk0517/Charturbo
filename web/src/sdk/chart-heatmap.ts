@@ -7,6 +7,7 @@
  */
 import { parseColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartAxisOptions, ChartHoverStyle, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
+import { getMessages, resolveLocale } from './i18n';
 
 /** `'sequential'`: one hue light -> dark (flips on dark themes); `'diverging'`: two hues around a neutral `center`. */
 export type HeatmapColorScale = 'sequential' | 'viridis' | 'magma' | 'diverging';
@@ -60,7 +61,7 @@ export interface HeatmapChartOptions {
   /** `'top-down'` (default): row 0 at the top, matrix order; `'bottom-up'`: row 0 at the bottom */
   rowOrder?: 'top-down' | 'bottom-up';
   colorbar?: HeatmapColorbarOptions | boolean;
-  /** Tooltip / colorbar name of the value (default: `Value`) */
+  /** Tooltip / colorbar name of the value (default: `Value` in the chart language) */
   valueLabel?: string;
   /** Cell outline on hover: `markerRingColor` (outer ring), `barHighlightColor` (inner ring), `marker: false` disables */
   hover?: ChartHoverStyle;
@@ -93,13 +94,13 @@ function extentOf(e?: [number, number]): [number, number] | null {
   return e && Number.isFinite(e[0]) && Number.isFinite(e[1]) && e[0] !== e[1] ? [e[0], e[1]] : null;
 }
 
-/** Builds the display meta (no data copy for `Float32Array` input). */
-export function heatmapMeta(data: HeatmapChartData, options?: HeatmapChartOptions): HeatmapChartMeta {
+/** Builds the display meta (no data copy for `Float32Array` input); `locale`: default names. */
+export function heatmapMeta(data: HeatmapChartData, options?: HeatmapChartOptions, locale?: string): HeatmapChartMeta {
   const cols = Math.max(0, Math.floor(data.cols));
   const rows = Math.max(0, Math.floor(data.rows));
   const values = data.values instanceof Float32Array ? data.values : Float32Array.from(data.values);
   const bar = typeof options?.colorbar === 'boolean' ? { show: options.colorbar } : (options?.colorbar ?? {});
-  const valueLabel = options?.valueLabel ?? 'Value';
+  const valueLabel = options?.valueLabel ?? getMessages(locale).common.value;
   return {
     kind: 'heatmap',
     cols,
@@ -257,19 +258,20 @@ export class HeatmapColorbarLayer {
     const d = this.data;
     if (d) {
       const fmt = this.format(locale);
-      const mid = d.center !== null ? `, midpoint ${fmt(d.center)}` : '';
-      this.root.setAttribute('aria-label', `${this.meta.colorbar.title} color scale from ${fmt(d.lo)} to ${fmt(d.hi)}${mid}`);
+      const mid = d.center !== null ? fmt(d.center) : undefined;
+      this.root.setAttribute('aria-label', getMessages(locale).core.colorScale(this.meta.colorbar.title, fmt(d.lo), fmt(d.hi), mid));
     }
     this.labels.style.color = theme.textMuted;
   }
 
   private format(locale?: string): (v: number) => string {
+    const tag = resolveLocale(locale);
     return (
       this.meta.colorbar.format ??
       ((v: number) =>
         Math.abs(v) >= 10_000
-          ? v.toLocaleString(locale, { notation: 'compact', maximumFractionDigits: 1 })
-          : v.toLocaleString(locale, { maximumFractionDigits: 4 }))
+          ? v.toLocaleString(tag, { notation: 'compact', maximumFractionDigits: 1 })
+          : v.toLocaleString(tag, { maximumFractionDigits: 4 }))
     );
   }
 

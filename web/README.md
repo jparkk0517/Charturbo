@@ -185,13 +185,28 @@ const camera = sdk.getCameraState(); // { target, eye, distance, yaw, pitch, fov
   engine's `camera_state` binding (older builds: `null`, fixed gains, target-only focus).
 - **Default tooltip**: label, category, cluster, degree, neighbors, position, tags and up to 6 attributes in
   the theme's text colors. Every data-derived string is HTML-escaped (a label like `<img onerror=…>` renders
-  as text); fixed strings follow the SDK / chart locale (`ko*` = Korean, otherwise English). The default
+  as text); fixed strings follow the SDK / chart locale (English, Korean or Simplified Chinese). The default
   chart tooltips escape series names, x labels, attributes and formatted values too (a
   `tooltip.valueFormatter` result is shown as text).
 
+## Internationalization
+
+Built-in text (accessibility summaries, data tables, default tooltips, legend labels, default names) is
+available in English, Korean and Simplified Chinese and follows the chart locale: chart `locale` option →
+`create({ locale })` / `setLocale` → `<html lang>` → `navigator.language`. Override strings or add a
+language with `registerMessages`:
+
+```ts
+import { registerMessages } from 'charturbo';
+
+registerMessages('ko', { common: { total: '총계' } });
+registerMessages('ja', { common: { total: '合計', value: '値' } });
+```
+
 ## Documentation
 
-- API reference: `npm run docs` (TypeDoc → `docs/api/`).
+- Guide and chart manual in English, 한국어 and 简体中文: https://jparkk0517.github.io/Charturbo/docs/
+- API reference: `npm run docs` (TypeDoc → `docs/public/api/`).
 - Examples (every chart family with its source): https://jparkk0517.github.io/Charturbo/ (locally: `npm run examples:dev`).
 - Changes: [CHANGELOG.md](./CHANGELOG.md) (0.x: minor = new features or breaking changes, patch = fixes).
 

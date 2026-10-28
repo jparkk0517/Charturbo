@@ -9,7 +9,9 @@ import type { RgbaTuple } from './color';
 import type { A11yChartModel } from './chart-a11y';
 import type { ChartTooltipContext, NodeMetadata, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import type { A11yCommon, BusinessLabelLayer } from './chart-business-util';
+import { getMessages } from './i18n';
 import {
+  localizeRadarMeta,
   radarA11yModel,
   radarPointMetadata,
   radarTooltipContext,
@@ -21,6 +23,7 @@ import {
 import {
   gaugeA11yModel,
   gaugePointMetadata,
+  localizeGaugeMeta,
   gaugeTooltipContext,
   gaugeTooltipHtml,
   GaugeLabelLayer,
@@ -33,10 +36,12 @@ import {
   funnelTooltipContext,
   funnelTooltipHtml,
   FunnelLabelLayer,
+  localizeFunnelMeta,
   sendFunnelColors,
   type FunnelChartMeta,
 } from './chart-funnel';
 import {
+  localizeWaterfallMeta,
   waterfallA11yModel,
   waterfallPointMetadata,
   waterfallTooltipContext,
@@ -92,6 +97,23 @@ export function sendBusinessTheme(backend: WasmCharturboEngineBackend, meta: Bus
 }
 
 /**
+ * Re-resolves the built-in default names of a business chart (series / band / kind names, value
+ * label, appended total) for `locale` (`setLocale`); names given in the options are kept.
+ */
+export function localizeBusinessMeta(meta: BusinessChartMeta, locale: string | undefined): void {
+  switch (meta.kind) {
+    case 'radar':
+      return localizeRadarMeta(meta, locale);
+    case 'gauge':
+      return localizeGaugeMeta(meta, locale);
+    case 'funnel':
+      return localizeFunnelMeta(meta, locale);
+    case 'waterfall':
+      return localizeWaterfallMeta(meta, locale);
+  }
+}
+
+/**
  * Tooltip data of an engine hover result `[is_bar, primary, count, (series, index, value, id) *
  * count]` (pointer, keyboard focus).
  */
@@ -126,11 +148,11 @@ export function businessTooltipHtml(
     case 'radar':
       return radarTooltipHtml(ctx, theme, formatValue);
     case 'gauge':
-      return gaugeTooltipHtml(ctx, meta, theme, formatValue);
+      return gaugeTooltipHtml(ctx, meta, theme, formatValue, locale);
     case 'funnel':
       return funnelTooltipHtml(ctx, theme, formatValue, locale);
     case 'waterfall':
-      return waterfallTooltipHtml(ctx, theme, formatValue);
+      return waterfallTooltipHtml(ctx, theme, formatValue, locale);
   }
 }
 
@@ -150,11 +172,13 @@ export function businessPointMetadata(meta: BusinessChartMeta, id: number): { se
 
 /**
  * A11y model of a business chart meta (typed loosely like every `buildA11yModel` input), or
- * null when the meta is not one.
+ * null when the meta is not one. Locale: `common.locale`, else the one the meta was built with.
  */
 export function businessA11yModel(m: Record<string, unknown>, common: A11yCommon): A11yChartModel | null {
   const fmt = typeof m.format === 'function' ? (m.format as (v: number) => string) : null;
-  const c: A11yCommon = { ...common, formatValue: (v) => (Number.isFinite(v) ? (fmt ? fmt(v) : common.formatValue(v)) : 'no data') };
+  const locale = common.locale ?? (typeof m.locale === 'string' ? m.locale : undefined);
+  const noData = getMessages(locale).common.noData;
+  const c: A11yCommon = { ...common, locale, formatValue: (v) => (Number.isFinite(v) ? (fmt ? fmt(v) : common.formatValue(v)) : noData) };
   switch (m.kind) {
     case 'radar':
       return radarA11yModel(m as unknown as RadarChartMeta, c);
