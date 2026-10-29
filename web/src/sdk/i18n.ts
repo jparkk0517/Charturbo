@@ -14,6 +14,7 @@ import { COMMON_MESSAGES } from './messages/common';
 import { CORE_MESSAGES } from './messages/core';
 import { HIERARCHY_MESSAGES } from './messages/hierarchy';
 import { SPARKLINE_MESSAGES } from './messages/sparkline';
+import { TREE_MESSAGES } from './messages/tree';
 
 /** Languages with built-in messages. */
 export type CharturboLanguage = 'en' | 'ko' | 'zh-CN';
@@ -30,6 +31,7 @@ export interface CharturboMessages {
   business: (typeof BUSINESS_MESSAGES)['en'];
   hierarchy: (typeof HIERARCHY_MESSAGES)['en'];
   sparkline: (typeof SPARKLINE_MESSAGES)['en'];
+  tree: (typeof TREE_MESSAGES)['en'];
 }
 
 /** Partial messages for `registerMessages`: any subset of groups and keys. */
@@ -44,6 +46,7 @@ const builtIn = (lang: CharturboLanguage): CharturboMessages => ({
   business: BUSINESS_MESSAGES[lang],
   hierarchy: HIERARCHY_MESSAGES[lang],
   sparkline: SPARKLINE_MESSAGES[lang],
+  tree: TREE_MESSAGES[lang],
 });
 
 const BUILT_IN: Record<CharturboLanguage, CharturboMessages> = {

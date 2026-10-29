@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 트리 차트 (tidy tree)
+
+- `renderTree(data, options)`: 노드-링크 트리(ECharts `tree`). 엔진(Rust)이 d3 `tree()`와 같은 좌표의 Walker tidy tree를 계산합니다. `layout: 'orthogonal' | 'radial'`, `orient: 'LR' | 'RL' | 'TB' | 'BT'`, `edgeShape: 'curve' | 'polyline'`, `symbol` · `symbolSize` · `lineWidth` · `curvature`, `colorBy: 'group'`. 입력은 계층 차트와 같은 중첩 노드 또는 평면 행이며 노드별 `collapsed`를 받습니다.
+- 펼치기 / 접기: 클릭, Enter / Space, `initialTreeDepth`(기본 2, -1 = 전부), `setTreeNodeExpanded` · `toggleTreeNode`, `'treeToggle'` 이벤트(React `onTreeToggle`, Vue `treeToggle`). 토글마다 다시 배치하고 애니메이션이 켜져 있으면 트윈합니다. 접힌 부모는 채운 기호로 그립니다.
+- 라벨은 방향별로 놓이고 방사형에서는 바깥쪽으로 회전합니다. 툴팁(경로 · 이름 · 값), 접근성 요약 · 표 · 키보드 탐색, CSV / SVG 내보내기, React / Vue `type="tree"`, 영어 · 한국어 · 중국어 문구를 지원합니다. 팬 / 줌은 아직 없습니다.
+- 예제 `hierarchy/05-tree` · `06-tree-radial`, fixture `tree` · `tree-tb-polyline` · `tree-radial`, 문서 `charts/tree`.
+
 ### 변경 (호환성 깨짐) — 그래프 레이아웃 GPU 상주
 
 - `stepPhysicsAsync`가 GPU에 상주하는 배치를 진행합니다. 위치·속도는 GPU 버퍼에 남고, CPU는 자신의 배치 편집만 올리며 비동기 readback을 1~2 프레임 뒤에 반영합니다. 자동 sleep 판정은 매 스텝 GPU에서 셉니다. GPU 상주 중에는 절두체 컬링을 생략합니다.

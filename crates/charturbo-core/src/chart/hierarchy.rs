@@ -12,6 +12,7 @@ use super::*;
 use super::sankey::SankeyChart;
 use super::sunburst::SunburstChart;
 use super::treemap::TreemapChart;
+use super::tidy_tree::{TidyTreeChart, TidyTreeOptions};
 pub(crate) use crate::renderer::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillStyleRaw, FILL_EMPH_ALPHA, FILL_EMPH_FADE};
 
 /// Parent of the root.
@@ -460,12 +461,13 @@ pub(crate) enum HierChart {
     Treemap(TreemapChart),
     Sunburst(SunburstChart),
     Sankey(SankeyChart),
+    Tree(TidyTreeChart),
 }
 
 impl HierChart {
     pub(crate) fn frame_camera(&self, camera: &mut OrbitCamera, css: (f32, f32), padding: &ChartPadding) {
         match self {
-            HierChart::Treemap(_) | HierChart::Sankey(_) => frame_css_plot(camera, css, padding),
+            HierChart::Treemap(_) | HierChart::Sankey(_) | HierChart::Tree(_) => frame_css_plot(camera, css, padding),
             HierChart::Sunburst(s) => s.frame_camera(camera, css, padding),
         }
     }
@@ -475,7 +477,7 @@ impl HierChart {
         match self {
             HierChart::Treemap(t) => t.legend.len(),
             HierChart::Sunburst(s) => s.legend.len(),
-            HierChart::Sankey(_) => 0,
+            HierChart::Sankey(_) | HierChart::Tree(_) => 0,
         }
     }
 
@@ -484,6 +486,7 @@ impl HierChart {
             HierChart::Treemap(t) => t.tree.len(),
             HierChart::Sunburst(s) => s.tree.len(),
             HierChart::Sankey(s) => s.node_count() + s.link_count(),
+            HierChart::Tree(t) => t.tree.len(),
         }
     }
 
@@ -496,7 +499,7 @@ impl HierChart {
                 false
             }
             HierChart::Sunburst(s) => s.set_emphasis(series),
-            HierChart::Sankey(_) => false,
+            HierChart::Sankey(_) | HierChart::Tree(_) => false,
         }
     }
 
@@ -505,6 +508,7 @@ impl HierChart {
             HierChart::Treemap(t) => t.sample(global_id),
             HierChart::Sunburst(s) => s.sample(global_id),
             HierChart::Sankey(s) => s.sample(global_id),
+            HierChart::Tree(t) => t.sample(global_id),
         }
     }
 
@@ -513,6 +517,7 @@ impl HierChart {
             HierChart::Treemap(t) => t.hover(view, ndc),
             HierChart::Sunburst(s) => s.hover(view, ndc),
             HierChart::Sankey(s) => s.hover(view, ndc),
+            HierChart::Tree(t) => t.hover(view, ndc),
         }
     }
 
@@ -522,6 +527,7 @@ impl HierChart {
             HierChart::Treemap(t) if series == 0 => (*t.tree.value.get(index as usize)?, index),
             HierChart::Sunburst(s) if series == 0 => (*s.tree.value.get(index as usize)?, index),
             HierChart::Sankey(s) => s.item_value(series, index)?,
+            HierChart::Tree(t) if series == 0 && t.is_visible(index) => (*t.tree.value.get(index as usize)?, index),
             _ => return None,
         };
         Some(hover_one(series, index, value, global_id))
@@ -562,6 +568,68 @@ impl ChartState {
         Self::with_kind(ChartKind::Hierarchy(HierChart::Sankey(SankeyChart::new(graph, opts, style))))
     }
 
+    /// Creates a tidy tree (see tidy_tree.rs) from a validated tree (children in input order:
+    /// build it with zero values). `state` per node: 0 = by `initial_depth`, 1 = expanded,
+    /// 2 = collapsed; `label_px` = estimated label width per node (CSS px).
+    pub fn new_tidy_tree(tree: Tree, opts: TidyTreeOptions, state: &[u8], label_px: &[f32], style: HierarchyStyle) -> Self {
+        Self::with_kind(ChartKind::Hierarchy(HierChart::Tree(TidyTreeChart::new(tree, opts, state, label_px, style))))
+    }
+
+    /// Expands / collapses a tidy tree node (parents only; animated with animations on).
+    /// Returns false when unchanged, hidden (a collapsed ancestor) or not a tree chart.
+    pub fn set_tree_node_expanded(&mut self, node: u32, expanded: bool) -> bool {
+        let ChartKind::Hierarchy(HierChart::Tree(t)) = &self.kind else {
+            return false;
+        };
+        if !t.has_children(node) || !t.is_visible(node) || t.expanded[node as usize] == expanded {
+            return false;
+        }
+        // Tween from the frame on screen: land a running one first, stage the old layout with
+        // the old + new nodes drawn, snapshot it, then switch (the next frame builds the target)
+        self.finish_animation();
+        let animate = self.animation().is_some();
+        let ChartKind::Hierarchy(HierChart::Tree(t)) = &mut self.kind else {
+            return false;
+        };
+        let staged = animate && t.stage_toggle(node, expanded, &mut self.series, &mut self.styled.markers);
+        if !staged {
+            t.set_expanded(node, expanded, false);
+        }
+        if staged {
+            self.begin_update_animation();
+        }
+        self.hover = None;
+        self.hover_ndc = None;
+        self.dirty.fills = true;
+        self.dirty.series = true;
+        self.dirty.overlay = true;
+        true
+    }
+
+    /// Flips a tidy tree node (see `set_tree_node_expanded`).
+    pub fn toggle_tree_node(&mut self, node: u32) -> bool {
+        let ChartKind::Hierarchy(HierChart::Tree(t)) = &self.kind else {
+            return false;
+        };
+        let Some(&e) = t.expanded.get(node as usize) else {
+            return false;
+        };
+        self.set_tree_node_expanded(node, !e)
+    }
+
+    /// Expanded flag per node of a tidy tree.
+    pub fn tree_expanded(&self) -> Option<&[bool]> {
+        match self.hier()? {
+            HierChart::Tree(t) => Some(&t.expanded),
+            _ => None,
+        }
+    }
+
+    /// Shown (every ancestor expanded) flag of a tidy tree node.
+    pub fn tree_node_visible(&self, node: u32) -> bool {
+        matches!(self.hier(), Some(HierChart::Tree(t)) if t.is_visible(node))
+    }
+
     fn hier(&self) -> Option<&HierChart> {
         match &self.kind {
             ChartKind::Hierarchy(h) => Some(h),
@@ -576,6 +644,7 @@ impl ChartState {
                 HierChart::Treemap(t) => t.set_style(style),
                 HierChart::Sunburst(s) => s.set_style(style),
                 HierChart::Sankey(s) => s.set_style(style),
+                HierChart::Tree(t) => t.set_style(style),
             }
             self.dirty.fills = true;
             self.dirty.overlay = true;
@@ -587,6 +656,7 @@ impl ChartState {
         match self.hier()? {
             HierChart::Treemap(t) => Some(&t.tree),
             HierChart::Sunburst(s) => Some(&s.tree),
+            HierChart::Tree(t) => Some(&t.tree),
             HierChart::Sankey(_) => None,
         }
     }
@@ -597,6 +667,7 @@ impl ChartState {
             HierChart::Treemap(t) => &t.colors,
             HierChart::Sunburst(s) => &s.colors,
             HierChart::Sankey(s) => &s.colors,
+            HierChart::Tree(t) => &t.colors,
         })
     }
 
@@ -605,7 +676,7 @@ impl ChartState {
         Some(match self.hier()? {
             HierChart::Treemap(t) => &t.legend,
             HierChart::Sunburst(s) => &s.legend,
-            HierChart::Sankey(_) => &[],
+            HierChart::Sankey(_) | HierChart::Tree(_) => &[],
         })
     }
 
@@ -615,6 +686,7 @@ impl ChartState {
             HierChart::Treemap(t) => (&t.labels, t.labels_revision),
             HierChart::Sunburst(s) => (&s.labels, s.labels_revision),
             HierChart::Sankey(s) => (&s.labels, s.labels_revision),
+            HierChart::Tree(t) => (&t.labels, t.labels_revision),
         })
     }
 
@@ -625,6 +697,7 @@ impl ChartState {
             HierChart::Treemap(t) => t.layout_info(),
             HierChart::Sunburst(s) => s.layout_info(),
             HierChart::Sankey(s) => s.layout_info(),
+            HierChart::Tree(t) => t.layout_info(),
         };
         info.hovered = hovered;
         Some(info)
@@ -637,7 +710,7 @@ impl ChartState {
         match self.hier()? {
             HierChart::Treemap(t) => t.drill_target(node),
             HierChart::Sunburst(s) => s.drill_target(node),
-            HierChart::Sankey(_) => None,
+            HierChart::Sankey(_) | HierChart::Tree(_) => None,
         }
     }
 
@@ -680,6 +753,7 @@ impl ChartState {
     /// its own keys) and redraws the hover overlay.
     pub(crate) fn prepare_hierarchy(&mut self, view: &ChartView) {
         let hovered = self.hover.as_ref().and_then(|h| h.items.get(h.primary)).map(|i| (i.series, i.index));
+        let animating = self.is_animating();
         let ChartKind::Hierarchy(h) = &mut self.kind else {
             return;
         };
@@ -691,12 +765,16 @@ impl ChartState {
             underlay: &mut self.underlay,
             patches: &mut self.fill_patches,
             style: &mut self.fill_style,
+            markers: &mut self.styled.markers,
+            overlay_markers: &mut self.markers,
         };
         let changed = match h {
             HierChart::Treemap(t) => t.prepare(view, &self.padding, hovered, force, self.dirty.overlay, out),
             HierChart::Sunburst(s) => s.prepare(view, &self.padding, hovered, force, out),
             HierChart::Sankey(s) => s.prepare(view, &self.padding, hovered, force, out),
+            HierChart::Tree(t) => t.prepare(view, &self.padding, hovered, force, self.dirty.overlay, animating, out),
         };
+        let tree = matches!(h, HierChart::Tree(_));
         self.dirty.fills |= changed.fills;
         self.dirty.series |= changed.fills;
         self.dirty.overlay |= changed.overlay;
@@ -704,7 +782,8 @@ impl ChartState {
         if self.dirty.underlay {
             self.underlay.clear();
         }
-        if self.dirty.overlay {
+        // Tree: the hover symbol lives in the overlay markers (rebuilt by `prepare`)
+        if self.dirty.overlay && !tree {
             self.markers.clear();
         }
     }
@@ -723,6 +802,10 @@ pub(crate) struct HierFrame<'a> {
     pub patches: &'a mut Vec<(u32, u32)>,
     /// Fill emphasis uniform (set `HierChanged::style` when it changes)
     pub style: &'a mut ChartFillStyleRaw,
+    /// Node symbols (tree; staged with the edges in `edges`)
+    pub markers: &'a mut Vec<ChartMarkerRaw>,
+    /// Hover symbol (tree)
+    pub overlay_markers: &'a mut Vec<ChartMarkerRaw>,
 }
 
 /// What a hierarchy frame rebuilt.

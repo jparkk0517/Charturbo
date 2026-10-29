@@ -121,6 +121,14 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '그라데이션 링크와 단계 스타일의 세로 생키', description: 'orient: vertical은 흐름을 위에서 아래로 그립니다. 리본은 출발 색에서 도착 색으로 섞이고, levels가 열의 색과 링크 불투명도를 정합니다.' },
     zh: { title: '带渐变连线和层级样式的纵向桑基图', description: 'orient: vertical 让流向自上而下；连线由源节点颜色渐变到目标节点颜色；levels 设置各列的颜色和连线不透明度。' },
   },
+  'hierarchy/05-tree': {
+    ko: { title: '접고 펼치는 트리', description: 'Rust에서 d3 tree()와 같은 정돈된 트리 레이아웃을 계산합니다. 노드를 클릭하거나 Enter / Space를 누르면 펼치거나 접고, 트리는 트윈과 함께 다시 배치됩니다.' },
+    zh: { title: '可折叠树图', description: '在 Rust 中计算与 d3 tree() 一致的整齐树布局。点击节点或按 Enter / 空格展开或折叠，树会带过渡动画重新布局。' },
+  },
+  'hierarchy/06-tree-radial': {
+    ko: { title: '방사형 트리', description: 'layout: radial은 루트를 가운데, 말단을 바깥 원에 둡니다. 레이블은 바깥쪽으로 회전합니다. colorBy: group은 최상위 가지마다 색을 나눕니다.' },
+    zh: { title: '径向树图', description: 'layout: radial 将根节点置于中心、叶节点置于外圈，标签向外旋转。colorBy: group 为每个顶层分支着色。' },
+  },
   'line/01-million': {
     ko: { title: '100만 포인트 선', description: 'Rust의 픽셀 열 단위 M4 데시메이션으로 모든 스파이크를 유지합니다. 휠 = 확대/축소, 드래그 = 이동, 더블클릭 = 초기화.' },
     zh: { title: '100 万点折线图', description: 'Rust 中按像素列进行 M4 抽稀，保留每个尖峰。滚轮 = 缩放，拖动 = 平移，双击 = 重置。' },

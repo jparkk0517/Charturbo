@@ -5,6 +5,7 @@
 import type { ChartTooltipContext, NodeDetails, CharturboTheme } from './charturbo';
 import type { CharturboSelection } from './chart-brush';
 import type { CharturboDrillEvent } from './chart-hierarchy';
+import type { CharturboTreeToggleEvent } from './chart-tree';
 
 /** Visible chart range in data units (line x: series `x` or sample index; y: scatter only). */
 export interface CharturboRange {
@@ -48,6 +49,8 @@ export interface CharturboEventMap {
   select: CharturboSelection;
   /** Treemap / sunburst drilled into a node or back up (click, breadcrumb, Enter / Escape, `drillTo`) */
   drill: CharturboDrillEvent;
+  /** Tidy tree node expanded / collapsed (click, Enter / Space, `toggleTreeNode`) */
+  treeToggle: CharturboTreeToggleEvent;
 }
 
 export type CharturboEventName = keyof CharturboEventMap;

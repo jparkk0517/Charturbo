@@ -59,6 +59,7 @@ mod time_zone;
 mod waterfall;
 mod zoom;
 mod treemap;
+mod tidy_tree;
 
 pub use animation::{AnimSnapshot, AnimationOptions, Easing, MAX_ANIMATED_MARKS};
 use area::AreaChart;
@@ -118,6 +119,7 @@ pub use sankey::{
 };
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
+pub use tidy_tree::{tidy_fit, tidy_layout, TidyTreeOptions, TreeEdgeShape, TreeLayout, TreeOrient, TreeSymbol, MAX_TREE_LABELS, TREE_CURVE_SEGMENTS};
 pub use scale::{log_nice_domain, log_ticks, AxisScale, ScaleType};
 pub use regression::{fit_trend, TrendFit, TrendModel, MAX_TREND_ORDER};
 pub use scatter::{RippleOptions, ScatterLayout, ScatterPoints, ScatterTrendline};

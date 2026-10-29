@@ -104,6 +104,7 @@ const CHARTS: Group[] = [
     pages: [
       ['treemap-sunburst', t('Treemap · Sunburst', '트리맵 · 선버스트', '矩形树图 · 旭日图')],
       ['sankey', t('Sankey', '생키', '桑基图')],
+      ['tree', t('Tree', '트리', '树图')],
     ],
   },
   {

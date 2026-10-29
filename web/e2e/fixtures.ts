@@ -829,6 +829,49 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    name: 'tree',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderTree(treeData(), {
+          title: 'Tree',
+          initialTreeDepth: -1,
+          padding: { top: 36, right: 12, bottom: 12, left: 12 },
+          colors: ctx.params.color ? [ctx.params.color] : undefined,
+        });
+      }),
+  },
+  {
+    name: 'tree-tb-polyline',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderTree(treeData(), {
+          title: 'Top-down tree',
+          orient: 'TB',
+          edgeShape: 'polyline',
+          symbol: 'rect',
+          initialTreeDepth: 2,
+          labels: false,
+          padding: { top: 36, right: 12, bottom: 12, left: 12 },
+        });
+      }),
+  },
+  {
+    name: 'tree-radial',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderTree(treeData(), {
+          title: 'Radial tree',
+          layout: 'radial',
+          initialTreeDepth: -1,
+          colorBy: 'group',
+          padding: { top: 36, right: 12, bottom: 12, left: 12 },
+        });
+      }),
+  },
+  {
     name: 'sparklines',
     theme: 'light',
     render: async (ctx) => {
@@ -1007,6 +1050,21 @@ function energyFlows() {
       { source: 'Heat', target: 'Industry', value: 10 },
       { source: 'Heat', target: 'Losses', value: 4 },
       { source: 'Gas', target: 'Transport', value: 6 },
+    ],
+  };
+}
+
+/** Fixed 4-level tree of the tidy tree fixtures (uneven fan-out; one branch starts collapsed). */
+function treeData() {
+  const leaves = (prefix: string, n: number) => Array.from({ length: n }, (_, k) => ({ name: `${prefix}${k + 1}` }));
+  return {
+    name: 'core',
+    children: [
+      { name: 'chart', children: [{ name: 'line', children: leaves('l', 3) }, { name: 'bar', children: leaves('b', 2) }, { name: 'pie' }] },
+      { name: 'scene', children: [{ name: 'mesh', children: leaves('m', 4) }, { name: 'light' }] },
+      { name: 'graph', collapsed: true, children: leaves('g', 5) },
+      { name: 'svg' },
+      { name: 'wasm', children: [{ name: 'bind', children: leaves('w', 2) }] },
     ],
   };
 }
