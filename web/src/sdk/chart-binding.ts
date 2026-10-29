@@ -36,6 +36,7 @@ import type { FunnelChartData, FunnelChartOptions } from './chart-funnel';
 import type { ThemeRiverChartOptions, ThemeRiverDatum } from './chart-theme-river';
 import type { WaterfallChartData, WaterfallChartOptions } from './chart-waterfall';
 import type { CalendarHeatmapData, CalendarHeatmapOptions } from './chart-calendar';
+import type { ChordChartData, ChordChartOptions } from './chart-chord';
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
 import type { TreeChartData, TreeChartOptions } from './chart-tree';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
@@ -73,6 +74,8 @@ export interface CharturboChartSpecMap {
   gauge: { data: GaugeChartData; options: GaugeChartOptions };
   funnel: { data: FunnelChartData; options: FunnelChartOptions };
   calendar: { data: CalendarHeatmapData; options: CalendarHeatmapOptions };
+  /** Flow matrix (or nodes / links) as group arcs and ribbons */
+  chord: { data: ChordChartData; options: ChordChartOptions };
   waterfall: { data: WaterfallChartData; options: WaterfallChartOptions };
   treemap: { data: HierarchyData; options: TreemapChartOptions };
   sunburst: { data: HierarchyData; options: SunburstChartOptions };
@@ -199,6 +202,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'calendar':
       sdk.renderCalendarHeatmap(data as CalendarHeatmapData, options as CalendarHeatmapOptions);
+      break;
+    case 'chord':
+      sdk.renderChordChart(data as ChordChartData, options as ChordChartOptions);
       break;
     case 'waterfall':
       sdk.renderWaterfallChart(data as WaterfallChartData, options as WaterfallChartOptions);

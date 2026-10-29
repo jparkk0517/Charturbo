@@ -115,6 +115,23 @@ const en = {
     'Page Up and Page Down for the previous and next month, Home and End for the first and last day, and Escape to clear.',
   calendarAnnounce: (date: string, name: string, value: string, position: string) => `${date}, ${name} ${value}. ${position}`,
   calendarAnnounceEmpty: (date: string, position: string) => `${date}, no data. ${position}`,
+
+  /** Chord diagram (chart-chord.ts): default group name (1-based) */
+  chordGroup: (i: number) => `Group ${i}`,
+  /** Corner cell of the flow matrix table (rows = from, columns = to) */
+  chordCorner: 'From \\ To',
+  chordFlow: (from: string, to: string, value: string) => `${from} → ${to} ${value}`,
+  /** `largest`: the biggest flows, joined (null = none) */
+  chordSummary: (nGroups: number, groups: string, nChords: number, chords: string, largest: string | null) =>
+    `Chord diagram, ${groups} ${plural(nGroups, 'group', 'groups')}, ${chords} ${plural(nChords, 'chord', 'chords')}${largest ? `; largest: ${largest}` : ''}.`,
+  chordGroupTotal: (name: string, total: string) => `${name}: total ${total}.`,
+  chordGroupHidden: (name: string) => `${name}: hidden.`,
+  chordHelp:
+    'Keyboard: focus the chart, then use Left and Right arrows to move between groups or chords, Down to go from a group to its chords, Up to go from a chord to its source group, Home and End for the first and last item, and Escape to clear.',
+  chordGroupAnnounce: (name: string, total: string, position: string) => `${name}, total ${total}. ${position}`,
+  chordGroupHiddenAnnounce: (name: string, position: string) => `${name}, hidden. ${position}`,
+  /** `back`: the reverse flow (null = none) */
+  chordAnnounce: (flow: string, back: string | null, position: string) => `${flow}${back ? `, ${back}` : ''}. ${position}`,
 };
 
 export type BusinessMessages = typeof en;
@@ -190,6 +207,18 @@ const ko: BusinessMessages = {
     'Page Up·Page Down으로 이전 달·다음 달, Home·End로 첫날·마지막 날 이동, Esc로 선택 해제.',
   calendarAnnounce: (date, name, value, position) => `${date}, ${name} ${value}. ${position}`,
   calendarAnnounceEmpty: (date, position) => `${date}, 데이터 없음. ${position}`,
+
+  chordGroup: (i) => `그룹 ${i}`,
+  chordCorner: '출발 \\ 도착',
+  chordFlow: (from, to, value) => `${from} → ${to} ${value}`,
+  chordSummary: (_nGroups, groups, _nChords, chords, largest) => `코드 다이어그램, 그룹 ${groups}개, 코드 ${chords}개${largest ? `; 가장 큰 흐름: ${largest}` : ''}.`,
+  chordGroupTotal: (name, total) => `${name}: 합계 ${total}.`,
+  chordGroupHidden: (name) => `${name}: 숨김.`,
+  chordHelp:
+    '키보드: 차트에 포커스를 둔 뒤 왼쪽·오른쪽 화살표로 그룹 또는 코드 사이를 이동, 아래 화살표로 그룹에서 그 코드로, 위 화살표로 코드에서 출발 그룹으로 이동, Home·End로 처음·마지막 항목 이동, Esc로 선택 해제.',
+  chordGroupAnnounce: (name, total, position) => `${name}, 합계 ${total}. ${position}`,
+  chordGroupHiddenAnnounce: (name, position) => `${name}, 숨김. ${position}`,
+  chordAnnounce: (flow, back, position) => `${flow}${back ? `, ${back}` : ''}. ${position}`,
 };
 
 const zh: BusinessMessages = {
@@ -263,6 +292,17 @@ const zh: BusinessMessages = {
     '用 Page Up 和 Page Down 跳到上一个月和下一个月，用 Home 和 End 跳到第一天和最后一天，按 Esc 清除焦点。',
   calendarAnnounce: (date, name, value, position) => `${date}，${name} ${value}。${position}`,
   calendarAnnounceEmpty: (date, position) => `${date}，无数据。${position}`,
+
+  chordGroup: (i) => `组 ${i}`,
+  chordCorner: '来源 \\ 目标',
+  chordFlow: (from, to, value) => `${from} → ${to} ${value}`,
+  chordSummary: (_nGroups, groups, _nChords, chords, largest) => `和弦图，${groups} 个组，${chords} 条弦${largest ? `；最大流量：${largest}` : ''}。`,
+  chordGroupTotal: (name, total) => `${name}：合计 ${total}。`,
+  chordGroupHidden: (name) => `${name}：已隐藏。`,
+  chordHelp: '键盘操作：聚焦图表后，用左右方向键在组或弦之间移动，按下方向键从组进入其弦，按上方向键从弦回到来源组，用 Home 和 End 跳到第一项和最后一项，按 Esc 清除焦点。',
+  chordGroupAnnounce: (name, total, position) => `${name}，合计 ${total}。${position}`,
+  chordGroupHiddenAnnounce: (name, position) => `${name}，已隐藏。${position}`,
+  chordAnnounce: (flow, back, position) => `${flow}${back ? `，${back}` : ''}。${position}`,
 };
 
 export const BUSINESS_MESSAGES = { en, ko, 'zh-CN': zh } as const;

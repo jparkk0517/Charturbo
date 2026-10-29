@@ -938,6 +938,57 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    name: 'chord',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderChordChart(
+          {
+            names: ['Black', 'Blond', 'Brown', 'Red'],
+            matrix: [
+              [11975, 5871, 8916, 2868],
+              [1951, 10048, 2060, 6171],
+              [8010, 16145, 8090, 8045],
+              [1013, 990, 940, 6907],
+            ],
+          },
+          { title: 'Chord', format: ',.0f', padding: { top: 40 } }
+        );
+      }),
+  },
+  {
+    name: 'chord-directed',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderChordChart(
+          {
+            nodes: ['North', 'East', 'South', 'West', 'Center'],
+            links: [
+              { source: 'North', target: 'East', value: 9 },
+              { source: 'East', target: 'North', value: 3 },
+              { source: 'North', target: 'South', value: 5 },
+              { source: 'South', target: 'West', value: 7 },
+              { source: 'West', target: 'South', value: 2 },
+              { source: 'West', target: 'Center', value: 6 },
+              { source: 'Center', target: 'North', value: 4 },
+              { source: 'East', target: 'Center', value: 8 },
+            ],
+          },
+          {
+            title: 'Directed chord',
+            directed: true,
+            ribbonColor: 'gradient',
+            sortSubgroups: 'descending',
+            labelRotate: true,
+            padAngle: 4,
+            startAngle: 90,
+            padding: { top: 40 },
+          }
+        );
+      }),
+  },
+  {
     name: 'sparklines',
     theme: 'light',
     render: async (ctx) => {

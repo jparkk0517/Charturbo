@@ -21,6 +21,7 @@ mod bar_style;
 mod boxplot;
 mod brush;
 mod candle;
+mod chord;
 mod calendar;
 mod combo;
 mod fill;
@@ -122,6 +123,9 @@ pub use sankey::{
     validate_sankey, SankeyAlign, SankeyChart, SankeyGraph, SankeyLevel, SankeyLink, SankeyLinkColor, SankeyNode, SankeyOptions, SankeyOrient,
 };
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
+pub use chord::{
+    chord_layout, validate_chord, Chord, ChordEnd, ChordGroup, ChordLayout, ChordOptions, ChordRibbonColor, ChordSort, ChordSorts, MAX_CHORD_GROUPS,
+};
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
 pub use tidy_tree::{tidy_fit, tidy_layout, TidyTreeOptions, TreeEdgeShape, TreeLayout, TreeOrient, TreeSymbol, MAX_TREE_LABELS, TREE_CURVE_SEGMENTS};
 pub use scale::{log_nice_domain, log_ticks, AxisScale, ScaleType};
@@ -791,8 +795,8 @@ impl ChartState {
             }
             // One fixed series (no legend toggles)
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => false,
-            // Legend groups of hierarchy charts only emphasize
-            ChartKind::Hierarchy(_) => false,
+            // Legend groups of hierarchy charts only emphasize (chord groups re-lay out)
+            ChartKind::Hierarchy(h) => h.set_visible(series, visible),
             ChartKind::Calendar(_) => false,
         };
         // A hidden series must not stay hovered; bar layouts / stacked areas moved either way, so
@@ -806,6 +810,14 @@ impl ChartState {
         let restacked = restacked || matches!(self.kind, ChartKind::Pie(_));
         // Combo bars restack / regroup and the shared tooltip lists the visible series: re-pick
         let restacked = restacked || matches!(self.kind, ChartKind::Combo(_));
+        // Chord groups re-lay out their angles and tween from the frame on screen
+        let chord = matches!(self.kind, ChartKind::Hierarchy(HierChart::Chord(_)));
+        let restacked = restacked || chord;
+        if changed && chord {
+            self.dirty.fills = true;
+            self.dirty.overlay = true;
+            self.begin_update_animation();
+        }
         let stale = |h: &HoverResult| {
             h.is_bar || restacked || (!visible && h.items.iter().any(|i| i.series as usize == series))
         };
@@ -830,7 +842,7 @@ impl ChartState {
             ChartKind::Combo(c) => c.visible(series),
             ChartKind::Radar(r) => r.visible.get(series).copied().unwrap_or(false),
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => series == 0,
-            ChartKind::Hierarchy(h) => series < h.series_count(),
+            ChartKind::Hierarchy(h) => h.series_visible(series),
             ChartKind::Calendar(_) => false,
         }
     }

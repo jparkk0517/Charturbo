@@ -8,6 +8,7 @@ mod lib_business;
 mod lib_theme_river;
 mod lib_heatmap;
 mod lib_calendar;
+mod lib_chord;
 mod lib_sparkline;
 mod lib_pie;
 mod lib_hierarchy;

@@ -70,6 +70,7 @@ export function CpuChart({ values, dark }: { values: Float32Array; dark: boolean
 | `'pie'`, `'combo'`, `'radar'`, `'gauge'`, `'funnel'`, `'waterfall'` | `renderPieChart`, `renderComboChart`, `renderRadarChart`, `renderGauge`, `renderFunnelChart`, `renderWaterfallChart` |
 | `'calendar'` | `renderCalendarHeatmap` |
 | `'treemap'`, `'sunburst'`, `'sankey'` | `renderTreemap`, `renderSunburst`, `renderSankey` |
+| `'chord'` | `renderChordChart` |
 | `'sparkline'` | `renderSparkline` |
 | `'pointCloud3d'`, `'surface3d'` | `renderPointCloud3D`, `renderSurface3D` |
 

@@ -133,6 +133,14 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '방사형 트리', description: 'layout: radial은 루트를 가운데, 말단을 바깥 원에 둡니다. 레이블은 바깥쪽으로 회전합니다. colorBy: group은 최상위 가지마다 색을 나눕니다.' },
     zh: { title: '径向树图', description: 'layout: radial 将根节点置于中心、叶节点置于外圈，标签向外旋转。colorBy: group 为每个顶层分支着色。' },
   },
+  'hierarchy/07-chord': {
+    ko: { title: '코드 다이어그램', description: 'Rust로 구현한 d3-chord 레이아웃: 그룹마다 전체 흐름 크기의 호를 두고 그룹 사이를 리본으로 잇습니다. 그룹에 마우스를 올리면 해당 리본이 강조되고, 범례를 누르면 그룹을 숨기고 다시 배치합니다.' },
+    zh: { title: '和弦图', description: '用 Rust 实现的 d3-chord 布局：每个组的弧长与其总流量成正比，组之间以带状弦相连。悬停某组会高亮其弦；点击图例可隐藏该组并重新布局。' },
+  },
+  'hierarchy/08-chord-directed': {
+    ko: { title: '방향 코드와 그라데이션 리본', description: 'directed: true는 방향마다 리본을 하나씩 배치하고(d3 chordDirected) 화살표 끝을 그립니다. 리본은 출발 색에서 도착 색으로 이어집니다. ECharts 형식 nodes / links, 반지름 방향 이름.' },
+    zh: { title: '有向和弦图与渐变弦', description: 'directed: true 为每个方向各布局一条弦（d3 chordDirected）并绘制箭头；弦由来源色渐变到目标色。ECharts 风格的 nodes / links，名称沿半径方向排列。' },
+  },
   'line/01-million': {
     ko: { title: '100만 포인트 선', description: 'Rust의 픽셀 열 단위 M4 데시메이션으로 모든 스파이크를 유지합니다. 휠 = 확대/축소, 드래그 = 이동, 더블클릭 = 초기화.' },
     zh: { title: '100 万点折线图', description: 'Rust 中按像素列进行 M4 抽稀，保留每个尖峰。滚轮 = 缩放，拖动 = 平移，双击 = 重置。' },

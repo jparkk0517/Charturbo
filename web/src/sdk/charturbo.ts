@@ -269,6 +269,8 @@ export type {
   CalendarSplitLineOptions,
   ChartCalendarTooltip,
 } from './chart-calendar';
+import { chordMeta, sendChord, syncChord, type ChartChordTooltip, type ChordChartData, type ChordChartOptions } from './chart-chord';
+export type { ChartChordTooltip, ChordChartData, ChordChartOptions, ChordLink, ChordNode, ChordSortOrder } from './chart-chord';
 import {
   HierarchyLabelLayer,
   drillEvent,
@@ -943,7 +945,7 @@ export interface ChartTooltipContext {
   chartType:
     | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
-    | 'calendar'
+    | 'calendar' | 'chord'
     | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'tree'
     | 'themeRiver';
   /**
@@ -962,6 +964,8 @@ export interface ChartTooltipContext {
   waterfall?: ChartWaterfallTooltip;
   /** Hovered calendar day (empty days too: `value` NaN) */
   calendar?: ChartCalendarTooltip;
+  /** Hovered chord group (total) or ribbon (flow and the reverse flow) */
+  chord?: ChartChordTooltip;
   /** Hovered treemap / sunburst node: path, value, shares of its parent and of the total */
   hierarchy?: ChartHierarchyTooltip;
   /** Hovered sankey link (`A → B`, share of A) or node (inflow / outflow) */
@@ -1939,6 +1943,12 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_calendar_labels?(): Float64Array;
   /** `[(start day, end day, first id) * calendars]` */
   chart_calendar_blocks?(): Float64Array;
+  /** Chord diagram (chart-chord.ts): row-major `n x n` flows; options as in lib_chord.rs. Returns n */
+  set_chord_chart?(matrix: Float64Array, options: Float64Array): number;
+  /** `[(start, end, value, visible) * n]` by input index */
+  chart_chord_groups?(): Float64Array;
+  /** `[(source, start, end, value, target, start, end, value) * chords]` in draw order */
+  chart_chord_chords?(): Float64Array;
   /** Waterfall (chart-waterfall.ts): totals 1 = total bar; style = increase, decrease, total, connector RGBA */
   set_waterfall_chart?(
     values: Float64Array,
@@ -2314,7 +2324,7 @@ function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
 
 /** Brush selection kind of a chart mode (`null`: no brush, e.g. pies and hierarchy charts). */
 function selectionKind(mode: Charturbo['chartMode']): CharturboSelection['kind'] | null {
-  if (mode === 'calendar') return null;
+  if (mode === 'calendar' || mode === 'chord') return null;
   return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' || mode === 'tree' ? null : mode;
 }
 
@@ -5225,6 +5235,8 @@ export class Charturbo {
       // The pointer still rests on the legend item: a hidden slice must not keep the rest faded
       if (!visible) this.emphasizeSeries(null);
     }
+    // Chord: the engine re-laid out the groups and ribbons
+    if (meta.kind === 'chord') syncChord(this.backend, meta);
     this.syncLegendState();
     this.a11y.refresh();
     if (changed) this.events.emit('legendtoggle', { series: seriesIndex, visible });
@@ -6099,7 +6111,7 @@ export class Charturbo {
     legend.setAttribute('aria-label', getMessages(this.chartLocale()).core.legend);
     const meta = this.chartMeta;
     if (meta && meta.kind !== 'bar' && meta.kind !== 'heatmap' && p.legend.show) {
-      const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey';
+      const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey' || meta.kind === 'chord';
       // Scatter series read as dots
       const dot = meta.kind === 'scatter';
       // Multi-ring pies: one entry per name, toggling / emphasizing its slices in every ring
@@ -8643,6 +8655,34 @@ export class Charturbo {
     const legend = { show: false, toggle: false, emphasize: false };
     this.showBusinessChart('calendar', meta, options, legend, { left: 16, right: meta.colorbar.show ? COLORBAR_RESERVE_PX : 16, bottom: 12 });
     return { dayCount, calendarCount: meta.ranges.length };
+  }
+
+  /**
+   * Renders a chord diagram natively (d3-chord `chord()` / `chordDirected()` layout in the
+   * engine): one outer arc per group sized by its total flow, `padAngle` apart from
+   * `startAngle`, and one ribbon per pair of groups (per direction when `directed`, with arrow
+   * tips) colored by source, target or a gradient. Input: a square flow matrix with names, or
+   * ECharts-style nodes / links. Hovering a group lights its ribbons and dims the rest; ribbon
+   * tooltips show both directions. The legend emphasizes / hides groups (re-laid out, tweened
+   * when animation is on). Throws for an invalid matrix or option before the current chart is
+   * replaced. Point ids: group index, then `n + source * n + target` per ribbon.
+   */
+  renderChordChart(data: ChordChartData, options?: ChordChartOptions): { groupCount: number; chordCount: number } {
+    // Validated before the active chart is torn down
+    const meta = chordMeta(data, options, this.businessFormat(options?.format), this.locale);
+    this.beginBusinessChart();
+    sendChord(this.backend, meta, this.theme);
+    meta.engine = { hover: (series, index) => this.backend.chart_hover_hierarchy_item?.(series, index) };
+    const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
+    const legend: ChartLegendState = {
+      show: legendOpt.show ?? meta.n >= 2,
+      toggle: legendOpt.toggle ?? true,
+      emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
+    };
+    this.showBusinessChart('chord', meta, options, legend, { left: 16, right: 16, bottom: 12 });
+    return { groupCount: meta.n, chordCount: meta.chords.length };
   }
 
   /**
