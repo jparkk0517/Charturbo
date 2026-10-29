@@ -29,9 +29,9 @@ HANDOFF의 계약을 따른다.
 
 ## 2A단계: 기존 엔진 재사용 새 차트 (약 2주)
 
-- [ ] 캘린더 히트맵 (calendar 8)
-- [ ] ThemeRiver: wiggle 기준선 (Byron & Wattenberg 2008, d3 `stackOffsetWiggle`) (themeRiver 2)
-- [ ] Tree: Buchheim tidy tree, 4방향, 방사형, 꺾은선 연결 (tree 7)
+- [x] 캘린더 히트맵 (calendar 8): 연 · 월 · 기간 · 여러 캘린더, 가로/세로, `firstDay`, 월 경계선 (음력 · 캘린더 위 파이/그래프 조합은 제외; 중간에 시작하는 범위에서 다음 달 라벨이 빠질 수 있음)
+- [x] ThemeRiver: wiggle 기준선 (Byron & Wattenberg 2008, d3 `stackOffsetWiggle`) (themeRiver 2), silhouette · zero, `insideOut` 순서, 띠 위에서만 호버
+- [x] Tree: Buchheim tidy tree, 4방향, 방사형, 꺾은선 연결 (tree 7), 펼치기/접기 · `initialTreeDepth` (팬/줌 · 레벨별 스타일은 미구현)
 - [ ] 2D 그래프: z 고정 force, 원형 배치, 직교 좌표 위 그래프 (graph 11)
 
 ## 2B단계: 새 도형 차트 (약 2주)
