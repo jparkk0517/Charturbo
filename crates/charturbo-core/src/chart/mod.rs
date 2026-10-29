@@ -35,6 +35,7 @@ mod hierarchy_emphasis_tests;
 mod line;
 mod linestyle;
 mod navigator;
+mod pictorial;
 mod pie;
 mod pieces;
 mod radar;
@@ -112,6 +113,7 @@ use radar::RadarChart;
 pub use radar::{validate_radar, RadarGridShape, RadarLabel, RadarLayoutInfo, RadarOptions, DEFAULT_RADAR_FILL_OPACITY};
 use waterfall::WaterfallChart;
 pub use waterfall::{compute_waterfall, validate_waterfall, WaterfallItem, WaterfallKind, WaterfallOptions, WaterfallStyle};
+pub use pictorial::{pictorial_symbol_valid, MAX_PICTORIAL_REPEAT, PICTORIAL_STRIDE};
 pub use pie::{
     fold_slices, validate_pie, validate_pie_rings, PieLabel, PieLabelMode, PieLayoutInfo, PieOptions, PieRing, PieRose, PieSlice, PieSort, PieStyle,
     DEFAULT_PIE_MAX_SLICES, PIE_CHORD_ERROR_PX, PIE_EXPLODE_PX, PIE_GAP_PX,
@@ -1483,6 +1485,7 @@ impl ChartState {
         self.prepare_hierarchy(view);
         self.prepare_calendar(view);
         self.prepare_bar_style(view);
+        self.prepare_pictorial(view);
         keep_series_dirty |= self.prepare_combo(view);
         self.prepare_radar(view);
         self.prepare_gauge(view);

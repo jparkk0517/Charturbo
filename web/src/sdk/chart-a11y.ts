@@ -124,6 +124,8 @@ export interface A11yChartModel {
   length: number;
   /** Multi-series bar layout */
   barMode?: 'grouped' | 'stacked' | 'percent';
+  /** Bars drawn as symbols (pictorial bar chart) */
+  pictorial?: boolean;
   /** Line-kind model of an area chart (`renderAreaChart`) */
   areaMode?: 'overlap' | 'stacked' | 'percent';
   /** ThemeRiver: a stacked area around a moving baseline */
@@ -370,6 +372,7 @@ export function buildA11yModel(
     return {
       kind: 'bar',
       ...common,
+      ...(m.pictorial === true ? { pictorial: true } : {}),
       series: [{ name: common.yTitle ?? t.value, values, visible: true, f32: false }],
       length: labels.length,
       xValue: (i) => labels[i] ?? String(i),
@@ -400,6 +403,7 @@ export function buildA11yModel(
     return {
       kind: 'bar-multi',
       ...common,
+      ...(m.pictorial === true ? { pictorial: true } : {}),
       series,
       length: n,
       barMode: mode,
@@ -927,7 +931,7 @@ function summaryBody(model: A11yChartModel): string {
     });
     return t.sentence(
       [
-        t.chart[BAR_MODE_CHART[model.barMode ?? 'grouped']],
+        model.pictorial ? t.chart.pictorialBar : t.chart[BAR_MODE_CHART[model.barMode ?? 'grouped']],
         c.categories(model.length, n(model.length)),
         c.seriesCount(model.series.length, n(model.series.length)),
       ],
@@ -949,7 +953,7 @@ function summaryBody(model: A11yChartModel): string {
   const s = model.series[0];
   const st = seriesStats(s?.values ?? []);
   const range = st.count > 0 ? [t.barRange(f(st.min), model.xLabel(st.minIndex), f(st.max), model.xLabel(st.maxIndex))] : [];
-  return t.sentence([t.chart.bar, c.categories(model.length, n(model.length))], range);
+  return t.sentence([model.pictorial ? t.chart.pictorialBar : t.chart.bar, c.categories(model.length, n(model.length))], range);
 }
 
 /** Keyboard help text per chart kind (`ohlc`: OHLC bars instead of candles). */

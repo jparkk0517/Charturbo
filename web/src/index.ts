@@ -195,6 +195,15 @@ export {
   type TreeChartNode,
   type TreeChartOptions,
 } from './sdk/chart-tree';
+export {
+  type PictorialBarChartData,
+  type PictorialBarChartOptions,
+  type PictorialBarItem,
+  type PictorialBarSeries,
+  type PictorialLength,
+  type PictorialSymbol,
+  type PictorialSymbolOptions,
+} from './sdk/chart-pictorial';
 // Types reachable from public signatures (guarded by __tests__/public-types.test.ts)
 export {
   createFormatter,

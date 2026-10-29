@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 픽토리얼 막대 (pictorialBar)
+
+- `renderPictorialBarChart(data, options)`: 막대를 심볼로 그리는 2D 막대 차트(ECharts `pictorialBar`). 데이터는 `renderBarChart` 항목 배열 또는 `{ categories, series }`이며, 축 · 가로 방향 · 그룹형 / 누적형 / 백분율 · 레이블 · 범례는 막대 차트를 그대로 씁니다. `background` 트랙이 그림자 막대가 됩니다.
+- 심볼 옵션(차트 · 시리즈 · 항목 순으로 덮어씀): `symbol`(내장 도형 9종 또는 `path://` SVG 경로 — Rust에서 파싱 · 삼각분할 후 캐시), `symbolRepeat`(`true` · 개수 · `'fixed'`), `symbolSize`(px · %), `symbolMargin`(기본 `'15%'`, `!` = 양 끝 간격), `symbolClip`, `symbolPosition`, `symbolOffset`, `symbolRotate`, `symbolBoundingData`. 음수 막대는 심볼을 뒤집습니다.
+- 호버 강조 · 툴팁, 업데이트 트윈과 등장 애니메이션(프레임마다 반복 심볼을 다시 배치), 접근성 요약("픽토리얼 막대 차트", 영어 · 한국어 · 중국어) · 데이터 표 · 키보드, CSV / SVG(벡터) 내보내기, React / Vue `type="pictorialBar"`. 잘못된 옵션 · `image://` · 3D는 현재 차트를 바꾸기 전에 예외를 던집니다.
+- 예제 `bar/06-pictorial`, fixture `pictorial-bar-repeat` · `pictorial-bar-paths` · `pictorial-bar-horizontal`, 문서 `charts/pictorial-bar`. `image://` 심볼, `symbolKeepAspect`, 시리즈 겹치기(`barGap: '-100%'`)는 아직 없습니다.
+
 ### 추가 — 캘린더 히트맵
 
 - `renderCalendarHeatmap(data, options)`: `[날짜, 값][]`를 하루 한 셀로 주 단위 배치합니다(ECharts `calendar`). 날짜는 `'YYYY-MM-DD'`(적힌 그대로) 또는 에포크 ms / `Date`(차트 시간대 기준 날짜, `timeZone` 옵션 → `setTimeZone`).

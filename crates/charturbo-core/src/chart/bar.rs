@@ -115,6 +115,8 @@ pub(crate) struct BarChart {
     pub(crate) background: Option<[f32; 4]>,
     /// Rotation of the category tick labels in degrees (0 = upright; bar_style.rs)
     pub(crate) category_label_deg: f32,
+    /// Symbols drawn instead of the bars (pictorial.rs)
+    pub(crate) pictorial: Option<super::pictorial::Pictorial>,
 }
 
 impl BarChart {
@@ -162,6 +164,7 @@ impl BarChart {
             bases: Vec::new(),
             background: None,
             category_label_deg: 0.0,
+            pictorial: None,
         };
         chart.reshape();
         chart.relayout();
@@ -435,6 +438,10 @@ impl BarChart {
         }
         // Background tracks first: below every bar
         self.build_tracks(out);
+        // Pictorial bars: the symbols (fills) replace the bars, the tracks stay as shadow bars
+        if self.pictorial.is_some() {
+            return;
+        }
         let n = self.categories.max(1);
         let side_gap = (self.mode == BarMode::Grouped && self.visible.iter().filter(|&&v| v).count() > 1)
             || self.histogram.is_some();
