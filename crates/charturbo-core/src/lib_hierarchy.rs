@@ -3,7 +3,8 @@
 
 use crate::chart::{
     validate_sankey, ChartState, ColormapKind, HeatmapColormap, HierarchyColorBy, HierarchyStyle, SankeyAlign,
-    SankeyGraph, SankeyLevel, SankeyLinkColor, SankeyOptions, SankeyOrient, SunburstOptions, Tree, TreemapOptions,
+    SankeyGraph, SankeyLevel, SankeyLinkColor, SankeyOptions, SankeyOrient, SunburstOptions, TidyTreeOptions, Tree, TreeEdgeShape,
+    TreeLayout, TreeOrient, TreeSymbol, TreemapOptions,
 };
 use crate::WasmCharturboEngine;
 use wasm_bindgen::prelude::*;
@@ -68,6 +69,48 @@ impl WasmCharturboEngine {
             label_line_px: opt_f32(options, 3, d.label_line_px),
         };
         Ok(self.inner.set_chart_state(ChartState::new_sunburst(tree, opts, HierarchyStyle::default())))
+    }
+
+    /// Renders a tidy tree (node-link; same parent list as `set_treemap_chart`, children kept in
+    /// input order). `state`: empty or one per node (0 = by initial depth, 1 = expanded,
+    /// 2 = collapsed); `label_px`: empty or the estimated label width per node (CSS px).
+    /// `options`: `[layout (0 orthogonal, 1 radial), orient (0 LR, 1 RL, 2 TB, 3 BT), edge shape
+    /// (0 curve, 1 polyline), initial depth (< 0 = all), symbol (0 emptyCircle, 1 circle, 2 rect,
+    /// 3 diamond, 4 triangle, 5 none), symbol_size_px, edge_width_px, curvature, color by group
+    /// (0 / 1), labels (0 / 1), label_line_px]`. Returns the node count (a virtual root included).
+    pub fn set_tree_chart(&mut self, parents: &[i32], state: &[u8], label_px: &[f32], options: &[f64]) -> Result<usize, JsValue> {
+        let tree = Tree::build(parents, &vec![0.0; parents.len()]).map_err(err)?;
+        let d = TidyTreeOptions::default();
+        let opts = TidyTreeOptions {
+            layout: if opt_u32(options, 0, 0) == 1 { TreeLayout::Radial } else { TreeLayout::Orthogonal },
+            orient: TreeOrient::from_u8(opt_u32(options, 1, 0) as u8),
+            edge_shape: if opt_u32(options, 2, 0) == 1 { TreeEdgeShape::Polyline } else { TreeEdgeShape::Curve },
+            initial_depth: opt(options, 3).map_or(d.initial_depth, |v| if v < 0.0 { -1 } else { v.min(1e6) as i32 }),
+            symbol: TreeSymbol::from_u8(opt_u32(options, 4, 0) as u8),
+            symbol_size_px: opt_f32(options, 5, d.symbol_size_px),
+            edge_width_px: opt_f32(options, 6, d.edge_width_px),
+            curvature: opt_f32(options, 7, d.curvature),
+            color_by_group: opt_flag(options, 8, d.color_by_group),
+            labels: opt_flag(options, 9, d.labels),
+            label_line_px: opt_f32(options, 10, d.label_line_px),
+        };
+        Ok(self.inner.set_chart_state(ChartState::new_tidy_tree(tree, opts, state, label_px, HierarchyStyle::default())))
+    }
+
+    /// Expands / collapses a tidy tree node (parents only; animated with animations on).
+    /// Returns true when it changed.
+    pub fn set_chart_tree_expanded(&mut self, node: u32, expanded: bool) -> bool {
+        self.inner.chart_mut().is_some_and(|c| c.set_tree_node_expanded(node, expanded))
+    }
+
+    /// Flips a tidy tree node; true when it changed (false for leaves).
+    pub fn chart_tree_toggle(&mut self, node: u32) -> bool {
+        self.inner.chart_mut().is_some_and(|c| c.toggle_tree_node(node))
+    }
+
+    /// Expanded flag (0 / 1) per tidy tree node; empty for other charts.
+    pub fn chart_tree_expanded(&self) -> Vec<u8> {
+        self.inner.chart().and_then(|c| c.tree_expanded()).map_or_else(Vec::new, |e| e.iter().map(|&x| x as u8).collect())
     }
 
     /// Renders a sankey diagram: links `sources[i] -> targets[i]` with `values[i]` (finite,

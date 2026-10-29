@@ -37,6 +37,7 @@ import type { ThemeRiverChartOptions, ThemeRiverDatum } from './chart-theme-rive
 import type { WaterfallChartData, WaterfallChartOptions } from './chart-waterfall';
 import type { CalendarHeatmapData, CalendarHeatmapOptions } from './chart-calendar';
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
+import type { TreeChartData, TreeChartOptions } from './chart-tree';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
 import type { CharturboEventMap } from './chart-events';
@@ -76,6 +77,7 @@ export interface CharturboChartSpecMap {
   treemap: { data: HierarchyData; options: TreemapChartOptions };
   sunburst: { data: HierarchyData; options: SunburstChartOptions };
   sankey: { data: SankeyChartData; options: SankeyChartOptions };
+  tree: { data: TreeChartData; options: TreeChartOptions };
   /** Many sparklines on a page: pass `createOptions={{ device }}` (shared GPU device) and `interactions={false}` */
   sparkline: { data: SparklineData | Float32Array | number[]; options: SparklineOptions };
 }
@@ -107,6 +109,8 @@ export interface CharturboChartCallbacks {
   onResize?: (e: CharturboEventMap['resize']) => void;
   /** Treemap / sunburst drill-down / up */
   onDrill?: (e: CharturboEventMap['drill']) => void;
+  /** Tidy tree node expanded / collapsed */
+  onTreeToggle?: (e: CharturboEventMap['treeToggle']) => void;
 }
 
 /** SDK event -> callback name (subscribed once; the binding reads the latest callbacks). */
@@ -119,6 +123,7 @@ export const CHARTURBO_CHART_EVENTS = {
   themechange: 'onThemeChange',
   resize: 'onResize',
   drill: 'onDrill',
+  treeToggle: 'onTreeToggle',
 } as const satisfies { [K in keyof CharturboEventMap]: keyof CharturboChartCallbacks };
 
 interface ChartSpec {
@@ -206,6 +211,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'sankey':
       sdk.renderSankey(data as SankeyChartData, options as SankeyChartOptions);
+      break;
+    case 'tree':
+      sdk.renderTree(data as TreeChartData, options as TreeChartOptions);
       break;
     case 'sparkline':
       sdk.renderSparkline(data as SparklineData | Float32Array | number[], options as SparklineOptions);

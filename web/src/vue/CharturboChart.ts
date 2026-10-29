@@ -57,6 +57,7 @@ export const CharturboChart = defineComponent({
     themeChange: (_e: CharturboEventMap['themechange']) => true,
     resize: (_e: CharturboEventMap['resize']) => true,
     drill: (_e: CharturboEventMap['drill']) => true,
+    treeToggle: (_e: CharturboEventMap['treeToggle']) => true,
   },
   setup(props, { emit, expose }) {
     const canvas = shallowRef<HTMLCanvasElement | null>(null);
@@ -78,6 +79,7 @@ export const CharturboChart = defineComponent({
       onThemeChange: (e) => emit('themeChange', e),
       onResize: (e) => emit('resize', e),
       onDrill: (e) => emit('drill', e),
+      onTreeToggle: (e) => emit('treeToggle', e),
     });
     expose({ sdk, error, canvas, whenReady });
     return () =>

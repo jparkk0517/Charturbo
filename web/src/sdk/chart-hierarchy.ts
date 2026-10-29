@@ -465,7 +465,11 @@ export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChar
 }
 
 /** Palette, per-node colors, neutral / surface / highlight colors (and the value colormap). */
-export function sendHierarchyStyle(backend: WasmCharturboEngineBackend, meta: HierarchyChartMeta | SankeyChartMeta, theme: CharturboTheme): void {
+export function sendHierarchyStyle(
+  backend: WasmCharturboEngineBackend,
+  meta: HierarchyChartMeta | SankeyChartMeta | { kind: 'tree'; palette?: ColorInput[]; inputColors: (ColorInput | undefined)[]; colormap: number },
+  theme: CharturboTheme
+): void {
   const own = (meta.palette ?? []).map((c) => parseOptionalColor(c)).filter((c): c is RgbaTuple => !!c);
   const pal = own.length ? own : theme.palette;
   const palette = new Float32Array(pal.length * 4);

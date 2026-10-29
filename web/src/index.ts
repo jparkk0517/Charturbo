@@ -188,6 +188,13 @@ export {
   type TreemapChartOptions,
   type CharturboDrillEvent,
 } from './sdk/chart-hierarchy';
+export {
+  type CharturboTreeToggleEvent,
+  type TreeChartData,
+  type TreeChartFlatNode,
+  type TreeChartNode,
+  type TreeChartOptions,
+} from './sdk/chart-tree';
 // Types reachable from public signatures (guarded by __tests__/public-types.test.ts)
 export {
   createFormatter,

@@ -14,6 +14,7 @@ import { comboA11yModel, comboAnnouncement, comboDescription, comboSummary, type
 import { businessA11yModel, isBusinessKind } from './chart-business';
 import type { A11yCustomModel } from './chart-business-util';
 import { hierarchyA11yModel } from './chart-hierarchy';
+import { treeA11yModel, type TreeChartMeta } from './chart-tree';
 import { sparseTooltip, type SparseMeta } from './chart-sparse';
 import { scientificA11yModel, type Scientific3DMeta } from './chart-scientific3d';
 import { trendDescription, type ScatterTrendlineFit } from './chart-trendline';
@@ -47,7 +48,7 @@ export interface A11ySeries {
   band?: { lower: ArrayLike<number>; upper: ArrayLike<number> };
 }
 
-export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'calendar';
+export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'calendar' | 'tree';
 
 /** Pie slices (focus: `series` 0, `index` = displayed slice; point id = slice index). */
 export interface A11yPieData {
@@ -318,6 +319,7 @@ export function buildA11yModel(
   };
 
   if (m.kind === 'treemap' || m.kind === 'sunburst' || m.kind === 'sankey') return hierarchyA11yModel(m, common);
+  if (m.kind === 'tree') return treeA11yModel(m as unknown as TreeChartMeta, common);
   if (m.kind === 'scientific3d') return scientificA11yModel(m as unknown as Scientific3DMeta, common);
 
   if (m.kind === 'line') {
@@ -1801,8 +1803,8 @@ export class ChartA11y {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
-    // Treemap / sunburst: Enter drills into the focused node, Escape goes back up
-    const custom = e.key === 'Enter' || e.key === 'Escape' ? this.model() : null;
+    // Treemap / sunburst: Enter drills into the focused node, Escape goes back up (tree: Enter / Space toggle)
+    const custom = e.key === 'Enter' || e.key === 'Escape' || e.key === ' ' ? this.model() : null;
     const drilled = custom?.custom?.key?.(this.focus, e.key);
     if (custom && drilled) {
       e.preventDefault();
@@ -1929,6 +1931,7 @@ export class ChartA11y {
       sunburst: kinds.sunburst,
       sankey: kinds.sankey,
       calendar: kinds.calendar,
+      tree: kinds.tree,
     }[model.kind];
     const caption = model.title ?? t.tableCaption(kindLabel);
     wrap.setAttribute('aria-label', t.tableLabel(caption));
