@@ -167,6 +167,14 @@ export {
   type ChartCalendarTooltip,
 } from './sdk/chart-calendar';
 export {
+  type ChartChordTooltip,
+  type ChordChartData,
+  type ChordChartOptions,
+  type ChordLink,
+  type ChordNode,
+  type ChordSortOrder,
+} from './sdk/chart-chord';
+export {
   type ChartWaterfallTooltip,
   type WaterfallChartData,
   type WaterfallChartOptions,

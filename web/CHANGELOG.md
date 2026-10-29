@@ -19,6 +19,13 @@
 - 입력은 장면을 지우기 전에 검증합니다(잘못된 호출은 기존 차트를 유지). 툴팁(범주 › 이름 · 값; 연결 수는 `ctx.hierarchy.children`), `getNodeDetails`, 접근성 요약 · 표 · CSV, 키보드(위 / 아래 노드 순서, 오른쪽 / 왼쪽 연결 노드), SVG 내보내기, React / Vue `type="graph"`, 영어 · 한국어 · 중국어 문구.
 - 예제 `graph/04-graph-force-2d` · `05-graph-circular` · `06-graph-cartesian`, fixture `graph2d-force` · `graph2d-circular` · `graph2d-cartesian`, 문서 `charts/graph-2d`. 노드 드래그, 자기 루프, 엣지 호버는 아직 없습니다.
 
+### 추가 — 코드 다이어그램
+
+- `renderChordChart(data, options)`: 그룹 사이 흐름을 원형 호와 리본으로 그립니다(ECharts `chord`). 엔진(Rust, `chart/chord.rs`)이 d3 `chord()` / `chordDirected()`와 같은 레이아웃을 계산합니다. 입력은 정사각 흐름 행렬 + `names` 또는 ECharts 형식 `nodes` / `links`이며, 현재 차트를 지우기 전에 검증합니다.
+- `padAngle`, `startAngle`, `clockwise`, `sortGroups` · `sortSubgroups` · `sortChords`, `directed`(방향마다 리본, 화살표 끝), `ribbonColor: 'source' | 'target' | 'gradient' | 'neutral'`, `ribbonOpacity`, `arcWidth`, 원 바깥 이름(`labels`, `labelRotate`).
+- 그룹 호버는 그 그룹의 리본만 강조하고, 리본 툴팁은 `출발 → 도착`과 반대 방향 값을 함께 보여 줍니다(`ctx.chord`). 범례 클릭은 그룹을 숨기고 다시 배치하며, 애니메이션이 켜져 있으면 트윈합니다.
+- 접근성 요약 · 흐름 행렬 표 · CSV, 키보드(그룹 / 코드 이동, 아래 · 위로 그룹 ↔ 코드), SVG 벡터 내보내기, React / Vue `type="chord"`, 영어 · 한국어 · 중국어 문구. 예제 `hierarchy/07-chord` · `08-chord-directed`, fixture `chord` · `chord-directed`, 문서 `charts/chord`.
+
 ### 추가 — 캘린더 히트맵
 
 - `renderCalendarHeatmap(data, options)`: `[날짜, 값][]`를 하루 한 셀로 주 단위 배치합니다(ECharts `calendar`). 날짜는 `'YYYY-MM-DD'`(적힌 그대로) 또는 에포크 ms / `Date`(차트 시간대 기준 날짜, `timeZone` 옵션 → `setTimeZone`).

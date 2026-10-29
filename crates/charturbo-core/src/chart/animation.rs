@@ -452,8 +452,10 @@ impl ChartState {
             // A re-rendered chart of another shape enters instead
             let f = &self.anim.from;
             let pie_match = matches!(&self.kind, ChartKind::Pie(p) if p.len() == f.pie.len() && !f.pie.is_empty());
+            let chord_match = matches!(&self.kind, ChartKind::Hierarchy(HierChart::Chord(c)) if c.tween_from.is_some());
             let matched = pie_match
                 || super::pictorial::pictorial_matches(&self.kind, &f.pictorial)
+                || chord_match
                 || (!f.series.is_empty() && f.series.len() == self.series.len())
                 || (!f.bars.is_empty() && f.bars.len() == self.bars.len() && f.bar_tracks == self.bar_track_count())
                 || (!f.fills.is_empty() && f.fills.len() == self.fills.len())
@@ -481,6 +483,14 @@ impl ChartState {
             p1_pad: lerp_xyz(p.p1_pad, q.p1_pad, e),
             color: lerp4(p.color, q.color, e),
         };
+        if let ChartKind::Hierarchy(HierChart::Chord(c)) = &mut self.kind {
+            // Chord groups / ribbons tween their angles (rebuilt per frame)
+            if c.tween_build(e, &mut a.out.fills, &mut a.out.series) {
+                used.fills = true;
+                used.series = true;
+            }
+            return;
+        }
         if let ChartKind::Pie(p) = &self.kind {
             // Slices tween their angles (tessellation counts follow the angles)
             match p.built_wpp() {

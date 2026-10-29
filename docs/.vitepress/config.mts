@@ -110,6 +110,7 @@ const CHARTS: Group[] = [
       ['sankey', t('Sankey', '생키', '桑基图')],
       ['tree', t('Tree', '트리', '树图')],
       ['graph-2d', t('2D Graph', '2D 그래프', '2D 关系图')],
+      ['chord', t('Chord', '코드 다이어그램', '和弦图')],
     ],
   },
   {

@@ -21,6 +21,7 @@ mod bar_style;
 mod boxplot;
 mod brush;
 mod candle;
+mod chord;
 mod calendar;
 mod combo;
 mod fill;
@@ -125,6 +126,9 @@ pub use sankey::{
     validate_sankey, SankeyAlign, SankeyChart, SankeyGraph, SankeyLevel, SankeyLink, SankeyLinkColor, SankeyNode, SankeyOptions, SankeyOrient,
 };
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
+pub use chord::{
+    chord_layout, validate_chord, Chord, ChordEnd, ChordGroup, ChordLayout, ChordOptions, ChordRibbonColor, ChordSort, ChordSorts, MAX_CHORD_GROUPS,
+};
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
 pub use tidy_tree::{tidy_fit, tidy_layout, TidyTreeOptions, TreeEdgeShape, TreeLayout, TreeOrient, TreeSymbol, MAX_TREE_LABELS, TREE_CURVE_SEGMENTS};
 pub use scale::{log_nice_domain, log_ticks, AxisScale, ScaleType};
@@ -795,7 +799,7 @@ impl ChartState {
             }
             // One fixed series (no legend toggles)
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => false,
-            // Legend groups of hierarchy charts only emphasize (2D graph categories hide)
+            // Legend groups of hierarchy charts only emphasize (2D graph categories hide, chord groups re-lay out)
             ChartKind::Hierarchy(h) => {
                 let changed = h.set_visible(series, visible);
                 self.dirty.fills |= changed;
@@ -815,8 +819,12 @@ impl ChartState {
         let restacked = restacked || matches!(self.kind, ChartKind::Pie(_));
         // Combo bars restack / regroup and the shared tooltip lists the visible series: re-pick
         let restacked = restacked || matches!(self.kind, ChartKind::Combo(_));
-        // 2D graph: a hidden category takes its nodes' hover with it
+        // 2D graph: a hidden category takes its nodes' hover with it; chord groups re-lay out
         let restacked = restacked || matches!(self.kind, ChartKind::Hierarchy(_));
+        // Chord groups tween their angles from the frame on screen
+        if changed && matches!(self.kind, ChartKind::Hierarchy(HierChart::Chord(_))) {
+            self.begin_update_animation();
+        }
         let stale = |h: &HoverResult| {
             h.is_bar || restacked || (!visible && h.items.iter().any(|i| i.series as usize == series))
         };
