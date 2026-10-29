@@ -23,6 +23,10 @@ use glam::Vec3;
 #[path = "engine_chart_ext.rs"]
 mod chart_ext;
 
+/// Parallel coordinates brush passthroughs.
+#[path = "engine_parallel_ext.rs"]
+mod parallel_ext;
+
 #[cfg(test)]
 #[path = "engine_sleep_tests.rs"]
 mod sleep_tests;

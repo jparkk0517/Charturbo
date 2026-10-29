@@ -6,7 +6,7 @@ import { createCameraControls, resolveCameraControls, type CameraControlOptions 
 export type { CameraControlOptions } from './camera-controls';
 
 export type { TouchInteractionOptions } from './chart-gestures';
-import { ChartA11y, type ChartDataTable, type DataTableOptions } from './chart-a11y';
+import { ChartA11y, tableToCSV, type ChartDataTable, type DataTableOptions } from './chart-a11y';
 import { parseColor, parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import { CharturboEventEmitter, frameThrottle, sameRange, type CharturboEventMap, type CharturboRange } from './chart-events';
 import { createNavigatorController, resolveNavigator, type NavigatorOption } from './chart-navigator';
@@ -260,6 +260,37 @@ export type { ChartGaugeTooltip, GaugeBandOptions, GaugeChartData, GaugeChartOpt
 export type { ChartFunnelTooltip, FunnelChartData, FunnelChartOptions, FunnelConversion } from './chart-funnel';
 export type { ChartWaterfallTooltip, WaterfallChartData, WaterfallChartOptions, WaterfallItemKind } from './chart-waterfall';
 import { calendarMeta, sendCalendar, type CalendarHeatmapData, type CalendarHeatmapOptions, type ChartCalendarTooltip } from './chart-calendar';
+import {
+  createParallelBrushController,
+  encodeParallelBrush,
+  parallelBrushRanges,
+  parallelMeta,
+  parallelTable,
+  resolveParallelBrush,
+  sameParallelBrush,
+  sendParallel,
+  sortParallelBrush,
+  type ChartParallelTooltip,
+  type CharturboParallelBrushEvent,
+  type ParallelBrushInterval,
+  type ParallelBrushInternal,
+  type ParallelBrushRange,
+  type ParallelChartData,
+  type ParallelChartMeta,
+  type ParallelChartOptions,
+} from './chart-parallel';
+export type {
+  ChartParallelTooltip,
+  CharturboParallelBrushEvent,
+  ParallelAxisType,
+  ParallelBrushInterval,
+  ParallelBrushRange,
+  ParallelCell,
+  ParallelChartData,
+  ParallelChartOptions,
+  ParallelDimension,
+  ParallelSeries,
+} from './chart-parallel';
 export type {
   CalendarDate,
   CalendarHeatmapData,
@@ -943,7 +974,7 @@ export interface ChartTooltipContext {
   chartType:
     | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
-    | 'calendar'
+    | 'calendar' | 'parallel'
     | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'tree'
     | 'themeRiver';
   /**
@@ -962,6 +993,8 @@ export interface ChartTooltipContext {
   waterfall?: ChartWaterfallTooltip;
   /** Hovered calendar day (empty days too: `value` NaN) */
   calendar?: ChartCalendarTooltip;
+  /** Hovered parallel coordinates row: every dimension */
+  parallel?: ChartParallelTooltip;
   /** Hovered treemap / sunburst node: path, value, shares of its parent and of the total */
   hierarchy?: ChartHierarchyTooltip;
   /** Hovered sankey link (`A → B`, share of A) or node (inflow / outflow) */
@@ -1939,6 +1972,38 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_calendar_labels?(): Float64Array;
   /** `[(start day, end day, first id) * calendars]` */
   chart_calendar_blocks?(): Float64Array;
+  /** Parallel coordinates (chart-parallel.ts): per-dim kinds / `[min, max]` (NaN = auto) / inverse / category counts; row-major values */
+  set_parallel_chart?(
+    kinds: Uint8Array,
+    ranges: Float64Array,
+    inverse: Uint8Array,
+    categories: Uint32Array,
+    values: Float64Array,
+    series: Uint32Array,
+    options: Float64Array
+  ): number;
+  set_chart_parallel_style?(
+    seriesRgba: Float32Array,
+    axisRgba: Float32Array,
+    axisWidth: number,
+    brushRgba: Float32Array,
+    brushWidth: number,
+    inactiveRgba: Float32Array,
+    inactiveOpacity: number,
+    hoverWidth: number
+  ): void;
+  /** Flat `[axis, lo, hi] * n` (empty = clear); returns the active row count */
+  set_chart_parallel_brush?(intervals: Float64Array): number;
+  chart_parallel_brush?(): Float64Array;
+  chart_parallel_active_count?(): number;
+  chart_parallel_active_rows?(): Uint32Array;
+  /** `[axis, value]` under an NDC point (empty = none) */
+  chart_parallel_axis_hit?(ndcX: number, ndcY: number): Float64Array;
+  chart_parallel_value_at?(axis: number, ndcX: number, ndcY: number): number;
+  chart_hover_parallel_row?(row: number): Float64Array;
+  chart_parallel_domains?(): Float64Array;
+  /** `[revision, count, (kind 0 tick / 1 name, axis, value, x, y, h_align, v_align, granularity) * count]` */
+  chart_parallel_labels?(): Float64Array;
   /** Waterfall (chart-waterfall.ts): totals 1 = total bar; style = increase, decrease, total, connector RGBA */
   set_waterfall_chart?(
     values: Float64Array,
@@ -2314,7 +2379,7 @@ function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
 
 /** Brush selection kind of a chart mode (`null`: no brush, e.g. pies and hierarchy charts). */
 function selectionKind(mode: Charturbo['chartMode']): CharturboSelection['kind'] | null {
-  if (mode === 'calendar') return null;
+  if (mode === 'calendar' || mode === 'parallel') return null;
   return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' || mode === 'tree' ? null : mode;
 }
 
@@ -4022,6 +4087,34 @@ export class Charturbo {
     const resetNav = () => nav.reset();
     this.hoverResetHooks.add(resetNav);
 
+    /** Parallel coordinates axis brush (chart-parallel.ts): presses on an axis brush it */
+    const parallelBrush = createParallelBrushController({
+      active: () => this.chartMeta?.kind === 'parallel' && this.chartMeta.brushable,
+      axisHit: ([x, y]) => {
+        const r = this.backend.chart_parallel_axis_hit?.(x, y);
+        return r && r.length >= 2 ? [r[0], r[1]] : null;
+      },
+      valueAt: (axis, [x, y]) => this.backend.chart_parallel_value_at?.(axis, x, y) ?? NaN,
+      current: () => (this.chartMeta?.kind === 'parallel' ? this.chartMeta.brush : []),
+      apply: (list) => {
+        if (this.chartMeta?.kind !== 'parallel') return;
+        this.applyParallelBrush(list, 'pointer');
+        if (autoRender) this.render();
+      },
+      toNdc,
+      vertical: () => this.chartMeta?.kind === 'parallel' && this.chartMeta.orient === 'vertical',
+      capture: (id) => {
+        try {
+          canvas.setPointerCapture?.(id);
+        } catch {
+          // Synthetic / already released pointers cannot be captured
+        }
+      },
+      setCursor: (c) => (canvas.style.cursor = c ?? (lastHoveredId !== null ? 'pointer' : 'default')),
+    });
+    const resetParallelBrush = () => parallelBrush.cancel();
+    this.hoverResetHooks.add(resetParallelBrush);
+
     /** Mouse orbit / pan / wheel zoom of graph / 3D views (camera-controls.ts) */
     const cameraOptions = resolveCameraControls(options?.cameraControls);
     const cameraOwned = cameraOptions.orbit || cameraOptions.pan || cameraOptions.zoom;
@@ -4384,6 +4477,7 @@ export class Charturbo {
         nav.pointerMove(e);
         return;
       }
+      if (parallelBrush.pointerMove(e)) return;
       if (gestures?.pointerMove(e)) return;
       // Ignored extra finger (3rd touch) must not reach the mouse drag path
       if (gestures && isGesturePointer(e) && e.buttons !== 0) return;
@@ -4495,6 +4589,14 @@ export class Charturbo {
         downPos = null;
         return;
       }
+      if (parallelBrush.pointerDown(e)) {
+        gestures?.stopFling();
+        hideTooltip();
+        this.backend.chart_clear_hover?.();
+        panLastX = null;
+        downPos = null;
+        return;
+      }
       if (gestures?.pointerDown(e)) return;
       gestures?.stopFling();
       panRecorded = false;
@@ -4529,6 +4631,7 @@ export class Charturbo {
       const orbited = camera.dragging();
       camera.pointerUp();
       if (nav.pointerUp(e)) return;
+      if (parallelBrush.pointerUp()) return;
       if (gestures?.pointerUp(e)) return;
       if (orbited) {
         downPos = null;
@@ -4654,12 +4757,14 @@ export class Charturbo {
     const onLostCapture = (e: PointerEvent) => {
       camera.pointerUp();
       nav.pointerUp(e);
+      parallelBrush.cancel();
       // A box whose release never arrives must not swallow the next drag
       zoom.cancel();
     };
     const onPointerCancel = (e: PointerEvent) => {
       camera.pointerUp();
       zoom.cancel();
+      parallelBrush.cancel();
       if (nav.pointerUp(e)) return;
       gestures?.pointerCancel(e);
     };
@@ -4763,6 +4868,9 @@ export class Charturbo {
       if (clickPinned) releasePinnedHover();
       brushFrom = null;
       brushLive = false;
+      // Parallel coordinates: Escape clears every axis brush
+      parallelBrush.cancel();
+      if (this.chartMeta?.kind === 'parallel' && this.chartMeta.brushable && this.chartMeta.brush.length) this.applyParallelBrush([], 'keyboard');
       this.clearChartSelection();
       if (autoRender) this.render();
     };
@@ -4818,6 +4926,7 @@ export class Charturbo {
       this.chartDataHooks.delete(hideTooltip);
       this.chartDataHooks.delete(resetHoverEvent);
       this.hoverResetHooks.delete(resetNav);
+      this.hoverResetHooks.delete(resetParallelBrush);
       nav.reset();
       this.themeHooks.delete(restyleTooltip);
       this.legendHooks.delete(renderAfterLegend);
@@ -6251,7 +6360,7 @@ export class Charturbo {
       colorbar.refresh(this.backend, t, this.chartLocale());
       this.chartOverlay.colorbar = colorbar;
     }
-    if (meta?.kind === 'calendar' && meta.colorbar.show) {
+    if ((meta?.kind === 'calendar' || meta?.kind === 'parallel') && meta.colorbar.show) {
       const colorbar = new HeatmapColorbarLayer(root, meta);
       colorbar.refresh(this.backend, t, this.chartLocale());
       this.chartOverlay.colorbar = colorbar;
@@ -6428,7 +6537,9 @@ export class Charturbo {
       o.y2Title.style.left = `${plotL + plotW + (p.y2Axis?.show === false ? 14 : 62)}px`;
       o.y2Title.style.top = `${plotT + plotH / 2}px`;
     }
-    o.colorbar?.layout([plotL, plotT, plotW, plotH], this.chartLocale());
+    // Parallel coordinates: clear of the last axis' centered name and brush band
+    const colorbarGap = meta?.kind === 'parallel' ? 24 : 0;
+    o.colorbar?.layout([plotL, plotT, plotW + colorbarGap, plotH], this.chartLocale());
   }
 
   /** Removes every scene object and the active chart. */
@@ -8643,6 +8754,96 @@ export class Charturbo {
     const legend = { show: false, toggle: false, emphasize: false };
     this.showBusinessChart('calendar', meta, options, legend, { left: 16, right: meta.colorbar.show ? COLORBAR_RESERVE_PX : 16, bottom: 12 });
     return { dayCount, calendarCount: meta.ranges.length };
+  }
+
+  /**
+   * Renders parallel coordinates natively: one polyline per row across `dimensions` (value /
+   * category / time axes, each with nice ticks, `min` / `max` and `inverse`), side by side or
+   * stacked (`orient`), straight or smooth, colored by series (legend toggles) or by a value
+   * dimension through the heatmap colormap (`colorBy`, with a colorbar). Dragging along an axis
+   * brushes an interval (Shift adds one, a click clears the axis; several on one axis = union,
+   * several axes = intersection); rows outside fade to `inactiveOpacity`. A brush change only
+   * re-uploads the row flags. Hover lists every dimension of a row; the keyboard moves along an
+   * axis in value order and Shift brushes. Throws for an invalid cell, dimension or option
+   * (before the active chart is torn down). Point ids = row index (series in order).
+   */
+  renderParallelChart(data: ParallelChartData, options?: ParallelChartOptions): { rowCount: number; dimensionCount: number; seriesCount: number } {
+    // Validated before the active chart is torn down
+    const meta = parallelMeta(data, options, this.businessFormat(options?.format), this.locale);
+    this.beginBusinessChart();
+    const rowCount = sendParallel(this.backend, meta, this.theme);
+    meta.engine = {
+      setBrush: (list, source) => this.applyParallelBrush(list, source),
+      hover: (row) => this.backend.chart_hover_parallel_row?.(row),
+      activeCount: () => this.backend.chart_parallel_active_count?.(),
+    };
+    const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
+    const legend = {
+      show: legendOpt.show ?? (meta.colorDim < 0 && meta.names.length >= 2),
+      toggle: legendOpt.toggle ?? true,
+      emphasize: false,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
+    };
+    // The colorbar sits clear of the last axis' name and brush band (24 px further out)
+    const right = meta.colorbar.show ? COLORBAR_RESERVE_PX + 24 : 24;
+    // Horizontal: names above the axes, ticks left of them; vertical: names left, ticks below
+    const pad = meta.orient === 'vertical' ? { top: 16, right, bottom: 28, left: 88 } : { top: 28, right, bottom: 16, left: 56 };
+    this.showBusinessChart('parallel', meta, options, legend, pad);
+    return { rowCount, dimensionCount: meta.dims.length, seriesCount: meta.names.length };
+  }
+
+  /** The active parallel coordinates meta (throws without one). */
+  private parallelChart(): ParallelChartMeta {
+    const meta = this.chartMeta;
+    if (meta?.kind !== 'parallel') throw new Error('No parallel coordinates chart is rendered (renderParallelChart)');
+    return meta;
+  }
+
+  /** Replaces the brush (engine row flags only); emits `'parallelBrush'` when it changed. Returns the active row count. */
+  private applyParallelBrush(list: ParallelBrushInternal[], source: CharturboParallelBrushEvent['source']): number {
+    const meta = this.parallelChart();
+    const next = sortParallelBrush(list);
+    if (sameParallelBrush(meta.brush, next)) return this.backend.chart_parallel_active_count?.() ?? meta.rowCount;
+    const activeCount = this.backend.set_chart_parallel_brush?.(encodeParallelBrush(next)) ?? meta.rowCount;
+    meta.brush = next;
+    this.a11y.refresh();
+    this.events.emit('parallelBrush', { intervals: parallelBrushRanges(meta), activeCount, total: meta.rowCount, source });
+    return activeCount;
+  }
+
+  /**
+   * Sets the parallel coordinates brush: intervals in axis terms (category names, dates,
+   * numbers; `[from, to]` in any order; at most 16 per dimension). Several intervals on one
+   * dimension select their union, several dimensions their intersection; `[]` clears. Emits
+   * `'parallelBrush'` (source `'api'`) when it changed; returns the active row count. Throws for
+   * an unknown dimension / category or a non-finite bound (the brush is kept).
+   */
+  setParallelBrush(intervals: ParallelBrushInterval[]): number {
+    const meta = this.parallelChart();
+    return this.applyParallelBrush(resolveParallelBrush(meta.dims, intervals), 'api');
+  }
+
+  /** Clears every parallel coordinates brush interval (no-op without a brush or chart). */
+  clearParallelBrush(): void {
+    if (this.chartMeta?.kind === 'parallel' && this.chartMeta.brush.length) this.applyParallelBrush([], 'api');
+  }
+
+  /** Current parallel coordinates brush in axis values (category axes also list their names). */
+  getParallelBrush(): ParallelBrushRange[] {
+    return this.chartMeta?.kind === 'parallel' ? parallelBrushRanges(this.chartMeta) : [];
+  }
+
+  /** Row indices inside the brush (visible series; every visible row without a brush). */
+  getParallelActiveRows(): number[] {
+    return this.chartMeta?.kind === 'parallel' ? Array.from(this.backend.chart_parallel_active_rows?.() ?? []) : [];
+  }
+
+  /** CSV of the parallel coordinates rows (`activeOnly`: only the rows inside the brush). */
+  exportParallelCSV(options?: { activeOnly?: boolean }): string {
+    const meta = this.parallelChart();
+    const rows = options?.activeOnly ? (this.backend.chart_parallel_active_rows?.() ?? new Uint32Array(0)) : Array.from({ length: meta.rowCount }, (_, r) => r);
+    return tableToCSV(parallelTable(meta, rows, this.chartLocale()));
   }
 
   /**

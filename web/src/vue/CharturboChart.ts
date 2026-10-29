@@ -58,6 +58,7 @@ export const CharturboChart = defineComponent({
     resize: (_e: CharturboEventMap['resize']) => true,
     drill: (_e: CharturboEventMap['drill']) => true,
     treeToggle: (_e: CharturboEventMap['treeToggle']) => true,
+    parallelBrush: (_e: CharturboEventMap['parallelBrush']) => true,
   },
   setup(props, { emit, expose }) {
     const canvas = shallowRef<HTMLCanvasElement | null>(null);
@@ -80,6 +81,7 @@ export const CharturboChart = defineComponent({
       onResize: (e) => emit('resize', e),
       onDrill: (e) => emit('drill', e),
       onTreeToggle: (e) => emit('treeToggle', e),
+      onParallelBrush: (e) => emit('parallelBrush', e),
     });
     expose({ sdk, error, canvas, whenReady });
     return () =>

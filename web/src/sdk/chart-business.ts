@@ -60,16 +60,27 @@ import {
   sendCalendarStyle,
   type CalendarChartMeta,
 } from './chart-calendar';
+import {
+  localizeParallelMeta,
+  parallelA11yModel,
+  parallelPointMetadata,
+  parallelTooltipContext,
+  parallelTooltipHtml,
+  ParallelLabelLayer,
+  sendParallelStyle,
+  type ParallelChartMeta,
+} from './chart-parallel';
 
 export type BusinessChartMeta =
   | RadarChartMeta
   | GaugeChartMeta
   | FunnelChartMeta
   | WaterfallChartMeta
-  | CalendarChartMeta;
+  | CalendarChartMeta
+  | ParallelChartMeta;
 export type BusinessChartKind = BusinessChartMeta['kind'];
 
-const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall', 'calendar']);
+const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall', 'calendar', 'parallel']);
 
 export function isBusinessKind(kind: unknown): kind is BusinessChartKind {
   return typeof kind === 'string' && KINDS.has(kind);
@@ -96,6 +107,8 @@ export function createBusinessLabelLayer(parent: HTMLElement, meta: BusinessChar
       return new WaterfallLabelLayer(parent, meta);
     case 'calendar':
       return new CalendarLabelLayer(parent, meta);
+    case 'parallel':
+      return new ParallelLabelLayer(parent, meta);
   }
 }
 
@@ -112,6 +125,8 @@ export function sendBusinessTheme(backend: WasmCharturboEngineBackend, meta: Bus
       return sendWaterfallStyle(backend, meta, theme);
     case 'calendar':
       return sendCalendarStyle(backend, meta, theme);
+    case 'parallel':
+      return sendParallelStyle(backend, meta, theme);
   }
 }
 
@@ -131,6 +146,8 @@ export function localizeBusinessMeta(meta: BusinessChartMeta, locale: string | u
       return localizeWaterfallMeta(meta, locale);
     case 'calendar':
       return localizeCalendarMeta(meta, locale);
+    case 'parallel':
+      return localizeParallelMeta(meta, locale);
   }
 }
 
@@ -155,6 +172,8 @@ export function businessTooltipContext(
       return waterfallTooltipContext(meta, hit[4], details);
     case 'calendar':
       return calendarTooltipContext(meta, hit[4], details);
+    case 'parallel':
+      return parallelTooltipContext(meta, hit[4], details);
   }
 }
 
@@ -178,6 +197,8 @@ export function businessTooltipHtml(
       return waterfallTooltipHtml(ctx, theme, formatValue, locale);
     case 'calendar':
       return calendarTooltipHtml(ctx, theme, formatValue, locale);
+    case 'parallel':
+      return parallelTooltipHtml(ctx, theme);
   }
 }
 
@@ -194,6 +215,8 @@ export function businessPointMetadata(meta: BusinessChartMeta, id: number): { se
       return waterfallPointMetadata(meta, id);
     case 'calendar':
       return calendarPointMetadata(meta, id);
+    case 'parallel':
+      return parallelPointMetadata(meta, id);
   }
 }
 
@@ -217,6 +240,8 @@ export function businessA11yModel(m: Record<string, unknown>, common: A11yCommon
       return waterfallA11yModel(m as unknown as WaterfallChartMeta, c);
     case 'calendar':
       return calendarA11yModel(m as unknown as CalendarChartMeta, c);
+    case 'parallel':
+      return parallelA11yModel(m as unknown as ParallelChartMeta, c);
     default:
       return null;
   }

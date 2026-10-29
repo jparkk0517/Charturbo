@@ -429,7 +429,7 @@ impl ChartState {
             | ChartKind::Funnel(_)
             | ChartKind::Waterfall(_)
             | ChartKind::Hierarchy(_) => SvgSupport::Vector,
-            ChartKind::Calendar(_) => SvgSupport::Vector,
+            ChartKind::Calendar(_) | ChartKind::Parallel(_) => SvgSupport::Vector,
             // Kinds without an SVG writer yet embed the canvas (add them above once their marks
             // live in the staged layers this module writes)
             #[allow(unreachable_patterns)]
@@ -487,6 +487,11 @@ impl ChartState {
         // Hover / legend emphasis of tagged fills is applied by the GPU: resolve it the same way
         let fills = self.fill_style.resolved(&self.fills);
         w.group("fills", |w| w.fills(&fills));
+        if matches!(self.kind, ChartKind::Parallel(_)) {
+            // Row flags are applied by the GPU: resolve them (inactive rows beneath active ones)
+            let lines = self.parallel_svg_segments();
+            w.group("parallel", |w| w.segments(&lines));
+        }
         w.group("series", |w| {
             w.segments(&self.series);
             w.dashed(&self.styled.dashed);

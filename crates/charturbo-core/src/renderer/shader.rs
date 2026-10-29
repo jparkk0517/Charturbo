@@ -903,6 +903,88 @@ fn fs_heatmap(in: HeatmapOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Parallel coordinates polylines: `vs_segment` geometry plus a per-row flag texture read in the
+/// vertex stage (`p1_pad.w` = row). Vertices 0..6 draw the inactive (brushed-out, dimmed) rows,
+/// 6..12 the active ones, so two draws layer active rows over inactive ones; hidden rows collapse.
+pub fn chart_parallel_wgsl() -> String {
+    format!("{CHART_PRELUDE_WGSL}{CHART_LINE_BODY_WGSL}{CHART_PARALLEL_BODY_WGSL}")
+}
+
+const CHART_PARALLEL_BODY_WGSL: &str = r#"
+struct ParallelStyle {
+    // Inactive rows: rgb mixed into the row color by a
+    inactive: vec4<f32>,
+    // [inactive opacity, brushed (1), flag texture width, layer opacity]
+    params: vec4<f32>,
+};
+
+@group(0) @binding(1)
+var<uniform> parallel: ParallelStyle;
+@group(0) @binding(2)
+var parallel_flags: texture_2d<f32>;
+
+// Row flag: 1 = active, 0 = brushed out, -1 = hidden (rows beyond the texture read as active)
+fn parallel_flag(row: u32) -> f32 {
+    let tw = max(u32(parallel.params.z), 1u);
+    let texel = vec2<u32>(row % tw, row / tw);
+    if (texel.y >= textureDimensions(parallel_flags).y) {
+        return 1.0;
+    }
+    return textureLoad(parallel_flags, vec2<i32>(texel), 0).r;
+}
+
+@vertex
+fn vs_parallel(@builtin(vertex_index) vi: u32, inst: SegmentInstance) -> SegmentOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
+        vec2<f32>(0.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0),
+    );
+    let corner = corners[vi % 6u];
+    let flag = parallel_flag(u32(max(inst.p1_pad.w, 0.0)));
+    let live = flag > 0.5;
+    // Pass 0 (vertices 0..6) draws inactive rows, pass 1 (6..12) active ones
+    let drawn = flag > -0.5 && (live == (vi >= 6u));
+
+    let c0 = to_clip(inst.p0_width.xyz);
+    let c1 = to_clip(inst.p1_pad.xyz);
+    let s0 = clip_to_px(c0);
+    let s1 = clip_to_px(c1);
+    let delta = s1 - s0;
+    let len = length(delta);
+    var dir = vec2<f32>(1.0, 0.0);
+    if (len > 1e-4) {
+        dir = delta / len;
+    }
+    let normal = vec2<f32>(-dir.y, dir.x);
+    let half_w = max(0.5 * inst.p0_width.w * camera.viewport.z, 0.5);
+    let ext = half_w + 1.0;
+    let along = select(-ext, len + ext, corner.x > 0.5);
+    let across = corner.y * ext;
+    let px = s0 + dir * along + normal * across;
+    let t = clamp(along / max(len, 1e-4), 0.0, 1.0);
+    let z = mix(c0.z / c0.w, c1.z / c1.w, t);
+
+    var color = inst.color;
+    if (!live) {
+        let k = clamp(parallel.inactive.a, 0.0, 1.0);
+        color = vec4<f32>(mix(color.rgb, parallel.inactive.rgb, k), color.a * clamp(parallel.params.x, 0.0, 1.0));
+    }
+    color.a = color.a * clamp(parallel.params.w, 0.0, 1.0);
+
+    var out: SegmentOut;
+    out.clip_position = vec4<f32>(px_to_ndc(px), z, 1.0);
+    if (!drawn) {
+        // Collapse the quad (zero area: nothing rasterized)
+        out.clip_position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+    }
+    out.local = vec2<f32>(along, across);
+    out.dims = vec2<f32>(len, half_w);
+    out.color = color;
+    out.dash = 0.0;
+    return out;
+}
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1033,6 +1115,33 @@ mod tests {
                     .and_then(|mut w| w.write())
                     .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
                 assert!(out.contains("#version 300 es"));
+            }
+        }
+    }
+
+    #[test]
+    fn parallel_shader_validates_and_reads_row_flags_in_webgl2_glsl() {
+        // Row flags come from a texture fetched in the vertex stage: must survive GLSL ES 3.00
+        use naga::back::glsl;
+        let src = chart_parallel_wgsl();
+        assert!(src.contains("fn vs_parallel") && src.contains("fn fs_segment"));
+        let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+        let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
+            .validate(&module)
+            .unwrap();
+        let options = glsl::Options {
+            version: glsl::Version::Embedded { version: 300, is_webgl: true },
+            ..Default::default()
+        };
+        for (stage, entry) in [(naga::ShaderStage::Vertex, "vs_parallel"), (naga::ShaderStage::Fragment, "fs_segment")] {
+            let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+            let mut out = String::new();
+            glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
+                .and_then(|mut w| w.write())
+                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            assert!(out.contains("#version 300 es"));
+            if stage == naga::ShaderStage::Vertex {
+                assert!(out.contains("texelFetch"), "row flag fetched per vertex");
             }
         }
     }

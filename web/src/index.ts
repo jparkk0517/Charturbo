@@ -195,6 +195,18 @@ export {
   type TreeChartNode,
   type TreeChartOptions,
 } from './sdk/chart-tree';
+export {
+  type ChartParallelTooltip,
+  type CharturboParallelBrushEvent,
+  type ParallelAxisType,
+  type ParallelBrushInterval,
+  type ParallelBrushRange,
+  type ParallelCell,
+  type ParallelChartData,
+  type ParallelChartOptions,
+  type ParallelDimension,
+  type ParallelSeries,
+} from './sdk/chart-parallel';
 // Types reachable from public signatures (guarded by __tests__/public-types.test.ts)
 export {
   createFormatter,

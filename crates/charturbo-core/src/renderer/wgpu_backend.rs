@@ -11,6 +11,8 @@ use crate::renderer::{
 };
 use crate::renderer::heatmap::HeatmapGpu;
 use crate::renderer::shader::chart_heatmap_wgsl;
+use crate::renderer::parallel::ParallelGpu;
+use crate::renderer::shader::chart_parallel_wgsl;
 use crate::renderer::shader::chart_dash_line_wgsl;
 use crate::renderer::ChartDashSegmentRaw;
 use crate::renderer::gpu_context::GpuContext;
@@ -137,6 +139,9 @@ pub struct WgpuRenderBackend {
     /// One textured quad per heatmap (value grid + colormap LUT textures)
     heatmap_pipeline: wgpu::RenderPipeline,
     heatmap: HeatmapGpu,
+    /// Parallel coordinates polylines (row flag texture read per vertex; two passes)
+    parallel_pipeline: wgpu::RenderPipeline,
+    parallel: ParallelGpu,
 
     nodes: GpuArray,
     opaque_nodes: u32,
@@ -156,6 +161,7 @@ pub struct WgpuRenderBackend {
     chart_markers: GpuArray,
     chart_fills: GpuArray,
     chart_contours_3d: GpuArray,
+    chart_parallel: GpuArray,
     chart_points: GpuArray,
     /// A series is emphasized: points draw twice (others, then that series on top)
     point_emphasis: bool,
@@ -379,6 +385,7 @@ pub struct GpuPipelines {
     camera_bgl: wgpu::BindGroupLayout,
     mesh_bgl: wgpu::BindGroupLayout,
     heatmap_bgl: wgpu::BindGroupLayout,
+    parallel_bgl: wgpu::BindGroupLayout,
     mesh_pipeline: wgpu::RenderPipeline,
     mesh_translucent_pipeline: wgpu::RenderPipeline,
     node_pipeline: wgpu::RenderPipeline,
@@ -396,6 +403,7 @@ pub struct GpuPipelines {
     fill_overlay_pipeline: wgpu::RenderPipeline,
     point_pipeline: wgpu::RenderPipeline,
     heatmap_pipeline: wgpu::RenderPipeline,
+    parallel_pipeline: wgpu::RenderPipeline,
 }
 
 /// Where frames go: the engine's own canvas surface, or (WebGL2 shared device) the device's
@@ -665,6 +673,7 @@ impl WgpuRenderBackend {
         });
 
         let heatmap = HeatmapGpu::new(&device, pipes.heatmap_bgl.clone(), &camera_buffer);
+        let parallel = ParallelGpu::new(&device, pipes.parallel_bgl.clone(), &camera_buffer);
 
         let vb = wgpu::BufferUsages::VERTEX;
         let arr = |label, usage| GpuArray::new(&device, label, usage, initial_array_bytes(label, compact));
@@ -683,6 +692,7 @@ impl WgpuRenderBackend {
         let chart_markers = arr("chart-markers", vb);
         let chart_fills = arr("chart-fills", vb);
         let chart_contours_3d = arr("chart-contours-3d", vb);
+        let chart_parallel = arr("chart-parallel", vb);
         let chart_points = arr("chart-points", vb);
         let annotations_below = AnnotationArrays::new(&device, "chart-annotations-below");
         let annotations_above = AnnotationArrays::new(&device, "chart-annotations-above");
@@ -726,6 +736,8 @@ impl WgpuRenderBackend {
             point_pipeline: p.point_pipeline,
             heatmap_pipeline: p.heatmap_pipeline,
             heatmap,
+            parallel_pipeline: p.parallel_pipeline,
+            parallel,
             nodes,
             opaque_nodes: 0,
             edges,
@@ -743,6 +755,7 @@ impl WgpuRenderBackend {
             chart_markers,
             chart_fills,
             chart_contours_3d,
+            chart_parallel,
             chart_points,
             point_emphasis: false,
             annotations_below,
@@ -1094,10 +1107,35 @@ impl GpuPipelines {
             },
         );
 
+        // Parallel coordinates: segment instances + camera / style uniforms and the row flags
+        let parallel_bgl = ParallelGpu::bind_group_layout(device);
+        let parallel_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("chart-parallel-pipeline-layout"),
+            bind_group_layouts: &[&parallel_bgl],
+            push_constant_ranges: &[],
+        });
+        let parallel_shader = shader("chart-parallel-shader", chart_parallel_wgsl());
+        let parallel_pipeline = create_pipeline(
+            device,
+            format,
+            PipelineSpec {
+                label: "chart-parallel",
+                layout: &parallel_pipeline_layout,
+                shader: &parallel_shader,
+                vs: "vs_parallel",
+                fs: "fs_segment",
+                buffers: &segment_buffers,
+                topology: TriangleList,
+                depth_write: false,
+                depth_compare: DEPTH_TEST,
+            },
+        );
+
         Self {
             camera_bgl: camera_bind_group_layout,
             mesh_bgl: mesh_bind_group_layout,
             heatmap_bgl,
+            parallel_bgl,
             mesh_pipeline,
             mesh_translucent_pipeline,
             node_pipeline,
@@ -1115,6 +1153,7 @@ impl GpuPipelines {
             fill_overlay_pipeline,
             point_pipeline,
             heatmap_pipeline,
+            parallel_pipeline,
         }
     }
 }
@@ -1367,6 +1406,16 @@ impl RenderBackend for WgpuRenderBackend {
         if let Some(style) = layers.heatmap_style {
             self.heatmap.upload_style(queue, style);
         }
+        // Parallel geometry uploads once; brushing / legend toggles rewrite only the flags + style
+        if let Some(v) = layers.parallel {
+            self.chart_parallel.upload(device, queue, v, max);
+        }
+        if let Some(flags) = layers.parallel_flags {
+            self.parallel.upload_flags(device, queue, &self.camera_buffer, flags);
+        }
+        if let Some(style) = layers.parallel_style {
+            self.parallel.upload_style(queue, style);
+        }
         if let Some(style) = &layers.point_style {
             queue.write_buffer(&self.point_style_buffer, 0, bytemuck::bytes_of(style));
             self.point_emphasis = style.emphasized_slot().is_some();
@@ -1450,6 +1499,16 @@ impl RenderBackend for WgpuRenderBackend {
             draw_quads(&mut rpass, &self.bar_pipeline, cam, &self.chart_bars);
             draw_fills(&mut rpass, if self.depth_3d { &self.fill_3d_pipeline } else { &self.fill_pipeline }, fill, &self.chart_fills);
             draw_fills(&mut rpass, &self.contour_3d_pipeline, fill, &self.chart_contours_3d);
+            // Parallel polylines: brushed-out rows (vertices 0..6) beneath active rows (6..12)
+            if self.chart_parallel.len > 0 {
+                rpass.set_pipeline(&self.parallel_pipeline);
+                rpass.set_bind_group(0, &self.parallel.bind_group, &[]);
+                rpass.set_vertex_buffer(0, self.chart_parallel.slice());
+                if self.parallel.brushed() {
+                    rpass.draw(0..6, 0..self.chart_parallel.len);
+                }
+                rpass.draw(6..12, 0..self.chart_parallel.len);
+            }
             draw_quads(&mut rpass, &self.segment_pipeline, cam, &self.chart_series);
             // Dashed series strokes, then series point markers over the strokes
             draw_quads(&mut rpass, &self.dash_segment_pipeline, cam, &self.chart_series_dashed);
@@ -1542,12 +1601,14 @@ impl RenderBackend for WgpuRenderBackend {
             &self.chart_markers,
             &self.chart_fills,
             &self.chart_contours_3d,
+            &self.chart_parallel,
             &self.chart_points,
         ];
         let layers = [&self.annotations_below, &self.annotations_above, &self.brush, &self.navigator, &self.navigator_window];
         let gpu_bytes = arrays.iter().map(|a| a.capacity_bytes).sum::<u64>()
             + layers.iter().map(|l| l.fills.capacity_bytes + l.lines.capacity_bytes + l.markers.capacity_bytes).sum::<u64>()
             + self.heatmap.texture_bytes()
+            + self.parallel.texture_bytes()
             + self.gpu_physics.as_ref().map_or(0, |g| g.bytes());
         RenderStats {
             gpu_bytes,

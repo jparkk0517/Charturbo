@@ -50,6 +50,8 @@ pub fn chart_layer_bytes(layers: &ChartLayers<'_>) -> u64 {
         + annotation(&layers.navigator_window)
         + layers.heatmap.as_ref().map_or(0, |g| std::mem::size_of_val(g.values) as u64)
         + bytes(layers.heatmap_lut)
+        + bytes(layers.parallel)
+        + bytes(layers.parallel_flags)
 }
 
 #[cfg(test)]

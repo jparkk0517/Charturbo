@@ -98,6 +98,7 @@ const CHARTS: Group[] = [
       ['gauge', t('Gauge', '게이지', '仪表盘')],
       ['funnel', t('Funnel', '퍼널', '漏斗图')],
       ['waterfall', t('Waterfall', '워터폴', '瀑布图')],
+      ['parallel', t('Parallel Coordinates', '평행 좌표', '平行坐标')],
       ['sparkline', t('Sparkline', '스파크라인', '迷你图')],
     ],
   },
