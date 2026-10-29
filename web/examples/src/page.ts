@@ -8,6 +8,7 @@ import { docsHref, t, setPageMeta } from './i18n';
 import './style.css';
 import { demoText } from './demo-text';
 import { DOC_PAGES, FAMILIES, renderHeader } from './families';
+import { renderFooter } from './site-footer';
 import { highlight } from './highlight';
 import { Charturbo } from 'charturbo';
 import { bindTheme } from './theme';
@@ -36,6 +37,7 @@ async function main() {
   const family = FAMILIES.find((f) => f.id === familyId);
   setPageMeta(t('page.title', { family: family?.title ?? familyId }), family?.description);
   document.body.prepend(renderHeader(familyId));
+  document.querySelector('main')!.after(renderFooter());
   const mainEl = document.querySelector('main')!;
   const intro = document.createElement('section');
   intro.className = 'intro';

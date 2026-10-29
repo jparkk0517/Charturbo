@@ -1,0 +1,161 @@
+/*
+ * Charturbo design tokens: the one palette of the whole site. The examples site (landing,
+ * gallery, chart family pages, benchmarks: web/examples/src/site.css) and these docs
+ * (style.css maps them onto VitePress's --vp-* variables) both import this file.
+ *
+ * The theme is `<html data-theme="dark|light|midnight|paper">`, set before first paint by the
+ * inline script of site-theme.ts. Dark is the brand look (and the no-JS fallback); light is
+ * derived from it; midnight and paper are extra themes over the same tokens.
+ * Chart surfaces (web/examples/src/theme-state.ts THEMES[].surface) equal --ct-surface.
+ *
+ * WCAG contrast (text / muted / accent on bg, surface, surface-2; button text on accent fill):
+ *   dark      text 17.4 / 16.4 / 15.3   muted 7.6 / 7.2 / 6.7   accent 14.3 / 13.6 / 12.6   button 12.1
+ *   light     text 17.2 / 18.3 / 16.3   muted 5.8 / 6.2 / 5.5   accent 5.2 / 5.5 / 4.9      button 5.1
+ *   midnight  text 17.1 / 15.2 / 13.0   muted 9.1 / 8.1 / 6.9   accent 13.9 / 12.4 / 10.6   button 12.1
+ *   paper     text 11.0 / 12.4 / 11.1   muted 5.5 / 6.2 / 5.6   accent 5.3 / 6.0 / 5.4      button 6.1
+ */
+:root {
+  color-scheme: dark;
+  --ct-font: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans KR', 'Noto Sans SC', sans-serif;
+  --ct-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Surfaces: page, alternate (sidebars, sections), cards / charts, controls, active state */
+  --ct-bg: #080b12;
+  --ct-bg-alt: #0b0f18;
+  --ct-surface: #0d131e;
+  --ct-surface-2: #131b28;
+  --ct-surface-3: #1a2536;
+  --ct-border: #202a39;
+  --ct-border-strong: #2d3849;
+  /* Text: primary, secondary, muted (captions, descriptions) */
+  --ct-text: #edf1f7;
+  --ct-text-2: #bdc7d6;
+  --ct-muted: #94a2b6;
+  /* Accent: links / highlights, the filled button and its text, tint, gradient partner */
+  --ct-accent: #89efce;
+  --ct-accent-hover: #b5f7e2;
+  --ct-accent-fill: #a4efd8;
+  --ct-accent-fill-hover: #c4ffed;
+  --ct-on-accent: #0d2622;
+  --ct-accent-soft: rgb(137 239 206 / 0.12);
+  --ct-accent-2: #b3c8ff;
+  --ct-glow: rgb(137 239 206 / 0.33);
+  --ct-shadow: 0 24px 100px rgb(20 56 42 / 0.13);
+  /* Series colors of site-owned charts (landing hero) */
+  --ct-series-1: #64dfc1;
+  --ct-series-2: #6fb9ed;
+  --ct-series-3: #b8a4f5;
+  /* Code */
+  --ct-code-bg: #0b111b;
+  --ct-code-text: #d3e2ef;
+  --ct-syntax-comment: #7d91a7;
+  --ct-syntax-string: #9ecb8a;
+  --ct-syntax-number: #e0a86b;
+  --ct-syntax-keyword: #c49cf0;
+  --ct-syntax-type: #79b8f2;
+  /* Status */
+  --ct-danger-text: #fca5a5;
+  --ct-danger-bg: #2a0f12;
+  --ct-danger-border: #7f1d1d;
+
+  /* Shape and rhythm */
+  --ct-radius-sm: 6px;
+  --ct-radius: 10px;
+  --ct-radius-lg: 14px;
+  --ct-space-1: 4px;
+  --ct-space-2: 8px;
+  --ct-space-3: 12px;
+  --ct-space-4: 16px;
+  --ct-space-5: 24px;
+  --ct-space-6: 32px;
+  --ct-header-h: 64px;
+  --ct-content-w: 1120px;
+  --ct-page-w: 1440px;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --ct-bg: #f6f8fb;
+  --ct-bg-alt: #eef2f7;
+  --ct-surface: #ffffff;
+  --ct-surface-2: #eef2f7;
+  --ct-surface-3: #e1ece8;
+  --ct-border: #dbe2eb;
+  --ct-border-strong: #c3cdda;
+  --ct-text: #0d1522;
+  --ct-text-2: #344054;
+  --ct-muted: #556274;
+  --ct-accent: #08775a;
+  --ct-accent-hover: #055c45;
+  --ct-accent-fill: #0b7d5f;
+  --ct-accent-fill-hover: #08684f;
+  --ct-on-accent: #ffffff;
+  --ct-accent-soft: rgb(8 119 90 / 0.1);
+  --ct-accent-2: #3d5bd9;
+  --ct-glow: rgb(8 119 90 / 0.25);
+  --ct-shadow: 0 24px 80px rgb(30 50 80 / 0.1);
+  --ct-series-1: #12a383;
+  --ct-series-2: #2f7fc4;
+  --ct-series-3: #7b5fd0;
+  --ct-code-bg: #f3f6fa;
+  --ct-code-text: #1f2d3f;
+  --ct-syntax-comment: #5d6b80;
+  --ct-syntax-string: #307030;
+  --ct-syntax-number: #9a4d12;
+  --ct-syntax-keyword: #8042ab;
+  --ct-syntax-type: #2163a3;
+  --ct-danger-text: #9f1c1c;
+  --ct-danger-bg: #fdecec;
+  --ct-danger-border: #f2b8b8;
+}
+
+:root[data-theme='midnight'] {
+  --ct-bg: #080f20;
+  --ct-bg-alt: #0a1328;
+  --ct-surface: #101b35;
+  --ct-surface-2: #192944;
+  --ct-surface-3: #263c61;
+  --ct-border: #2c3c5b;
+  --ct-border-strong: #3a4d70;
+  --ct-text: #edf2ff;
+  --ct-text-2: #c6d2e8;
+  --ct-muted: #a3b4d1;
+  --ct-code-bg: #0b152a;
+  --ct-syntax-comment: #8796b3;
+}
+
+:root[data-theme='paper'] {
+  color-scheme: light;
+  --ct-bg: #eee8dc;
+  --ct-bg-alt: #e7e0d1;
+  --ct-surface: #faf6ed;
+  --ct-surface-2: #f0e9dc;
+  --ct-surface-3: #e5dac4;
+  --ct-border: #d4c9b6;
+  --ct-border-strong: #bfb39d;
+  --ct-text: #352e25;
+  --ct-text-2: #4d4337;
+  --ct-muted: #665a49;
+  --ct-accent: #0a6b52;
+  --ct-accent-hover: #07523f;
+  --ct-accent-fill: #0b6f55;
+  --ct-accent-fill-hover: #085a45;
+  --ct-on-accent: #ffffff;
+  --ct-accent-soft: rgb(10 107 82 / 0.1);
+  --ct-accent-2: #3d5bd9;
+  --ct-glow: rgb(10 107 82 / 0.25);
+  --ct-shadow: 0 24px 80px rgb(80 60 30 / 0.1);
+  --ct-series-1: #12a383;
+  --ct-series-2: #2f7fc4;
+  --ct-series-3: #7b5fd0;
+  --ct-code-bg: #f3eddf;
+  --ct-code-text: #352e25;
+  --ct-syntax-comment: #6e6250;
+  --ct-syntax-string: #307030;
+  --ct-syntax-number: #9a4d12;
+  --ct-syntax-keyword: #8042ab;
+  --ct-syntax-type: #2163a3;
+  --ct-danger-text: #9f1c1c;
+  --ct-danger-bg: #fbe9e4;
+  --ct-danger-border: #e8b7aa;
+}

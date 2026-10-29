@@ -1,0 +1,25 @@
+/*
+ * Site chrome shared by the examples site and the docs: the theme and language selects
+ * (.site-theme / .site-lang, same markup on both) and the brand mark. Uses tokens.css.
+ */
+:is(.site-theme, .site-lang) { display: flex; flex-shrink: 0; align-items: center; }
+:is(.site-theme, .site-lang) select {
+  height: 32px; padding: 0 28px 0 10px; font: 500 13px/1 var(--ct-font); color: var(--ct-text);
+  background: var(--ct-surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%2394a2b6' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid var(--ct-border-strong); border-radius: var(--ct-radius-sm); cursor: pointer;
+  appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
+}
+:root:is([data-theme='light'], [data-theme='paper']) :is(.site-theme, .site-lang) select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23556274' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+}
+:is(.site-theme, .site-lang) select:hover { border-color: var(--ct-accent); }
+:is(.site-theme, .site-lang) select:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 2px; }
+/* Visible label text only for screen readers: the selected option names the control */
+.site-control-label {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.site-controls { display: flex; align-items: center; gap: var(--ct-space-2); }
+
+/* Brand: the mark before the product name (site header, docs nav title) */
+:is(.site-header .brand, .VPNavBarTitle .title)::before { content: '▥'; margin-right: 8px; color: var(--ct-accent); font-weight: 400; }

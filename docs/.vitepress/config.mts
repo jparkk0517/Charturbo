@@ -2,6 +2,7 @@
 // Chinese under /zh/. Every page exists in all three locales with the same slug; the sidebar
 // below is generated from one table so the three navigations never drift apart.
 import { defineConfig, type DefaultTheme } from 'vitepress';
+import { THEME_BOOT_SCRIPT } from './theme/site-theme';
 
 type Lang = 'en' | 'ko' | 'zh';
 type Title = Record<Lang, string>;
@@ -243,14 +244,19 @@ function themeConfig(lang: Lang): DefaultTheme.Config {
 export default defineConfig({
   title: 'Charturbo',
   base: BASE,
-  // Same default as the examples site
-  appearance: 'dark',
+  // Light / dark follows the OS until chosen; the site theme (data-theme) is set before first
+  // paint by THEME_BOOT_SCRIPT, as on the examples pages
+  appearance: true,
   cleanUrls: true,
   lastUpdated: true,
   // Bench raw output, the agent hand-off note and the ECharts parity checklist are not pages;
   // public/ is copied as-is (the TypeDoc output there carries its own .md files)
   srcExclude: ['bench/**', 'public/**', 'HANDOFF.md', 'ECHARTS-PARITY.md'],
-  head: [['meta', { name: 'theme-color', content: '#080b12' }]],
+  head: [
+    ['meta', { name: 'theme-color', content: '#080b12', media: '(prefers-color-scheme: dark)' }],
+    ['meta', { name: 'theme-color', content: '#f6f8fb', media: '(prefers-color-scheme: light)' }],
+    ['script', {}, THEME_BOOT_SCRIPT],
+  ],
   markdown: {
     config(md) {
       const linkOpen = md.renderer.rules.link_open!;

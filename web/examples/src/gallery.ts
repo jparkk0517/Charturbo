@@ -7,6 +7,7 @@ import { htmlLang, setPageMeta, t } from './i18n';
 import './style.css';
 import { CharturboDevice, Charturbo } from 'charturbo';
 import { FAMILIES, renderHeader } from './families';
+import { renderFooter } from './site-footer';
 import { bindTheme } from './theme';
 
 declare global {
@@ -162,6 +163,7 @@ const PREVIEWS: Record<string, (sdk: Charturbo) => void> = {
 async function main() {
   setPageMeta(t('gallery.title'), t('gallery.intro'));
   document.body.prepend(renderHeader('gallery'));
+  document.querySelector('main')!.after(renderFooter());
   const mainEl = document.querySelector('main')!;
   const intro = document.createElement('section');
   intro.className = 'intro';

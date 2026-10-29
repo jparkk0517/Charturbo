@@ -4,14 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" data-i18n-attr="content:landing.description" content="Charturbo brings your data to life with GPU-accelerated charts, real-time streaming and interactive 3D. Built with Rust, WebAssembly and TypeScript." />
-    <meta name="theme-color" content="#080b12" />
+    <meta name="theme-color" content="#080b12" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f8fb" media="(prefers-color-scheme: light)" />
     <title data-i18n="landing.title">Charturbo — Data in motion</title>
     <link rel="stylesheet" href="./src/landing.css" />
   </head>
   <body>
-    <a class="skip" href="#main" data-i18n="landing.skip">Skip to content</a>
-    <header class="nav wrap">
-      <a class="brand" href="./index.html" aria-label="Charturbo home" data-i18n-attr="aria-label:site.home"><span class="brand-icon" aria-hidden="true">▥</span> Charturbo</a>
+    <a class="skip-link" href="#main" data-i18n="landing.skip">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="./index.html" aria-label="Charturbo home" data-i18n-attr="aria-label:site.home">Charturbo</a>
       <nav aria-label="Main navigation" data-i18n-attr="aria-label:site.mainNav"><a href="./docs/guide/getting-started" data-docs="guide/getting-started" data-i18n="site.guide">Guide</a><a href="./docs/charts/line" data-docs="charts/line" data-i18n="site.charts">Charts</a><a href="./docs/api/index.html" data-i18n="site.api">API</a><a href="./gallery.html" data-i18n="site.examples">Examples</a><a href="./benchmarks.html" data-i18n="site.benchmarks">Benchmarks</a><a href="https://github.com/jparkk0517/Charturbo">GitHub ↗</a></nav>
     </header>
     <main id="main">
@@ -26,11 +27,11 @@
         <div class="demo-top"><div><span class="dot"></span><strong data-i18n="landing.demoName">Signal / live</strong><span class="demo-subtitle" data-i18n="landing.demoSubtitle">Synthetic traffic · stacked area</span></div><button type="button" data-demo-motion disabled data-i18n="landing.play">Play demo</button></div>
         <div class="chart-stage">
           <svg data-demo-poster role="img" aria-label="Preview of three stacked traffic signals over time" data-i18n-attr="aria-label:landing.posterLabel" viewBox="0 0 1000 340" preserveAspectRatio="none">
-            <defs><linearGradient id="fill" x2="0" y2="1"><stop stop-color="#5ee9c4" stop-opacity=".42"/><stop offset="1" stop-color="#5ee9c4" stop-opacity=".05"/></linearGradient></defs>
-            <g stroke="#222d3c" stroke-width="1"><path d="M40 60H980M40 130H980M40 200H980M40 270H980"/></g>
-            <path d="M40 200Q100 180 160 205T280 150T400 150T520 110T640 130T760 80T880 100T980 60V300H40Z" fill="url(#fill)" stroke="#64dfc1" stroke-width="2"/>
-            <path d="M40 235Q100 200 160 240T280 205T400 195T520 190T640 200T760 155T880 160T980 140V300H40Z" fill="#3e7797" fill-opacity=".5" stroke="#6fb9ed" stroke-width="2"/>
-            <path d="M40 270Q100 250 160 275T280 250T400 245T520 255T640 250T760 225T880 240T980 210V300H40Z" fill="#8a78d3" fill-opacity=".5" stroke="#b8a4f5" stroke-width="2"/>
+            <defs><linearGradient id="fill" x2="0" y2="1"><stop class="poster-stop" stop-opacity=".42"/><stop class="poster-stop" offset="1" stop-opacity=".05"/></linearGradient></defs>
+            <g class="poster-grid" stroke-width="1"><path d="M40 60H980M40 130H980M40 200H980M40 270H980"/></g>
+            <path class="poster-s1" d="M40 200Q100 180 160 205T280 150T400 150T520 110T640 130T760 80T880 100T980 60V300H40Z" fill="url(#fill)" stroke-width="2"/>
+            <path class="poster-s2" d="M40 235Q100 200 160 240T280 205T400 195T520 190T640 200T760 155T880 160T980 140V300H40Z" stroke-width="2"/>
+            <path class="poster-s3" d="M40 270Q100 250 160 275T280 250T400 245T520 255T640 250T760 225T880 240T980 210V300H40Z" stroke-width="2"/>
           </svg>
           <canvas data-demo-canvas aria-label="Streaming area chart of synthetic traffic across three regions" data-i18n-attr="aria-label:landing.canvasLabel" hidden></canvas>
         </div>
@@ -54,7 +55,7 @@ chart.appendAreaData([
 ], { maxPoints: <span class="code-number">4_000</span> });</code></pre></section>
       <section class="closing wrap"><p class="eyebrow" data-i18n="landing.closingEyebrow">LESS WAITING. MORE EXPLORING.</p><h2 data-i18n="landing.closingHeading">Give your data room to move.</h2><a class="button primary" href="./gallery.html" data-i18n="landing.closingCta">Find your first chart ↗</a></section>
     </main>
-    <footer class="wrap"><a class="brand" href="./index.html">Charturbo</a><span data-i18n="landing.footer">Built with Rust. Open source. MIT licensed.</span><a href="https://github.com/jparkk0517/Charturbo" data-i18n="landing.source">Source ↗</a></footer>
+    <footer class="site-footer"><a class="brand" href="./index.html">Charturbo</a><span data-i18n="landing.footer">Built with Rust. Open source. MIT licensed.</span><a href="https://github.com/jparkk0517/Charturbo" data-i18n="landing.source">Source ↗</a></footer>
     <script type="module" src="./src/landing.ts"></script>
   </body>
 </html>

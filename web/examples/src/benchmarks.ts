@@ -8,6 +8,7 @@ import { CharturboDevice } from 'charturbo';
 import { createReportChart, defaultDesign, exportReport, reportTheme, type ThemeName } from '../../bench/report-charts';
 import { formatValue, METRICS, rowsFor, SCENARIOS, workload, type Entry, type Group, type Metric, type Results } from '../../bench/report-model';
 import { renderHeader } from './families';
+import { renderFooter } from './site-footer';
 import { getThemeName, setThemeName, subscribeTheme } from './theme';
 
 declare global {
@@ -30,6 +31,7 @@ let design = defaultDesign(getThemeName());
 let charts: Awaited<ReturnType<typeof createReportChart>>[] = [];
 let device: CharturboDevice | undefined;
 document.body.prepend(renderHeader('benchmarks'));
+document.querySelector('main')!.after(renderFooter());
 const main = document.querySelector('main')!;
 main.className = 'bench';
 setPageMeta(t('bench.title'), t('bench.description'));

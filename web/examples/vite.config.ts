@@ -3,15 +3,23 @@
 // exactly like application code against the published package.
 import { readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+import { THEME_BOOT_SCRIPT } from '../../docs/.vitepress/theme/site-theme.ts';
 
 const root = import.meta.dirname;
 const src = resolve(root, '../src');
 const pages = readdirSync(root).filter((f) => f.endsWith('.html'));
 
+/** Every page: the site theme (data-theme) is set by an inline head script before first paint. */
+const themeBoot: Plugin = {
+  name: 'charturbo-theme-boot',
+  transformIndexHtml: () => [{ tag: 'script', children: THEME_BOOT_SCRIPT, injectTo: 'head' }],
+};
+
 export default defineConfig({
   root,
   base: './',
+  plugins: [themeBoot],
   resolve: {
     alias: [
       { find: /^charturbo\/react$/, replacement: resolve(src, 'react/index.ts') },

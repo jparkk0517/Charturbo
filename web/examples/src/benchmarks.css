@@ -1,46 +1,43 @@
-/* Benchmarks page: sits under the shared site header (style.css), so every rule is scoped to main.bench */
-.bench { --accent: #3182f6; --surface: #fff; --muted: #52627a; --line: #dce4ef; }
-:root[data-theme="dark"] .bench, :root[data-theme="midnight"] .bench { --surface: #171c27; --muted: #aab9d0; --line: #2c3851; }
-:root[data-theme="midnight"] .bench { --surface: #101b35; }
-:root[data-theme="paper"] .bench { --surface: #faf6ed; --line: #d9d1bf; }
+/* Benchmarks page: sits under the shared site header (style.css), so every rule is scoped to main.bench.
+   Colors are the shared design tokens (site.css); chart cards take the report chart surface. */
 main.bench { display: block; max-width: 1280px; padding: 0 32px; margin: auto; }
 .bench a { color: inherit; text-decoration: none; }
 .bench a:hover { text-decoration: underline; }
 .bench footer, .bench .links { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.bench .links { justify-content: flex-start; font-size: 13px; color: var(--muted); }
+.bench .links { justify-content: flex-start; font-size: 13px; color: var(--ct-muted); }
 .bench .intro { padding: 56px 0 32px; }
-.bench .eyebrow { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+.bench .eyebrow { color: var(--ct-accent); font-size: 11px; font-weight: 700; letter-spacing: .16em; }
 .bench .intro h1 { font-size: clamp(32px, 5vw, 54px); font-weight: 700; letter-spacing: -.06em; line-height: 1.18; margin: 14px 0 20px; }
-.bench .intro > p:not(.eyebrow) { color: var(--muted); line-height: 1.8; margin-bottom: 14px; }
-.bench button { font: inherit; min-height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; cursor: pointer; font-size: 13px; }
+.bench .intro > p:not(.eyebrow) { color: var(--ct-muted); line-height: 1.8; margin-bottom: 14px; }
+.bench button { font: inherit; min-height: 38px; padding: 8px 12px; border: 1px solid var(--ct-border); border-radius: var(--ct-radius-sm); background: var(--ct-surface); color: inherit; cursor: pointer; font-size: 13px; }
 .bench button:disabled { opacity: .5; cursor: wait; }
-.bench :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.bench :focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 3px; }
 .bench .scenario-nav { display: flex; flex-wrap: wrap; gap: 8px; }
-.bench .scenario-nav a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; }
-.bench .scenario-nav a:hover { color: inherit; text-decoration: none; border-color: var(--accent); }
+.bench .scenario-nav a { padding: 6px 12px; border: 1px solid var(--ct-border); border-radius: 999px; background: var(--ct-surface); color: var(--ct-muted); font-size: 12px; }
+.bench .scenario-nav a:hover { color: inherit; text-decoration: none; border-color: var(--ct-accent); }
 .bench .scenario { margin-top: 36px; scroll-margin-top: 110px; }
 .bench .scenario-data { margin-top: 14px; }
-.bench .scenario-data summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 0 10px; }
+.bench .scenario-data summary { cursor: pointer; color: var(--ct-muted); font-size: 13px; padding: 6px 0 10px; }
 .bench h2 { font-size: 20px; letter-spacing: -.03em; }
-#status { color: var(--muted); font-size: 12px; line-height: 1.7; min-height: 22px; }
+#status { color: var(--ct-muted); font-size: 12px; line-height: 1.7; min-height: 22px; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-.chart-card { min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--chart-surface, var(--surface)); padding: 20px 16px 12px; }
+.chart-card { min-width: 0; border: 1px solid var(--ct-border); border-radius: var(--ct-radius-lg); background: var(--chart-surface, var(--ct-surface)); padding: 20px 16px 12px; }
 .chart-card h3 { font-size: 16px; margin: 0 8px 7px; }
-.chart-card p { color: var(--muted); font-size: 12px; margin: 0 8px; line-height: 1.6; }
+.chart-card p { color: var(--ct-muted); font-size: 12px; margin: 0 8px; line-height: 1.6; }
 .chart-host { position: relative; width: 100%; height: 340px; margin-top: 12px; }
 .chart-host canvas { display: block; width: 100%; height: 100%; }
 .unavailable { min-height: 22px; }
 .chart-download { margin: 10px 8px 0; font-size: 11px; min-height: 30px; }
-.bench .notes { margin-top: 44px; padding: 20px 24px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 12px 12px 0; }
+.bench .notes { margin-top: 44px; padding: 20px 24px; border-left: 3px solid var(--ct-accent); background: var(--ct-surface); border-radius: 0 var(--ct-radius) var(--ct-radius) 0; }
 .bench .notes h2 { font-size: 15px; margin: 0; }
-.bench .notes ul { padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.9; margin-bottom: 0; }
-.bench .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.bench .notes ul { padding-left: 18px; color: var(--ct-muted); font-size: 13px; line-height: 1.9; margin-bottom: 0; }
+.bench .table-wrap { overflow-x: auto; border: 1px solid var(--ct-border); border-radius: var(--ct-radius); background: var(--ct-surface); }
 .bench table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
-.bench caption { padding: 14px; text-align: left; color: var(--muted); }
-.bench :is(th, td) { padding: 14px 16px; border-top: 1px solid var(--line); text-align: left; line-height: 1.6; }
-.bench th { white-space: nowrap; color: var(--muted); }
+.bench caption { padding: 14px; text-align: left; color: var(--ct-muted); }
+.bench :is(th, td) { padding: 14px 16px; border-top: 1px solid var(--ct-border); text-align: left; line-height: 1.6; }
+.bench th { white-space: nowrap; color: var(--ct-muted); }
 .bench td:first-child { min-width: 140px; font-weight: 600; }
 .bench td:last-child { max-width: 320px; overflow-wrap: anywhere; }
-.bench footer { margin: 36px 0; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
+.bench footer { margin: 36px 0; color: var(--ct-muted); font-size: 11px; flex-wrap: wrap; }
 @media (max-width: 850px) { .charts { grid-template-columns: 1fr; } main.bench { padding: 0 18px; } }
 @media (max-width: 420px) { main.bench { padding: 0 10px; } .chart-card { padding: 18px 4px 10px; } .bench h2 { font-size: 17px; } }

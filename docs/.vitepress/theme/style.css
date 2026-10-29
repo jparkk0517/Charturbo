@@ -1,18 +1,67 @@
-/* Brand colors of the examples site (web/examples/src/style.css: --accent #3987e5, dark --bg #05070d)
-   so the docs and the examples read as one site. Light values keep 4.5:1 text contrast on white. */
+/*
+ * The docs in the site design: the shared tokens (tokens.css, also used by the examples site)
+ * mapped onto VitePress's variables, and the same theme / language selects as the site header
+ * (SiteControls.vue) in place of VitePress's appearance switch and language menu.
+ * `<html data-theme>` (dark | light | midnight | paper) selects the palette; VitePress's `dark`
+ * class follows its base, so its own dark-mode rules (code highlighting) still apply.
+ */
+@import './tokens.css';
+@import './site-ui.css';
+
 :root {
-  --vp-c-brand-1: #2470c9;
-  --vp-c-brand-2: #2a6fc9;
-  --vp-c-brand-3: #2563c0;
-  --vp-c-brand-soft: rgba(57, 135, 229, 0.14);
+  --vp-font-family-base: var(--ct-font);
+  --vp-font-family-mono: var(--ct-font-mono);
+  --vp-nav-height: var(--ct-header-h);
+
+  --vp-c-bg: var(--ct-bg);
+  --vp-c-bg-alt: var(--ct-bg-alt);
+  --vp-c-bg-elv: var(--ct-surface);
+  --vp-c-bg-soft: var(--ct-surface-2);
+  --vp-c-border: var(--ct-border-strong);
+  --vp-c-divider: var(--ct-border);
+  --vp-c-gutter: var(--ct-border);
+  --vp-c-text-1: var(--ct-text);
+  --vp-c-text-2: var(--ct-text-2);
+  --vp-c-text-3: var(--ct-muted);
+
+  --vp-c-brand-1: var(--ct-accent);
+  --vp-c-brand-2: var(--ct-accent-hover);
+  --vp-c-brand-3: var(--ct-accent-fill);
+  --vp-c-brand-soft: var(--ct-accent-soft);
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: var(--ct-on-accent);
+  --vp-button-brand-bg: var(--ct-accent-fill);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: var(--ct-on-accent);
+  --vp-button-brand-hover-bg: var(--ct-accent-fill-hover);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: var(--ct-on-accent);
+  --vp-button-brand-active-bg: var(--ct-accent-fill);
+  --vp-button-alt-border: var(--ct-border-strong);
+  --vp-button-alt-bg: var(--ct-surface-2);
+  --vp-button-alt-text: var(--ct-text);
+  --vp-button-alt-hover-border: var(--ct-accent);
+  --vp-button-alt-hover-bg: var(--ct-surface-2);
+  --vp-button-alt-hover-text: var(--ct-text);
+
+  --vp-nav-bg-color: var(--ct-bg);
+  --vp-local-nav-bg-color: var(--ct-bg);
+  --vp-sidebar-bg-color: var(--ct-bg-alt);
+  --vp-code-block-bg: var(--ct-code-bg);
+  --vp-code-copy-code-bg: var(--ct-surface-2);
+  --vp-code-tab-bg: var(--ct-code-bg);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(110deg, var(--ct-accent), var(--ct-accent-2));
+  --vp-home-hero-image-background-image: none;
 }
-.dark {
-  --vp-c-bg: #05070d;
-  --vp-c-bg-alt: #090b14;
-  --vp-c-bg-elv: #0d111b;
-  --vp-c-bg-soft: #111827;
-  --vp-c-brand-1: #6aa8f0;
-  --vp-c-brand-2: #3987e5;
-  --vp-c-brand-3: #2563c0;
-  --vp-c-brand-soft: rgba(57, 135, 229, 0.18);
-}
+
+/* Nav bar: the site header's brand, a blurred page-colored bar and one bottom border */
+.VPNavBarTitle .title { font-size: 17px; font-weight: 700; letter-spacing: -0.4px; }
+.VPNavBar:not(.home.top) .divider-line, .VPNavBar.has-sidebar .divider-line { background-color: var(--ct-border); }
+
+/* SiteControls replace VitePress's appearance switch and language menu (bar, "..." menu, mobile screen) */
+.VPNavBarAppearance, .VPNavBarTranslations, .VPNavBarExtra .group.translations,
+.VPNavBarExtra .group:has(> .item.appearance), .VPNavScreenAppearance, .VPNavScreenTranslations { display: none !important; }
+.site-controls.bar { margin-left: 12px; }
+.site-controls.screen { justify-content: space-between; margin-top: 24px; }
+@media (max-width: 767px) { .site-controls.bar { display: none; } }
