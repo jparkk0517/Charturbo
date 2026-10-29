@@ -32,13 +32,13 @@ HANDOFF의 계약을 따른다.
 - [x] 캘린더 히트맵 (calendar 8): 연 · 월 · 기간 · 여러 캘린더, 가로/세로, `firstDay`, 월 경계선 (음력 · 캘린더 위 파이/그래프 조합은 제외; 중간에 시작하는 범위에서 다음 달 라벨이 빠질 수 있음)
 - [x] ThemeRiver: wiggle 기준선 (Byron & Wattenberg 2008, d3 `stackOffsetWiggle`) (themeRiver 2), silhouette · zero, `insideOut` 순서, 띠 위에서만 호버
 - [x] Tree: Buchheim tidy tree, 4방향, 방사형, 꺾은선 연결 (tree 7), 펼치기/접기 · `initialTreeDepth` (팬/줌 · 레벨별 스타일은 미구현)
-- [ ] 2D 그래프: z 고정 force, 원형 배치, 직교 좌표 위 그래프 (graph 11)
+- [x] 2D 그래프: z 고정 force, 원형 배치, 직교 좌표 위 그래프 (graph 11), `renderGraph`. force는 3D 물리 시뮬레이터 재사용, 범주 범례 · 인접 강조 · 화살표 · curveness (노드 드래그 · 자기 루프 · 엣지 호버 · force 진행 애니메이션은 미구현)
 
 ## 2B단계: 새 도형 차트 (약 2주)
 
-- [ ] 평행 좌표 + 축 브러시 (parallel 4)
-- [ ] Chord: d3-chord 배치 (chord 4)
-- [ ] PictorialBar: 심볼 반복·자르기 (pictorialBar 8)
+- [x] 평행 좌표 + 축 브러시 (parallel 4), `renderParallelChart`. 축별 구간 여러 개(합집합) · 축 간 교집합, 브러시는 행 플래그만 갱신(10만 행 × 8축에서 CPU 1.1ms), colorBy 색상맵, 세로 방향 · smooth (GPU 프레임 시간은 미측정)
+- [x] Chord: d3-chord 배치 (chord 4), `renderChordChart`. `chordDirected` + 화살표 리본, gradient 리본, 범례 토글 시 재배치 tween, 리본 정점 상한(256×256에서 약 36MB) (호버 중 tween은 최종 배치로 hit-test)
+- [x] PictorialBar: 심볼 반복·자르기 (pictorialBar 8), `renderPictorialBarChart`. 막대 차트 확장, 내장 도형 9종 + `path://` (`image://` · `symbolKeepAspect` · `barGap: '-100%'` 겹치기는 미구현)
 
 ## 3단계: 축·좌표계·전환 (약 3~4주)
 

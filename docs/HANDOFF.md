@@ -25,9 +25,11 @@
 12. **사이트 디자인 통일 · 라이트 모드:** 공통 토큰 `docs/.vitepress/theme/tokens.css`(`--ct-*`, VitePress `--vp-c-*`에 매핑). 랜딩 · 갤러리 · 예제 · 벤치마크 · 문서가 같은 헤더 · 테마 · 언어 컨트롤을 쓴다. 테마는 첫 페인트 전 boot script(`site-theme.ts`)가 `charturbo-examples-theme` → `vitepress-theme-appearance` → OS 순으로 정한다.
 13. **ECharts 대응 2A단계 (그래프 제외):** 캘린더 히트맵 `renderCalendarHeatmap`(`chart/calendar.rs`, `chart-calendar.ts`), ThemeRiver `renderThemeRiverChart`(`chart/theme_river.rs`, area 엔진 재사용, `appendAreaData` 스트리밍), Tree `renderTree` + `setTreeNodeExpanded` / `toggleTreeNode` / `treeToggle` 이벤트(`chart/tidy_tree.rs`, d3 `tree()`와 같은 좌표). 각각 툴팁 · 접근성 · CSV/SVG · React/Vue · 3개 언어 문서 · 양 backend baseline.
 
+14. **ECharts 대응 2A 마무리 · 2B단계:** 2D 그래프 `renderGraph`(`chart/graph2d.rs`, `HierChart::Graph`, force는 `physics::ForceDirectedSimulator`를 z = 0에서 재사용), 평행 좌표 `renderParallelChart` + `setParallelBrush` / `clearParallelBrush` / `parallelBrush` 이벤트(`chart/parallel.rs`, `renderer/parallel.rs`), Chord `renderChordChart`(`chart/chord.rs`, `HierChart::Chord`, d3 `chord()` / `chordDirected()` 수치), PictorialBar `renderPictorialBarChart`(`chart/pictorial.rs`, `BarChart.pictorial`). 각각 툴팁 · 접근성 · CSV/SVG · React/Vue · 3개 언어 문서 · 양 backend baseline.
+
 ## 다음 작업
 
-0. ECharts 대응 2A의 2D 그래프(z 고정 force · 원형 배치 · 직교 좌표 위 그래프), 이어서 2B(평행 좌표 · Chord · PictorialBar). 순서는 `docs/ECHARTS-PARITY.md`를 따른다.
+0. ECharts 대응 3단계(극좌표계 · 축 끊김 · 다중 축 · Race · 전환 애니메이션). 순서는 `docs/ECHARTS-PARITY.md`를 따른다.
 1. 투명 geometry 깊이 정렬/합성 및 대용량 hit-test·streaming 가속을 진행한다. 현재 전체 점/셀 순회, metadata 복사·변경 시리즈 재전송·전체 geometry 재생성 경로다. 축 nice ticks·독립 box 토글·GPU glyph, 카메라 FOV·near/far·up도 남아 있다.
    등고선 라벨·등고선 대용량 가속(현재 전체 셀 × 범위 내 level 순회, 갱신마다 전체 재생성)도 남아 있다.
 2. 관련 SDK·React/Vue·접근성·export·예제 및 실제 WebGPU/WebGL2 회귀를 검증한다.
@@ -64,6 +66,10 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 - 새 3D 갱신은 오래된 툴팁/키보드 focus를 해제한다. 카메라 제스처를 끊지 않도록 scene reset hooks와 data hooks를 구분한다. React/Vue는 SDK ref에서 호출하며 data/options prop 참조 변경은 전체 교체다.
 - `chart_3d_hit`는 raw XYZ·cell column/row다. 포인터는 보간된 surface 교차점, 키보드는 원본 정점을 사용한다. SVG는 raster fallback. brush·sync는 연결하지 않았다.
 - Tree 애니메이션 토글은 레이아웃이 현재 `state_rev`로 배치됐을 때만 tween을 staging한다(`stage_toggle`). 같은 프레임의 두 번째 토글은 tween 없이 전환한다 (새로 보인 노드 위치가 NaN이라서).
+- PictorialBar는 `BarChart.pictorial: Option<Pictorial>`. 설정되면 `build_bars`는 배경 트랙만 내고 심볼은 `prepare_pictorial`이 world-space fill 삼각형으로 다시 만든다. WASM 레코드는 막대당 f32 19개, `path://`는 공백을 하나로 정규화한 뒤 Rust에서 파싱 · 삼각분할한다(교차 4096 · 정점 상한).
+- Chord 리본은 배치 · 크기가 바뀔 때만 삼각분할(`ChordGeom` 캐시, wpp + rev)하고 호버 · 강조는 색만 다시 칠한다. 리본 분할 수는 화면 길이에 비례(2..48)하고 `MAX_CHORD_FILL_VERTICES`(120만)를 넘으면 함께 줄인다. 리본을 버리지 않는다. 점 id는 그룹 `i`, 리본 `n + s·n + t`.
+- 평행 좌표 브러시는 축 안 합집합, 축 간 교집합, 축당 최대 16구간. 브러시 변경은 행 플래그 텍스처만 다시 올린다. 점 id = 행 인덱스(시리즈 순).
+- 2D 그래프 force는 동기식으로 안정될 때까지 돌린다(애니메이션 없음). `format`은 `yAxis.format`이 없으면 cartesian y 눈금에도 적용된다.
 - ThemeRiver 내부는 area 엔진(`AreaChart.stream`)이며 y autoscale `'visible'`은 SDK가 `'all'`로 바꾼다. 강 바깥 호버는 결과 없음. `nulls` 옵션은 거부한다.
 - Contours: SDK가 levels를 원본 Y 높이 목록으로 확정한다. 개수 N이면 색상 domain(`yMin/yMax` 또는 유한 높이 범위) 안쪽 `lo + i/(N+1)·(hi-lo)`, i=1..N이고 lo==hi면 `[lo]`이다. 최종 alpha는 `min(1, opacity·colorA·(0.75+0.15·min(width,4)))`이다. `show` 아니면 전송하지 않지만 다른 필드는 항상 엄격 검증한다. 모든 render/update는 levels를 다시 계산한다.
 - WASM `set_chart_3d(..., config, contours)`와 `update_chart_3d_series(..., rows, contours)`의 contours는 시리즈마다 `[count, r, g, b, a, ...levels]`이고 count 0은 없음이다. set은 시리즈 수만큼 레코드를 넣고 빈 배열은 전체 없음이다. update는 해당 시리즈 레코드 1개이며 기존 등고선을 교체한다 (Rust `update_scientific3d_series(..., grid, contours)`의 None은 제거).
@@ -95,11 +101,13 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 
 ## 마지막 검증 결과
 
-2A단계(캘린더 · ThemeRiver · Tree)와 디자인 통일 머지 후 main 기준 (2026-10-29):
+2D 그래프 · 평행 좌표 · Chord · PictorialBar 통합 머지 후 기준 (2026-10-29):
 
-- Rust: 기본 · no-default-features 각각 504 통과 / 1 ignored.
-- TS: 65파일 / 578테스트 통과 (Node 22.23), `tsc --noEmit`, `build:lib`, `build:lib:webgpu`, `examples:build` 성공.
-- `npm run test:visual -- --strict` 전체 256 통과 (WebGPU · WebGL2 × canvas · full). `scatter-ripple` full baseline은 로캘 변경(기본 시리즈 이름 1부터) 이후 갱신.
+- Rust: 기본 · no-default-features 각각 563 통과 / 2 ignored.
+- TS: 69파일 / 615테스트 통과 (Node 22.23), `tsc --noEmit`, `build:lib`, `examples:build` 성공. 문서 `check`(56페이지 × 3언어) · `build` 성공.
+- `npm run test:visual -- --strict` 전체 300 통과 (75 fixture × WebGPU · WebGL2 × canvas · full). 기존 baseline 변경 없음. chord 2종은 리본 분할 변경 뒤 0.04~0.07% 차이로 허용 범위 안이다.
+
+이전 2A단계(캘린더 · ThemeRiver · Tree) 결과: Rust 504, TS 65파일 / 578테스트, visual 256 통과.
 
 이전 Surface3D contours 단계의 결과:
 
@@ -138,4 +146,4 @@ npm run test:visual -- --strict --filter=scientific3d --param=streaming:true
 
 ## 새 채팅 시작 문구
 
-> `docs/HANDOFF.md`와 `docs/ECHARTS-PARITY.md`를 읽고 Charturbo 개발을 이어가자. ECharts 대응 2A단계 중 캘린더 · ThemeRiver · Tree까지 구현했으며 다음 작업은 2D 그래프, 이어서 2B단계다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.
+> `docs/HANDOFF.md`와 `docs/ECHARTS-PARITY.md`를 읽고 Charturbo 개발을 이어가자. ECharts 대응 2A · 2B단계(2D 그래프 · 평행 좌표 · Chord · PictorialBar 포함)까지 구현했으며 다음 작업은 3단계(극좌표계부터)다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.
