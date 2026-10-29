@@ -347,6 +347,8 @@ describe('Chord diagram (SDK binding)', () => {
     // a11y reads the re-laid out chords: only C → A is left
     const model = buildA11yModel((sdk as unknown as { chartMeta: Record<string, unknown> }).chartMeta, {})!;
     expect(buildChartSummary(model)).toContain('1 chord');
+    // Hidden groups are not counted
+    expect(buildChartSummary(model)).toContain('2 groups');
     sdk.setSeriesVisible(1, true);
     expect(calls.set_chart_series_visible.at(-1)).toEqual([1, true]);
   });

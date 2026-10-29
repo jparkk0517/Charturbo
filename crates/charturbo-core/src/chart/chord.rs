@@ -36,6 +36,13 @@ pub const MAX_CHORD_GROUPS: usize = 256;
 const RIBBON_GAP_PX: f32 = 2.0;
 /// Arrow head length of directed ribbons (CSS px, d3 `ribbonArrow().headRadius()` default)
 const ARROW_HEAD_PX: f32 = 10.0;
+/// Most fill vertices of one chord frame (arcs + ribbons, 32 B each). Dense large matrices get
+/// coarser ribbon curves to fit; no ribbon is dropped.
+pub const MAX_CHORD_FILL_VERTICES: usize = 1_200_000;
+/// Ribbon curve segments: one per this many CSS px of curve, within the bounds below
+const CURVE_SEGMENT_PX: f32 = 8.0;
+const MIN_CURVE_SEGMENTS: usize = 2;
+const MAX_CURVE_SEGMENTS: usize = 48;
 /// Labels sit this far outside the ring (CSS px).
 const LABEL_OFFSET_PX: f32 = 6.0;
 /// Hover / emphasis: lit ribbons gain this much alpha, unlit ones keep this share.
@@ -380,6 +387,30 @@ enum Focus {
     Ribbon(u32),
 }
 
+/// Tessellated positions of one frame at one scale; `compose` colors them per focus, so hover
+/// and emphasis never re-tessellate.
+#[derive(Debug, Clone)]
+struct ChordGeom {
+    wpp: f32,
+    rev: u32,
+    /// Drawn group arcs: group, fill range, AA edge range (colors set by `compose`)
+    arcs: Vec<(usize, std::ops::Range<usize>, std::ops::Range<usize>)>,
+    arc_fills: Vec<ChartFillRaw>,
+    arc_edges: Vec<ChartSegmentRaw>,
+    /// Ribbons in draw order: key and vertex range; vertex `[x, y, u]` (u: 0 source -> 1 target)
+    ribbons: Vec<(u32, std::ops::Range<usize>)>,
+    verts: Vec<[f32; 3]>,
+    /// Hit outlines per ribbon (same order; empty for tween frames): point range, bbox
+    outlines: Vec<(std::ops::Range<usize>, [f32; 4])>,
+    points: Vec<(f32, f32)>,
+}
+
+impl ChordGeom {
+    fn matches(&self, wpp: f32, rev: u32) -> bool {
+        self.rev == rev && wpp > 0.0 && ((self.wpp - wpp) / wpp).abs() <= 1e-4
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ChordChart {
     pub(crate) n: usize,
@@ -395,6 +426,8 @@ pub(crate) struct ChordChart {
     screen: Option<PieScreen>,
     /// Scale, focus and layout revision the staged buffers were built for
     built: Option<(f32, Focus, u32)>,
+    /// Staged layout tessellated at the staged scale (also the hit-test outlines)
+    geom: Option<ChordGeom>,
     /// Frame on screen (the staged layout or the last tween frame)
     drawn: Option<AngleFrame>,
     /// Legend toggle: the frame to tween from (dropped once the animation lands)
@@ -402,6 +435,8 @@ pub(crate) struct ChordChart {
     pub(crate) labels: Vec<HierarchyLabel>,
     pub(crate) labels_revision: u32,
     labels_key: Option<([f32; 19], u32, bool)>,
+    /// Ribbon outlines computed (tessellation / hit-test cost probe)
+    pub(crate) ribbon_calls: std::cell::Cell<u64>,
 }
 
 impl ChordChart {
@@ -445,11 +480,13 @@ impl ChordChart {
             rev: 0,
             screen: None,
             built: None,
+            geom: None,
             drawn: None,
             tween_from: None,
             labels: Vec::new(),
             labels_revision: 0,
             labels_key: None,
+            ribbon_calls: std::cell::Cell::new(0),
         };
         c.assign_colors();
         c.relayout();
@@ -573,7 +610,7 @@ impl ChordChart {
         }
     }
 
-    /// Fills (ring arcs, then unlit and lit ribbons) and arc outlines of `frame`.
+    /// Fills (ring arcs, then unlit and lit ribbons) and arc outlines of `frame` (tween frames).
     fn build(
         &self,
         frame: &AngleFrame,
@@ -582,12 +619,26 @@ impl ChordChart {
         fills: &mut Vec<ChartFillRaw>,
         edges: &mut Vec<ChartSegmentRaw>,
     ) {
-        fills.clear();
-        edges.clear();
-        let n = self.n;
+        let geom = self.tessellate(frame, wpp, false);
+        self.compose(&geom, focus, fills, edges);
+    }
+
+    /// Positions of `frame` at `wpp`: arcs, ribbons (curve segments fitted to the vertex
+    /// budget) and, with `hit`, the ribbon outlines for hit tests.
+    fn tessellate(&self, frame: &AngleFrame, wpp: f32, hit: bool) -> ChordGeom {
         let (r_in, r_rib) = self.radii(wpp);
-        let lit = self.lit_groups(frame, focus);
-        for (g, &(a0, a1)) in frame.groups.iter().enumerate() {
+        let mut g = ChordGeom {
+            wpp,
+            rev: self.rev,
+            arcs: Vec::new(),
+            arc_fills: Vec::new(),
+            arc_edges: Vec::new(),
+            ribbons: Vec::with_capacity(frame.order.len()),
+            verts: Vec::new(),
+            outlines: Vec::new(),
+            points: Vec::new(),
+        };
+        for (i, &(a0, a1)) in frame.groups.iter().enumerate() {
             if a1 <= a0 {
                 continue;
             }
@@ -600,16 +651,70 @@ impl ChordChart {
                 full: false,
                 corner: 0.0,
             };
-            let color = match &lit {
-                Some(l) if !l[g] => mix(self.colors[g], self.style.surface, EMPHASIS_FADE),
-                _ => self.colors[g],
-            };
-            tessellate_slice(&shape, wpp, (0.0, 0.0), color, fills, edges);
+            let (f0, e0) = (g.arc_fills.len(), g.arc_edges.len());
+            tessellate_slice(
+                &shape,
+                wpp,
+                (0.0, 0.0),
+                [1.0; 4],
+                &mut g.arc_fills,
+                &mut g.arc_edges,
+            );
+            g.arcs
+                .push((i, f0..g.arc_fills.len(), e0..g.arc_edges.len()));
         }
-        // Lit ribbons last (on top)
+        let angles: Vec<[f64; 4]> = frame
+            .order
+            .iter()
+            .map(|&k| frame.chords[k as usize])
+            .collect();
+        let budget = MAX_CHORD_FILL_VERTICES.saturating_sub(g.arc_fills.len());
+        let segs = self.ribbon_segments(&angles, r_rib, wpp, budget);
+        for ((&key, &a), m) in frame.order.iter().zip(&angles).zip(segs) {
+            let rb = self.ribbon(a, r_rib, wpp, m);
+            let v0 = g.verts.len();
+            rb.triangulate(&mut g.verts);
+            g.ribbons.push((key, v0..g.verts.len()));
+            if hit {
+                let p0 = g.points.len();
+                rb.outline(&mut g.points);
+                g.outlines.push((p0..g.points.len(), bbox(&g.points[p0..])));
+            }
+        }
+        g
+    }
+
+    /// Colors the cached positions for `focus`: arcs, then unlit and lit ribbons (lit on top).
+    fn compose(
+        &self,
+        g: &ChordGeom,
+        focus: Focus,
+        fills: &mut Vec<ChartFillRaw>,
+        edges: &mut Vec<ChartSegmentRaw>,
+    ) {
+        fills.clear();
+        edges.clear();
+        fills.reserve(g.arc_fills.len() + g.verts.len());
+        let n = self.n;
+        let lit = self.lit_groups(g.ribbons.iter().map(|r| r.0), focus);
+        for (gi, fr, er) in &g.arcs {
+            let color = match &lit {
+                Some(l) if !l[*gi] => mix(self.colors[*gi], self.style.surface, EMPHASIS_FADE),
+                _ => self.colors[*gi],
+            };
+            fills.extend(g.arc_fills[fr.clone()].iter().map(|v| ChartFillRaw {
+                position: v.position,
+                color,
+            }));
+            edges.extend(g.arc_edges[er.clone()].iter().map(|e| ChartSegmentRaw {
+                p0_width: e.p0_width,
+                p1_pad: e.p1_pad,
+                color,
+            }));
+        }
         for pass in [false, true] {
-            for &key in &frame.order {
-                let key = key as usize;
+            for (key, range) in &g.ribbons {
+                let key = *key as usize;
                 let on = ribbon_lit(focus, key, n);
                 if on != pass {
                     continue;
@@ -628,14 +733,59 @@ impl ChordChart {
                     ChordRibbonColor::Neutral => (self.style.other_color, self.style.other_color),
                 };
                 let (cs, ct) = ([cs[0], cs[1], cs[2], alpha], [ct[0], ct[1], ct[2], alpha]);
-                let r = self.ribbon(frame.chords[key], r_rib, wpp);
-                r.triangulate(cs, ct, fills);
+                let flat = cs == ct;
+                fills.extend(g.verts[range.clone()].iter().map(|v| ChartFillRaw {
+                    position: [v[0], v[1], 0.0, 0.0],
+                    color: if flat { cs } else { lerp4(cs, ct, v[2]) },
+                }));
             }
         }
     }
 
+    /// Arc segments of layout span `[a0, a1]` at `r_px` CSS px.
+    fn arc_k(&self, a0: f64, a1: f64, r_px: f32) -> usize {
+        arc_segments((self.compass(a1) - self.compass(a0)).abs(), r_px)
+    }
+
+    /// Curve segments per ribbon (even): by on-screen curve length, then scaled down together
+    /// (never below `MIN_CURVE_SEGMENTS`, no ribbon dropped) until the ribbons fit `budget`
+    /// fill vertices.
+    fn ribbon_segments(&self, angles: &[[f64; 4]], r: f32, wpp: f32, budget: usize) -> Vec<usize> {
+        let r_px = r / wpp.max(1e-6);
+        let p = |x: f64| polar((0.0, 0.0), self.compass(x), r_px);
+        let fan = |k: usize| 3 * k.saturating_sub(1);
+        let (mut fixed, mut strip) = (0usize, 0usize);
+        let mut segs: Vec<usize> = angles
+            .iter()
+            .map(|a| {
+                let own = a[0] == a[2] && a[1] == a[3];
+                let (s, t) = (p(0.5 * (a[0] + a[1])), p(0.5 * (a[2] + a[3])));
+                // Quadratic through the center: length ~ (2 chord + control polygon) / 3
+                let len = (2.0 * (s.0 - t.0).hypot(s.1 - t.1) + 2.0 * r_px) / 3.0;
+                let m = ((len / CURVE_SEGMENT_PX).ceil() as usize)
+                    .clamp(MIN_CURVE_SEGMENTS, MAX_CURVE_SEGMENTS);
+                let m = (m + 1) & !1;
+                fixed += fan(self.arc_k(a[0], a[1], r_px))
+                    + match (own, self.opts.directed) {
+                        (true, _) => 0,
+                        (false, true) => 3,
+                        (false, false) => fan(self.arc_k(a[2], a[3], r_px)),
+                    };
+                strip += m * if own { 3 } else { 6 };
+                m
+            })
+            .collect();
+        if fixed + strip > budget && strip > 0 {
+            let f = budget.saturating_sub(fixed) as f64 / strip as f64;
+            for m in &mut segs {
+                *m = (((*m as f64 * f).floor() as usize).max(MIN_CURVE_SEGMENTS)) & !1;
+            }
+        }
+        segs
+    }
+
     /// Groups kept at full color under `focus` (`None` = no focus: all of them).
-    fn lit_groups(&self, frame: &AngleFrame, focus: Focus) -> Option<Vec<bool>> {
+    fn lit_groups(&self, keys: impl Iterator<Item = u32>, focus: Focus) -> Option<Vec<bool>> {
         let n = self.n;
         let mut lit = vec![false; n];
         match focus {
@@ -644,7 +794,7 @@ impl ChordChart {
                 if let Some(v) = lit.get_mut(g as usize) {
                     *v = true;
                 }
-                for &key in &frame.order {
+                for key in keys {
                     let (s, t) = (key as usize / n, key as usize % n);
                     if s == g as usize || t == g as usize {
                         lit[s] = true;
@@ -661,13 +811,14 @@ impl ChordChart {
         Some(lit)
     }
 
-    /// d3 `ribbon()` of layout angles `[s0, s1, t0, t1]` at world radius `r`.
-    fn ribbon(&self, a: [f64; 4], r: f32, wpp: f32) -> Ribbon {
+    /// d3 `ribbon()` of layout angles `[s0, s1, t0, t1]` at world radius `r`, `m` (even)
+    /// segments per curve.
+    fn ribbon(&self, a: [f64; 4], r: f32, wpp: f32, m: usize) -> Ribbon {
+        self.ribbon_calls.set(self.ribbon_calls.get() + 1);
         let r_px = r / wpp.max(1e-6);
         let p = |x: f64| polar((0.0, 0.0), self.compass(x), r);
         let arc = |a0: f64, a1: f64| -> Vec<(f32, f32)> {
-            let span = (self.compass(a1) - self.compass(a0)).abs();
-            let k = arc_segments(span, r_px);
+            let k = self.arc_k(a0, a1, r_px);
             if k == 0 {
                 return vec![p(a0)];
             }
@@ -676,7 +827,7 @@ impl ChordChart {
                 .collect()
         };
         // Quadratic curves through the center: Q(u) = (1 - u)^2 P0 + u^2 P2
-        let m = ((r_px / 6.0).ceil() as usize).clamp(8, 48) & !1;
+        let m = m.max(MIN_CURVE_SEGMENTS) & !1;
         let curve = |p0: (f32, f32), p2: (f32, f32)| -> Vec<(f32, f32)> {
             (0..=m)
                 .map(|i| {
@@ -739,12 +890,44 @@ impl ChordChart {
                 })
                 .map(|g| (0, g.index));
         }
-        self.layout.chords.iter().rev().find_map(|c| {
-            let a = [c.source.start, c.source.end, c.target.start, c.target.end];
-            self.ribbon(a, r_rib, wpp)
-                .contains((x, y))
-                .then(|| (1, c.key(self.n) as u32))
-        })
+        // Topmost ribbon first: the cached outlines of the staged layout
+        if let Some(g) = self
+            .geom
+            .as_ref()
+            .filter(|g| g.matches(wpp, self.rev) && g.outlines.len() == g.ribbons.len())
+        {
+            return g
+                .ribbons
+                .iter()
+                .zip(&g.outlines)
+                .rev()
+                .find(|(_, (range, b))| {
+                    x >= b[0]
+                        && x <= b[2]
+                        && y >= b[1]
+                        && y <= b[3]
+                        && inside(&g.points[range.clone()], (x, y))
+                })
+                .map(|((key, _), _)| (1, *key));
+        }
+        let angles: Vec<[f64; 4]> = self
+            .layout
+            .chords
+            .iter()
+            .map(|c| [c.source.start, c.source.end, c.target.start, c.target.end])
+            .collect();
+        let segs = self.ribbon_segments(&angles, r_rib, wpp, MAX_CHORD_FILL_VERTICES);
+        self.layout
+            .chords
+            .iter()
+            .zip(angles)
+            .zip(segs)
+            .rev()
+            .find_map(|((c, a), m)| {
+                let mut poly = Vec::new();
+                self.ribbon(a, r_rib, wpp, m).outline(&mut poly);
+                inside(&poly, (x, y)).then(|| (1, c.key(self.n) as u32))
+            })
     }
 
     pub(crate) fn hover(&self, view: &ChartView, ndc: (f32, f32)) -> Option<HoverResult> {
@@ -970,10 +1153,20 @@ impl ChordChart {
             }
             None => true,
         };
-        if stale || force {
-            let frame = self.frame_of();
-            self.build(&frame, screen.wpp, focus, out.fills, out.edges);
-            self.drawn = Some(frame);
+        let fresh = self
+            .geom
+            .as_ref()
+            .is_some_and(|g| g.matches(screen.wpp, self.rev));
+        if !fresh {
+            self.geom = Some(self.tessellate(&self.frame_of(), screen.wpp, true));
+        }
+        if stale || force || !fresh {
+            // Hover / emphasis: recolor the cached positions
+            if let Some(g) = &self.geom {
+                self.compose(g, focus, out.fills, out.edges);
+            }
+            // On screen: the staged layout (`set_visible` derives it)
+            self.drawn = None;
             self.built = Some((screen.wpp, focus, self.rev));
             changed.fills = true;
         }
@@ -1011,19 +1204,16 @@ struct Ribbon {
 }
 
 impl Ribbon {
-    /// Strip between the curves plus the convex arc caps (fans from their first point); colors
-    /// run from `cs` at the source end to `ct` at the target end.
-    fn triangulate(&self, cs: [f32; 4], ct: [f32; 4], fills: &mut Vec<ChartFillRaw>) {
-        let vtx = |p: (f32, f32), color: [f32; 4]| ChartFillRaw {
-            position: [p.0, p.1, 0.0, 0.0],
-            color,
-        };
-        let fan = |arc: &[(f32, f32)], color: [f32; 4], fills: &mut Vec<ChartFillRaw>| {
+    /// Strip between the curves plus the convex arc caps (fans from their first point) as
+    /// `[x, y, u]` vertices, u running from 0 at the source end to 1 at the target end.
+    fn triangulate(&self, out: &mut Vec<[f32; 3]>) {
+        let v = |p: (f32, f32), u: f32| [p.0, p.1, u];
+        let fan = |arc: &[(f32, f32)], u: f32, out: &mut Vec<[f32; 3]>| {
             for w in arc.windows(2).skip(1) {
-                fills.extend([vtx(arc[0], color), vtx(w[0], color), vtx(w[1], color)]);
+                out.extend([v(arc[0], u), v(w[0], u), v(w[1], u)]);
             }
         };
-        fan(&self.source, cs, fills);
+        fan(&self.source, 0.0, out);
         let m = self.left.len().saturating_sub(1);
         if self.right.is_empty() {
             // Self chord: the curve folds onto itself at its apex
@@ -1034,58 +1224,70 @@ impl Ribbon {
                     self.left[m - i],
                     self.left[m - i - 1],
                 );
-                fills.extend([
-                    vtx(a0, cs),
-                    vtx(b0, cs),
-                    vtx(b1, cs),
-                    vtx(a0, cs),
-                    vtx(b1, cs),
-                    vtx(a1, cs),
+                out.extend([
+                    v(a0, 0.0),
+                    v(b0, 0.0),
+                    v(b1, 0.0),
+                    v(a0, 0.0),
+                    v(b1, 0.0),
+                    v(a1, 0.0),
                 ]);
             }
             return;
         }
-        fan(&self.target, ct, fills);
-        let at = |u: f32| lerp4(cs, ct, u);
+        fan(&self.target, 1.0, out);
         for i in 0..m {
-            let (c0, c1) = (at(i as f32 / m as f32), at((i + 1) as f32 / m as f32));
+            let (u0, u1) = (i as f32 / m as f32, (i + 1) as f32 / m as f32);
             let (l0, l1, r0, r1) = (
                 self.left[i],
                 self.left[i + 1],
                 self.right[i],
                 self.right[i + 1],
             );
-            fills.extend([
-                vtx(l0, c0),
-                vtx(r0, c0),
-                vtx(r1, c1),
-                vtx(l0, c0),
-                vtx(r1, c1),
-                vtx(l1, c1),
+            out.extend([
+                v(l0, u0),
+                v(r0, u0),
+                v(r1, u1),
+                v(l0, u0),
+                v(r1, u1),
+                v(l1, u1),
             ]);
         }
     }
 
-    /// Closed outline (even-odd point test).
-    fn contains(&self, p: (f32, f32)) -> bool {
+    /// Closed outline for the hit test.
+    fn outline(&self, out: &mut Vec<(f32, f32)>) {
         let m = self.left.len().saturating_sub(1);
-        let mut poly: Vec<(f32, f32)> = self.source.clone();
-        poly.extend_from_slice(&self.left[1.min(m)..m]);
+        out.extend_from_slice(&self.source);
+        out.extend_from_slice(&self.left[1.min(m)..m]);
         if !self.right.is_empty() {
-            poly.extend_from_slice(&self.target);
-            poly.extend(self.right[1..m].iter().rev());
+            out.extend_from_slice(&self.target);
+            out.extend(self.right[1..m].iter().rev());
         }
-        let mut inside = false;
-        let mut j = poly.len().saturating_sub(1);
-        for i in 0..poly.len() {
-            let (a, b) = (poly[i], poly[j]);
-            if (a.1 > p.1) != (b.1 > p.1) && p.0 < a.0 + (p.1 - a.1) * (b.0 - a.0) / (b.1 - a.1) {
-                inside = !inside;
-            }
-            j = i;
-        }
-        inside
     }
+}
+
+/// Even-odd point in polygon test.
+fn inside(poly: &[(f32, f32)], p: (f32, f32)) -> bool {
+    let mut inside = false;
+    let mut j = poly.len().saturating_sub(1);
+    for i in 0..poly.len() {
+        let (a, b) = (poly[i], poly[j]);
+        if (a.1 > p.1) != (b.1 > p.1) && p.0 < a.0 + (p.1 - a.1) * (b.0 - a.0) / (b.1 - a.1) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// `[min x, min y, max x, max y]` of `points`.
+fn bbox(points: &[(f32, f32)]) -> [f32; 4] {
+    points
+        .iter()
+        .fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, p| {
+            [b[0].min(p.0), b[1].min(p.1), b[2].max(p.0), b[3].max(p.1)]
+        })
 }
 
 fn lerp4(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
@@ -1539,7 +1741,7 @@ mod tests {
             ch.target.start,
             ch.target.end,
         ];
-        let rb = inner(&c).ribbon(a, r_rib, wpp);
+        let rb = inner(&c).ribbon(a, r_rib, wpp, 16);
         assert!(rb.target.iter().all(|&p| (polar_r(p) - r_rib).abs() < 1e-3));
         // Directed (d3 ribbonArrow): curves stop at r - head, tip at r on the target mid angle
         let (mut c, cam) = chart(ChordOptions {
@@ -1563,7 +1765,7 @@ mod tests {
             ch.target.start,
             ch.target.end,
         ];
-        let rb = cc.ribbon(a, r_rib, wpp);
+        let rb = cc.ribbon(a, r_rib, wpp, 16);
         assert_eq!(rb.target.len(), 3, "arrow triangle");
         assert!((polar_r(rb.target[0]) - (r_rib - head)).abs() < 1e-3);
         assert!((polar_r(rb.target[2]) - (r_rib - head)).abs() < 1e-3);
@@ -1576,6 +1778,103 @@ mod tests {
         // The tip is hit as part of its ribbon
         let near = polar((0.0, 0.0), mid, r_rib - 0.3 * head);
         assert_eq!(cc.item_at(near.0, near.1, wpp), Some((1, ch.key(3) as u32)));
+    }
+
+    /// Fill positions as a sorted multiset (draw order may change with the focus).
+    fn positions(fills: &[ChartFillRaw]) -> Vec<[u32; 2]> {
+        let mut p: Vec<[u32; 2]> = fills
+            .iter()
+            .map(|f| [f.position[0].to_bits(), f.position[1].to_bits()])
+            .collect();
+        p.sort_unstable();
+        p
+    }
+
+    #[test]
+    fn hover_and_emphasis_recolor_without_retessellating() {
+        let (mut c, cam) = chart(pad0());
+        let v = view(&cam);
+        let mut scene = SceneWorld::new();
+        let base = c.prepare_layers(&v).fills.unwrap().to_vec();
+        let calls = inner(&c).ribbon_calls.get();
+        let wpp = inner(&c).screen.unwrap().wpp;
+        let (r_in, r_rib) = inner(&c).radii(wpp);
+        let ring = 0.5 * (CHORD_RADIUS + r_in);
+        // Pointer moves over a group, then a ribbon, then a legend emphasis
+        for (phi, r) in [
+            (7.0 * TAU / 12.0, ring),
+            (8.0 * TAU / 12.0, 0.9 * r_rib),
+            (2.0 * TAU / 12.0, 0.9 * r_rib),
+        ] {
+            c.hover_at(&v, &mut scene, ndc_polar(&cam, phi, r)).unwrap();
+            let fills = c.prepare_layers(&v).fills.unwrap().to_vec();
+            assert_eq!(
+                positions(&fills),
+                positions(&base),
+                "same geometry, recolored"
+            );
+        }
+        c.set_hover(None, &mut scene);
+        c.set_emphasis(Some(0));
+        let fills = c.prepare_layers(&v).fills.unwrap().to_vec();
+        assert_eq!(positions(&fills), positions(&base));
+        assert_ne!(fills, base, "emphasis recolors");
+        assert_eq!(
+            inner(&c).ribbon_calls.get(),
+            calls,
+            "no ribbon re-tessellated by hover / emphasis"
+        );
+        // A relayout tessellates again
+        c.set_emphasis(None);
+        if let ChartKind::Hierarchy(HierChart::Chord(ch)) = &mut c.kind {
+            ch.set_visible(2, false);
+            ch.tween_from = None;
+        }
+        c.prepare_layers(&v);
+        assert!(inner(&c).ribbon_calls.get() > calls);
+    }
+
+    #[test]
+    fn dense_256_groups_stay_under_the_vertex_cap() {
+        let n = MAX_CHORD_GROUPS;
+        let m: Vec<f64> = (0..n * n).map(|k| 1.0 + (k % 7) as f64).collect();
+        for directed in [false, true] {
+            let mut c = ChartState::new_chord(
+                &m,
+                n,
+                ChordOptions {
+                    directed,
+                    ..Default::default()
+                },
+                HierarchyStyle::default(),
+            )
+            .unwrap();
+            let mut cam = OrbitCamera::new(150.0, 16.0 / 9.0);
+            cam.set_pose(Vec3::new(0.0, 0.0, 150.0), Vec3::ZERO);
+            c.frame_camera(&mut cam, (1600.0, 900.0));
+            let t = std::time::Instant::now();
+            let verts = c.prepare_layers(&view(&cam)).fills.unwrap().len();
+            let chords = inner(&c).layout.chords.len();
+            eprintln!(
+                "chord dense n={n} directed={directed}: {chords} ribbons, {verts} fill vertices ({} MB), build {:?}",
+                verts * 32 / 1_000_000,
+                t.elapsed()
+            );
+            assert!(verts <= MAX_CHORD_FILL_VERTICES, "{verts} > cap");
+            let g = inner(&c).geom.as_ref().unwrap();
+            assert_eq!(g.ribbons.len(), chords, "no ribbon dropped");
+            assert!(
+                g.ribbons.iter().all(|(_, r)| !r.is_empty()),
+                "every ribbon drawn"
+            );
+            // Emphasis only recolors the cached positions
+            let calls = inner(&c).ribbon_calls.get();
+            c.set_emphasis(Some(3));
+            let t = std::time::Instant::now();
+            assert_eq!(c.prepare_layers(&view(&cam)).fills.unwrap().len(), verts);
+            eprintln!("chord dense directed={directed}: recolor {:?}", t.elapsed());
+            assert_eq!(inner(&c).ribbon_calls.get(), calls);
+        }
     }
 
     #[test]

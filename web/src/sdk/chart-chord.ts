@@ -391,7 +391,8 @@ export function chordA11yModel(meta: ChordChartMeta, c: A11yCommon): A11yChartMo
     summary: () => {
       const list = chords();
       const top = [...list].sort((a, b) => b.value - a.value || key(a) - key(b)).slice(0, 3);
-      const text = bm.chordSummary(n, num(n), list.length, num(list.length), top.length ? top.map(flow).join(cm.listSeparator) : null);
+      const shown = meta.visible.filter(Boolean).length;
+      const text = bm.chordSummary(shown, num(shown), list.length, num(list.length), top.length ? top.map(flow).join(cm.listSeparator) : null);
       return c.title ? bm.titled(c.title, text) : text;
     },
     description: () => Array.from({ length: Math.min(n, 30) }, (_, i) => (meta.visible[i] ? bm.chordGroupTotal(name(i), f(meta.groups[i] ?? 0)) : bm.chordGroupHidden(name(i)))),
