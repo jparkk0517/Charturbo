@@ -1119,7 +1119,8 @@ impl TidyTreeChart {
 
     /// Starts an animated toggle: switches `node`, keeps the old and new visible nodes drawn
     /// and stages the old layout of them into `series` / `markers` (the frame the tween starts
-    /// from). False (nothing switched) before the first prepared frame.
+    /// from). False (nothing switched) while the layout is stale: before the first prepared
+    /// frame or after another toggle in the same frame (newly shown nodes have no position yet).
     pub(crate) fn stage_toggle(
         &mut self,
         node: u32,
@@ -1127,7 +1128,8 @@ impl TidyTreeChart {
         series: &mut Vec<ChartSegmentRaw>,
         markers: &mut Vec<ChartMarkerRaw>,
     ) -> bool {
-        let Some(screen) = self.screen.filter(|_| self.layout_key.is_some()) else {
+        let laid = self.layout_key.is_some_and(|k| k.2 == self.state_rev);
+        let Some(screen) = self.screen.filter(|_| laid) else {
             return false;
         };
         let old = self.visible.clone();
@@ -1541,7 +1543,10 @@ mod tests {
         c.prepare_layers(&view(&cam));
         assert_eq!(inner(&c).visible_count(), 3);
         assert_eq!(c.series.len(), 2 * TREE_CURVE_SEGMENTS);
-        assert!(!c.set_tree_node_expanded(2, false), "hidden nodes do not toggle");
+        assert!(
+            !c.set_tree_node_expanded(2, false),
+            "hidden nodes do not toggle"
+        );
 
         // Hover the node under the pointer (node 1 = A, collapsed)
         let t = inner(&c);
@@ -1599,8 +1604,43 @@ mod tests {
     }
 
     #[test]
+    fn back_to_back_toggles_never_stage_unlaid_positions() {
+        // Default depth 2: A1 (2) collapsed, its child a (3) never laid out
+        let (mut c, cam) = chart(&SMALL, TidyTreeOptions::default(), &[]);
+        c.set_animation(AnimationOptions::new(300.0, Easing::Linear));
+        c.arm_animation(AnimationOptions::new(300.0, Easing::Linear), None);
+        c.prepare_layers(&view(&cam));
+        c.finish_animation();
+        c.prepare_layers(&view(&cam));
+        // Two toggles with no frame between: the second must not tween from a's NaN position
+        assert!(c.toggle_tree_node(2), "expand A1");
+        assert!(c.toggle_tree_node(2), "collapse A1");
+        // Mid-tween frame on screen (interpolated from the staged layout)
+        c.animation_tick(0.0);
+        c.prepare_layers(&view(&cam));
+        c.animation_tick(150.0);
+        c.prepare_layers(&view(&cam));
+        let markers = c.anim_series_style().markers;
+        assert!(!markers.is_empty());
+        assert!(markers
+            .iter()
+            .all(|m| m.center_radius.iter().all(|v| v.is_finite())));
+        assert!(c
+            .anim_series()
+            .iter()
+            .all(|s| s.p0_width.iter().chain(s.p1_pad.iter()).all(|v| v.is_finite())));
+    }
+
+    #[test]
     fn svg_export_draws_edges_and_symbols() {
-        let (c, cam) = chart(&SMALL, TidyTreeOptions { initial_depth: -1, ..Default::default() }, &[]);
+        let (c, cam) = chart(
+            &SMALL,
+            TidyTreeOptions {
+                initial_depth: -1,
+                ..Default::default()
+            },
+            &[],
+        );
         let svg = c.export_svg(&view(&cam), 0, "tree");
         assert_eq!(svg.support, SvgSupport::Vector);
         assert_eq!(svg.marks, 5 * TREE_CURVE_SEGMENTS + 6);
