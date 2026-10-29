@@ -80,6 +80,7 @@ const CHARTS: Group[] = [
       ['band', t('Band · Range', '밴드 · 범위', '带状图 · 范围图')],
       ['errorbar-impulse', t('Error Bar · Impulse', '오차 막대 · 임펄스', '误差棒 · 脉冲图')],
       ['bar', t('Bar', '막대', '柱状图')],
+      ['pictorial-bar', t('Pictorial Bar', '픽토리얼 막대', '象形柱图')],
       ['histogram', t('Histogram', '히스토그램', '直方图')],
       ['scatter', t('Scatter · Bubble', '산점도 · 버블', '散点图 · 气泡图')],
       ['candlestick', t('Candlestick · OHLC', '캔들스틱 · OHLC', 'K 线图 · OHLC')],

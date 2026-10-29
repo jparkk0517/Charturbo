@@ -345,6 +345,70 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // Pictorial bars: rounded rects repeated up to a fixed bound (100) and clipped at the value,
+    // the background tracks as the shadow bars
+    name: 'pictorial-bar-repeat',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPictorialBarChart(
+          ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((label, i) => ({ label, value: [72, 45, 90, 30, 61][i] })),
+          {
+            title: 'Pictorial repeat + clip',
+            padding: PADDING,
+            background: true,
+            symbol: 'roundRect',
+            symbolRepeat: 'fixed',
+            symbolClip: true,
+            symbolBoundingData: 100,
+            symbolSize: ['70%', 10],
+            symbolMargin: 2,
+          }
+        );
+      }),
+  },
+  {
+    // One stretched path:// / built-in symbol per bar (holes, arcs, curves); the negative bar's
+    // arrow points down (mirrored)
+    name: 'pictorial-bar-paths',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPictorialBarChart(
+          [
+            { label: 'Love', value: 40, symbol: 'path://M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z', color: '#f43f5e' },
+            { label: 'Stars', value: 55, symbol: 'path://M50 0 L61 35 L98 35 L68 57 L79 91 L50 70 L21 91 L32 57 L2 35 L39 35 Z', color: '#facc15' },
+            { label: 'People', value: 30, symbol: 'path://M12 2a3 3 0 1 1 0 6a3 3 0 1 1 0-6zM8 9h8a2 2 0 0 1 2 2v5h-2.5v7h-7v-7H6v-5a2 2 0 0 1 2-2z', color: '#38bdf8' },
+            { label: 'Drop', value: -20, symbol: 'arrow', color: '#a78bfa' },
+            { label: 'Pin', value: 25, symbol: 'pin', color: '#34d399' },
+          ],
+          { title: 'Pictorial paths', padding: PADDING }
+        );
+      }),
+  },
+  {
+    // Horizontal: person paths repeated along each bar (auto count), the last one cut at the value
+    name: 'pictorial-bar-horizontal',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPictorialBarChart(
+          ['North', 'South', 'East', 'West'].map((label, i) => ({ label, value: [8.5, 5, 11, 3.2][i] })),
+          {
+            title: 'Pictorial horizontal',
+            padding: PADDING,
+            orientation: 'horizontal',
+            symbol: 'path://M12 2a3 3 0 1 1 0 6a3 3 0 1 1 0-6zM8 9h8a2 2 0 0 1 2 2v5h-2.5v7h-7v-7H6v-5a2 2 0 0 1 2-2z',
+            symbolRepeat: true,
+            symbolClip: true,
+            symbolSize: [14, '80%'],
+            symbolMargin: '10%',
+            background: { color: '#94a3b8', opacity: 0.12 },
+          }
+        );
+      }),
+  },
+  {
     // Bar values rotated 90° from the base; long category names rotated 40° on the x axis
     name: 'bar-label-rotation',
     theme: 'light',

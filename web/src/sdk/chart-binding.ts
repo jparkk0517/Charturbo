@@ -38,6 +38,7 @@ import type { WaterfallChartData, WaterfallChartOptions } from './chart-waterfal
 import type { CalendarHeatmapData, CalendarHeatmapOptions } from './chart-calendar';
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
 import type { TreeChartData, TreeChartOptions } from './chart-tree';
+import type { PictorialBarChartData, PictorialBarChartOptions, PictorialBarItem } from './chart-pictorial';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
 import type { CharturboEventMap } from './chart-events';
@@ -59,6 +60,8 @@ export interface CharturboChartSpecMap {
     data: BarChartItemDescriptor[] | GroupedBarChartData;
     options: BarChartOptions | GroupedBarChartOptions;
   };
+  /** Bars drawn as symbols (ECharts `pictorialBar`): items or series, 2D */
+  pictorialBar: { data: PictorialBarItem[] | PictorialBarChartData; options: PictorialBarChartOptions };
   scatter: { data: ScatterChartData; options: ScatterChartOptions };
   candlestick: { data: CandlestickChartData; options: CandlestickChartOptions };
   ohlc: { data: OhlcChartData; options: OhlcChartOptions };
@@ -163,6 +166,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
     case 'bar':
       if (Array.isArray(data)) sdk.renderBarChart(data as BarChartItemDescriptor[], options as BarChartOptions);
       else sdk.renderGroupedBarChart(data as GroupedBarChartData, options as GroupedBarChartOptions);
+      break;
+    case 'pictorialBar':
+      sdk.renderPictorialBarChart(data as PictorialBarItem[] | PictorialBarChartData, options as PictorialBarChartOptions);
       break;
     case 'scatter':
       sdk.renderScatterChart(data as ScatterChartData, options as ScatterChartOptions);

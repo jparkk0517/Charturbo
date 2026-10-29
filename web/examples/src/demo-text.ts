@@ -37,6 +37,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '라벨 회전', description: '막대 값은 막대 안에서 90° 회전하고, 긴 카테고리 이름은 x축에서 회전하며 회전된 크기 기준으로 솎아 냅니다.' },
     zh: { title: '标签旋转', description: '柱值在柱内旋转 90°；较长的类别名称在 x 轴上旋转，并按旋转后的占位进行抽稀。' },
   },
+  'bar/06-pictorial': {
+    ko: { title: '픽토리얼 막대', description: 'renderPictorialBarChart: 막대를 심볼로 그립니다. 그림자 트랙 위에서 값에서 잘리는 반복 사각형, 늘린 path:// 아이콘, 가로 막대를 따라 반복되는 사람 아이콘.' },
+    zh: { title: '象形柱图', description: 'renderPictorialBarChart：用符号绘制柱子。阴影轨道上在数值处裁剪的重复矩形、拉伸的 path:// 图标，以及沿条形重复的人形图标。' },
+  },
   'box/01-boxplot': {
     ko: { title: '상자 그림', description: 'Rust에서 정렬 없이 선택 알고리즘으로 사분위수를 구하고, Tukey 수염, 샘플링된 이상값, 평균 마커를 표시합니다.' },
     zh: { title: '箱线图', description: '在 Rust 中通过选择算法（无需排序）计算四分位数，并显示 Tukey 须线、抽样异常值和均值标记。' },

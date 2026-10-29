@@ -259,6 +259,7 @@ export type { ChartRadarTooltip, RadarChartData, RadarChartOptions, RadarSeries 
 export type { ChartGaugeTooltip, GaugeBandOptions, GaugeChartData, GaugeChartOptions, GaugeStatus } from './chart-gauge';
 export type { ChartFunnelTooltip, FunnelChartData, FunnelChartOptions, FunnelConversion } from './chart-funnel';
 export type { ChartWaterfallTooltip, WaterfallChartData, WaterfallChartOptions, WaterfallItemKind } from './chart-waterfall';
+import { encodePictorial, pictorialPerBar, type PictorialBarChartData, type PictorialBarChartOptions, type PictorialBarItem } from './chart-pictorial';
 import { calendarMeta, sendCalendar, type CalendarHeatmapData, type CalendarHeatmapOptions, type ChartCalendarTooltip } from './chart-calendar';
 export type {
   CalendarDate,
@@ -2016,6 +2017,10 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_bar_labels?(): Float64Array;
   /** Bar background tracks: RGBA (empty = none); 2D bar charts only */
   set_chart_bar_background?(color: Float32Array): boolean;
+  /** Pictorial bars (chart-pictorial.ts): `\n`-separated symbols, 19 floats per bar id; call last */
+  set_chart_bar_pictorial?(symbols: string, records: Float32Array): boolean;
+  /** The engine can draw the pictorial symbol (built-in name or `path://` data) */
+  pictorial_symbol_valid?(symbol: string): boolean;
   /** Releases the WASM engine (wasm-bindgen) */
   free?(): void;
 }
@@ -2225,6 +2230,8 @@ interface BarChartMeta {
   barStyle?: BarStyleState;
   /** Background tracks (chart-bar-style.ts) */
   barBackground?: BarBackgroundState;
+  /** Bars drawn as symbols (`renderPictorialBarChart`) */
+  pictorial?: boolean;
   /** Static legend entry of a single-series chart */
   legendEntry?: { name: string; color: RgbaTuple };
 }
@@ -2245,6 +2252,8 @@ interface MultiBarChartMeta {
   barStyle?: BarStyleState;
   /** Background tracks (chart-bar-style.ts) */
   barBackground?: BarBackgroundState;
+  /** Bars drawn as symbols (`renderPictorialBarChart`) */
+  pictorial?: boolean;
 }
 
 interface ScatterChartMeta {
@@ -7851,6 +7860,35 @@ export class Charturbo {
     this.applyChartPadding(this.chartPresentation, false, options?.padding);
     this.rebuildChartOverlay();
     return n;
+  }
+
+  /**
+   * Renders a pictorial bar chart (ECharts `pictorialBar`): a 2D bar chart (items, or grouped /
+   * stacked / percent series) whose bars are drawn as symbols, built-in shapes or `path://` SVG
+   * paths, stretched over each bar or repeated along it and optionally clipped at the value
+   * (chart-pictorial.ts). Symbol options are chart defaults, overridden per series / item.
+   * `background` tracks act as the shadow bars. Hover, tooltips, legend, labels, a11y and
+   * exports are the bar chart's. Throws for invalid symbol options or `viewMode: '3d'` before
+   * the current chart is replaced.
+   */
+  renderPictorialBarChart(
+    data: PictorialBarItem[] | PictorialBarChartData,
+    options?: PictorialBarChartOptions
+  ): { barCount: number } {
+    const fn = 'renderPictorialBarChart';
+    if (options?.viewMode === '3d') throw new Error(`${fn}: pictorial bars are 2D only`);
+    const valid = (symbol: string) => this.backend.pictorial_symbol_valid?.(symbol) ?? true;
+    const { symbols, records } = encodePictorial(pictorialPerBar(data), options, valid, fn);
+    const opts = { ...options, viewMode: '2d' as const };
+    const barCount = Array.isArray(data)
+      ? this.renderBarChart(data, opts).barCount
+      : this.renderGroupedBarChart(data, opts).barCount;
+    const meta = this.chartMeta;
+    if (barCount > 0 && (meta?.kind === 'bar' || meta?.kind === 'bar-multi') && this.backend.set_chart_bar_pictorial?.(symbols, records)) {
+      meta.pictorial = true;
+      this.a11y.refresh();
+    }
+    return { barCount };
   }
 
   /**

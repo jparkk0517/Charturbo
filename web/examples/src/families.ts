@@ -11,7 +11,7 @@ export interface Family {
 const FAMILIES_EN: Family[] = [
   { id: 'scientific3d', title: 'PointCloud3D · Surface3D', description: 'XYZ clouds and Y-up height grids with fixed axes, data aspect, orthographic projection, scalar colors, holes, height contours and live streaming.' },
   { id: 'line', title: 'Line · Area · Band · ErrorBar · Impulse', description: '1M-point lines, stacked areas, standalone bands, scientific error bars, event stems and live streaming.' },
-  { id: 'bar', title: 'Bar · Horizontal · Labels', description: 'Grouped / stacked / percent bars, horizontal bars with data labels and error bars, histograms.' },
+  { id: 'bar', title: 'Bar · Horizontal · Labels · Pictorial', description: 'Grouped / stacked / percent bars, horizontal bars with data labels and error bars, histograms, pictorial bars.' },
   { id: 'scatter', title: 'Scatter · Brush', description: '60k-point scatter with rectangle brush selection, bubble chart with per-point sizes.' },
   { id: 'candlestick', title: 'Candlestick · OHLC · Navigator', description: 'Candles and independent OHLC bars with volume and pixel-column aggregation, range navigator under a long time series.' },
   { id: 'heatmap', title: 'Heatmap', description: 'GPU texture heatmap with color bar and switchable color scales, plus calendar heatmaps.' },
@@ -35,7 +35,7 @@ const FAMILY_TEXT: Record<'ko' | 'zh', Record<string, [string, string]>> = {
   ko: {
     scientific3d: ['PointCloud3D · Surface3D', 'XYZ 점 구름과 Y-up 높이 격자입니다. 고정 축, 데이터 종횡비, 직교 투영, 스칼라 색상, 구멍, 높이 등고선, 실시간 스트리밍을 지원합니다.'],
     line: ['선 · 영역 · 밴드 · 오차 막대 · 임펄스', '100만 포인트 선, 누적 영역, 독립 밴드, 과학용 오차 막대, 이벤트 줄기, 실시간 스트리밍.'],
-    bar: ['막대 · 가로 막대 · 레이블', '그룹형·누적형·백분율 막대, 데이터 레이블과 오차 막대가 있는 가로 막대, 히스토그램.'],
+    bar: ['막대 · 가로 막대 · 레이블 · 픽토리얼', '그룹형·누적형·백분율 막대, 데이터 레이블과 오차 막대가 있는 가로 막대, 히스토그램, 픽토리얼 막대.'],
     scatter: ['산점도 · 브러시', '사각형 브러시 선택이 가능한 6만 포인트 산점도, 포인트별 크기를 지정하는 버블 차트.'],
     candlestick: ['캔들스틱 · OHLC · 내비게이터', '거래량과 픽셀 열 단위 집계를 지원하는 캔들과 독립 OHLC 막대, 긴 시계열 아래의 범위 내비게이터.'],
     heatmap: ['히트맵', '색상 막대와 전환 가능한 색상 스케일을 갖춘 GPU 텍스처 히트맵과 캘린더 히트맵.'],
@@ -56,7 +56,7 @@ const FAMILY_TEXT: Record<'ko' | 'zh', Record<string, [string, string]>> = {
   zh: {
     scientific3d: ['PointCloud3D · Surface3D', 'XYZ 点云与 Y 轴向上的高度网格，支持固定坐标轴、数据纵横比、正交投影、标量着色、空洞、高度等值线和实时流式更新。'],
     line: ['折线图 · 面积图 · 带状图 · 误差线 · 脉冲图', '百万点折线图、堆叠面积图、独立带状图、科学误差线、事件脉冲线和实时流式更新。'],
-    bar: ['柱状图 · 条形图 · 数据标签', '分组/堆叠/百分比柱状图，带数据标签和误差线的条形图，以及直方图。'],
+    bar: ['柱状图 · 条形图 · 数据标签 · 象形柱图', '分组/堆叠/百分比柱状图，带数据标签和误差线的条形图，直方图，以及象形柱图。'],
     scatter: ['散点图 · 框选', '支持矩形框选的 6 万点散点图，以及逐点设置大小的气泡图。'],
     candlestick: ['K 线图 · OHLC · 导航器', '带成交量和按像素列聚合的 K 线与独立 OHLC 柱，以及长时间序列下方的范围导航器。'],
     heatmap: ['热力图', '带色条且可切换色阶的 GPU 纹理热力图，以及日历热力图。'],

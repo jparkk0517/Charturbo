@@ -108,6 +108,8 @@ pub(crate) struct LayerSnapshot {
     points: Vec<ChartPointRaw>,
     /// Pie slice angles `(start, end)`
     pie: Vec<(f32, f32)>,
+    /// Pictorial bar segments (symbols are rebuilt per frame from them)
+    pictorial: Vec<Option<super::bar::BarSeg>>,
 }
 
 /// Last frame of a chart that was replaced, so the next chart of the same kind and shape can
@@ -320,6 +322,7 @@ impl ChartState {
                 ChartKind::Pie(p) => p.angles(),
                 _ => Vec::new(),
             },
+            pictorial: super::pictorial::pictorial_segs(&self.kind),
         }
     }
 
@@ -348,6 +351,9 @@ impl ChartState {
             }
             if shown.fills {
                 from.fills.clone_from(&out.fills);
+                if !out.pictorial.is_empty() {
+                    from.pictorial.clone_from(&out.pictorial);
+                }
             }
             if shown.points {
                 from.points.clone_from(&out.points);
@@ -447,6 +453,7 @@ impl ChartState {
             let f = &self.anim.from;
             let pie_match = matches!(&self.kind, ChartKind::Pie(p) if p.len() == f.pie.len() && !f.pie.is_empty());
             let matched = pie_match
+                || super::pictorial::pictorial_matches(&self.kind, &f.pictorial)
                 || (!f.series.is_empty() && f.series.len() == self.series.len())
                 || (!f.bars.is_empty() && f.bars.len() == self.bars.len() && f.bar_tracks == self.bar_track_count())
                 || (!f.fills.is_empty() && f.fills.len() == self.fills.len())
@@ -489,6 +496,7 @@ impl ChartState {
             }
             return;
         }
+        let pictorial = super::pictorial::pictorial_tween(&self.kind, &a.from.pictorial, e);
         used.series = tween_into(&a.from.series, &self.series, &mut a.out.series, seg);
         let dashed = tween_into(&a.from.dashed, &self.styled.dashed, &mut a.out.dashed, |p, q| ChartDashSegmentRaw {
             p0_width: lerp_xyz(p.p0_width, q.p0_width, e),
@@ -520,10 +528,18 @@ impl ChartState {
             color: lerp4(p.color, q.color, e),
             ..q
         });
-        used.fills = tween_into(&a.from.fills, &self.fills, &mut a.out.fills, |p, q| ChartFillRaw {
-            position: lerp_xyz(p.position, q.position, e),
-            color: lerp4(p.color, q.color, e),
-        });
+        let hovered = super::hovered_bar(self.hover.as_ref());
+        used.fills = match pictorial {
+            // Pictorial bars: the symbols are re-laid out along the tweened bars
+            Some(segs) if super::pictorial::pictorial_frame(&self.kind, hovered, &self.hover_style, &segs, &mut a.out.fills) => {
+                a.out.pictorial = segs;
+                true
+            }
+            _ => tween_into(&a.from.fills, &self.fills, &mut a.out.fills, |p, q| ChartFillRaw {
+                position: lerp_xyz(p.position, q.position, e),
+                color: lerp4(p.color, q.color, e),
+            }),
+        };
         used.points = tween_into(&a.from.points, &self.points, &mut a.out.points, |p, q| {
             let c = |i: usize| lerp(p.color[i] as f32, q.color[i] as f32, e).round().clamp(0.0, 255.0) as u8;
             ChartPointRaw {
@@ -585,7 +601,13 @@ impl ChartState {
             used.series = true;
             used.series_style = true;
         }
-        if !self.fills.is_empty() {
+        let hovered = super::hovered_bar(self.hover.as_ref());
+        let grown = (style == EnterStyle::Grow).then(|| super::pictorial::pictorial_grow(&self.kind, e)).flatten();
+        if let Some(segs) = grown.filter(|s| super::pictorial::pictorial_frame(&self.kind, hovered, &self.hover_style, s, &mut a.out.fills)) {
+            // Pictorial bars: the symbols are re-laid out along the growing bars
+            a.out.pictorial = segs;
+            used.fills = true;
+        } else if !self.fills.is_empty() {
             map_into(&self.fills, &mut a.out.fills, |f| ChartFillRaw {
                 position: pop_center.map_or(f.position, |c| scale_about(f.position, c, e)),
                 color: fade(f.color, e),
