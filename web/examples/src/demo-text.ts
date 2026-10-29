@@ -101,6 +101,18 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '최단 경로 · 노드 검색', description: '노드 두 개를 클릭하면 그 사이의 최단 경로를 강조합니다(Rust의 BFS). 검색은 레이블, 카테고리, 태그를 대상으로 하며, 결과를 고르면 카메라가 그 노드에 초점을 맞춥니다.' },
     zh: { title: '最短路径 · 节点搜索', description: '点击两个节点高亮它们之间的最短路径（Rust 中的 BFS）。搜索匹配名称、类别和标签；选择结果后相机会聚焦到该节点。' },
   },
+  'graph/04-graph-force-2d': {
+    ko: { title: '2D 힘 기반 그래프', description: 'layout: force로 renderGraph를 호출하면 네트워크가 평면에서 자리 잡습니다(3D 그래프와 같은 Barnes-Hut 시뮬레이터). 범주가 노드 색과 범례를 정하며, 범례를 클릭하면 범주를 숨기고 호버하면 나머지가 흐려집니다. 노드에 호버하면 연결을 강조하고, 화살표 키로 노드를 순회합니다.' },
+    zh: { title: '2D 力导向关系图', description: 'layout: force 让 renderGraph 在平面中完成网络布局（与 3D 关系图相同的 Barnes-Hut 模拟器）。类别决定节点颜色并生成图例：点击隐藏类别，悬停淡化其余类别。悬停节点高亮其连线；方向键遍历节点。' },
+  },
+  'graph/05-graph-circular': {
+    ko: { title: '원형 그래프', description: 'layout: circular는 노드를 원 위에 두고 값에 비례해 구간을 나눕니다. rotateLabel은 레이블을 바깥쪽으로 돌립니다. 곡선 엣지는 출발 노드의 색을 따르고 화살표로 끝납니다.' },
+    zh: { title: '环形关系图', description: 'layout: circular 将节点排列在圆环上，按值分配弧段；rotateLabel 让标签朝外旋转。曲线边使用源节点颜色并以箭头结尾。' },
+  },
+  'graph/06-graph-cartesian': {
+    ko: { title: '직교 좌표축 위의 그래프', description: 'layout: cartesian은 각 노드를 차트 축의 x / y에 둡니다. x는 범주 축(분기), y는 격자선이 있는 값 축입니다. 화살표 링크는 어떤 프로젝트가 다음 프로젝트로 이어졌는지 보여 줍니다.' },
+    zh: { title: '直角坐标系上的关系图', description: 'layout: cartesian 将每个节点放在图表坐标轴的 x / y 处：x 为类目轴（季度），y 为带网格线的数值轴。带箭头的连线表示哪个项目促成了下一个项目。' },
+  },
   'heatmap/01-heatmap': {
     ko: { title: '색상 막대가 있는 히트맵', description: '값은 R32Float 텍스처로 한 번만 업로드합니다. 색상 스케일을 바꾸면 1 KB LUT만 다시 업로드합니다.' },
     zh: { title: '带色条的热力图', description: '数值以 R32Float 纹理一次性上传；切换色阶只需重新上传 1 KB 的 LUT。' },

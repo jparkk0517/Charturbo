@@ -11,6 +11,7 @@ mod lib_calendar;
 mod lib_sparkline;
 mod lib_pie;
 mod lib_hierarchy;
+mod lib_graph2d;
 mod lib_timezone;
 mod lib_barstyle;
 mod lib_linestyle;

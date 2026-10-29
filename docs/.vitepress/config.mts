@@ -108,6 +108,7 @@ const CHARTS: Group[] = [
       ['treemap-sunburst', t('Treemap · Sunburst', '트리맵 · 선버스트', '矩形树图 · 旭日图')],
       ['sankey', t('Sankey', '생키', '桑基图')],
       ['tree', t('Tree', '트리', '树图')],
+      ['graph-2d', t('2D Graph', '2D 그래프', '2D 关系图')],
     ],
   },
   {

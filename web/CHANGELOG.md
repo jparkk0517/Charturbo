@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 2D 그래프 (관계도)
+
+- `renderGraph(data, options)`: 평면의 노드-링크 네트워크(ECharts `graph`). `layout: 'force' | 'circular' | 'none' | 'cartesian'`. force는 3D 그래프의 Barnes-Hut 시뮬레이터(`physics`)를 z = 0 평면에서 재사용해 Rust에서 안정될 때까지 돌리고(결정적 시작 배치, `fixed` 노드 고정), circular는 값 비례 구간과 `rotateLabel`, cartesian은 값 축 · 범주 x축(`xAxis.categories`)과 격자선을 씁니다.
+- 범주 색과 범례(클릭 숨김 · 호버 강조, 숨긴 노드의 링크도 숨김), 값 비례 크기 `symbolSize: [min, max]`, `symbol`, 엣지 `lineWidth` · `curveness` · `edgeSymbol: 'arrow'` · `edgeColor: 'source' | 'target'` · `edgeOpacity`, 노드 호버 시 인접 노드 · 링크 강조.
+- 입력은 장면을 지우기 전에 검증합니다(잘못된 호출은 기존 차트를 유지). 툴팁(범주 › 이름 · 값; 연결 수는 `ctx.hierarchy.children`), `getNodeDetails`, 접근성 요약 · 표 · CSV, 키보드(위 / 아래 노드 순서, 오른쪽 / 왼쪽 연결 노드), SVG 내보내기, React / Vue `type="graph"`, 영어 · 한국어 · 중국어 문구.
+- 예제 `graph/04-graph-force-2d` · `05-graph-circular` · `06-graph-cartesian`, fixture `graph2d-force` · `graph2d-circular` · `graph2d-cartesian`, 문서 `charts/graph-2d`. 노드 드래그, 자기 루프, 엣지 호버는 아직 없습니다.
+
 ### 추가 — 캘린더 히트맵
 
 - `renderCalendarHeatmap(data, options)`: `[날짜, 값][]`를 하루 한 셀로 주 단위 배치합니다(ECharts `calendar`). 날짜는 `'YYYY-MM-DD'`(적힌 그대로) 또는 에포크 ms / `Date`(차트 시간대 기준 날짜, `timeZone` 옵션 → `setTimeZone`).
