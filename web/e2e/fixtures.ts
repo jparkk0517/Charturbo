@@ -751,6 +751,47 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    name: 'calendar',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const rand = mulberry32(53);
+        const data: [string, number | null][] = [];
+        for (let d = 0; d < 365; d++) {
+          const iso = new Date(Date.UTC(2023, 0, 1 + d)).toISOString().slice(0, 10);
+          data.push([iso, d % 29 === 3 ? null : Math.round(rand() * 10 + (d % 7 < 5 ? 5 : 0))]);
+        }
+        sdk.renderCalendarHeatmap(data, {
+          range: 2023,
+          firstDay: 1,
+          title: 'Calendar',
+          valueLabel: 'Commits',
+          colorScale: (ctx.params.scale as 'viridis' | 'magma' | undefined) ?? 'viridis',
+          padding: { top: 48, left: 24 },
+        });
+      }),
+  },
+  {
+    name: 'calendar-vertical',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const rand = mulberry32(59);
+        const data: [string, number][] = [];
+        for (let d = 0; d < 120; d++) data.push([new Date(Date.UTC(2024, 0, 1 + d)).toISOString().slice(0, 10), Math.round(rand() * 100)]);
+        sdk.renderCalendarHeatmap(data, {
+          ranges: ['2024-01', ['2024-03-01', '2024-04-30']],
+          orient: 'vertical',
+          cellSize: 14,
+          title: 'Calendar (vertical)',
+          colorScale: 'sequential',
+          color: ctx.params.color,
+          splitLine: { width: 2 },
+          padding: { top: 48 },
+        });
+      }),
+  },
+  {
     name: 'waterfall',
     theme: 'light',
     render: (ctx) =>

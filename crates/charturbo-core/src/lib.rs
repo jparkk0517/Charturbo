@@ -6,6 +6,7 @@ mod lib_device;
 mod lib_boxplot;
 mod lib_business;
 mod lib_heatmap;
+mod lib_calendar;
 mod lib_sparkline;
 mod lib_pie;
 mod lib_hierarchy;

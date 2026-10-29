@@ -78,6 +78,7 @@ export class FakeSDK {
   renderRadarChart = this.spy('renderRadarChart');
   renderGauge = this.spy('renderGauge');
   renderFunnelChart = this.spy('renderFunnelChart');
+  renderCalendarHeatmap = this.spy('renderCalendarHeatmap');
   renderWaterfallChart = this.spy('renderWaterfallChart');
   renderTreemap = this.spy('renderTreemap');
   renderSunburst = this.spy('renderSunburst');

@@ -429,6 +429,7 @@ impl ChartState {
             | ChartKind::Funnel(_)
             | ChartKind::Waterfall(_)
             | ChartKind::Hierarchy(_) => SvgSupport::Vector,
+            ChartKind::Calendar(_) => SvgSupport::Vector,
             // Kinds without an SVG writer yet embed the canvas (add them above once their marks
             // live in the staged layers this module writes)
             #[allow(unreachable_patterns)]

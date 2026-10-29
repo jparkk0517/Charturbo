@@ -207,6 +207,7 @@ describe('React CharturboChart', () => {
       ['radar', { axes: ['a', 'b', 'c'], series: [{ name: 's', values: [1, 2, 3] }] }, 'renderRadarChart'],
       ['gauge', { value: 42 }, 'renderGauge'],
       ['funnel', { labels: ['a', 'b'], values: [2, 1] }, 'renderFunnelChart'],
+      ['calendar', [['2023-01-01', 1]], 'renderCalendarHeatmap'],
       ['waterfall', { labels: ['a', 'b'], values: [2, -1] }, 'renderWaterfallChart'],
       ['treemap', { name: 'root', children: [{ name: 'a', value: 1 }] }, 'renderTreemap'],
       ['sunburst', [{ id: 'r' }, { id: 'a', parent: 'r', value: 2 }], 'renderSunburst'],

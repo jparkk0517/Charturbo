@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 캘린더 히트맵
+
+- `renderCalendarHeatmap(data, options)`: `[날짜, 값][]`를 하루 한 셀로 주 단위 배치합니다(ECharts `calendar`). 날짜는 `'YYYY-MM-DD'`(적힌 그대로) 또는 에포크 ms / `Date`(차트 시간대 기준 날짜, `timeZone` 옵션 → `setTimeZone`).
+- `range`(연도 · 월 · `[시작, 끝]`) / `ranges`(여러 캘린더), `orient`(가로 · 세로), `cellSize`, `cellGap`, `firstDay`, 요일 · 월 · 연도 레이블(로캘을 따르며 `names`로 교체), 월 경계선 `splitLine`, 데이터 없는 날 `emptyColor`.
+- 색은 히트맵 색상 맵(`colorScale`, `color`, `reverse`, `min` / `max` / `center`)과 컬러바를 재사용합니다. 레이아웃 · 경계선 · 레이블 위치 · 히트 테스트는 Rust(`chart/calendar.rs`)에서 계산하고, SVG 보내기는 벡터입니다.
+- 툴팁(날짜 · 값, 빈 날은 `No data`), `ctx.calendar`, `getNodeDetails`, 접근성 요약 · 데이터 표 · CSV(데이터가 있는 날), 키보드(하루 · 한 주 · Page Up / Down 한 달), 영어 · 한국어 · 중국어 문구, React / Vue `type="calendar"`. 예제 `heatmap/02-calendar`, fixture `calendar` · `calendar-vertical`, 문서 `charts/calendar`.
+
 ### 변경 (호환성 깨짐) — 그래프 레이아웃 GPU 상주
 
 - `stepPhysicsAsync`가 GPU에 상주하는 배치를 진행합니다. 위치·속도는 GPU 버퍼에 남고, CPU는 자신의 배치 편집만 올리며 비동기 readback을 1~2 프레임 뒤에 반영합니다. 자동 sleep 판정은 매 스텝 GPU에서 셉니다. GPU 상주 중에는 절두체 컬링을 생략합니다.

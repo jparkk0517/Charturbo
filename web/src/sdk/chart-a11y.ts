@@ -47,7 +47,7 @@ export interface A11ySeries {
   band?: { lower: ArrayLike<number>; upper: ArrayLike<number> };
 }
 
-export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey';
+export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'calendar';
 
 /** Pie slices (focus: `series` 0, `index` = displayed slice; point id = slice index). */
 export interface A11yPieData {
@@ -1925,6 +1925,7 @@ export class ChartA11y {
       treemap: kinds.treemap,
       sunburst: kinds.sunburst,
       sankey: kinds.sankey,
+      calendar: kinds.calendar,
     }[model.kind];
     const caption = model.title ?? t.tableCaption(kindLabel);
     wrap.setAttribute('aria-label', t.tableLabel(caption));

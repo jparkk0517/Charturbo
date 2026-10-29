@@ -258,6 +258,16 @@ export type { ChartRadarTooltip, RadarChartData, RadarChartOptions, RadarSeries 
 export type { ChartGaugeTooltip, GaugeBandOptions, GaugeChartData, GaugeChartOptions, GaugeStatus } from './chart-gauge';
 export type { ChartFunnelTooltip, FunnelChartData, FunnelChartOptions, FunnelConversion } from './chart-funnel';
 export type { ChartWaterfallTooltip, WaterfallChartData, WaterfallChartOptions, WaterfallItemKind } from './chart-waterfall';
+import { calendarMeta, sendCalendar, type CalendarHeatmapData, type CalendarHeatmapOptions, type ChartCalendarTooltip } from './chart-calendar';
+export type {
+  CalendarDate,
+  CalendarHeatmapData,
+  CalendarHeatmapOptions,
+  CalendarLabelOptions,
+  CalendarRange,
+  CalendarSplitLineOptions,
+  ChartCalendarTooltip,
+} from './chart-calendar';
 import {
   HierarchyLabelLayer,
   drillEvent,
@@ -919,6 +929,7 @@ export interface ChartTooltipContext {
   chartType:
     | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
+    | 'calendar'
     | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey';
   /**
    * Hovered sample / bar / point index (heatmap: column; box plot: category; pie: displayed slice;
@@ -934,6 +945,8 @@ export interface ChartTooltipContext {
   funnel?: ChartFunnelTooltip;
   /** Hovered waterfall bar: change and running totals */
   waterfall?: ChartWaterfallTooltip;
+  /** Hovered calendar day (empty days too: `value` NaN) */
+  calendar?: ChartCalendarTooltip;
   /** Hovered treemap / sunburst node: path, value, shares of its parent and of the total */
   hierarchy?: ChartHierarchyTooltip;
   /** Hovered sankey link (`A → B`, share of A) or node (inflow / outflow) */
@@ -1874,6 +1887,24 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_funnel_stages?(): Float64Array;
   /** `[revision, count, (stage, x, y, h_align, v_align) * count]` */
   chart_funnel_labels?(): Float64Array;
+  /** Calendar heatmap (chart-calendar.ts): ranges = `[start, end]` day pairs; label_px = `[year, day, month]` */
+  set_calendar_chart?(
+    ranges: Float64Array,
+    days: Float64Array,
+    values: Float64Array,
+    orient: number,
+    cellSize: number,
+    cellGap: number,
+    firstDay: number,
+    labelPx: Float32Array,
+    splitRgba: Float32Array,
+    splitWidth: number
+  ): number;
+  set_chart_calendar_split_line?(rgba: Float32Array, width: number): void;
+  /** `[revision, count, (kind 0 day / 1 month / 2 year, a, b, x, y, h_align, v_align) * count]` */
+  chart_calendar_labels?(): Float64Array;
+  /** `[(start day, end day, first id) * calendars]` */
+  chart_calendar_blocks?(): Float64Array;
   /** Waterfall (chart-waterfall.ts): totals 1 = total bar; style = increase, decrease, total, connector RGBA */
   set_waterfall_chart?(
     values: Float64Array,
@@ -2236,6 +2267,7 @@ function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
 
 /** Brush selection kind of a chart mode (`null`: no brush, e.g. pies and hierarchy charts). */
 function selectionKind(mode: Charturbo['chartMode']): CharturboSelection['kind'] | null {
+  if (mode === 'calendar') return null;
   return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' ? null : mode;
 }
 
@@ -6155,6 +6187,11 @@ export class Charturbo {
       colorbar.refresh(this.backend, t, this.chartLocale());
       this.chartOverlay.colorbar = colorbar;
     }
+    if (meta?.kind === 'calendar' && meta.colorbar.show) {
+      const colorbar = new HeatmapColorbarLayer(root, meta);
+      colorbar.refresh(this.backend, t, this.chartLocale());
+      this.chartOverlay.colorbar = colorbar;
+    }
     if (meta?.kind === 'pie') this.chartOverlay.pie = new PieLabelLayer(root, meta);
     if (isBusinessMeta(meta)) this.chartOverlay.business = createBusinessLabelLayer(root, meta);
     if (meta?.kind === 'treemap' || meta?.kind === 'sunburst' || meta?.kind === 'sankey') {
@@ -8386,6 +8423,25 @@ export class Charturbo {
     const pad = meta.orientation === 'horizontal' ? { left: 16, right: 16, bottom: 12 + space } : { left: 16, right: 16 + space };
     this.showBusinessChart('funnel', meta, options, legend, pad);
     return { stageCount };
+  }
+
+  /**
+   * Renders a calendar heatmap natively: one cell per day of each range (a year, a month or
+   * `[start, end]`; default one calendar per year of the data) in week columns (or rows when
+   * vertical) starting at `firstDay`, colored by the heatmap colormap (empty days in a neutral
+   * tone), with weekday / month / year labels, month split lines and a colorbar. Dates are
+   * `'YYYY-MM-DD'` (as written) or epoch ms / `Date` (their day in the chart time zone). Hover and
+   * the keyboard visit every day. Throws for an invalid date, range or option. Point ids = day
+   * offset over the calendars.
+   */
+  renderCalendarHeatmap(data: CalendarHeatmapData, options?: CalendarHeatmapOptions): { dayCount: number; calendarCount: number } {
+    // Validated before the active chart is torn down
+    const meta = calendarMeta(data, options, this.businessFormat(options?.format), this.locale, this.timeZone);
+    this.beginBusinessChart();
+    const dayCount = sendCalendar(this.backend, meta, this.theme);
+    const legend = { show: false, toggle: false, emphasize: false };
+    this.showBusinessChart('calendar', meta, options, legend, { left: 16, right: meta.colorbar.show ? COLORBAR_RESERVE_PX : 16, bottom: 12 });
+    return { dayCount, calendarCount: meta.ranges.length };
   }
 
   /**

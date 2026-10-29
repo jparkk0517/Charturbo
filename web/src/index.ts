@@ -150,6 +150,15 @@ export {
 } from './sdk/chart-gauge';
 export { type ChartFunnelTooltip, type FunnelChartData, type FunnelChartOptions, type FunnelConversion } from './sdk/chart-funnel';
 export {
+  type CalendarDate,
+  type CalendarHeatmapData,
+  type CalendarHeatmapOptions,
+  type CalendarLabelOptions,
+  type CalendarRange,
+  type CalendarSplitLineOptions,
+  type ChartCalendarTooltip,
+} from './sdk/chart-calendar';
+export {
   type ChartWaterfallTooltip,
   type WaterfallChartData,
   type WaterfallChartOptions,

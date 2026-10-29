@@ -50,11 +50,26 @@ import {
   sendWaterfallStyle,
   type WaterfallChartMeta,
 } from './chart-waterfall';
+import {
+  calendarA11yModel,
+  calendarPointMetadata,
+  calendarTooltipContext,
+  calendarTooltipHtml,
+  CalendarLabelLayer,
+  localizeCalendarMeta,
+  sendCalendarStyle,
+  type CalendarChartMeta,
+} from './chart-calendar';
 
-export type BusinessChartMeta = RadarChartMeta | GaugeChartMeta | FunnelChartMeta | WaterfallChartMeta;
+export type BusinessChartMeta =
+  | RadarChartMeta
+  | GaugeChartMeta
+  | FunnelChartMeta
+  | WaterfallChartMeta
+  | CalendarChartMeta;
 export type BusinessChartKind = BusinessChartMeta['kind'];
 
-const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall']);
+const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall', 'calendar']);
 
 export function isBusinessKind(kind: unknown): kind is BusinessChartKind {
   return typeof kind === 'string' && KINDS.has(kind);
@@ -64,9 +79,9 @@ export function isBusinessMeta(meta: { kind: string } | null | undefined): meta 
   return !!meta && KINDS.has(meta.kind);
 }
 
-/** Business charts with a fixed legend (nothing to toggle): gauge, funnel, waterfall. */
+/** Business charts with a fixed legend (nothing to toggle): gauge, funnel, waterfall, calendar. */
 export function hasStaticSeries(meta: { kind: string }): boolean {
-  return meta.kind === 'gauge' || meta.kind === 'funnel' || meta.kind === 'waterfall';
+  return meta.kind === 'gauge' || meta.kind === 'funnel' || meta.kind === 'waterfall' || meta.kind === 'calendar';
 }
 
 export function createBusinessLabelLayer(parent: HTMLElement, meta: BusinessChartMeta): BusinessLabelLayer {
@@ -79,6 +94,8 @@ export function createBusinessLabelLayer(parent: HTMLElement, meta: BusinessChar
       return new FunnelLabelLayer(parent, meta);
     case 'waterfall':
       return new WaterfallLabelLayer(parent, meta);
+    case 'calendar':
+      return new CalendarLabelLayer(parent, meta);
   }
 }
 
@@ -93,6 +110,8 @@ export function sendBusinessTheme(backend: WasmCharturboEngineBackend, meta: Bus
       return sendFunnelColors(backend, meta, theme);
     case 'waterfall':
       return sendWaterfallStyle(backend, meta, theme);
+    case 'calendar':
+      return sendCalendarStyle(backend, meta, theme);
   }
 }
 
@@ -110,6 +129,8 @@ export function localizeBusinessMeta(meta: BusinessChartMeta, locale: string | u
       return localizeFunnelMeta(meta, locale);
     case 'waterfall':
       return localizeWaterfallMeta(meta, locale);
+    case 'calendar':
+      return localizeCalendarMeta(meta, locale);
   }
 }
 
@@ -132,6 +153,8 @@ export function businessTooltipContext(
       return funnelTooltipContext(meta, hit[4], details);
     case 'waterfall':
       return waterfallTooltipContext(meta, hit[4], details);
+    case 'calendar':
+      return calendarTooltipContext(meta, hit[4], details);
   }
 }
 
@@ -153,6 +176,8 @@ export function businessTooltipHtml(
       return funnelTooltipHtml(ctx, theme, formatValue, locale);
     case 'waterfall':
       return waterfallTooltipHtml(ctx, theme, formatValue, locale);
+    case 'calendar':
+      return calendarTooltipHtml(ctx, theme, formatValue, locale);
   }
 }
 
@@ -167,6 +192,8 @@ export function businessPointMetadata(meta: BusinessChartMeta, id: number): { se
       return funnelPointMetadata(meta, id);
     case 'waterfall':
       return waterfallPointMetadata(meta, id);
+    case 'calendar':
+      return calendarPointMetadata(meta, id);
   }
 }
 
@@ -188,6 +215,8 @@ export function businessA11yModel(m: Record<string, unknown>, common: A11yCommon
       return funnelA11yModel(m as unknown as FunnelChartMeta, c);
     case 'waterfall':
       return waterfallA11yModel(m as unknown as WaterfallChartMeta, c);
+    case 'calendar':
+      return calendarA11yModel(m as unknown as CalendarChartMeta, c);
     default:
       return null;
   }

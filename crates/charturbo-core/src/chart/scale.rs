@@ -287,6 +287,7 @@ impl ChartState {
             ChartKind::Combo(_) => None,
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => None,
             ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
+            ChartKind::Calendar(_) => None,
         }
     }
 

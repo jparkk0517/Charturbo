@@ -164,6 +164,7 @@ impl ChartState {
                 ChartKind::Waterfall(w) => bar_at_x(&w.bar, x),
                 ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) => None,
                 ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
+                ChartKind::Calendar(_) => None,
             }
         } else {
             None
@@ -196,6 +197,7 @@ impl ChartState {
             ChartKind::Waterfall(_) => Some(item.index as f64),
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) => None,
             ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
+            ChartKind::Calendar(_) => None,
         }
     }
 }

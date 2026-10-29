@@ -105,6 +105,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '색상 막대가 있는 히트맵', description: '값은 R32Float 텍스처로 한 번만 업로드합니다. 색상 스케일을 바꾸면 1 KB LUT만 다시 업로드합니다.' },
     zh: { title: '带色条的热力图', description: '数值以 R32Float 纹理一次性上传；切换色阶只需重新上传 1 KB 的 LUT。' },
   },
+  'heatmap/02-calendar': {
+    ko: { title: '캘린더 히트맵', description: '하루에 셀 하나, 레이아웃은 Rust에서 계산합니다. 두 해를 위아래로 쌓고 월요일부터 시작합니다. 마우스를 올리거나 화살표 키로 날짜를 읽고, 데이터가 없는 날은 중립색으로 남습니다.' },
+    zh: { title: '日历热力图', description: '每天一个单元格，布局在 Rust 中计算；两年上下堆叠，周一为一周首日。悬停或使用方向键查看某天；无数据的日子保持中性色。' },
+  },
   'hierarchy/01-treemap': {
     ko: { title: '드릴다운 트리맵', description: 'Squarified 레이아웃, 레이블, 히트 테스트를 Rust에서 처리합니다. 그룹을 클릭하면 들어가고, 이동 경로나 Escape로 올라갑니다.' },
     zh: { title: '可下钻的矩形树图', description: 'Squarified 布局、标签和命中检测均在 Rust 中完成。点击分组下钻，点击面包屑或按 Escape 返回上层。' },
