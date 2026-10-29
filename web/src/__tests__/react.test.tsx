@@ -212,6 +212,7 @@ describe('React CharturboChart', () => {
       ['sunburst', [{ id: 'r' }, { id: 'a', parent: 'r', value: 2 }], 'renderSunburst'],
       ['sankey', { nodes: [{ id: 'a' }, { id: 'b' }], links: [{ source: 'a', target: 'b', value: 1 }] }, 'renderSankey'],
       ['sparkline', [1, 3, 2], 'renderSparkline'],
+      ['themeRiver', [[0, 1, 'a'], [1, 2, 'a']], 'renderThemeRiverChart'],
     ];
     await mount(<CharturboChart type="line" data={series} />);
     const sdk = await ready();

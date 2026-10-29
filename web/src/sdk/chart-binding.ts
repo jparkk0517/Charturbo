@@ -33,6 +33,7 @@ import type { ComboChartData, ComboChartOptions } from './chart-combo';
 import type { RadarChartData, RadarChartOptions } from './chart-radar';
 import type { GaugeChartData, GaugeChartOptions } from './chart-gauge';
 import type { FunnelChartData, FunnelChartOptions } from './chart-funnel';
+import type { ThemeRiverChartOptions, ThemeRiverDatum } from './chart-theme-river';
 import type { WaterfallChartData, WaterfallChartOptions } from './chart-waterfall';
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
@@ -47,6 +48,8 @@ export interface CharturboChartSpecMap {
   surface3d: { data: Surface3DSeries[]; options: Scientific3DChartOptions };
   line: { data: LineSeriesDescriptor[]; options: LineChartOptions };
   area: { data: LineSeriesDescriptor[]; options: AreaChartOptions };
+  /** Streamgraph from `[x, value, name]` rows */
+  themeRiver: { data: readonly ThemeRiverDatum[]; options: ThemeRiverChartOptions };
   band: { data: BandSeriesDescriptor[]; options: BandChartOptions };
   errorBar: { data: ErrorBarSeriesDescriptor[]; options: ErrorBarChartOptions };
   impulse: { data: ImpulseSeriesDescriptor[]; options: ImpulseChartOptions };
@@ -131,6 +134,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'area':
       sdk.renderAreaChart(data as LineSeriesDescriptor[], options as AreaChartOptions);
+      break;
+    case 'themeRiver':
+      sdk.renderThemeRiverChart(data as readonly ThemeRiverDatum[], options as ThemeRiverChartOptions);
       break;
     case 'band':
       sdk.renderBandChart(data as BandSeriesDescriptor[], options as BandChartOptions);

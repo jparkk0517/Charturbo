@@ -712,6 +712,24 @@ impl VisualizationEngine {
         n
     }
 
+    /// Replaces graph content with a ThemeRiver (streamgraph; see `chart::theme_river`).
+    pub fn set_theme_river_chart(
+        &mut self,
+        series: Vec<LineSeries>,
+        layout: LineLayout,
+        offset: crate::chart::StreamOffset,
+        order: crate::chart::StreamOrder,
+        fill_opacity: f32,
+    ) -> usize {
+        self.begin_chart();
+        let css = self.css_size();
+        let chart = ChartState::new_theme_river(series, layout, offset, order, fill_opacity);
+        chart.frame_camera(&mut self.camera, css);
+        let n = chart.point_count();
+        self.chart = Some(chart);
+        n
+    }
+
     /// Replaces graph content with a bar chart (3D view adds lit boxes to the scene).
     pub fn set_bar_chart(&mut self, values: Vec<f32>, colors: Vec<[f32; 4]>, layout: BarLayout) -> usize {
         self.begin_chart();

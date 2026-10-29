@@ -10,6 +10,12 @@
 - `stepPhysicsAsync`가 GPU에 상주하는 배치를 진행합니다. 위치·속도는 GPU 버퍼에 남고, CPU는 자신의 배치 편집만 올리며 비동기 readback을 1~2 프레임 뒤에 반영합니다. 자동 sleep 판정은 매 스텝 GPU에서 셉니다. GPU 상주 중에는 절두체 컬링을 생략합니다.
 - `stepPhysicsAsync`는 readback 후가 아니라 제출 시점에 resolve하며, GPU 작업 중 CPU 편집은 거부되지 않고 순서대로 적용됩니다. 피킹·내보내기처럼 현재 위치가 필요하면 새 `syncPhysicsPositions()`를 await하세요.
 
+### 추가 — 테마 리버(스트림 그래프)
+
+- `renderThemeRiverChart(data, options?)`(ECharts `themeRiver`): `[x, value, name]` 행을 이름별 스트림으로 묶어 움직이는 기준선 둘레에 쌓습니다. 이름은 처음 나온 순서, x는 합집합이며 행이 없는 x는 0입니다. 값은 0 이상이어야 합니다.
+- `offset`: `'wiggle'`(기본, d3 `stackOffsetWiggle`과 수치 일치) · `'silhouette'` · `'zero'`. `order`: `'none'`(기본) · `'insideOut'`(d3 `stackOrderInsideOut`). `smooth`(기본 monotone), `colors`(이름별 레코드 또는 배열), `fillOpacity`(기본 0.85), `labels`(왼쪽 끝 스트림 이름, `minHeight` 기본 12 px). `Date`·날짜 문자열 x는 시간 축이 됩니다.
+- 호버하면 그 x의 모든 스트림과 합계를 툴팁에 나열하고(`ctx.chartType === 'themeRiver'`) 포인터 아래 스트림을 강조합니다. 범례 토글은 기준선을 다시 계산합니다. 줌·이동, `appendAreaData` 스트리밍, 접근성 요약·데이터 표·키보드, CSV·SVG 내보내기, React·Vue `type: 'themeRiver'`, `themeRiverSeries` 변환을 지원합니다. 예제 `line/13-theme-river`, fixture `theme-river`.
+
 ### 추가 — 내장 문구 다국어(영어 · 한국어 · 중국어 간체)
 
 - 접근성 요약·키보드 도움말·스크린 리더 안내, 데이터 표 제목·머리글·CSV 머리글, 기본 툴팁, 범례·브레드크럼·컬러바 라벨, 기본 시리즈·값 이름, PDF 기본 제목이 차트 로캘을 따릅니다. 로캘 순서: 차트 `locale` → SDK 로캘(`create({ locale })`·`setLocale`) → `<html lang>` → `navigator.language`. `ko*`는 한국어, `zh*`는 중국어 간체, 그 외는 영어입니다.

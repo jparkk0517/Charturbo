@@ -169,6 +169,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '구간별 색 (대기질)', description: 'pieces는 값 구간에 따라 선 색을 바꿉니다(ECharts visualMap pieces). 어떤 줌에서도 50 / 100 / 150 / 200 / 300을 지나는 지점에서 정확히 색이 바뀌고, 마커와 툴팁 견본도 따라갑니다.' },
     zh: { title: '分段着色（空气质量）', description: 'pieces 按数值区间为折线着色（ECharts visualMap pieces）：无论缩放到何种程度，都会在穿过 50 / 100 / 150 / 200 / 300 的位置准确变色，标记点和提示框色块随之变化。' },
   },
+  'line/13-theme-river': {
+    ko: { title: '테마 리버 (스트림 그래프)', description: '[날짜, 값, 이름] 행이 흔들림을 최소화한 기준선(d3 stackOffsetWiggle) 둘레의 스트림이 됩니다. 호버하면 그 날짜의 모든 스트림을 나열하고 포인터 아래 스트림을 강조합니다. 범례를 토글하면 기준선을 다시 계산합니다.' },
+    zh: { title: '主题河流图（流图）', description: '[日期, 数值, 名称] 行围绕最小摆动基线（d3 stackOffsetWiggle）组成河流。悬停时列出该日期的所有河流并突出指针下的河流；切换图例会重新计算基线。' },
+  },
   'pie/01-pie': {
     ko: { title: '바깥 레이블이 있는 파이', description: '정렬, 작은 조각을 "기타" 하나로 묶기, 각도, 지시선 배치를 Rust에서 계산합니다. 호버하면 조각이 튀어나옵니다.' },
     zh: { title: '带外部标签的饼图', description: '排序、将小扇区合并为"其他"、角度和引导线布局均在 Rust 中计算。悬停时扇区会向外拉出。' },

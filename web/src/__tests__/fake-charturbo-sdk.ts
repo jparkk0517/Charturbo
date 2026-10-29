@@ -83,6 +83,7 @@ export class FakeSDK {
   renderSunburst = this.spy('renderSunburst');
   renderSankey = this.spy('renderSankey');
   renderSparkline = this.spy('renderSparkline');
+  renderThemeRiverChart = this.spy('renderThemeRiverChart');
   setTheme = this.spy('setTheme');
   setSync = this.spy('setSync');
   render = this.spy('render');

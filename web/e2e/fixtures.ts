@@ -533,6 +533,31 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // Streamgraph: wiggle baseline, inside-out order, monotone edges, one stream at 0 for a stretch
+    name: 'theme-river',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const rand = mulberry32(23);
+        const names = ['DQ', 'TY', 'SS', 'QG', 'SY'];
+        const rows: [number, number, string][] = [];
+        names.forEach((name, s) => {
+          const w = walk(rand, 40, 0.8, 6 + s * 2);
+          for (let i = 0; i < 40; i++) {
+            const v = name === 'SS' && i >= 14 && i < 22 ? 0 : Math.max(0, w[i] + 4 * Math.sin(i / 6 + s));
+            rows.push([i, v, name]);
+          }
+        });
+        sdk.renderThemeRiverChart(rows, {
+          order: 'insideOut',
+          title: 'ThemeRiver',
+          padding: PADDING,
+          legend: false,
+          colors: { DQ: firstColor(ctx) ?? '#3987e5' },
+        });
+      }),
+  },
+  {
     name: 'line-yzoom',
     theme: 'dark',
     render: (ctx) =>

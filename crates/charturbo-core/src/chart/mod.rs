@@ -53,6 +53,7 @@ mod scientific3d_tests;
 mod svg;
 mod sunburst;
 mod sync;
+mod theme_river;
 mod ticks;
 mod time_ticks;
 mod time_zone;
@@ -124,6 +125,7 @@ pub use scatter::{RippleOptions, ScatterLayout, ScatterPoints, ScatterTrendline}
 pub use sparkline::{SparklineMarks, SparklineSummary};
 pub use svg::{SvgExport, SvgSupport, SVG_DEFAULT_MAX_MARKS};
 pub use zoom::ZOOM_HISTORY_MAX;
+pub use theme_river::{stream_baseline, stream_order, StreamLabel, StreamOffset, StreamOrder};
 use sparkline::Sparkline;
 pub use ticks::{nice_domain, nice_step};
 use ticks::ticks_between;
@@ -826,6 +828,7 @@ impl ChartState {
     pub fn set_emphasis(&mut self, series: Option<usize>) {
         match &mut self.kind {
             ChartKind::Scientific3D(c) => { c.emphasis = series; self.dirty.series = true; self.dirty.fills = true; }
+            ChartKind::Area(a) if a.stream.is_some() => self.dirty.series |= a.set_stream_emphasis(None, Some(series)),
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => {
                 let series = series.filter(|&i| i < l.series.len());
                 if l.emphasis != series {
@@ -1418,6 +1421,12 @@ impl ChartState {
     }
 
     fn set_hover(&mut self, hover: Option<HoverResult>, scene: &mut SceneWorld) {
+        // ThemeRiver: the stream under the pointer is emphasized (before the early return: data
+        // updates drop `self.hover` without passing here)
+        if let ChartKind::Area(a) = &mut self.kind {
+            let s = hover.as_ref().and_then(|h| h.items.get(h.primary)).map(|i| i.series as usize);
+            self.dirty.series |= a.set_stream_emphasis(Some(s), None);
+        }
         if self.hover == hover {
             return;
         }
@@ -1460,6 +1469,7 @@ impl ChartState {
         self.prepare_radar(view);
         self.prepare_gauge(view);
         self.prepare_funnel(view);
+        self.prepare_theme_river(view);
         self.prepare_waterfall();
         if let ChartKind::Scatter(s) = &mut self.kind {
             // The x tick density follows the plot width: vertical gridlines move with it

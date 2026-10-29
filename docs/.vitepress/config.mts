@@ -75,6 +75,7 @@ const CHARTS: Group[] = [
     pages: [
       ['line', t('Line', '선', '折线图')],
       ['area', t('Area', '영역', '面积图')],
+      ['theme-river', t('ThemeRiver', '테마 리버', '主题河流图')],
       ['band', t('Band · Range', '밴드 · 범위', '带状图 · 范围图')],
       ['errorbar-impulse', t('Error Bar · Impulse', '오차 막대 · 임펄스', '误差棒 · 脉冲图')],
       ['bar', t('Bar', '막대', '柱状图')],
