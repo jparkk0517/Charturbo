@@ -19,7 +19,7 @@ const Y_LABEL_SPACING_PX: f32 = 16.0;
 const OUTLINE_OUTER_PX: f32 = 3.5;
 const OUTLINE_INNER_PX: f32 = 1.5;
 /// Colorbar tick target.
-const COLORBAR_TICKS: u32 = 4;
+pub(crate) const COLORBAR_TICKS: u32 = 4;
 
 /// Colormap family (see `colormap_lut`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -129,7 +129,7 @@ impl ValueScale {
         ((t * (HEATMAP_LUT_SIZE - 1) as f32 + 0.5) as usize).min(HEATMAP_LUT_SIZE - 1)
     }
 
-    fn resolve(data: (f64, f64), domain: &HeatmapDomain, diverging: bool) -> Self {
+    pub(crate) fn resolve(data: (f64, f64), domain: &HeatmapDomain, diverging: bool) -> Self {
         let pick = |v: Option<f64>, d: f64| v.filter(|v| v.is_finite()).unwrap_or(d);
         let (mut lo, mut hi) = (pick(domain.min, data.0), pick(domain.max, data.1));
         if lo > hi {
@@ -783,6 +783,11 @@ impl ChartState {
                 self.dirty.overlay = true;
             }
         }
+        if let ChartKind::Calendar(c) = &mut self.kind {
+            c.set_colormap(map);
+            self.dirty.fills = true;
+            self.dirty.overlay = true;
+        }
     }
 
     /// Value domain overrides of the heatmap (min / max / diverging center).
@@ -790,11 +795,15 @@ impl ChartState {
         if let ChartKind::Heatmap(h) = &mut self.kind {
             self.dirty.heatmap_style |= h.set_domain(domain);
         }
+        if let ChartKind::Calendar(c) = &mut self.kind {
+            self.dirty.fills |= c.set_domain(domain);
+        }
     }
 
     pub fn heatmap_lut(&self) -> Option<&[[u8; 4]]> {
         match &self.kind {
             ChartKind::Heatmap(h) => Some(h.lut()),
+            ChartKind::Calendar(c) => Some(c.lut()),
             _ => None,
         }
     }
@@ -802,6 +811,7 @@ impl ChartState {
     pub fn heatmap_colorbar(&self) -> Option<HeatmapColorbar> {
         match &self.kind {
             ChartKind::Heatmap(h) => Some(HeatmapColorbar { scale: h.scale(), ticks: h.colorbar_ticks() }),
+            ChartKind::Calendar(c) => Some(HeatmapColorbar { scale: c.scale(), ticks: c.colorbar_ticks() }),
             _ => None,
         }
     }
@@ -810,6 +820,7 @@ impl ChartState {
     pub fn heatmap_color(&self, value: f32) -> Option<[u8; 4]> {
         match &self.kind {
             ChartKind::Heatmap(h) => Some(h.color_of(value)),
+            ChartKind::Calendar(c) => Some(c.color_of(value)),
             _ => None,
         }
     }

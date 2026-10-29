@@ -68,6 +68,7 @@ export function CpuChart({ values, dark }: { values: Float32Array; dark: boolean
 | `'scatter'`、`'histogram'`、`'heatmap'`、`'box'` | `renderScatterChart`、`renderHistogram`、`renderHeatmap`、`renderBoxPlot` |
 | `'candlestick'`、`'ohlc'` | `renderCandlestickChart`、`renderOhlcChart` |
 | `'pie'`、`'combo'`、`'radar'`、`'gauge'`、`'funnel'`、`'waterfall'` | `renderPieChart`、`renderComboChart`、`renderRadarChart`、`renderGauge`、`renderFunnelChart`、`renderWaterfallChart` |
+| `'calendar'` | `renderCalendarHeatmap` |
 | `'treemap'`、`'sunburst'`、`'sankey'` | `renderTreemap`、`renderSunburst`、`renderSankey` |
 | `'sparkline'` | `renderSparkline` |
 | `'pointCloud3d'`、`'surface3d'` | `renderPointCloud3D`、`renderSurface3D` |

@@ -584,6 +584,7 @@ impl ChartState {
             ChartKind::Waterfall(w) => bar_frame(&w.bar),
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) => None,
             ChartKind::Hierarchy(_) | ChartKind::Scientific3D(_) => None,
+            ChartKind::Calendar(_) => None,
         }
     }
 

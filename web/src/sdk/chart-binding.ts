@@ -35,6 +35,7 @@ import type { GaugeChartData, GaugeChartOptions } from './chart-gauge';
 import type { FunnelChartData, FunnelChartOptions } from './chart-funnel';
 import type { ThemeRiverChartOptions, ThemeRiverDatum } from './chart-theme-river';
 import type { WaterfallChartData, WaterfallChartOptions } from './chart-waterfall';
+import type { CalendarHeatmapData, CalendarHeatmapOptions } from './chart-calendar';
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
@@ -70,6 +71,7 @@ export interface CharturboChartSpecMap {
   /** Changing only `data.value` re-renders; for live values call `sdk.setGaugeValue` (indicator only) */
   gauge: { data: GaugeChartData; options: GaugeChartOptions };
   funnel: { data: FunnelChartData; options: FunnelChartOptions };
+  calendar: { data: CalendarHeatmapData; options: CalendarHeatmapOptions };
   waterfall: { data: WaterfallChartData; options: WaterfallChartOptions };
   treemap: { data: HierarchyData; options: TreemapChartOptions };
   sunburst: { data: HierarchyData; options: SunburstChartOptions };
@@ -189,6 +191,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'funnel':
       sdk.renderFunnelChart(data as FunnelChartData, options as FunnelChartOptions);
+      break;
+    case 'calendar':
+      sdk.renderCalendarHeatmap(data as CalendarHeatmapData, options as CalendarHeatmapOptions);
       break;
     case 'waterfall':
       sdk.renderWaterfallChart(data as WaterfallChartData, options as WaterfallChartOptions);

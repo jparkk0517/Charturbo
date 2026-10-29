@@ -84,6 +84,7 @@ const CHARTS: Group[] = [
       ['scatter', t('Scatter · Bubble', '산점도 · 버블', '散点图 · 气泡图')],
       ['candlestick', t('Candlestick · OHLC', '캔들스틱 · OHLC', 'K 线图 · OHLC')],
       ['heatmap', t('Heatmap', '히트맵', '热力图')],
+      ['calendar', t('Calendar Heatmap', '캘린더 히트맵', '日历热力图')],
       ['box-violin', t('Box Plot · Violin', '박스 플롯 · 바이올린', '箱线图 · 小提琴图')],
       ['combo', t('Combo', '콤보', '组合图')],
     ],

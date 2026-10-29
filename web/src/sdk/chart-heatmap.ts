@@ -214,7 +214,8 @@ export class HeatmapColorbarLayer {
   private readonly labels: HTMLDivElement;
   private data: HeatmapColorbarData | null = null;
 
-  constructor(parent: HTMLElement, private readonly meta: HeatmapChartMeta) {
+  /** `meta`: a heatmap or calendar heatmap (only its `colorbar` is read) */
+  constructor(parent: HTMLElement, private readonly meta: Pick<HeatmapChartMeta, 'colorbar'>) {
     const div = (className: string, style: Partial<CSSStyleDeclaration>) => {
       const el = document.createElement('div');
       el.className = className;

@@ -99,6 +99,22 @@ const en = {
   waterfallTotalAnnounce: (label: string, name: string, value: string, position: string) => `${label}, ${name} ${value}. ${position}`,
   waterfallChangeAnnounce: (label: string, change: string, total: string, position: string) =>
     `${label}, ${change}, running total ${total}. ${position}`,
+
+  /** Calendar heatmap (chart-calendar.ts): data table header of the date column */
+  date: 'Date',
+  /** Tooltip value of a day without data */
+  calendarNoData: 'No data',
+  /** `from` / `to`: dates; `withData`: days with a value; `lo` / `hi`: value range (`''` = no data) */
+  calendarSummary: (nDays: number, days: string, from: string, to: string, withData: string, lo: string, hi: string) =>
+    `Calendar heatmap, ${days} ${plural(nDays, 'day', 'days')} from ${from} to ${to}, ${withData} with data${lo ? `, from ${lo} to ${hi}` : ''}.`,
+  /** One calendar (range) of several */
+  calendarBlock: (from: string, to: string, withData: string) => `Calendar from ${from} to ${to}: ${withData} days with data.`,
+  /** `vertical`: weeks run down (Left / Right step days) */
+  calendarHelp: (vertical: boolean) =>
+    `Keyboard: focus the chart, then use ${vertical ? 'Left and Right' : 'Up and Down'} arrows to move by day, ${vertical ? 'Up and Down' : 'Left and Right'} arrows to move by week, ` +
+    'Page Up and Page Down for the previous and next month, Home and End for the first and last day, and Escape to clear.',
+  calendarAnnounce: (date: string, name: string, value: string, position: string) => `${date}, ${name} ${value}. ${position}`,
+  calendarAnnounceEmpty: (date: string, position: string) => `${date}, no data. ${position}`,
 };
 
 export type BusinessMessages = typeof en;
@@ -163,6 +179,17 @@ const ko: BusinessMessages = {
   waterfallHelp: '키보드: 차트에 포커스를 둔 뒤 왼쪽·오른쪽 화살표로 막대 이동, Home·End로 첫 막대·마지막 막대 이동, Esc로 선택 해제.',
   waterfallTotalAnnounce: (label, name, value, position) => `${label}, ${name} ${value}. ${position}`,
   waterfallChangeAnnounce: (label, change, total, position) => `${label}, ${change}, 누적 합계 ${total}. ${position}`,
+
+  date: '날짜',
+  calendarNoData: '데이터 없음',
+  calendarSummary: (_nDays, days, from, to, withData, lo, hi) =>
+    `캘린더 히트맵, ${from}부터 ${to}까지 ${days}일, 데이터가 있는 날 ${withData}일${lo ? `, 값 ${lo}~${hi}` : ''}.`,
+  calendarBlock: (from, to, withData) => `${from}부터 ${to}까지의 캘린더: 데이터가 있는 날 ${withData}일.`,
+  calendarHelp: (vertical) =>
+    `키보드: 차트에 포커스를 둔 뒤 ${vertical ? '왼쪽·오른쪽' : '위·아래'} 화살표로 하루씩, ${vertical ? '위·아래' : '왼쪽·오른쪽'} 화살표로 한 주씩 이동, ` +
+    'Page Up·Page Down으로 이전 달·다음 달, Home·End로 첫날·마지막 날 이동, Esc로 선택 해제.',
+  calendarAnnounce: (date, name, value, position) => `${date}, ${name} ${value}. ${position}`,
+  calendarAnnounceEmpty: (date, position) => `${date}, 데이터 없음. ${position}`,
 };
 
 const zh: BusinessMessages = {
@@ -225,6 +252,17 @@ const zh: BusinessMessages = {
   waterfallHelp: '键盘操作：聚焦图表后，用左右方向键在各柱之间移动，用 Home 和 End 跳到第一根和最后一根柱，按 Esc 清除焦点。',
   waterfallTotalAnnounce: (label, name, value, position) => `${label}，${name} ${value}。${position}`,
   waterfallChangeAnnounce: (label, change, total, position) => `${label}，${change}，累计值 ${total}。${position}`,
+
+  date: '日期',
+  calendarNoData: '无数据',
+  calendarSummary: (_nDays, days, from, to, withData, lo, hi) =>
+    `日历热力图，${from} 至 ${to}，共 ${days} 天，其中 ${withData} 天有数据${lo ? `，数值从 ${lo} 到 ${hi}` : ''}。`,
+  calendarBlock: (from, to, withData) => `${from} 至 ${to} 的日历：${withData} 天有数据。`,
+  calendarHelp: (vertical) =>
+    `键盘操作：聚焦图表后，用${vertical ? '左右' : '上下'}方向键按天移动，用${vertical ? '上下' : '左右'}方向键按周移动，` +
+    '用 Page Up 和 Page Down 跳到上一个月和下一个月，用 Home 和 End 跳到第一天和最后一天，按 Esc 清除焦点。',
+  calendarAnnounce: (date, name, value, position) => `${date}，${name} ${value}。${position}`,
+  calendarAnnounceEmpty: (date, position) => `${date}，无数据。${position}`,
 };
 
 export const BUSINESS_MESSAGES = { en, ko, 'zh-CN': zh } as const;

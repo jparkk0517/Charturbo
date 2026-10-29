@@ -21,6 +21,7 @@ mod bar_style;
 mod boxplot;
 mod brush;
 mod candle;
+mod calendar;
 mod combo;
 mod fill;
 mod finite;
@@ -102,6 +103,8 @@ use scatter::ScatterChart;
 use pie::PieChart;
 use funnel::FunnelChart;
 pub use funnel::{funnel_stages, validate_funnel, FunnelLabel, FunnelOptions, FunnelOrientation, FunnelShape, FunnelStage, FUNNEL_GAP_PX};
+use calendar::CalendarChart;
+pub use calendar::{civil_from_days, days_from_civil, validate_calendar, weekday, CalendarLabel, CalendarOptions, CalendarOrient, MAX_CALENDAR_DAYS};
 use gauge::GaugeChart;
 pub use gauge::{validate_gauge, GaugeBand, GaugeIndicator, GaugeLabel, GaugeLayoutInfo, GaugeOptions, GaugeStyle};
 use radar::RadarChart;
@@ -491,6 +494,8 @@ enum ChartKind {
     Waterfall(WaterfallChart),
     /// Treemap / sunburst / sankey (hierarchy.rs)
     Hierarchy(HierChart),
+    /// Calendar heatmap (calendar.rs)
+    Calendar(CalendarChart),
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -675,6 +680,7 @@ impl ChartState {
             ChartKind::Funnel(f) => f.frame_camera(camera, css, &self.padding),
             ChartKind::Waterfall(w) => w.bar.frame_camera(camera, css, &self.padding),
             ChartKind::Hierarchy(h) => h.frame_camera(camera, css, &self.padding),
+            ChartKind::Calendar(c) => c.frame_camera(camera, css, &self.padding),
         }
     }
 
@@ -701,6 +707,7 @@ impl ChartState {
             ChartKind::Radar(r) => r.series,
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => 1,
             ChartKind::Hierarchy(h) => h.series_count(),
+            ChartKind::Calendar(_) => 0,
         }
     }
 
@@ -784,6 +791,7 @@ impl ChartState {
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => false,
             // Legend groups of hierarchy charts only emphasize
             ChartKind::Hierarchy(_) => false,
+            ChartKind::Calendar(_) => false,
         };
         // A hidden series must not stay hovered; bar layouts / stacked areas moved either way, so
         // drop any bar hover or stacked-area hover
@@ -821,6 +829,7 @@ impl ChartState {
             ChartKind::Radar(r) => r.visible.get(series).copied().unwrap_or(false),
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => series == 0,
             ChartKind::Hierarchy(h) => series < h.series_count(),
+            ChartKind::Calendar(_) => false,
         }
     }
 
@@ -874,6 +883,7 @@ impl ChartState {
             }
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => {}
             ChartKind::Hierarchy(h) => self.dirty.fills |= h.set_emphasis(series),
+            ChartKind::Calendar(_) => {}
         }
     }
 
@@ -1026,6 +1036,7 @@ impl ChartState {
             ChartKind::Pie(_) => false,
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => false,
             ChartKind::Hierarchy(_) => false,
+            ChartKind::Calendar(_) => false,
             ChartKind::Candle(c) => std::mem::replace(&mut c.window, (0.0, 1.0)) != (0.0, 1.0),
             ChartKind::Combo(c) => std::mem::replace(&mut c.line.window, (0.0, 1.0)) != (0.0, 1.0),
         };
@@ -1043,6 +1054,7 @@ impl ChartState {
             ChartKind::Pie(_) => (0.0, 1.0),
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => (0.0, 1.0),
             ChartKind::Hierarchy(_) => (0.0, 1.0),
+            ChartKind::Calendar(_) => (0.0, 1.0),
             ChartKind::Scatter(s) => s.window_x,
             ChartKind::Candle(c) => c.window,
             ChartKind::Heatmap(h) => h.window_x,
@@ -1241,6 +1253,7 @@ impl ChartState {
             ChartKind::Funnel(f) => f.len(),
             ChartKind::Waterfall(w) => w.items.len(),
             ChartKind::Hierarchy(h) => h.point_count(),
+            ChartKind::Calendar(c) => c.len(),
         }
     }
 
@@ -1352,6 +1365,7 @@ impl ChartState {
             ChartKind::Funnel(f) => f.sample(global_id),
             ChartKind::Waterfall(w) => w.bar.sample(global_id as usize),
             ChartKind::Hierarchy(h) => h.sample(global_id),
+            ChartKind::Calendar(c) => c.sample(global_id),
         }
     }
 
@@ -1409,6 +1423,7 @@ impl ChartState {
             ChartKind::Funnel(f) => f.hover(view, ndc),
             ChartKind::Waterfall(w) => w.bar.hover(view, scene, ndc),
             ChartKind::Hierarchy(h) => h.hover(view, ndc),
+            ChartKind::Calendar(c) => c.hover(view, ndc),
         };
         self.set_hover(result.clone(), scene);
         result
@@ -1464,6 +1479,7 @@ impl ChartState {
         self.prepare_box();
         self.prepare_pie(view);
         self.prepare_hierarchy(view);
+        self.prepare_calendar(view);
         self.prepare_bar_style(view);
         keep_series_dirty |= self.prepare_combo(view);
         self.prepare_radar(view);
@@ -1607,6 +1623,8 @@ impl ChartState {
             }
             // Built by `prepare_hierarchy` (treemap hover outline in the overlay layer)
             ChartKind::Hierarchy(_) => {}
+            // Built by `prepare_calendar`
+            ChartKind::Calendar(_) => {}
         }
 
         // Axis labels follow the camera and the zoom window
@@ -1633,6 +1651,7 @@ impl ChartState {
                 ChartKind::Funnel(f) => f.axes(view, &mut axes),
                 ChartKind::Waterfall(w) => w.bar.axes(view, &mut axes),
                 ChartKind::Hierarchy(h) => h.axes(view, &self.padding, &mut axes),
+                ChartKind::Calendar(c) => c.axes(view, &self.padding, &mut axes),
             }
             if axes != self.axes {
                 self.axes_revision = self.axes_revision.wrapping_add(1);
@@ -1648,6 +1667,7 @@ impl ChartState {
             ChartKind::Pie(_) => None,
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => None,
             ChartKind::Hierarchy(_) => None,
+            ChartKind::Calendar(_) => None,
             ChartKind::Scatter(s) => s.clip_px(view),
             ChartKind::Candle(c) => c.clip_px(view),
             ChartKind::Combo(c) => c.line.clip_px(view),

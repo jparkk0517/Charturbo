@@ -158,6 +158,15 @@ export {
   type ThemeRiverSpec,
 } from './sdk/chart-theme-river';
 export {
+  type CalendarDate,
+  type CalendarHeatmapData,
+  type CalendarHeatmapOptions,
+  type CalendarLabelOptions,
+  type CalendarRange,
+  type CalendarSplitLineOptions,
+  type ChartCalendarTooltip,
+} from './sdk/chart-calendar';
+export {
   type ChartWaterfallTooltip,
   type WaterfallChartData,
   type WaterfallChartOptions,
