@@ -101,7 +101,7 @@ function navLink(href: string, text: string, current = false): HTMLAnchorElement
 
 /**
  * Site header, the same sections as the docs nav: guide, chart manuals, API, examples,
- * benchmarks. On the gallery and the family pages a second row switches between examples.
+ * playground, benchmarks. On the gallery and the family pages a second row switches between examples.
  */
 export function renderHeader(active: string): HTMLElement {
   const header = document.createElement('header');
@@ -111,13 +111,14 @@ export function renderHeader(active: string): HTMLElement {
   brand.setAttribute('aria-label', t('site.home'));
   const nav = document.createElement('nav');
   nav.setAttribute('aria-label', t('site.mainNav'));
-  const examples = active !== 'benchmarks';
+  const examples = active !== 'benchmarks' && active !== 'playground';
   nav.append(
     navLink(docsHref('guide/getting-started'), t('site.guide')),
     navLink(docsHref('charts/line'), t('site.charts')),
     navLink(docsHref('api/index.html'), t('site.api')),
     navLink('./gallery.html', t('site.examples'), examples),
-    navLink('./benchmarks.html', t('site.benchmarks'), !examples),
+    navLink('./playground.html', t('site.playground'), active === 'playground'),
+    navLink('./benchmarks.html', t('site.benchmarks'), active === 'benchmarks'),
     navLink('https://github.com/jparkk0517/Charturbo', 'GitHub ↗'),
   );
   header.append(brand, nav, themeControl(), languageControl());

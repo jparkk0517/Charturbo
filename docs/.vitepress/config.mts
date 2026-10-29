@@ -151,10 +151,10 @@ function sidebar(lang: Lang, groups: Group[]): DefaultTheme.SidebarItem[] {
   }));
 }
 
-const UI: Record<Lang, { guide: string; charts: string; api: string; examples: string; benchmarks: string; contributing: string }> = {
-  en: { guide: 'Guide', charts: 'Charts', api: 'API', examples: 'Examples', benchmarks: 'Benchmarks', contributing: 'Contributing' },
-  ko: { guide: '가이드', charts: '차트', api: 'API', examples: '예제', benchmarks: '벤치마크', contributing: '기여하기' },
-  zh: { guide: '指南', charts: '图表', api: 'API', examples: '示例', benchmarks: '基准测试', contributing: '参与贡献' },
+const UI: Record<Lang, { guide: string; charts: string; api: string; examples: string; playground: string; benchmarks: string; contributing: string }> = {
+  en: { guide: 'Guide', charts: 'Charts', api: 'API', examples: 'Examples', playground: 'Playground', benchmarks: 'Benchmarks', contributing: 'Contributing' },
+  ko: { guide: '가이드', charts: '차트', api: 'API', examples: '예제', playground: '플레이그라운드', benchmarks: '벤치마크', contributing: '기여하기' },
+  zh: { guide: '指南', charts: '图表', api: 'API', examples: '示例', playground: '演练场', benchmarks: '基准测试', contributing: '参与贡献' },
 };
 
 /** Default-theme labels that VitePress ships only in English */
@@ -235,6 +235,7 @@ function themeConfig(lang: Lang): DefaultTheme.Config {
       // TypeDoc output (npm run docs) is copied verbatim from docs/public/api/; English only
       { text: ui.api, link: '/api/index.html', target: '_self' },
       { component: 'SiteLink', props: { text: ui.examples, path: 'gallery.html' } },
+      { component: 'SiteLink', props: { text: ui.playground, path: 'playground.html' } },
       { component: 'SiteLink', props: { text: ui.benchmarks, path: 'benchmarks.html' } },
     ],
     // The logo leads to the site home, not the docs home

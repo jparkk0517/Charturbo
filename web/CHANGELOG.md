@@ -33,6 +33,14 @@
 - 호버 강조와 모든 차원을 보여 주는 툴팁(`ctx.parallel`), 접근성 요약 · 표 · 키보드(축 위 값 순서 이동, Shift 브러시, Delete 축 해제), CSV(`exportParallelCSV({ activeOnly })`) / 벡터 SVG 내보내기, React / Vue `type="parallel"`, 영어 · 한국어 · 중국어 문구.
 - 예제 `business/05-parallel` · `06-parallel-brush` · `07-parallel-large`, fixture `parallel` · `parallel-brush` · `parallel-vertical-smooth`, 문서 `charts/parallel`.
 
+### 추가 — 플레이그라운드
+
+- 예제 사이트에 `playground.html`을 추가했습니다. 예제 중 하나를 골라 CodeMirror 에디터에서 고치고 Ctrl/⌘ + Enter로 실행합니다. 코드는 Sucrase로 TS / TSX를 변환해 `runner.html` iframe에서 돌리므로, 다시 실행하면 이전 GPU 디바이스 · 타이머 · 리스너가 함께 정리됩니다. 사이트 테마와 언어를 따릅니다.
+- 러너 iframe은 빌드된 사이트에서 `sandbox="allow-scripts"`(opaque origin)로 격리합니다. 공유 링크로 받은 코드도 사이트의 localStorage · 쿠키 · DOM에 접근할 수 없습니다. 러너가 15초 안에 뜨지 않으면(예: CORS 헤더가 없는 호스트) 오류를 표시합니다.
+- 링크 복사: 코드를 `#code=`(deflate-raw + base64url)에 담아 서버 없이 공유합니다. 공유 링크로 연 코드는 바로 실행하지 않고 실행 버튼을 기다립니다.
+- 예제 페이지의 각 카드에 편집 · 플레이그라운드에서 열기를 추가했습니다. 편집하면 소스가 에디터로 바뀌고, 실행하면 그 카드만 러너 iframe으로 바뀝니다. 원래대로는 원래 예제를 다시 마운트합니다. 고친 코드는 플레이그라운드로 가져갈 수 있습니다.
+- import 가능한 모듈: `charturbo`, `charturbo/react`, `charturbo/vue`, `react`, `react-dom/client`, `vue`와 예제 헬퍼(`theme`, `demo-playback`, `scene-design`, `streaming-area`).
+
 ### 추가 — 캘린더 히트맵
 
 - `renderCalendarHeatmap(data, options)`: `[날짜, 값][]`를 하루 한 셀로 주 단위 배치합니다(ECharts `calendar`). 날짜는 `'YYYY-MM-DD'`(적힌 그대로) 또는 에포크 ms / `Date`(차트 시간대 기준 날짜, `timeZone` 옵션 → `setTimeZone`).

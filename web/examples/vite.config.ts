@@ -38,7 +38,10 @@ export default defineConfig({
     // The docs live under docs/ of the same site; `npm run site:dev` starts their dev server
     proxy: { '/docs': { target: 'http://localhost:5320', ws: true } },
   },
-  preview: { port: 5311 },
+  // The playground runner is a sandboxed frame (opaque origin): its scripts and .wasm load as CORS
+  // requests from `Origin: null`. GitHub Pages answers them with `*`; the preview serves the same
+  // public build. The dev server keeps Vite's localhost-only CORS (the runner is not sandboxed there).
+  preview: { port: 5311, cors: true },
   build: {
     outDir: resolve(root, '../examples-dist'),
     emptyOutDir: true,
