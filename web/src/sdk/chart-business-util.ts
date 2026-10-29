@@ -88,8 +88,11 @@ export interface A11yCustomModel {
   table?(pick: (n: number) => number[]): ChartDataTable;
   /** Header of the category column of the generic table */
   xHeader?: string;
-  /** Enter / Escape: drill (handled) or `null` (default handling; hierarchy charts) */
-  key?(focus: A11yFocus | null, key: string): { focus: A11yFocus | null } | null;
+  /**
+   * Enter / Escape: drill (handled) or `null` (default handling; hierarchy charts). Parallel
+   * coordinates also get Delete / Backspace and Shift + arrows / Home / End / Page keys.
+   */
+  key?(focus: A11yFocus | null, key: string, shift?: boolean): { focus: A11yFocus | null } | null;
   /** Engine hover of the focused item by id (no pointer; hierarchy / flow charts) */
   hover?(focus: A11yFocus): Float64Array | undefined;
 }

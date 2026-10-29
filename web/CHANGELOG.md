@@ -26,6 +26,13 @@
 - 그룹 호버는 그 그룹의 리본만 강조하고, 리본 툴팁은 `출발 → 도착`과 반대 방향 값을 함께 보여 줍니다(`ctx.chord`). 범례 클릭은 그룹을 숨기고 다시 배치하며, 애니메이션이 켜져 있으면 트윈합니다.
 - 접근성 요약 · 흐름 행렬 표 · CSV, 키보드(그룹 / 코드 이동, 아래 · 위로 그룹 ↔ 코드), SVG 벡터 내보내기, React / Vue `type="chord"`, 영어 · 한국어 · 중국어 문구. 예제 `hierarchy/07-chord` · `08-chord-directed`, fixture `chord` · `chord-directed`, 문서 `charts/chord`.
 
+### 추가 — 평행 좌표 · 축 브러시
+
+- `renderParallelChart(data, options)`: 행마다 여러 축을 가로지르는 폴리라인 하나(ECharts `parallel`). 차원은 값 · 범주 · 시간 축이며 `min` / `max` / `inverse` / `categories` / `format`을 받습니다. `orient: 'horizontal' | 'vertical'`, `lineWidth`, `opacity`, `smooth`, 시리즈별 색(범례 토글) 또는 `colorBy`(히트맵 색상 맵 · 컬러바 재사용). 입력은 현재 차트를 지우기 전에 검증합니다.
+- 축 브러시: 축을 따라 드래그, Shift + 드래그로 구간 추가(한 축 = 합집합, 여러 축 = 교집합), 클릭으로 축 해제, Escape로 전체 해제, `inactiveOpacity` · `inactiveColor` · `brushColor`. `setParallelBrush` · `clearParallelBrush` · `getParallelBrush` · `getParallelActiveRows`, `'parallelBrush'` 이벤트(React `onParallelBrush`, Vue `parallelBrush`). 브러시 변경은 GPU의 행 플래그만 다시 올립니다(10만 행 × 8차원: 생성 약 11 ms, 브러시 약 1 ms, CPU release 기준).
+- 호버 강조와 모든 차원을 보여 주는 툴팁(`ctx.parallel`), 접근성 요약 · 표 · 키보드(축 위 값 순서 이동, Shift 브러시, Delete 축 해제), CSV(`exportParallelCSV({ activeOnly })`) / 벡터 SVG 내보내기, React / Vue `type="parallel"`, 영어 · 한국어 · 중국어 문구.
+- 예제 `business/05-parallel` · `06-parallel-brush` · `07-parallel-large`, fixture `parallel` · `parallel-brush` · `parallel-vertical-smooth`, 문서 `charts/parallel`.
+
 ### 추가 — 캘린더 히트맵
 
 - `renderCalendarHeatmap(data, options)`: `[날짜, 값][]`를 하루 한 셀로 주 단위 배치합니다(ECharts `calendar`). 날짜는 `'YYYY-MM-DD'`(적힌 그대로) 또는 에포크 ms / `Date`(차트 시간대 기준 날짜, `timeZone` 옵션 → `setTimeZone`).

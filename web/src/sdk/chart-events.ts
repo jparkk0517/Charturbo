@@ -6,6 +6,7 @@ import type { ChartTooltipContext, NodeDetails, CharturboTheme } from './chartur
 import type { CharturboSelection } from './chart-brush';
 import type { CharturboDrillEvent } from './chart-hierarchy';
 import type { CharturboTreeToggleEvent } from './chart-tree';
+import type { CharturboParallelBrushEvent } from './chart-parallel';
 
 /** Visible chart range in data units (line x: series `x` or sample index; y: scatter only). */
 export interface CharturboRange {
@@ -51,6 +52,8 @@ export interface CharturboEventMap {
   drill: CharturboDrillEvent;
   /** Tidy tree node expanded / collapsed (click, Enter / Space, `toggleTreeNode`) */
   treeToggle: CharturboTreeToggleEvent;
+  /** Parallel coordinates brush changed (axis drag / click, Shift + keys, Delete, Escape, `setParallelBrush`) */
+  parallelBrush: CharturboParallelBrushEvent;
 }
 
 export type CharturboEventName = keyof CharturboEventMap;

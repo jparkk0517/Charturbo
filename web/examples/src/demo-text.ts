@@ -65,6 +65,18 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '소계가 있는 폭포 차트', description: '누적 합계, 연결선, 부호가 있는 레이블. 증가와 감소를 빨강/초록 색상만으로 구분하지 않습니다.' },
     zh: { title: '含小计的瀑布图', description: '累计值、连接线和带符号标签；增减从不只依赖红/绿颜色区分。' },
   },
+  'business/05-parallel': {
+    ko: { title: '평행 좌표', description: '자동차 한 대마다 값·범주·시간 축을 가로지르는 폴리라인 하나를 그립니다. Weight 축은 뒤집혀 있습니다. 선에 마우스를 올리면 모든 차원을 읽고, 범례로 시리즈를 켜고 끕니다.' },
+    zh: { title: '平行坐标', description: '每辆车一条折线，穿过数值、类别和时间轴；Weight 轴为反向。悬停折线查看所有维度，在图例中切换系列。' },
+  },
+  'business/06-parallel-brush': {
+    ko: { title: '평행 좌표 브러시', description: '축을 따라 드래그하면 그 축을 브러시합니다. Shift + 드래그는 구간을 하나 더 추가하고, 클릭하면 그 축을, Escape는 전체를 해제합니다. 행은 Score로 색을 입히고, 브러시 밖의 행은 흐려집니다.' },
+    zh: { title: '平行坐标刷选', description: '沿轴拖动即可刷选该轴，Shift + 拖动再添加一个区间，单击清除该轴，Escape 清除全部。行按 Score 着色，刷选范围外的行变淡。' },
+  },
+  'business/07-parallel-large': {
+    ko: { title: '10만 행 × 8차원', description: '선분 70만 개를 한 번만 업로드하고, 브러시가 바뀌면 행별 플래그만 다시 업로드합니다. 툴바에 생성·브러시·프레임 시간을 표시합니다.' },
+    zh: { title: '10 万行 × 8 维', description: '70 万条线段只上传一次；刷选变化时只重新上传每行的标志。工具栏显示构建、刷选和帧时间。' },
+  },
   'candlestick/01-ohlc': {
     ko: { title: '거래량이 있는 캔들스틱', description: '2년 치 일별 OHLC입니다. 축소하면 2 px보다 좁은 캔들을 Rust에서 픽셀 열 단위로 집계합니다.' },
     zh: { title: '带成交量的 K 线图', description: '两年的日线 OHLC 数据。缩小时，窄于 2 px 的 K 线会在 Rust 中按像素列聚合。' },

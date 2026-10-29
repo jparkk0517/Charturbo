@@ -37,6 +37,7 @@ mod line;
 mod linestyle;
 mod navigator;
 mod pictorial;
+mod parallel;
 mod pie;
 mod pieces;
 mod radar;
@@ -108,6 +109,11 @@ use pie::PieChart;
 use funnel::FunnelChart;
 pub use funnel::{funnel_stages, validate_funnel, FunnelLabel, FunnelOptions, FunnelOrientation, FunnelShape, FunnelStage, FUNNEL_GAP_PX};
 use calendar::CalendarChart;
+use parallel::ParallelChart;
+pub use parallel::{
+    validate_parallel, ParallelAxisKind, ParallelDim, ParallelLabel, ParallelOptions, ParallelOrient, ParallelStyle,
+    MAX_PARALLEL_DIMS, MAX_PARALLEL_INTERVALS, MAX_PARALLEL_ROWS, MAX_PARALLEL_SEGMENTS,
+};
 pub use calendar::{civil_from_days, days_from_civil, validate_calendar, weekday, CalendarLabel, CalendarOptions, CalendarOrient, MAX_CALENDAR_DAYS};
 use gauge::GaugeChart;
 pub use gauge::{validate_gauge, GaugeBand, GaugeIndicator, GaugeLabel, GaugeLayoutInfo, GaugeOptions, GaugeStyle};
@@ -506,6 +512,8 @@ enum ChartKind {
     Hierarchy(HierChart),
     /// Calendar heatmap (calendar.rs)
     Calendar(CalendarChart),
+    /// Parallel coordinates (parallel.rs)
+    Parallel(ParallelChart),
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -523,6 +531,10 @@ struct Dirty {
     heatmap_style: bool,
     /// Fill emphasis uniform (hierarchy hover / legend emphasis)
     fill_style: bool,
+    /// Parallel polylines / row flags / style uniform
+    parallel: bool,
+    parallel_flags: bool,
+    parallel_style: bool,
 }
 
 impl Dirty {
@@ -539,6 +551,9 @@ impl Dirty {
             heatmap_lut: true,
             heatmap_style: true,
             fill_style: true,
+            parallel: true,
+            parallel_flags: true,
+            parallel_style: true,
         }
     }
 }
@@ -691,6 +706,7 @@ impl ChartState {
             ChartKind::Waterfall(w) => w.bar.frame_camera(camera, css, &self.padding),
             ChartKind::Hierarchy(h) => h.frame_camera(camera, css, &self.padding),
             ChartKind::Calendar(c) => c.frame_camera(camera, css, &self.padding),
+            ChartKind::Parallel(p) => p.frame_camera(camera, css, &self.padding),
         }
     }
 
@@ -718,6 +734,7 @@ impl ChartState {
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => 1,
             ChartKind::Hierarchy(h) => h.series_count(),
             ChartKind::Calendar(_) => 0,
+            ChartKind::Parallel(p) => p.series_count(),
         }
     }
 
@@ -807,6 +824,12 @@ impl ChartState {
                 changed
             }
             ChartKind::Calendar(_) => false,
+            // Rows of a hidden series are flagged hidden: no geometry re-upload
+            ChartKind::Parallel(p) => {
+                let changed = p.set_visible(series, visible);
+                self.dirty.parallel_flags |= changed;
+                changed
+            }
         };
         // A hidden series must not stay hovered; bar layouts / stacked areas moved either way, so
         // drop any bar hover or stacked-area hover
@@ -851,6 +874,7 @@ impl ChartState {
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => series == 0,
             ChartKind::Hierarchy(h) => h.series_visible(series),
             ChartKind::Calendar(_) => false,
+            ChartKind::Parallel(p) => p.visible(series),
         }
     }
 
@@ -904,7 +928,7 @@ impl ChartState {
             }
             ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => {}
             ChartKind::Hierarchy(h) => self.dirty.fills |= h.set_emphasis(series),
-            ChartKind::Calendar(_) => {}
+            ChartKind::Calendar(_) | ChartKind::Parallel(_) => {}
         }
     }
 
@@ -1057,7 +1081,7 @@ impl ChartState {
             ChartKind::Pie(_) => false,
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => false,
             ChartKind::Hierarchy(_) => false,
-            ChartKind::Calendar(_) => false,
+            ChartKind::Calendar(_) | ChartKind::Parallel(_) => false,
             ChartKind::Candle(c) => std::mem::replace(&mut c.window, (0.0, 1.0)) != (0.0, 1.0),
             ChartKind::Combo(c) => std::mem::replace(&mut c.line.window, (0.0, 1.0)) != (0.0, 1.0),
         };
@@ -1075,7 +1099,7 @@ impl ChartState {
             ChartKind::Pie(_) => (0.0, 1.0),
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => (0.0, 1.0),
             ChartKind::Hierarchy(_) => (0.0, 1.0),
-            ChartKind::Calendar(_) => (0.0, 1.0),
+            ChartKind::Calendar(_) | ChartKind::Parallel(_) => (0.0, 1.0),
             ChartKind::Scatter(s) => s.window_x,
             ChartKind::Candle(c) => c.window,
             ChartKind::Heatmap(h) => h.window_x,
@@ -1275,6 +1299,7 @@ impl ChartState {
             ChartKind::Waterfall(w) => w.items.len(),
             ChartKind::Hierarchy(h) => h.point_count(),
             ChartKind::Calendar(c) => c.len(),
+            ChartKind::Parallel(p) => p.len(),
         }
     }
 
@@ -1387,6 +1412,7 @@ impl ChartState {
             ChartKind::Waterfall(w) => w.bar.sample(global_id as usize),
             ChartKind::Hierarchy(h) => h.sample(global_id),
             ChartKind::Calendar(c) => c.sample(global_id),
+            ChartKind::Parallel(p) => p.sample(global_id),
         }
     }
 
@@ -1445,6 +1471,7 @@ impl ChartState {
             ChartKind::Waterfall(w) => w.bar.hover(view, scene, ndc),
             ChartKind::Hierarchy(h) => h.hover(view, ndc),
             ChartKind::Calendar(c) => c.hover(view, ndc),
+            ChartKind::Parallel(p) => p.hover(view, ndc, &self.padding),
         };
         self.set_hover(result.clone(), scene);
         result
@@ -1501,6 +1528,7 @@ impl ChartState {
         self.prepare_pie(view);
         self.prepare_hierarchy(view);
         self.prepare_calendar(view);
+        self.prepare_parallel(view);
         self.prepare_bar_style(view);
         self.prepare_pictorial(view);
         keep_series_dirty |= self.prepare_combo(view);
@@ -1647,6 +1675,8 @@ impl ChartState {
             ChartKind::Hierarchy(_) => {}
             // Built by `prepare_calendar`
             ChartKind::Calendar(_) => {}
+            // Built by `prepare_parallel`
+            ChartKind::Parallel(_) => {}
         }
 
         // Axis labels follow the camera and the zoom window
@@ -1674,6 +1704,7 @@ impl ChartState {
                 ChartKind::Waterfall(w) => w.bar.axes(view, &mut axes),
                 ChartKind::Hierarchy(h) => h.axes(view, &self.padding, &mut axes),
                 ChartKind::Calendar(c) => c.axes(view, &self.padding, &mut axes),
+                ChartKind::Parallel(p) => p.axes(view, &self.padding, &mut axes),
             }
             if axes != self.axes {
                 self.axes_revision = self.axes_revision.wrapping_add(1);
@@ -1689,7 +1720,7 @@ impl ChartState {
             ChartKind::Pie(_) => None,
             ChartKind::Radar(_) | ChartKind::Gauge(_) | ChartKind::Funnel(_) | ChartKind::Waterfall(_) => None,
             ChartKind::Hierarchy(_) => None,
-            ChartKind::Calendar(_) => None,
+            ChartKind::Calendar(_) | ChartKind::Parallel(_) => None,
             ChartKind::Scatter(s) => s.clip_px(view),
             ChartKind::Candle(c) => c.clip_px(view),
             ChartKind::Combo(c) => c.line.clip_px(view),
@@ -1761,6 +1792,16 @@ impl ChartState {
                 ChartKind::Heatmap(h) if d.heatmap_style => Some(h.style()),
                 _ => None,
             },
+            // Other kinds clear a previous chart's parallel layer on their first frame
+            parallel: d.parallel.then(|| match &self.kind {
+                ChartKind::Parallel(p) => p.segments(),
+                _ => &[],
+            }),
+            parallel_flags: d.parallel_flags.then(|| match &self.kind {
+                ChartKind::Parallel(p) => p.flags(),
+                _ => &[],
+            }),
+            parallel_style: d.parallel_style.then(|| self.parallel_gpu_style()),
         }
     }
 }
@@ -1795,6 +1836,9 @@ pub fn empty_chart_layers() -> ChartLayers<'static> {
         heatmap: Some(ChartHeatmapGrid::default()),
         heatmap_lut: None,
         heatmap_style: None,
+        parallel: Some(&[]),
+        parallel_flags: Some(&[]),
+        parallel_style: Some(Default::default()),
     }
 }
 

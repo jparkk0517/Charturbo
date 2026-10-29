@@ -788,6 +788,9 @@ impl ChartState {
             self.dirty.fills = true;
             self.dirty.overlay = true;
         }
+        if let ChartKind::Parallel(p) = &mut self.kind {
+            self.dirty.parallel |= p.set_colormap(map);
+        }
     }
 
     /// Value domain overrides of the heatmap (min / max / diverging center).
@@ -798,12 +801,16 @@ impl ChartState {
         if let ChartKind::Calendar(c) = &mut self.kind {
             self.dirty.fills |= c.set_domain(domain);
         }
+        if let ChartKind::Parallel(p) = &mut self.kind {
+            self.dirty.parallel |= p.set_domain(domain);
+        }
     }
 
     pub fn heatmap_lut(&self) -> Option<&[[u8; 4]]> {
         match &self.kind {
             ChartKind::Heatmap(h) => Some(h.lut()),
             ChartKind::Calendar(c) => Some(c.lut()),
+            ChartKind::Parallel(p) => p.lut(),
             _ => None,
         }
     }
@@ -812,6 +819,7 @@ impl ChartState {
         match &self.kind {
             ChartKind::Heatmap(h) => Some(HeatmapColorbar { scale: h.scale(), ticks: h.colorbar_ticks() }),
             ChartKind::Calendar(c) => Some(HeatmapColorbar { scale: c.scale(), ticks: c.colorbar_ticks() }),
+            ChartKind::Parallel(p) => p.colorbar(),
             _ => None,
         }
     }
@@ -821,6 +829,7 @@ impl ChartState {
         match &self.kind {
             ChartKind::Heatmap(h) => Some(h.color_of(value)),
             ChartKind::Calendar(c) => Some(c.color_of(value)),
+            ChartKind::Parallel(p) => p.color_of(value),
             _ => None,
         }
     }

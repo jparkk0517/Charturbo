@@ -49,7 +49,7 @@ export interface A11ySeries {
   band?: { lower: ArrayLike<number>; upper: ArrayLike<number> };
 }
 
-export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'calendar' | 'tree' | 'graph' | 'chord';
+export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'calendar' | 'tree' | 'graph' | 'chord' | 'parallel';
 
 /** Pie slices (focus: `series` 0, `index` = displayed slice; point id = slice index). */
 export interface A11yPieData {
@@ -1810,8 +1810,10 @@ export class ChartA11y {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     // Treemap / sunburst: Enter drills into the focused node, Escape goes back up (tree: Enter / Space toggle)
-    const custom = e.key === 'Enter' || e.key === 'Escape' || e.key === ' ' ? this.model() : null;
-    const drilled = custom?.custom?.key?.(this.focus, e.key);
+    // Parallel coordinates: Delete / Backspace clear the focused axis brush, Shift + moves brush
+    const brushKey = e.key === 'Delete' || e.key === 'Backspace' || (e.shiftKey && /^(Arrow|Page|Home$|End$)/.test(e.key));
+    const custom = e.key === 'Enter' || e.key === 'Escape' || e.key === ' ' || brushKey ? this.model() : null;
+    const drilled = custom?.custom?.key?.(this.focus, e.key, e.shiftKey === true);
     if (custom && drilled) {
       e.preventDefault();
       this.focus = drilled.focus;
@@ -1940,6 +1942,7 @@ export class ChartA11y {
       tree: kinds.tree,
       graph: kinds.graph,
       chord: kinds.chord,
+      parallel: kinds.parallel,
     }[model.kind];
     const caption = model.title ?? t.tableCaption(kindLabel);
     wrap.setAttribute('aria-label', t.tableLabel(caption));

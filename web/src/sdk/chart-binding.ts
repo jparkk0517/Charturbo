@@ -41,6 +41,7 @@ import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartO
 import type { TreeChartData, TreeChartOptions } from './chart-tree';
 import type { PictorialBarChartData, PictorialBarChartOptions, PictorialBarItem } from './chart-pictorial';
 import type { GraphChartData, GraphChartOptions } from './chart-graph';
+import type { ParallelChartData, ParallelChartOptions } from './chart-parallel';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
 import type { CharturboEventMap } from './chart-events';
@@ -86,6 +87,7 @@ export interface CharturboChartSpecMap {
   sankey: { data: SankeyChartData; options: SankeyChartOptions };
   tree: { data: TreeChartData; options: TreeChartOptions };
   graph: { data: GraphChartData; options: GraphChartOptions };
+  parallel: { data: ParallelChartData; options: ParallelChartOptions };
   /** Many sparklines on a page: pass `createOptions={{ device }}` (shared GPU device) and `interactions={false}` */
   sparkline: { data: SparklineData | Float32Array | number[]; options: SparklineOptions };
 }
@@ -119,6 +121,8 @@ export interface CharturboChartCallbacks {
   onDrill?: (e: CharturboEventMap['drill']) => void;
   /** Tidy tree node expanded / collapsed */
   onTreeToggle?: (e: CharturboEventMap['treeToggle']) => void;
+  /** Parallel coordinates brush changed */
+  onParallelBrush?: (e: CharturboEventMap['parallelBrush']) => void;
 }
 
 /** SDK event -> callback name (subscribed once; the binding reads the latest callbacks). */
@@ -132,6 +136,7 @@ export const CHARTURBO_CHART_EVENTS = {
   resize: 'onResize',
   drill: 'onDrill',
   treeToggle: 'onTreeToggle',
+  parallelBrush: 'onParallelBrush',
 } as const satisfies { [K in keyof CharturboEventMap]: keyof CharturboChartCallbacks };
 
 interface ChartSpec {
@@ -231,6 +236,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'graph':
       sdk.renderGraph(data as GraphChartData, options as GraphChartOptions);
+      break;
+    case 'parallel':
+      sdk.renderParallelChart(data as ParallelChartData, options as ParallelChartOptions);
       break;
     case 'sparkline':
       sdk.renderSparkline(data as SparklineData | Float32Array | number[], options as SparklineOptions);

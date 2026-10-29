@@ -80,6 +80,7 @@ export class FakeSDK {
   renderFunnelChart = this.spy('renderFunnelChart');
   renderCalendarHeatmap = this.spy('renderCalendarHeatmap');
   renderChordChart = this.spy('renderChordChart');
+  renderParallelChart = this.spy('renderParallelChart');
   renderWaterfallChart = this.spy('renderWaterfallChart');
   renderTreemap = this.spy('renderTreemap');
   renderSunburst = this.spy('renderSunburst');

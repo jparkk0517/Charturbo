@@ -1113,6 +1113,55 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    name: 'parallel',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderParallelChart(parallelCars(ctx.params.color), {
+          title: 'Parallel',
+          opacity: 0.7,
+          lineWidth: 1.5,
+          legend: false,
+          padding: { top: 48, right: 24, bottom: 16, left: 56 },
+        });
+      }),
+  },
+  {
+    name: 'parallel-brush',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderParallelChart(parallelCars(), {
+          title: 'Parallel brush',
+          colorBy: 'MPG',
+          colorScale: (ctx.params.scale as 'viridis' | 'magma' | undefined) ?? 'viridis',
+          opacity: 0.8,
+          inactiveOpacity: 0.15,
+          brush: [
+            { dimension: 'Origin', range: ['EU', 'JP'] },
+            { dimension: 'Weight', range: [1800, 2600] },
+            { dimension: 'Weight', range: [3200, 3600] },
+          ],
+          padding: { top: 48, left: 56 },
+        });
+      }),
+  },
+  {
+    name: 'parallel-vertical-smooth',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderParallelChart(parallelCars(), {
+          title: 'Vertical parallel',
+          orient: 'vertical',
+          smooth: true,
+          opacity: 0.6,
+          legend: false,
+          padding: { top: 40, right: 24, bottom: 28, left: 88 },
+        });
+      }),
+  },
+  {
     name: 'sparklines',
     theme: 'light',
     render: async (ctx) => {
@@ -1307,6 +1356,27 @@ function graph2dData() {
     links.push({ source: `${c}-0`, target: `${(c + 1) % 4}-0` }, { source: `${c}-3`, target: `${c}-0` });
   }
   return { nodes, links, categories: ['Alpha', 'Beta', 'Gamma', 'Delta'] };
+}
+
+/** Seeded cars (two series) of the parallel coordinates fixtures: value, category, time and inverted axes. */
+function parallelCars(color?: string) {
+  const rand = mulberry32(83);
+  const origins = ['US', 'EU', 'JP'];
+  const make = (count: number, heavy: number) =>
+    Array.from({ length: count }, () => {
+      const o = Math.floor(rand() * 3);
+      const year = 1970 + Math.floor(rand() * 12);
+      const weight = Math.round(1700 + heavy * 1500 * rand() + (o === 0 ? 500 : 0));
+      const mpg = Math.round(46 - weight / 140 + (year - 1970) * 0.4 + rand() * 4);
+      return [mpg, origins[o], new Date(Date.UTC(year, 0, 1)), weight] as (number | string | Date)[];
+    });
+  return {
+    dimensions: ['MPG', { name: 'Origin', categories: origins }, { name: 'Year', type: 'time' as const }, { name: 'Weight', inverse: true }],
+    series: [
+      { name: 'Sedan', data: make(40, 0.6), color },
+      { name: 'Truck', data: make(20, 1.2) },
+    ],
+  };
 }
 
 /** Fixed 4-level tree of the tidy tree fixtures (uneven fan-out; one branch starts collapsed). */

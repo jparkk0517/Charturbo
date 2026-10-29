@@ -8,12 +8,14 @@ pub mod gpu_layout;
 mod gpu_tree;
 pub mod gpu_repulsion;
 mod heatmap;
+mod parallel;
 pub mod shader;
 mod stats;
 pub mod wgpu_backend;
 
 pub use fill_style::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillPatch, ChartFillStyleRaw, FILL_EMPH_ALPHA, FILL_EMPH_FADE};
 pub use heatmap::{ChartHeatmapGrid, ChartHeatmapStyleRaw, HEATMAP_LUT_SIZE};
+pub use parallel::{ChartParallelStyleRaw, PARALLEL_ACTIVE, PARALLEL_HIDDEN, PARALLEL_INACTIVE};
 pub use stats::{chart_layer_bytes, RenderStats};
 
 /// 16-byte aligned uniform buffer payload for camera matrices, billboard vectors, and viewport (112 bytes).
@@ -231,6 +233,13 @@ pub struct ChartLayers<'a> {
     pub heatmap_lut: Option<&'a [[u8; 4]]>,
     /// Heatmap zoom window / value scale (changes without re-uploading the grid)
     pub heatmap_style: Option<ChartHeatmapStyleRaw>,
+    /// Parallel coordinates polylines (`p1_pad[3]` = row index; uploaded only when the data /
+    /// layout changes; empty = none)
+    pub parallel: Option<&'a [ChartSegmentRaw]>,
+    /// Per-row flags of the parallel layer (`PARALLEL_*`): brushing rewrites only these
+    pub parallel_flags: Option<&'a [f32]>,
+    /// Parallel layer inactive color / opacity / brushed state
+    pub parallel_style: Option<ChartParallelStyleRaw>,
 }
 
 /// How the graph renderer marks the hovered node.
@@ -598,6 +607,12 @@ pub struct MockRenderBackend {
     pub chart_heatmap_lut_uploads: usize,
     pub chart_heatmap_style: Option<ChartHeatmapStyleRaw>,
     pub chart_heatmap_style_uploads: usize,
+    /// Segments of the last parallel upload and the number of segment / flag / style uploads
+    pub chart_parallel_count: usize,
+    pub chart_parallel_uploads: usize,
+    pub chart_parallel_flags: Vec<f32>,
+    pub chart_parallel_flag_uploads: usize,
+    pub chart_parallel_style: Option<ChartParallelStyleRaw>,
     /// Number of `sync_chart` calls that actually uploaded at least one layer
     pub chart_uploads: usize,
     pub rendered_frames: usize,
@@ -748,6 +763,20 @@ impl RenderBackend for MockRenderBackend {
         if let Some(s) = layers.heatmap_style {
             self.chart_heatmap_style = Some(s);
             self.chart_heatmap_style_uploads += 1;
+            uploaded = true;
+        }
+        if let Some(v) = layers.parallel {
+            self.chart_parallel_count = v.len();
+            self.chart_parallel_uploads += 1;
+            uploaded = true;
+        }
+        if let Some(f) = layers.parallel_flags {
+            self.chart_parallel_flags = f.to_vec();
+            self.chart_parallel_flag_uploads += 1;
+            uploaded = true;
+        }
+        if let Some(s) = layers.parallel_style {
+            self.chart_parallel_style = Some(s);
             uploaded = true;
         }
         if uploaded {

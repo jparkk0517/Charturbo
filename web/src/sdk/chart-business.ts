@@ -70,6 +70,16 @@ import {
   sendChordStyle,
   type ChordChartMeta,
 } from './chart-chord';
+import {
+  localizeParallelMeta,
+  parallelA11yModel,
+  parallelPointMetadata,
+  parallelTooltipContext,
+  parallelTooltipHtml,
+  ParallelLabelLayer,
+  sendParallelStyle,
+  type ParallelChartMeta,
+} from './chart-parallel';
 
 export type BusinessChartMeta =
   | RadarChartMeta
@@ -77,10 +87,11 @@ export type BusinessChartMeta =
   | FunnelChartMeta
   | WaterfallChartMeta
   | CalendarChartMeta
-  | ChordChartMeta;
+  | ChordChartMeta
+  | ParallelChartMeta;
 export type BusinessChartKind = BusinessChartMeta['kind'];
 
-const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall', 'calendar', 'chord']);
+const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall', 'calendar', 'chord', 'parallel']);
 
 export function isBusinessKind(kind: unknown): kind is BusinessChartKind {
   return typeof kind === 'string' && KINDS.has(kind);
@@ -109,6 +120,8 @@ export function createBusinessLabelLayer(parent: HTMLElement, meta: BusinessChar
       return new CalendarLabelLayer(parent, meta);
     case 'chord':
       return new ChordLabelLayer(parent, meta);
+    case 'parallel':
+      return new ParallelLabelLayer(parent, meta);
   }
 }
 
@@ -127,6 +140,8 @@ export function sendBusinessTheme(backend: WasmCharturboEngineBackend, meta: Bus
       return sendCalendarStyle(backend, meta, theme);
     case 'chord':
       return sendChordStyle(backend, meta, theme);
+    case 'parallel':
+      return sendParallelStyle(backend, meta, theme);
   }
 }
 
@@ -148,6 +163,8 @@ export function localizeBusinessMeta(meta: BusinessChartMeta, locale: string | u
       return localizeCalendarMeta(meta, locale);
     case 'chord':
       return localizeChordMeta(meta, locale);
+    case 'parallel':
+      return localizeParallelMeta(meta, locale);
   }
 }
 
@@ -174,6 +191,8 @@ export function businessTooltipContext(
       return calendarTooltipContext(meta, hit[4], details);
     case 'chord':
       return chordTooltipContext(meta, hit, details);
+    case 'parallel':
+      return parallelTooltipContext(meta, hit[4], details);
   }
 }
 
@@ -199,6 +218,8 @@ export function businessTooltipHtml(
       return calendarTooltipHtml(ctx, theme, formatValue, locale);
     case 'chord':
       return chordTooltipHtml(ctx, meta, theme, formatValue);
+    case 'parallel':
+      return parallelTooltipHtml(ctx, theme);
   }
 }
 
@@ -217,6 +238,8 @@ export function businessPointMetadata(meta: BusinessChartMeta, id: number): { se
       return calendarPointMetadata(meta, id);
     case 'chord':
       return chordPointMetadata(meta, id);
+    case 'parallel':
+      return parallelPointMetadata(meta, id);
   }
 }
 
@@ -242,6 +265,8 @@ export function businessA11yModel(m: Record<string, unknown>, common: A11yCommon
       return calendarA11yModel(m as unknown as CalendarChartMeta, c);
     case 'chord':
       return chordA11yModel(m as unknown as ChordChartMeta, c);
+    case 'parallel':
+      return parallelA11yModel(m as unknown as ParallelChartMeta, c);
     default:
       return null;
   }
