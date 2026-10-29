@@ -125,6 +125,8 @@ export interface A11yChartModel {
   barMode?: 'grouped' | 'stacked' | 'percent';
   /** Line-kind model of an area chart (`renderAreaChart`) */
   areaMode?: 'overlap' | 'stacked' | 'percent';
+  /** ThemeRiver: a stacked area around a moving baseline */
+  themeRiver?: boolean;
   standaloneBand?: boolean;
   sparse?: SparseMeta;
   /** Line: per-series x arrays (`null` = index placement or one shared x array) */
@@ -339,6 +341,7 @@ export function buildA11yModel(
       ...common,
       ...(area === 'overlap' || area === 'stacked' || area === 'percent' ? { areaMode: area } : {}),
       ...(m.standaloneBand === true ? { standaloneBand: true } : {}),
+      ...(m.themeRiver ? { themeRiver: true } : {}),
       ...(m.sparse ? { sparse: m.sparse as SparseMeta } : {}),
       series,
       length: series.reduce((n, s) => Math.max(n, s.values.length), 0),
@@ -912,7 +915,7 @@ function summaryBody(model: A11yChartModel): string {
     if (model.kind === 'candle') return model.financialMode === 'ohlc'
       ? t.sentence([t.chart.ohlc, t.bars(model.length, n(model.length))], parts)
       : t.sentence([t.chart.candlestick, t.candles(model.length, n(model.length))], parts);
-    const kind = model.sparse ? (model.sparse.kind === 'errorBar' ? t.chart.errorBar : t.chart.impulse) : model.standaloneBand ? t.chart.band : model.areaMode ? t.chart[AREA_MODE_CHART[model.areaMode]] : t.chart.line;
+    const kind = model.sparse ? (model.sparse.kind === 'errorBar' ? t.chart.errorBar : t.chart.impulse) : model.standaloneBand ? t.chart.band : model.themeRiver ? t.chart.themeRiver : model.areaMode ? t.chart[AREA_MODE_CHART[model.areaMode]] : t.chart.line;
     return t.sentence([kind, c.seriesCount(model.series.length, n(model.series.length)), c.points(points, n(points))], parts);
   }
   if (model.kind === 'bar-multi') {
@@ -2115,13 +2118,13 @@ export function tooltipContext(
   }
   const x = model.kind === 'line' && model.hasX ? Number(model.xValue(focus.index, focus.series)) : undefined;
   return {
-    chartType: model.kind === 'line' ? (model.sparse?.kind ?? (model.standaloneBand ? 'band' : 'line')) : model.kind === 'combo' ? 'combo' : 'bar',
+    chartType: model.kind === 'line' ? (model.themeRiver ? 'themeRiver' : (model.sparse?.kind ?? (model.standaloneBand ? 'band' : 'line'))) : model.kind === 'combo' ? 'combo' : 'bar',
     index: focus.index,
     ...(x !== undefined ? { x } : {}),
     xLabel: model.xLabel(focus.index, focus.series),
     items,
     ...(total !== undefined ? { total } : {}),
-    ...(model.areaMode ? { areaMode: model.areaMode } : {}),
+    ...(model.areaMode && !(model.kind === 'line' && model.themeRiver) ? { areaMode: model.areaMode } : {}),
     details: details(id),
   };
 }

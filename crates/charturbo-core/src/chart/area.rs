@@ -86,6 +86,8 @@ pub(crate) struct AreaChart {
     pub(crate) base: Vec<Vec<f32>>,
     /// Fill alpha multiplier applied to the series color
     pub(crate) fill_opacity: f32,
+    /// ThemeRiver: stacked around a moving baseline (see theme_river.rs); None = plain area
+    pub(crate) stream: Option<super::theme_river::StreamLayout>,
 }
 
 impl AreaChart {
@@ -106,6 +108,7 @@ impl AreaChart {
             } else {
                 mode.default_fill_opacity()
             },
+            stream: None,
         };
         chart.line.include_zero = true;
         if mode == AreaMode::Percent {
@@ -135,6 +138,9 @@ impl AreaChart {
     pub(crate) fn restack(&mut self) {
         if !self.mode.stacks() {
             return;
+        }
+        if self.stream.is_some() {
+            return self.restack_stream();
         }
         let n = self.line.max_len();
         let percent = self.mode == AreaMode::Percent;
@@ -208,6 +214,9 @@ impl AreaChart {
             self.raw[s] = raw;
             self.restack();
             self.line.refresh_extents();
+            if self.stream.is_some() {
+                self.fit_stream_domain();
+            }
         }
         Ok(n)
     }
@@ -257,6 +266,9 @@ impl AreaChart {
         if self.mode.stacks() {
             self.restack();
             self.line.refresh_extents();
+            if self.stream.is_some() {
+                self.fit_stream_domain();
+            }
         } else {
             self.line.update_y_domain(false);
         }
@@ -269,6 +281,12 @@ impl AreaChart {
             Some(v) if *v != visible => {
                 *v = visible;
                 self.restack();
+                if self.stream.is_some() {
+                    // ThemeRiver: the baseline moves, the domain follows the visible river
+                    self.line.refresh_extents();
+                    self.fit_stream_domain();
+                    return true;
+                }
                 let (lo, hi) = (self.line.data_min, self.line.data_max);
                 self.line.refresh_extents();
                 // Keep the all-data domain stable on hide, but expand when a stream updated
@@ -288,7 +306,7 @@ impl AreaChart {
         out.clear();
         let l = &self.line;
         let stacks = self.mode.stacks();
-        let mut order: Vec<usize> = (0..l.series.len()).filter(|&s| l.visible[s]).collect();
+        let mut order = self.stream_stack();
         // Overlapping areas: the emphasized one is drawn last so it sits on top
         if let (false, Some(e)) = (stacks, l.emphasis) {
             if let Some(pos) = order.iter().position(|&s| s == e) {
@@ -316,7 +334,8 @@ impl AreaChart {
                 apply_curve(curve, ppw, &rows, &mut top, &mut sc);
                 &top
             };
-            match prev.filter(|_| stacks) {
+            // ThemeRiver: the bottom stream sits on the baseline (its own base, its own picks)
+            match prev.filter(|_| stacks).or(self.stream.as_ref().map(|_| s)) {
                 Some(p) => {
                     // Bottom edge: the band base at the picks of the series below, shaped by its
                     // curve, so the band meets that series' stroke
@@ -367,6 +386,13 @@ impl AreaChart {
     /// Line hover (markers sit on the drawn tops) reporting the raw series values.
     pub(crate) fn hover(&self, view: &ChartView, ndc: (f32, f32), style: &ChartHoverStyle) -> Option<HoverResult> {
         let mut hit = self.line.hover(view, ndc, style)?;
+        // ThemeRiver: the primary item is the stream whose band holds the pointer; above / below
+        // the river nothing is hovered (ECharts)
+        if self.stream.is_some() {
+            let ray = view.camera.screen_to_ray(ndc.0, ndc.1);
+            let p = ray_hit_z_plane(&ray, 0.0)?;
+            hit.primary = self.stream_at(&hit.items, p.y)?;
+        }
         for item in &mut hit.items {
             item.value = self.values(item.series as usize)[item.index as usize];
         }

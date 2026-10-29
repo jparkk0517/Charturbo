@@ -246,6 +246,7 @@ export { esc as escapeHtml } from './chart-business-util';
 import { radarMeta, sendRadar, type ChartRadarTooltip, type RadarChartData, type RadarChartOptions } from './chart-radar';
 import { gaugeMeta, sendGauge, type ChartGaugeTooltip, type GaugeChartData, type GaugeChartOptions } from './chart-gauge';
 import { funnelLabelSpace, funnelMeta, sendFunnel, type ChartFunnelTooltip, type FunnelChartData, type FunnelChartOptions } from './chart-funnel';
+import { ThemeRiverLabelLayer, themeRiverLineOptions, themeRiverSeries, type ThemeRiverChartOptions, type ThemeRiverDatum, type ThemeRiverMeta } from './chart-theme-river';
 import {
   sendWaterfall,
   sendWaterfallLabels,
@@ -919,7 +920,8 @@ export interface ChartTooltipContext {
   chartType:
     | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
-    | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey';
+    | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey'
+    | 'themeRiver';
   /**
    * Hovered sample / bar / point index (heatmap: column; box plot: category; pie: displayed slice;
    * radar: axis; gauge: 0 = value, `1 + k` = band; funnel: stage; waterfall: bar; treemap /
@@ -1528,6 +1530,25 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     fillOpacity: number,
     xKind: number
   ): number;
+  /**
+   * ThemeRiver (chart-theme-river.ts): streams packed like `set_area_chart`; `offset` 0 wiggle /
+   * 1 silhouette / 2 zero, `order` 0 input / 1 inside-out
+   */
+  set_theme_river_chart?(
+    values: Float32Array,
+    lengths: Uint32Array,
+    xs: Float64Array,
+    colors: Float32Array,
+    widthsPx: Float32Array,
+    width: number,
+    height: number,
+    fillOpacity: number,
+    xKind: number,
+    offset: number,
+    order: number
+  ): number;
+  /** `[revision, count, (series, x, y, height) * count]`: left end of each visible stream */
+  chart_theme_river_labels?(): Float64Array;
   set_bar_chart?(
     values: Float32Array,
     colors: Float32Array,
@@ -2075,6 +2096,8 @@ interface ChartOverlay {
   bars?: BarLabelLayer;
   /** Radar / gauge / funnel / waterfall labels (chart-business.ts) */
   business?: BusinessLabelLayer;
+  /** ThemeRiver stream name labels (chart-theme-river.ts) */
+  themeRiver?: ThemeRiverLabelLayer;
 }
 
 /** Overlay content the SDK keeps for the active chart. */
@@ -2134,6 +2157,8 @@ interface LineChartMeta {
   pieces?: boolean[];
   standaloneBand?: boolean;
   sparse?: SparseMeta;
+  /** ThemeRiver (`area: 'stacked'` around a moving baseline; chart-theme-river.ts) */
+  themeRiver?: ThemeRiverMeta;
 }
 
 interface BarChartMeta {
@@ -4268,7 +4293,7 @@ export class Charturbo {
         }
       }
       return {
-        chartType: meta.kind === 'line' ? (meta.sparse?.kind ?? (meta.standaloneBand ? 'band' : 'line')) : 'bar',
+        chartType: meta.kind === 'line' ? (meta.themeRiver ? 'themeRiver' : (meta.sparse?.kind ?? (meta.standaloneBand ? 'band' : 'line'))) : 'bar',
         index: primaryIndex,
         x,
         xLabel:
@@ -4281,7 +4306,7 @@ export class Charturbo {
               : (meta.metadata[primaryIndex]?.label ?? `#${primaryIndex}`),
         items,
         ...(total !== undefined ? { total } : {}),
-        ...(area ? { areaMode: area } : {}),
+        ...(area && !(meta.kind === 'line' && meta.themeRiver) ? { areaMode: area } : {}),
         details,
       };
     };
@@ -6157,6 +6182,9 @@ export class Charturbo {
     }
     if (meta?.kind === 'pie') this.chartOverlay.pie = new PieLabelLayer(root, meta);
     if (isBusinessMeta(meta)) this.chartOverlay.business = createBusinessLabelLayer(root, meta);
+    if (meta?.kind === 'line' && meta.themeRiver?.labels.show) {
+      this.chartOverlay.themeRiver = new ThemeRiverLabelLayer(root, meta.names, meta.themeRiver.labels);
+    }
     if (meta?.kind === 'treemap' || meta?.kind === 'sunburst' || meta?.kind === 'sankey') {
       // Breadcrumb clicks drill up (and re-render: there is no pointer event behind them)
       const crumbs = { left: this.chartPadding.left, top: (p.title ? 36 : 10) + (p.legend.show ? 28 : 0) };
@@ -6213,6 +6241,7 @@ export class Charturbo {
     o.hierarchy?.update(this.backend, this.theme, (v) => this.hierValueText(v), this.chartLocale());
     o.bars?.update(this.backend, this.theme);
     o.business?.update(this.backend, this.theme, this.chartLocale());
+    o.themeRiver?.update(this.backend, this.theme);
 
     const rev = this.backend.chart_axes_revision?.() ?? 0;
     if (rev === o.axesRevision) return;
@@ -6710,6 +6739,28 @@ export class Charturbo {
   }
 
   /**
+   * Renders a ThemeRiver (streamgraph, ECharts `themeRiver`) from `[x, value, name]` rows: one
+   * smooth stream per name around a moving baseline (`offset`: d3 wiggle by default, silhouette,
+   * zero; `order`: input or inside-out). Names stack in order of first appearance; a name without
+   * a row at some x is 0 there. Hover lists every stream at x (plus the total) and emphasizes the
+   * stream under the pointer; legend toggles re-order and recompute the baseline; stream names
+   * label the left end of each stream. Streams append with `appendAreaData` (one chunk per name,
+   * in stream order). See chart-theme-river.ts.
+   */
+  renderThemeRiverChart(
+    data: readonly ThemeRiverDatum[],
+    options?: ThemeRiverChartOptions
+  ): { totalPoints: number; seriesCount: number } {
+    if (!this.backend.set_theme_river_chart) throw new Error('renderThemeRiverChart: backend does not support ThemeRiver charts');
+    const spec = themeRiverSeries(data, options);
+    return this.renderLineLike(spec.series, themeRiverLineOptions(options, spec), {
+      mode: 'stacked',
+      fillOpacity: options?.fillOpacity ?? 0.85,
+      themeRiver: spec.meta,
+    });
+  }
+
+  /**
    * Renders a sparkline: a line / area / bar / win-loss chart with zero chrome (no axes, grid,
    * legend, title or overlay DOM; ~2 px padding; no zoom; tooltip opt-in). Last / min / max
    * markers and the reference band are engine marks; the canvas gets `role="img"` and a trend
@@ -6812,11 +6863,12 @@ export class Charturbo {
   private renderLineLike(
     seriesList: LineSeriesDescriptor[],
     options: LineChartOptions | undefined,
-    area: { mode: 'overlap' | 'stacked' | 'percent'; fillOpacity: number } | null,
+    area: { mode: 'overlap' | 'stacked' | 'percent'; fillOpacity: number; themeRiver?: ThemeRiverMeta } | null,
     standaloneBands?: EncodedBand[],
     sparse?: EncodedSparse
   ): { totalPoints: number; seriesCount: number } {
-    const fn = standaloneBands ? 'renderBandChart' : area ? 'renderAreaChart' : 'renderLineChart';
+    const river = area?.themeRiver;
+    const fn = standaloneBands ? 'renderBandChart' : river ? 'renderThemeRiverChart' : area ? 'renderAreaChart' : 'renderLineChart';
     // Unknown zones throw here, not on a later frame
     if (options?.timeZone !== undefined) validateTimeZone(options.timeZone);
     this.clearScene();
@@ -6851,7 +6903,7 @@ export class Charturbo {
       throw new Error(`${fn}: give \`x\` for every series or none`);
     }
     let xs: Float64Array | null = null;
-    if (withX !== 0 && (area ? this.backend.set_area_chart : this.backend.set_line_chart_xy)) {
+    if (withX !== 0 && (river ? this.backend.set_theme_river_chart : area ? this.backend.set_area_chart : this.backend.set_line_chart_xy)) {
       const x0 = seriesList[0].x;
       xs = seriesList.length === 1 && x0 instanceof Float64Array ? x0 : new Float64Array(totalPoints);
       seriesList.forEach((s, i) => {
@@ -6871,7 +6923,21 @@ export class Charturbo {
     const timeX = (xAxisOpt.type ?? (dateX ? 'time' : 'numeric')) === 'time';
 
     const viewMode = options?.viewMode ?? '2d';
-    if (area) {
+    if (river) {
+      this.backend.set_theme_river_chart!(
+        values,
+        lengths,
+        xs ?? new Float64Array(0),
+        colors,
+        widths,
+        options?.width ?? 168,
+        options?.height ?? 86,
+        area!.fillOpacity,
+        timeX ? 1 : 0,
+        river.offset,
+        river.order
+      );
+    } else if (area) {
       this.backend.set_area_chart?.(
         values,
         lengths,
@@ -6969,6 +7035,7 @@ export class Charturbo {
       ...(pieces.some((p) => p) ? { pieces: pieces.map((p) => p !== null) } : {}),
       ...(standaloneBands ? { standaloneBand: true } : {}),
       ...(sparse ? { sparse: sparse.meta } : {}),
+      ...(river ? { themeRiver: river } : {}),
     };
     // 2.5D is an angled view: one-finger touch orbits it
     this.flatCameraView = flat;

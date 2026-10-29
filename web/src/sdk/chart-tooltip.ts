@@ -33,7 +33,7 @@ export interface ChartTooltipOptions {
 export function presentTooltipContext(ctx: ChartTooltipContext, o: ChartTooltipOptions | undefined): ChartTooltipContext {
   if (!o || ctx.items.length < 2) return ctx;
   let items = ctx.items;
-  if (o.shared === false && (ctx.chartType === 'line' || ctx.chartType === 'bar' || ctx.chartType === 'combo')) {
+  if (o.shared === false && (ctx.chartType === 'line' || ctx.chartType === 'bar' || ctx.chartType === 'combo' || ctx.chartType === 'themeRiver')) {
     // The primary item (closest to the pointer) is the one `details` describes
     const primary = items.find((it) => it.nodeId === ctx.details?.id) ?? items[0];
     items = [primary];

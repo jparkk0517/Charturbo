@@ -150,6 +150,14 @@ export {
 } from './sdk/chart-gauge';
 export { type ChartFunnelTooltip, type FunnelChartData, type FunnelChartOptions, type FunnelConversion } from './sdk/chart-funnel';
 export {
+  themeRiverSeries,
+  type ThemeRiverChartOptions,
+  type ThemeRiverDatum,
+  type ThemeRiverLabelOptions,
+  type ThemeRiverMeta,
+  type ThemeRiverSpec,
+} from './sdk/chart-theme-river';
+export {
   type ChartWaterfallTooltip,
   type WaterfallChartData,
   type WaterfallChartOptions,
