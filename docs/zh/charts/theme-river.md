@@ -65,7 +65,7 @@ y 轴和网格线默认隐藏（`axes.y.show: true` 可显示）。`axes.y.autos
 ## 图例与提示框 {#legend-and-tooltips}
 
 - 点击图例项会隐藏该河流，引擎重新堆叠其余河流并重新计算基线。
-- 悬停时显示该 x 上的所有河流及合计（`ctx.total`）；`ctx.chartType` 为 `'themeRiver'`。指针下的河流为主项并被突出显示，其余河流变淡。
+- 悬停时显示该 x 上的所有河流及合计（`ctx.total`）；`ctx.chartType` 为 `'themeRiver'`。指针下的河流为主项并被突出显示，其余河流变淡。在河流上方或下方不会触发悬停。
 
 参见[提示框与悬停](../guide/tooltips)。
 

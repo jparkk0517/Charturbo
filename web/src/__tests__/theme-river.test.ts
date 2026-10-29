@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Charturbo, type ChartTooltipContext, type WasmCharturboEngineBackend } from '../sdk/charturbo';
-import { themeRiverLineOptions, themeRiverSeries, type ThemeRiverDatum } from '../sdk/chart-theme-river';
+import { themeRiverLineOptions, themeRiverSeries, type ThemeRiverChartOptions, type ThemeRiverDatum } from '../sdk/chart-theme-river';
 import { buildA11yModel, buildChartSummary, tooltipContext } from '../sdk/chart-a11y';
 
 /** Minimal DOM element: enough for the chart overlay (legend, ticks, labels) and the tooltip. */
@@ -208,6 +208,10 @@ describe('ThemeRiver charts', () => {
     expect(() => themeRiverSeries([[0, 1] as unknown as ThemeRiverDatum], undefined)).toThrow('row 0 is not [x, value, name]');
     expect(() => themeRiverSeries([], { offset: 'expand' as never })).toThrow("unknown offset 'expand'");
     expect(() => themeRiverSeries([], { order: 'reverse' as never })).toThrow("unknown order 'reverse'");
+    // A stream has no gaps (missing = 0): `nulls` from untyped JS callers is rejected
+    const nulls = { nulls: 'connect' } as unknown as ThemeRiverChartOptions;
+    expect(() => themeRiverSeries([[0, 1, 'a']], nulls)).toThrow("renderThemeRiverChart: 'nulls' is not supported");
+    expect(() => themeRiverSeries([[0, 1, 'a']], { nulls: undefined } as unknown as ThemeRiverChartOptions)).not.toThrow();
   });
 
   it('sends aligned streams, layout codes and the time x kind to the engine', () => {

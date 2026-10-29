@@ -65,7 +65,7 @@ The y axis and gridlines are hidden by default (`axes.y.show: true` shows them).
 ## Legend and tooltips
 
 - Clicking a legend entry hides the stream. The engine re-stacks the rest and recomputes the baseline.
-- Hovering shows every stream at that x with the total (`ctx.total`); `ctx.chartType` is `'themeRiver'`. The stream under the pointer is the primary item and is emphasized; the others fade.
+- Hovering a stream shows every stream at that x with the total (`ctx.total`); `ctx.chartType` is `'themeRiver'`. The stream under the pointer is the primary item and is emphasized; the others fade. Above or below the river nothing is hovered.
 
 See [Tooltips & Hover](../guide/tooltips).
 

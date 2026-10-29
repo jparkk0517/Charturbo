@@ -78,6 +78,8 @@ export function themeRiverSeries(data: readonly ThemeRiverDatum[], options: Them
   const order = ORDERS[options?.order ?? 'none'];
   if (offset === undefined) throw new Error(`${fn}: unknown offset '${options?.offset}'`);
   if (order === undefined) throw new Error(`${fn}: unknown order '${options?.order}'`);
+  // Streams have no gaps (a missing x is 0); the type omits `nulls`, untyped callers get an error
+  if ((options as { nulls?: unknown } | undefined)?.nulls !== undefined) throw new Error(`${fn}: 'nulls' is not supported (a missing x is 0)`);
   const names: string[] = [];
   const byName = new Map<string, Map<number, number>>();
   const xs = new Set<number>();

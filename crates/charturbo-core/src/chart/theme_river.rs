@@ -258,8 +258,10 @@ impl AreaChart {
         l.update_y_domain(true);
     }
 
-    /// Stream whose band holds world `y` at its hover sample (`items` from the line hover).
+    /// Stream whose band holds world `y` at its hover sample (`items` from the line hover); None
+    /// above / below the river. Edges get a hair of slack (keyboard focus points sit on the tops).
     pub(crate) fn stream_at(&self, items: &[HoverItem], y: f32) -> Option<usize> {
+        let eps = 1e-3 * self.line.layout.height;
         items.iter().position(|it| {
             let (s, i) = (it.series as usize, it.index as usize);
             let (b, t) = (
@@ -267,7 +269,7 @@ impl AreaChart {
                 self.line.vals(s).get(i).copied().unwrap_or(f32::NAN),
             );
             let (y0, y1) = (self.line.y_of(b), self.line.y_of(t));
-            y0.is_finite() && y1.is_finite() && y >= y0.min(y1) && y <= y0.max(y1)
+            y0.is_finite() && y1.is_finite() && y >= y0.min(y1) - eps && y <= y0.max(y1) + eps
         })
     }
 
@@ -668,6 +670,46 @@ mod tests {
         c.append_area_data(&[&[10.0], &[10.0]], None, 0).unwrap();
         c.clear_hover(&mut scene);
         assert_eq!(area(&c).line.emphasis, None);
+    }
+
+    #[test]
+    fn hover_outside_the_river_band_hits_nothing() {
+        let n = 101;
+        let mut c = chart(
+            vec![vec![10.0; n], vec![10.0; n]],
+            StreamOffset::Silhouette,
+            StreamOrder::None,
+        );
+        let mut cam = flat_camera();
+        c.frame_camera(&mut cam, (1600.0, 900.0));
+        let mut scene = SceneWorld::new();
+        let v = view(&cam);
+        c.prepare_layers(&v);
+        let ndc = |c: &ChartState, value: f32| {
+            let p = cam
+                .project_to_ndc(Vec3::new(0.0, area(c).line.y_of(value), 0.0))
+                .unwrap();
+            (p.x, p.y)
+        };
+        // The river spans -10..10: inside the plot but above / below it there is no stream
+        let (above, below) = (ndc(&c, 10.5), ndc(&c, -10.5));
+        assert!(above.1 < 1.0 && below.1 > -1.0, "still inside the plot");
+        c.hover_at(&v, &mut scene, ndc(&c, 5.0)).expect("hover");
+        assert_eq!(area(&c).line.emphasis, Some(1));
+        assert!(c.hover_at(&v, &mut scene, above).is_none());
+        assert_eq!(
+            area(&c).line.emphasis,
+            None,
+            "leaving the band clears the emphasis"
+        );
+        assert!(c.hover_at(&v, &mut scene, below).is_none());
+        // Edges (keyboard focus points sit on the stream tops) still hit
+        let top = c.hover_at(&v, &mut scene, ndc(&c, 10.0)).expect("top edge");
+        assert_eq!(top.items[top.primary].series, 1);
+        let bottom = c
+            .hover_at(&v, &mut scene, ndc(&c, -10.0))
+            .expect("bottom edge");
+        assert_eq!(bottom.items[bottom.primary].series, 0);
     }
 
     #[test]

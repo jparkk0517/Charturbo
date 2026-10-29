@@ -386,14 +386,12 @@ impl AreaChart {
     /// Line hover (markers sit on the drawn tops) reporting the raw series values.
     pub(crate) fn hover(&self, view: &ChartView, ndc: (f32, f32), style: &ChartHoverStyle) -> Option<HoverResult> {
         let mut hit = self.line.hover(view, ndc, style)?;
-        // ThemeRiver: the primary item is the stream whose band holds the pointer
+        // ThemeRiver: the primary item is the stream whose band holds the pointer; above / below
+        // the river nothing is hovered (ECharts)
         if self.stream.is_some() {
             let ray = view.camera.screen_to_ray(ndc.0, ndc.1);
-            if let Some(p) = ray_hit_z_plane(&ray, 0.0) {
-                if let Some(k) = self.stream_at(&hit.items, p.y) {
-                    hit.primary = k;
-                }
-            }
+            let p = ray_hit_z_plane(&ray, 0.0)?;
+            hit.primary = self.stream_at(&hit.items, p.y)?;
         }
         for item in &mut hit.items {
             item.value = self.values(item.series as usize)[item.index as usize];
