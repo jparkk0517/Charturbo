@@ -1002,6 +1002,66 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    name: 'graph2d-force',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderGraph(graph2dData(), {
+          title: 'Force graph',
+          layout: 'force',
+          symbolSize: [8, 20],
+          force: { repulsion: 60, edgeLength: 30 },
+          labels: false,
+          colors: ctx.params.color ? [ctx.params.color] : undefined,
+        });
+      }),
+  },
+  {
+    name: 'graph2d-circular',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderGraph(graph2dData(), {
+          title: 'Circular graph',
+          layout: 'circular',
+          rotateLabel: true,
+          symbolSize: [6, 16],
+          curveness: 0.3,
+          edgeSymbol: 'arrow',
+          edgeColor: 'source',
+        });
+      }),
+  },
+  {
+    name: 'graph2d-cartesian',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
+        sdk.renderGraph(
+          {
+            nodes: [
+              { name: 'a', x: 'Q1', y: 1.2, category: 0 }, { name: 'b', x: 'Q1', y: 2.4, category: 0 },
+              { name: 'c', x: 'Q2', y: 3.1, category: 1 }, { name: 'd', x: 'Q3', y: 6.5, category: 2 },
+              { name: 'e', x: 'Q3', y: 4.2, category: 2 }, { name: 'f', x: 'Q4', y: 8.8, category: 3 },
+            ],
+            links: [{ source: 'a', target: 'c' }, { source: 'b', target: 'c' }, { source: 'c', target: 'd' }, { source: 'c', target: 'e' }, { source: 'd', target: 'f' }],
+            categories: ['Research', 'Build', 'Market', 'Scale'],
+          },
+          {
+            title: 'Cartesian graph',
+            layout: 'cartesian',
+            xAxis: { categories: quarters },
+            yAxis: { min: 0, max: 10 },
+            symbolSize: 12,
+            edgeSymbol: 'arrow',
+            labels: false,
+            padding: { ...PADDING, top: 64 },
+          }
+        );
+      }),
+  },
+  {
     name: 'sparklines',
     theme: 'light',
     render: async (ctx) => {
@@ -1182,6 +1242,20 @@ function energyFlows() {
       { source: 'Gas', target: 'Transport', value: 6 },
     ],
   };
+}
+
+/** Fixed 4-category network of the 2D graph fixtures (ring per category, hub links between them). */
+function graph2dData() {
+  const nodes: { id: string; name: string; value: number; category: number }[] = [];
+  const links: { source: string; target: string }[] = [];
+  for (let c = 0; c < 4; c++) {
+    for (let m = 0; m < 6; m++) {
+      nodes.push({ id: `${c}-${m}`, name: `N${c}${m}`, value: 1 + ((c * 5 + m * 3) % 7), category: c });
+      links.push({ source: `${c}-${m}`, target: `${c}-${(m + 1) % 6}` });
+    }
+    links.push({ source: `${c}-0`, target: `${(c + 1) % 4}-0` }, { source: `${c}-3`, target: `${c}-0` });
+  }
+  return { nodes, links, categories: ['Alpha', 'Beta', 'Gamma', 'Delta'] };
 }
 
 /** Fixed 4-level tree of the tidy tree fixtures (uneven fan-out; one branch starts collapsed). */

@@ -453,7 +453,7 @@ export class TreeLabelLayer {
 
   constructor(
     parent: HTMLElement,
-    private readonly meta: TreeChartMeta
+    private readonly meta: Pick<TreeChartMeta, 'nodeNames'>
   ) {
     this.root = document.createElement('div');
     this.root.className = 'charturbo-sdk-tree-labels';

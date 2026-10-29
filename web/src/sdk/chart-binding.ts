@@ -39,6 +39,7 @@ import type { CalendarHeatmapData, CalendarHeatmapOptions } from './chart-calend
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
 import type { TreeChartData, TreeChartOptions } from './chart-tree';
 import type { PictorialBarChartData, PictorialBarChartOptions, PictorialBarItem } from './chart-pictorial';
+import type { GraphChartData, GraphChartOptions } from './chart-graph';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
 import type { CharturboEventMap } from './chart-events';
@@ -81,6 +82,7 @@ export interface CharturboChartSpecMap {
   sunburst: { data: HierarchyData; options: SunburstChartOptions };
   sankey: { data: SankeyChartData; options: SankeyChartOptions };
   tree: { data: TreeChartData; options: TreeChartOptions };
+  graph: { data: GraphChartData; options: GraphChartOptions };
   /** Many sparklines on a page: pass `createOptions={{ device }}` (shared GPU device) and `interactions={false}` */
   sparkline: { data: SparklineData | Float32Array | number[]; options: SparklineOptions };
 }
@@ -220,6 +222,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'tree':
       sdk.renderTree(data as TreeChartData, options as TreeChartOptions);
+      break;
+    case 'graph':
+      sdk.renderGraph(data as GraphChartData, options as GraphChartOptions);
       break;
     case 'sparkline':
       sdk.renderSparkline(data as SparklineData | Float32Array | number[], options as SparklineOptions);

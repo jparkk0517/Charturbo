@@ -204,6 +204,14 @@ export {
   type PictorialSymbol,
   type PictorialSymbolOptions,
 } from './sdk/chart-pictorial';
+export {
+  type GraphAxisOptions,
+  type GraphCategoryInput,
+  type GraphChartData,
+  type GraphChartOptions,
+  type GraphLinkInput,
+  type GraphNodeInput,
+} from './sdk/chart-graph';
 // Types reachable from public signatures (guarded by __tests__/public-types.test.ts)
 export {
   createFormatter,

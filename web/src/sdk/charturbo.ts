@@ -307,6 +307,17 @@ import {
   type TreeChartMeta,
   type TreeChartOptions,
 } from './chart-tree';
+import {
+  encodeGraph,
+  graphDetails,
+  graphTooltipContext,
+  sendGraph,
+  sendGraphStyle,
+  syncGraph,
+  type GraphChartData,
+  type GraphChartMeta,
+  type GraphChartOptions,
+} from './chart-graph';
 export type {
   ChartFlowTooltip,
   ChartHierarchyTooltip,
@@ -946,6 +957,7 @@ export interface ChartTooltipContext {
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
     | 'calendar'
     | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'tree'
+    | 'graph'
     | 'themeRiver';
   /**
    * Hovered sample / bar / point index (heatmap: column; box plot: category; pie: displayed slice;
@@ -1998,6 +2010,21 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_tree_toggle?(node: number): boolean;
   /** 1 per node (a virtual root last): expanded */
   chart_tree_expanded?(): Uint8Array;
+  /** 2D graph (chart-graph.ts / lib_graph2d.rs): per-node arrays, links by node index, options; NaN = default */
+  set_graph_chart?(
+    values: Float64Array,
+    x: Float64Array,
+    y: Float64Array,
+    categories: Int32Array,
+    categoryCount: number,
+    sizes: Float32Array,
+    fixed: Uint8Array,
+    sources: Uint32Array,
+    targets: Uint32Array,
+    edgeWidths: Float32Array,
+    labelPx: Float32Array,
+    options: Float64Array
+  ): number;
   /** Bars (chart-bar-style.ts): orientation 0 / 1, errors by bar id (NaN = none), RGBA, width px, cap (NaN = default) */
   set_bar_style?(
     orientation: number,
@@ -2311,7 +2338,8 @@ type ChartMeta =
   | BusinessChartMeta
   | HierarchyChartMeta
   | SankeyChartMeta
-  | TreeChartMeta;
+  | TreeChartMeta
+  | GraphChartMeta;
 
 /** Fill of scatter point `i`: its own color, else its series color. */
 function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
@@ -2324,7 +2352,7 @@ function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
 /** Brush selection kind of a chart mode (`null`: no brush, e.g. pies and hierarchy charts). */
 function selectionKind(mode: Charturbo['chartMode']): CharturboSelection['kind'] | null {
   if (mode === 'calendar') return null;
-  return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' || mode === 'tree' ? null : mode;
+  return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' || mode === 'tree' || mode === 'graph' ? null : mode;
 }
 
 function rgbaToCss(c: RgbaTuple): string {
@@ -2527,7 +2555,7 @@ export class Charturbo {
   private chartMode:
     | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
-    | BusinessChartMeta['kind'] | 'treemap' | 'sunburst' | 'sankey' | 'tree' | null = null;
+    | BusinessChartMeta['kind'] | 'treemap' | 'sunburst' | 'sankey' | 'tree' | 'graph' | null = null;
   private chartMeta: ChartMeta | null = null;
   /** Hide stale tooltips when the chart / scene is replaced. */
   private hoverResetHooks = new Set<() => void>();
@@ -2771,11 +2799,12 @@ export class Charturbo {
       if (this.chartMeta?.kind === 'waterfall') sendWaterfallLabels(this.backend, this.chartMeta, this.theme.fontFamily);
       // Default names of business / hierarchy charts (legend, status, root, "Other") are rebuilt
       const meta = this.chartMeta;
-      const relocalize = isBusinessMeta(meta) || meta?.kind === 'treemap' || meta?.kind === 'sunburst' || meta?.kind === 'sankey' || meta?.kind === 'tree';
+      const relocalize = isBusinessMeta(meta) || meta?.kind === 'treemap' || meta?.kind === 'sunburst' || meta?.kind === 'sankey' || meta?.kind === 'tree' || meta?.kind === 'graph';
       if (isBusinessMeta(meta)) localizeBusinessMeta(meta, this.chartLocale());
       else if (meta?.kind === 'treemap' || meta?.kind === 'sunburst') syncHierarchy(this.backend, meta, this.chartLocale());
       else if (meta?.kind === 'sankey') syncSankey(this.backend, meta, this.chartLocale());
       else if (meta?.kind === 'tree') syncTree(this.backend, meta, this.chartLocale());
+      else if (meta?.kind === 'graph') syncGraph(this.backend, meta, this.chartLocale());
       if (relocalize) this.rebuildChartOverlay();
       else this.updateChartOverlay();
     }
@@ -3526,6 +3555,12 @@ export class Charturbo {
       color = d.color;
       series = d.series;
       metadata = { label: d.label, category: meta.valueLabel, tags: d.tags, attributes: d.attributes };
+    } else if (meta.kind === 'graph') {
+      const d = graphDetails(meta, id);
+      if (!d) return null;
+      color = d.color;
+      series = d.series;
+      metadata = { label: d.label, category: meta.valueLabel, tags: d.tags, attributes: d.attributes };
     } else if (meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey') {
       const d = hierarchyDetails(meta, id);
       if (!d) return null;
@@ -4179,8 +4214,8 @@ export class Charturbo {
       if (ctx.chartType === 'treemap' || ctx.chartType === 'sunburst' || ctx.chartType === 'sankey') {
         return hierarchyTooltipHtml(ctx, t, valueFmt((v) => this.hierValueText(v)), this.chartLocale());
       }
-      if (ctx.chartType === 'tree') {
-        // Tree values are optional: no value, no number
+      if (ctx.chartType === 'tree' || ctx.chartType === 'graph') {
+        // Tree / graph values are optional: no value, no number
         const f = valueFmt((v) => this.hierValueText(v));
         return hierarchyTooltipHtml(ctx, t, (v) => (Number.isFinite(v) ? f(v) : ''), this.chartLocale());
       }
@@ -4292,6 +4327,7 @@ export class Charturbo {
       if (isBusinessMeta(meta)) return businessTooltipContext(meta, hit, (id) => this.getNodeDetails(id));
       if (meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey') return this.hierarchyTooltip(meta, hit);
       if (meta.kind === 'tree') return this.treeTooltip(meta, hit);
+      if (meta.kind === 'graph') return this.graphTooltip(meta, hit);
 
       const items: ChartTooltipItem[] = [];
       const { seriesName } = getMessages(this.chartLocale()).common;
@@ -5199,6 +5235,9 @@ export class Charturbo {
       } else if (this.chartMeta?.kind === 'tree') {
         sendHierarchyStyle(this.backend, this.chartMeta, t);
         syncTree(this.backend, this.chartMeta, this.chartLocale());
+      } else if (this.chartMeta?.kind === 'graph') {
+        sendGraphStyle(this.backend, this.chartMeta, t);
+        syncGraph(this.backend, this.chartMeta, this.chartLocale());
       }
       this.rebuildChartOverlay();
     }
@@ -5234,6 +5273,8 @@ export class Charturbo {
       // The pointer still rests on the legend item: a hidden slice must not keep the rest faded
       if (!visible) this.emphasizeSeries(null);
     }
+    // Graph: hidden categories drop their labels (new engine label revision), the rest unfade
+    if (meta.kind === 'graph' && !visible) this.emphasizeSeries(null);
     this.syncLegendState();
     this.a11y.refresh();
     if (changed) this.events.emit('legendtoggle', { series: seriesIndex, visible });
@@ -6110,7 +6151,7 @@ export class Charturbo {
     if (meta && meta.kind !== 'bar' && meta.kind !== 'heatmap' && p.legend.show) {
       const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey';
       // Scatter series read as dots
-      const dot = meta.kind === 'scatter';
+      const dot = meta.kind === 'scatter' || meta.kind === 'graph';
       // Multi-ring pies: one entry per name, toggling / emphasizing its slices in every ring
       const entries = meta.kind === 'pie' && meta.groups ? meta.groups.map((g) => ({ name: g.name, i: g.slices[0], slices: g.slices })) : meta.names.map((name, i) => ({ name, i, slices: [i] }));
       entries.forEach(({ name, i, slices }) => {
@@ -6282,7 +6323,7 @@ export class Charturbo {
         crumbs
       );
     }
-    if (meta?.kind === 'tree' && meta.labels) this.chartOverlay.tree = new TreeLabelLayer(root, meta);
+    if ((meta?.kind === 'tree' || meta?.kind === 'graph') && meta.labels) this.chartOverlay.tree = new TreeLabelLayer(root, meta);
     if ((meta?.kind === 'bar' || meta?.kind === 'bar-multi') && meta.barStyle?.labels) {
       const n = meta.kind === 'bar-multi' ? Math.max(1, meta.categories.length) : 1;
       this.chartOverlay.bars = new BarLabelLayer(root, meta.barStyle, (id) =>
@@ -7638,6 +7679,7 @@ export class Charturbo {
     if (isBusinessMeta(meta)) return businessTooltipContext(meta, hit, (id) => this.getNodeDetails(id));
     if (meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey') return this.hierarchyTooltip(meta, hit);
     if (meta.kind === 'tree') return this.treeTooltip(meta, hit);
+    if (meta.kind === 'graph') return this.graphTooltip(meta, hit);
     return null;
   }
 
@@ -8365,8 +8407,73 @@ export class Charturbo {
     return ctx;
   }
 
+  /**
+   * Renders a 2D graph natively (ECharts `graph`): `layout` `'force'` (force-directed in the
+   * plane on the engine's CPU simulator, settled before display; `fixed` nodes stay at x / y),
+   * `'circular'` (slices by value, clockwise from 3 o'clock; `rotateLabel` runs labels outward),
+   * `'none'` (given x / y, aspect kept) or `'cartesian'` (x / y on value axes with gridlines;
+   * `xAxis.categories` for a category x). Category colors with a legend that toggles and
+   * emphasizes, size by value (`symbolSize: [min, max]`), straight or curved edges with
+   * optional arrows, hover highlights the node and its links. Input is validated before the
+   * current chart is replaced (a throw keeps it). Data point ids: node index.
+   */
+  renderGraph(data: GraphChartData, options?: GraphChartOptions): { nodeCount: number; linkCount: number } {
+    const enc = encodeGraph(data, options, this.locale);
+    this.clearScene();
+    this.clearSelection();
+    this.setRigidPhysics(false);
+    this.setGraphVisible(true);
+    this.setHelpers({ showGrid: false, showAxes: false });
+
+    const meta = sendGraph(this.backend, enc, options, this.locale);
+    meta.engine = { hover: (series, index) => this.backend.chart_hover_hierarchy_item?.(series, index) };
+    sendGraphStyle(this.backend, meta, this.theme);
+    syncGraph(this.backend, meta, this.locale);
+    const cartesian = meta.layout === 'cartesian';
+    this.chartHover = undefined;
+    this.chartGrid = undefined;
+    this.chartGridShown = cartesian;
+    this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover()));
+    this.backend.set_chart_frame_style?.(encodeGridStyle(cartesian, this.themedGrid()));
+    const o = options ?? {};
+    const legendOpt = typeof o.legend === 'boolean' ? { show: o.legend } : (o.legend ?? {});
+    const legend: ChartLegendState = {
+      show: legendOpt.show ?? meta.names.length > 0,
+      toggle: legendOpt.toggle ?? true,
+      emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
+    };
+    const cats = meta.xCategories;
+    const fx = resolveFormat(o.xAxis?.format, this.chartLocale());
+    this.chartMode = 'graph';
+    this.chartMeta = meta;
+    this.flatCameraView = true;
+    this.chartPresentation = {
+      title: o.title,
+      description: o.description,
+      xAxis: { show: cartesian, title: cartesian ? o.xAxis?.title : undefined },
+      yAxis: { show: cartesian, title: cartesian ? o.yAxis?.title : undefined, format: (cartesian ? o.yAxis?.format : undefined) ?? o.format },
+      legend,
+      navigable: false,
+      formatX: cats ? (v) => cats[Math.round(v)] ?? '' : (v) => (fx ? fx(v) : formatTickValue(v, this.chartLocale())),
+      ...(cats ? { xCategoryCount: cats.length } : {}),
+    };
+    const top = 12 + (o.title ? 24 : 0) + (legend.show ? 28 : 0);
+    this.applyChartPadding(this.chartPresentation, legend.show, { top, ...o.padding });
+    this.rebuildChartOverlay();
+    return { nodeCount: meta.nodeNames.length, linkCount: meta.sources.length };
+  }
+
+  /** Tooltip data of a 2D graph hit (engine item: series 0, index = node). */
+  private graphTooltip(meta: GraphChartMeta, hit: ArrayLike<number>): ChartTooltipContext | null {
+    const ctx = graphTooltipContext(meta, hit[4], rgbaToCss);
+    if (ctx) ctx.details = this.getNodeDetails(hit[6]);
+    return ctx;
+  }
+
   private isHierarchyChart(): boolean {
-    return this.chartMode === 'treemap' || this.chartMode === 'sunburst' || this.chartMode === 'sankey' || this.chartMode === 'tree';
+    return this.chartMode === 'treemap' || this.chartMode === 'sunburst' || this.chartMode === 'sankey' || this.chartMode === 'tree' || this.chartMode === 'graph';
   }
 
   /** Hierarchy / flow value text: the chart `format`, else a locale number. */

@@ -15,6 +15,7 @@ import { businessA11yModel, isBusinessKind } from './chart-business';
 import type { A11yCustomModel } from './chart-business-util';
 import { hierarchyA11yModel } from './chart-hierarchy';
 import { treeA11yModel, type TreeChartMeta } from './chart-tree';
+import { graphA11yModel, type GraphChartMeta } from './chart-graph';
 import { sparseTooltip, type SparseMeta } from './chart-sparse';
 import { scientificA11yModel, type Scientific3DMeta } from './chart-scientific3d';
 import { trendDescription, type ScatterTrendlineFit } from './chart-trendline';
@@ -48,7 +49,7 @@ export interface A11ySeries {
   band?: { lower: ArrayLike<number>; upper: ArrayLike<number> };
 }
 
-export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'calendar' | 'tree';
+export type A11yChartKind = 'scientific3d' | 'line' | 'bar' | 'bar-multi' | 'scatter' | 'candle' | 'heatmap' | 'box' | 'pie' | 'combo' | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'calendar' | 'tree' | 'graph';
 
 /** Pie slices (focus: `series` 0, `index` = displayed slice; point id = slice index). */
 export interface A11yPieData {
@@ -322,6 +323,7 @@ export function buildA11yModel(
 
   if (m.kind === 'treemap' || m.kind === 'sunburst' || m.kind === 'sankey') return hierarchyA11yModel(m, common);
   if (m.kind === 'tree') return treeA11yModel(m as unknown as TreeChartMeta, common);
+  if (m.kind === 'graph') return graphA11yModel(m as unknown as GraphChartMeta, common);
   if (m.kind === 'scientific3d') return scientificA11yModel(m as unknown as Scientific3DMeta, common);
 
   if (m.kind === 'line') {
@@ -1936,6 +1938,7 @@ export class ChartA11y {
       sankey: kinds.sankey,
       calendar: kinds.calendar,
       tree: kinds.tree,
+      graph: kinds.graph,
     }[model.kind];
     const caption = model.title ?? t.tableCaption(kindLabel);
     wrap.setAttribute('aria-label', t.tableLabel(caption));
