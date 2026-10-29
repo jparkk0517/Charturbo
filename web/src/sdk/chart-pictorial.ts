@@ -135,8 +135,10 @@ export function encodePictorial(
       throw new Error(`${fn}: ${key}${where} ${why}`);
     };
 
-    const symbol = o.symbol ?? 'circle';
-    if (typeof symbol !== 'string') fail('symbol', 'must be a string');
+    const raw = o.symbol ?? 'circle';
+    if (typeof raw !== 'string') fail('symbol', 'must be a string');
+    // One line per symbol in the engine's list: path data whitespace (newlines) is one space
+    const symbol = raw.startsWith('path://') ? raw.replace(/\s+/g, ' ').trim() : raw;
     if (symbol.startsWith('image://')) fail('symbol', 'uses image://: image:// symbols are not supported (use a built-in name or path://)');
     if (!index.has(symbol)) {
       if (symbol.startsWith('path://')) {

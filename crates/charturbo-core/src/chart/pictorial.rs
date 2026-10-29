@@ -21,8 +21,12 @@ pub const MAX_PICTORIAL_REPEAT: u32 = 1000;
 /// Fill vertices of a pictorial chart at most (further symbols are dropped).
 const MAX_PICTORIAL_VERTICES: usize = 1_500_000;
 
-/// Edges of one tessellated `path://` symbol at most (the tessellator is O(edges²)).
+/// Edges of one tessellated `path://` symbol at most (the crossing search is O(edges²)).
 const MAX_PATH_EDGES: usize = 4096;
+
+/// Edge crossings of one `path://` symbol at most: each adds a slab, and the slab pass is
+/// O(slabs x edges), so dense self-crossing paths are rejected instead of freezing the thread.
+const MAX_PATH_CROSSINGS: usize = 4096;
 
 /// Length in CSS px, or a percent of a reference length.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -476,7 +480,7 @@ fn arc(
 
 /// Triangles of closed contours under the nonzero fill rule: the plane is cut into horizontal
 /// slabs at every vertex and edge crossing, and each slab's covered spans become trapezoids
-/// (handles holes and self-intersections). `None` past `MAX_PATH_EDGES`.
+/// (handles holes and self-intersections). `None` past `MAX_PATH_EDGES` / `MAX_PATH_CROSSINGS`.
 fn tessellate(contours: &[Vec<[f64; 2]>]) -> Option<Vec<[f32; 2]>> {
     struct Edge {
         a: [f64; 2],
@@ -513,6 +517,7 @@ fn tessellate(contours: &[Vec<[f64; 2]>]) -> Option<Vec<[f32; 2]>> {
         return None;
     }
     let mut ys: Vec<f64> = edges.iter().flat_map(|e| [e.a[1], e.b[1]]).collect();
+    let mut crossings = 0;
     for (i, e) in edges.iter().enumerate() {
         for f in &edges[i + 1..] {
             if e.b[1] <= f.a[1] || f.b[1] <= e.a[1] {
@@ -532,6 +537,10 @@ fn tessellate(contours: &[Vec<[f64; 2]>]) -> Option<Vec<[f32; 2]>> {
                 (d[0] * r[1] - d[1] * r[0]) / den,
             );
             if t > 0.0 && t < 1.0 && u > 0.0 && u < 1.0 {
+                crossings += 1;
+                if crossings > MAX_PATH_CROSSINGS {
+                    return None;
+                }
                 ys.push(e.a[1] + t * r[1]);
             }
         }
@@ -805,6 +814,10 @@ fn place_symbols(
     let mid = 0.5 * (seg.x0 + seg.x1);
     let (mut poly, mut scratch) = (Vec::with_capacity(8), Vec::with_capacity(8));
     for i in 0..times {
+        // The chart cap (build_pictorial truncates) bounds one bar's work and memory too
+        if out.len() >= MAX_PICTORIAL_VERTICES {
+            return;
+        }
         let v = pos + step * (i as f32 - times as f32 * 0.5 + 0.5);
         let (wx, wy) = b.world(mid, seg.y0 + v * wpp);
         let center = [wx + offset[0], wy + offset[1]];
@@ -1197,6 +1210,63 @@ mod tests {
         assert_eq!(symbol_triangles("none"), Some(Vec::new()));
         assert_eq!(symbol_triangles("star"), None);
         assert!(!pictorial_symbol_valid("image://a.png"));
+    }
+
+    #[test]
+    fn one_bar_stops_emitting_at_the_vertex_cap() {
+        let mut cam = camera();
+        let st = chart(vec![10.0], false, &mut cam);
+        let w = wpp(&cam);
+        let b = bar(&st);
+        // 3000-vertex symbol x 1000 repeats = 3M vertices without the cap
+        let shape: Vec<[f32; 2]> = (0..1000)
+            .flat_map(|_| [[-0.5, -0.5], [0.5, -0.5], [0.0, 0.5]])
+            .collect();
+        let spec = PictorialSpec::from_record(
+            &rec(|r| {
+                r[1] = 3.0;
+                r[2] = 1000.0;
+            }),
+            1,
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        place_symbols(b, &b.segs[0].unwrap(), &spec, &shape, [1.0; 4], w, &mut out);
+        assert!(
+            out.len() <= MAX_PICTORIAL_VERTICES + shape.len(),
+            "{} vertices",
+            out.len()
+        );
+    }
+
+    #[test]
+    fn dense_self_crossing_paths_are_rejected_quickly() {
+        use std::fmt::Write as _;
+        // Star polygon {401/200}: ~80k edge crossings would make ~80k slabs over 401 edges
+        let n = 401;
+        let mut d = String::from("path://");
+        for i in 0..n {
+            let t = std::f64::consts::TAU * ((i * 200) % n) as f64 / n as f64;
+            let _ = write!(
+                d,
+                "{}{:.4} {:.4} ",
+                if i == 0 { 'M' } else { 'L' },
+                50.0 + 50.0 * t.cos(),
+                50.0 + 50.0 * t.sin()
+            );
+        }
+        d.push('Z');
+        let start = std::time::Instant::now();
+        assert!(!pictorial_symbol_valid(&d), "too many crossings");
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(500),
+            "{:?}",
+            start.elapsed()
+        );
+        // A self-crossing star with few crossings still tessellates
+        assert!(pictorial_symbol_valid(
+            "path://M50 0 L79 91 L2 35 L98 35 L21 91 Z"
+        ));
     }
 
     #[test]

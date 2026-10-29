@@ -7877,14 +7877,21 @@ export class Charturbo {
   ): { barCount: number } {
     const fn = 'renderPictorialBarChart';
     if (options?.viewMode === '3d') throw new Error(`${fn}: pictorial bars are 2D only`);
-    const valid = (symbol: string) => this.backend.pictorial_symbol_valid?.(symbol) ?? true;
-    const { symbols, records } = encodePictorial(pictorialPerBar(data), options, valid, fn);
+    const { set_chart_bar_pictorial: setPictorial, pictorial_symbol_valid: symbolValid } = this.backend;
+    if (!setPictorial || !symbolValid) {
+      throw new Error(`${fn}: the engine has no pictorial bar support (set_chart_bar_pictorial); rebuild the wasm`);
+    }
+    const { symbols, records } = encodePictorial(pictorialPerBar(data), options, (s) => symbolValid.call(this.backend, s), fn);
     const opts = { ...options, viewMode: '2d' as const };
     const barCount = Array.isArray(data)
       ? this.renderBarChart(data, opts).barCount
       : this.renderGroupedBarChart(data, opts).barCount;
     const meta = this.chartMeta;
-    if (barCount > 0 && (meta?.kind === 'bar' || meta?.kind === 'bar-multi') && this.backend.set_chart_bar_pictorial?.(symbols, records)) {
+    if (barCount > 0 && (meta?.kind === 'bar' || meta?.kind === 'bar-multi')) {
+      // Symbols and records were validated above, so a rejection is an engine / SDK mismatch
+      if (!setPictorial.call(this.backend, symbols, records)) {
+        throw new Error(`${fn}: the engine rejected the pictorial symbols (${barCount} bars drawn as plain bars)`);
+      }
       meta.pictorial = true;
       this.a11y.refresh();
     }

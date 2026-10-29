@@ -279,6 +279,29 @@ describe('renderPictorialBarChart', () => {
     expect(buildChartSummary(buildA11yModel(multi, {}, undefined, 'en')!)).toMatch(/^Pictorial bar chart/);
   });
 
+  it('normalizes whitespace of multi-line path:// symbols (the symbol list is newline-separated)', () => {
+    const seen: string[] = [];
+    const path = `path://M0 0
+      L10 0
+      L10 10 Z` as const;
+    const { symbols } = encodePictorial([{ symbol: path }, { symbol: 'path://M0 0 L10 0 L10 10 Z' }], {}, (s) => (seen.push(s), true));
+    expect(symbols).toBe('path://M0 0 L10 0 L10 10 Z');
+    expect(seen).toEqual(['path://M0 0 L10 0 L10 10 Z']);
+  });
+
+  it('throws when the engine rejects the symbols or lacks pictorial support', () => {
+    const rejecting = { ...mockBackend({}), set_chart_bar_pictorial: () => false };
+    expect(() => Charturbo.fromBackend(rejecting).renderPictorialBarChart([{ label: 'A', value: 1 }])).toThrow(/rejected/);
+
+    const calls: Calls = {};
+    const old = mockBackend(calls);
+    delete old.set_chart_bar_pictorial;
+    delete old.pictorial_symbol_valid;
+    const sdk = Charturbo.fromBackend(old);
+    expect(() => sdk.renderPictorialBarChart([{ label: 'A', value: 1 }])).toThrow(/no pictorial bar support/);
+    expect(calls.set_bar_chart).toBeUndefined();
+  });
+
   it('keeps the bar data table, CSV export and keyboard focus', () => {
     const sdk = Charturbo.fromBackend(mockBackend({}));
     sdk.renderPictorialBarChart([
