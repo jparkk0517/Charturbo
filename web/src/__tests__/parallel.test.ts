@@ -344,6 +344,10 @@ describe('Parallel coordinates (SDK binding)', () => {
     sdk.renderParallelChart({ ...CARS, dimensions: [...CARS.dimensions.slice(0, 3), { name: 'Weight', format: (v: number) => `${v / 1000}t` }] });
     sdk.render();
     expect(texts()[2].textContent).toBe('5t');
+    // A format spec string is validated while the dimensions are built
+    sdk.renderParallelChart({ ...CARS, dimensions: [...CARS.dimensions.slice(0, 3), { name: 'Weight', format: '.1f' }] });
+    sdk.render();
+    expect(texts()[2].textContent).toBe('5000.0');
   });
 
   it('brush API: names / dates resolve to axis values; event, read back, clear; invalid input throws', () => {

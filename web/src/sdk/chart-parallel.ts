@@ -315,6 +315,9 @@ export function parallelMeta(data: ParallelChartData, options: ParallelChartOpti
     for (const g of groups) for (const r of g.data) if (Array.isArray(r) && r[d] !== null && r[d] !== undefined) return r[d];
     return undefined;
   };
+  // Live locale for the dimension formats; a format spec is checked before `meta` exists
+  let built = false;
+  const currentLocale = () => (built ? meta.locale : locale);
   const dims: ParallelDim[] = specs.map((sp, d) => {
     const spec: ParallelDimension = typeof sp === 'string' ? { name: sp } : sp;
     if (!spec || typeof spec.name !== 'string') throw new Error(`Parallel dimension ${d} needs a name`);
@@ -330,7 +333,7 @@ export function parallelMeta(data: ParallelChartData, options: ParallelChartOpti
       min: NaN,
       max: NaN,
       inverse: spec.inverse === true,
-      format: resolveFormatLive(spec.format, () => meta.locale),
+      format: resolveFormatLive(spec.format, currentLocale),
       extent: [Infinity, -Infinity],
     };
     dim.min = boundOf(dim, spec.min, 'min');
@@ -408,6 +411,7 @@ export function parallelMeta(data: ParallelChartData, options: ParallelChartOpti
     colorOf: () => [0.5, 0.5, 0.5, 1],
     nav: { axis: 0, anchor: null, orders: new Map() },
   };
+  built = true;
   localizeParallelMeta(meta, locale);
   return meta;
 }
