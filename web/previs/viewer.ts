@@ -38,9 +38,6 @@ interface Session {
 let session: Session | null = null;
 let loadToken = 0;
 const hasGpu = !!(navigator as Navigator & { gpu?: unknown }).gpu;
-// test hook: drawn-frame counter + chosen backend
-const hook = { frames: 0, backend: '', session: (): Session | null => session };
-(window as unknown as { __viewer: typeof hook }).__viewer = hook;
 
 function showMsg(text: string | null): void {
   msgEl.hidden = text === null;
@@ -116,7 +113,6 @@ function draw(s: Session): void {
   timeEl.textContent = `${s.t.toFixed(2)} / ${s.duration.toFixed(2)}`;
   shotEl.textContent = fs.shotId;
   seek.value = String(s.t);
-  hook.frames++;
 }
 
 function setPlaying(s: Session, on: boolean): void {
@@ -184,7 +180,6 @@ async function load(file: File): Promise<void> {
     seek.max = String(duration);
     document.body.classList.add('loaded');
     bar.hidden = false;
-    hook.backend = backend;
     if (backend === 'webgl2' && hasGpu) showMsg('WebGPU를 쓸 수 없어 WebGL2로 재생합니다.');
     fit(s);
     draw(s);
