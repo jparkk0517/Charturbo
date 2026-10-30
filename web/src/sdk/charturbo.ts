@@ -136,6 +136,20 @@ import {
 } from './chart-scales';
 export type { ChartAxisName, ChartScaleOptions, ChartScaleType } from './chart-scales';
 import {
+  breakExtent,
+  layoutExtraAxes,
+  resolveBreaks,
+  validateBreaks,
+  validateSeriesAxisIndex,
+  yAxisCode,
+  MAX_Y_AXES,
+  type ChartAxisBreak,
+  type ChartAxisBreakOptions,
+  type ChartExtraAxisPlacement,
+  type ExtraAxisSlot,
+} from './chart-axes';
+export type { ChartAxisBreak, ChartAxisBreakOptions, ChartExtraAxisPlacement } from './chart-axes';
+import {
   COLORBAR_RESERVE_PX,
   HeatmapColorbarLayer,
   bytesToCss,
@@ -490,6 +504,11 @@ export interface LineSeriesDescriptor extends LineStyleInput {
    * (default: `'left'`; ignored by area charts)
    */
   yAxis?: 'left' | 'right';
+  /**
+   * y axis index of this series (2D line charts; wins over `yAxis`): 0 = `axes.y`, 1 =
+   * `axes.y2`, `k >= 2` = `axes.extraY[k - 2]` (default: from `yAxis`; ignored by area charts)
+   */
+  yAxisIndex?: number;
   /** @deprecated Ignored: series depth is laid out by the engine */
   zOffset?: number;
   /** @deprecated Use `marker: { size }` (mapped to it when `marker` is not given) */
@@ -532,8 +551,12 @@ export interface LineChartOptions {
   xLabelPrefix?: string;
   title?: string;
   legend?: ChartLegendOptions | boolean;
-  /** `y2`: right y axis, used only when a series has `yAxis: 'right'` (line charts) */
-  axes?: { x?: LineXAxisOptions; y?: LineYAxisOptions; y2?: LineYAxisOptions };
+  /**
+   * `y2`: right y axis, used only when a series has `yAxis: 'right'` / `yAxisIndex: 1` (line
+   * charts). `extraY`: more y axes (axis `k >= 2` = `extraY[k - 2]`, at most 6) bound by series
+   * `yAxisIndex`, each with its own domain / scale / format / breaks, stacked beside the plot
+   */
+  axes?: { x?: LineXAxisOptions; y?: LineYAxisOptions; y2?: LineYAxisOptions; extraY?: ExtraYAxisOptions[] };
   /**
    * Locale of this chart's default number / time labels and tooltip values (`Intl`); default:
    * the SDK locale (`setLocale`), else the runtime locale
@@ -607,7 +630,8 @@ export interface BarChartOptions {
   color?: ColorInput;
   grid?: ChartGridStyle;
   title?: string;
-  axes?: { x?: ChartAxisOptions; y?: ChartAxisOptions };
+  /** `breaks` apply to the value axis only (`axes.y`; horizontal bars: `axes.x`; 2D) */
+  axes?: { x?: ChartAxisOptions & ChartAxisBreakOptions; y?: ChartAxisOptions & ChartAxisBreakOptions };
   padding?: ChartPaddingOptions;
   /** Hover style (`barHighlightColor`). See `ChartHoverStyle`. */
   hover?: ChartHoverStyle;
@@ -754,8 +778,14 @@ export interface LineYDomainOptions {
   nice?: boolean;
 }
 
-/** y axis of a line chart. */
-export interface LineYAxisOptions extends ChartAxisOptions, LineYDomainOptions, ChartScaleOptions {}
+/** y axis of a line chart. `breaks`: collapsed value ranges (linear scales; see `ChartAxisBreak`). */
+export interface LineYAxisOptions extends ChartAxisOptions, LineYDomainOptions, ChartScaleOptions, ChartAxisBreakOptions {}
+
+/** Extra y axis of a line chart (`axes.extraY`): a y axis plus its side, offset and color. */
+export interface ExtraYAxisOptions extends LineYAxisOptions, ChartExtraAxisPlacement {
+  /** Tick labels, title and axis line color (default: theme text colors) */
+  color?: ColorInput;
+}
 
 /** Streaming options of `appendSeriesData` and `appendAreaData`. */
 export interface AppendSeriesOptions {
@@ -1084,7 +1114,10 @@ export interface ScatterChartOptions {
   title?: string;
   /** Accessible name of the canvas; replaces the auto summary (which moves to the description) */
   description?: string;
-  axes?: { x?: ChartAxisOptions & ChartScaleOptions; y?: ChartAxisOptions & ChartScaleOptions };
+  axes?: {
+    x?: ChartAxisOptions & ChartScaleOptions & ChartAxisBreakOptions;
+    y?: ChartAxisOptions & ChartScaleOptions & ChartAxisBreakOptions;
+  };
   /** Legend of series ids (default: shown with 2+ series) */
   legend?: ChartLegendOptions | boolean;
   padding?: ChartPaddingOptions;
@@ -1742,8 +1775,14 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_chart_axis_scale?(axis: number, kind: number, reverse: boolean, tickCount: number): void;
   /** `[kind, reverse, tickCount]` of one axis, or empty */
   chart_axis_scale?(axis: number): Float64Array;
-  /** y axis per line series: 0 = left, 1 = right */
+  /** y axis per line series: 0 = left, 1 = right, 2.. = extra */
   set_chart_series_axes?(axes: Uint8Array): void;
+  /** Domain options of y axis `k` (0 left, 1 right, 2.. extra; arguments as `set_chart_y_domain`) */
+  set_chart_y_axis_at?(k: number, min: number, max: number, autoscale: number, nice: boolean): void;
+  /** `[min, max, step]` of y axis `k`, or empty */
+  chart_y_domain_at?(k: number): Float64Array;
+  /** Flat `[start, end, gap]` breaks of a value axis (empty clears); throws on invalid input */
+  set_chart_axis_breaks?(axis: number, breaks: Float64Array): boolean;
   /** Right y domain (arguments as `set_chart_y_domain`) */
   set_chart_y2_domain?(min: number, max: number, autoscale: number, nice: boolean): void;
   /** `[min, max, step]` of the right y domain, or empty */
@@ -2178,6 +2217,11 @@ const EMPTY_F64 = new Float64Array(0);
 /** `set_chart_y_domain` autoscale codes. */
 const Y_AUTOSCALE_CODES: Record<NonNullable<LineYDomainOptions['autoscale']>, number> = { all: 0, visible: 1, none: 2 };
 
+/** True when `o` sets any y domain option (others keep the engine default). */
+function hasDomainOptions(o: LineYDomainOptions): boolean {
+  return o.min !== undefined || o.max !== undefined || o.autoscale !== undefined || o.nice !== undefined;
+}
+
 /** Series `x` input as f64 (`Date` = epoch ms). */
 function toF64(x: Float64Array | number[] | Date[]): Float64Array {
   if (x instanceof Float64Array) return x;
@@ -2236,6 +2280,8 @@ interface ChartOverlay {
   yTitle: HTMLDivElement;
   /** Right y axis title (dual-axis line charts) */
   y2Title: HTMLDivElement | null;
+  /** Extra y axes: title and axis line per `ChartPresentation.extraY` entry */
+  extraAxes: { title: HTMLDivElement; line: HTMLDivElement }[];
   ticks: HTMLDivElement[];
   /** Axes revision the labels were laid out for (-1 = never) */
   axesRevision: number;
@@ -2266,6 +2312,11 @@ interface ChartPresentation {
   yAxis: ChartAxisOptions;
   /** Right y axis (dual-axis 2D line charts only) */
   y2Axis?: ChartAxisOptions;
+  /** Extra y axes (axis `k >= 2` = `extraY[k - 2]`; 2D line charts) and their label slots */
+  extraY?: ExtraYAxisOptions[];
+  extraSlots?: ExtraAxisSlot[];
+  /** Axis breaks per axis, for assistive tech (`axis`: 'x' / 'y' / 'y2' / extra index) */
+  axisBreaks?: { axis: string; title?: string; breaks: ChartAxisBreak[] }[];
   legend: ChartLegendState;
   /** 2D line chart: wheel / drag navigate the x axis */
   navigable: boolean;
@@ -2306,6 +2357,10 @@ interface LineChartMeta {
   yDomain: LineYDomainOptions;
   /** Right y domain options (`setY2Domain` merges into them) */
   y2Domain: LineYDomainOptions;
+  /** Multi-axis charts: tooltip value format of each series (its axis' `format`) */
+  seriesFormats?: (((v: number) => string) | undefined)[];
+  /** Multi-axis: y axis index per series (a11y) */
+  seriesAxes?: number[];
   formatXValue: (x: number) => string;
   visible: boolean[];
   /** Area charts: stacking mode (tooltips add totals / shares); `values` stay the raw input */
@@ -2428,6 +2483,13 @@ function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
 function selectionKind(mode: Charturbo['chartMode']): CharturboSelection['kind'] | null {
   if (mode === 'calendar' || mode === 'chord' || mode === 'parallel') return null;
   return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' || mode === 'tree' || mode === 'graph' ? null : mode;
+}
+
+/** Series of global point `id` in a line chart (by sample offsets). */
+function lineSeriesOfId(meta: LineChartMeta, id: number): number {
+  let s = 0;
+  while (s + 1 < meta.offsets.length && meta.offsets[s + 1] <= id) s++;
+  return s;
 }
 
 function rgbaToCss(c: RgbaTuple): string {
@@ -4253,12 +4315,19 @@ export class Charturbo {
         `${v.toLocaleString(resolveLocale(this.chartLocale()), { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
       const swatch = (color: string) =>
         `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;flex:none;background:${color};"></span>`;
+      // Multi-axis line charts: each value in its axis' format
+      const lineMeta = this.chartMeta?.kind === 'line' ? this.chartMeta : null;
+      const comboM = this.chartMeta?.kind === 'combo' ? this.chartMeta : null;
+      const axisFmt = (it: ChartTooltipItem) =>
+        lineMeta?.seriesFormats
+          ? lineMeta.seriesFormats[lineSeriesOfId(lineMeta, it.nodeId)]
+          : comboM?.seriesFormats?.[Math.floor(it.nodeId / Math.max(1, comboM.values[0]?.length ?? 0))];
       const rows = ctx.items
         .map(
           (it) => `
         <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;">
           <span style="display:flex;align-items:center;color:${t.textSecondary};">${swatch(it.color)}${esc(it.seriesName)}</span>
-          <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${ctx.chartType === 'band' ? '' : escFmt(valueFmt(num))(it.value)}${
+          <span style="color:${t.textPrimary};font-weight:600;font-variant-numeric:tabular-nums;">${ctx.chartType === 'band' ? '' : escFmt(valueFmt(axisFmt(it) ?? num))(it.value)}${
             it.error
               ? ` <span style="color:${t.textMuted};font-weight:400;">${esc(formatBarError(it.error, valueFmt(num)))}</span>`
               : ''
@@ -5468,12 +5537,27 @@ export class Charturbo {
     const kind = this.chartMeta?.kind;
     if (kind !== 'line' && kind !== 'scatter') return;
     const o = { ...(this.getAxisScale(axis) ?? {}), ...options };
+    if (o.scale === 'log' && this.chartPresentation?.axisBreaks?.some((b) => b.axis === axis)) {
+      throw new Error(`setAxisScale: axes.${axis}: breaks need a linear scale`);
+    }
     this.changeRange(() => this.backend.set_chart_axis_scale?.(AXIS_CODES[axis], ...encodeScale(o)));
   }
 
   /** Current scale options of one axis, or null (no line / area / scatter chart). */
   getAxisScale(axis: ChartAxisName): Required<ChartScaleOptions> | null {
     return decodeScale(this.backend.chart_axis_scale?.(AXIS_CODES[axis]));
+  }
+
+  /** Sends one axis' breaks (no-op without any); returns its a11y entry. */
+  private sendAxisBreaks(
+    code: number,
+    name: string,
+    axis: (ChartAxisOptions & ChartAxisBreakOptions) | undefined,
+    extent: [number, number] | null
+  ): NonNullable<ChartPresentation['axisBreaks']>[number] | null {
+    if (!axis?.breaks?.length) return null;
+    this.backend.set_chart_axis_breaks?.(code, resolveBreaks(axis.breaks, extent));
+    return { axis: name, ...(axis.title ? { title: axis.title } : {}), breaks: axis.breaks };
   }
 
   /** Sends the scale options of every axis that sets any (others keep the engine default). */
@@ -6159,12 +6243,17 @@ export class Charturbo {
   /** Derives plot padding from the overlay content, then applies user overrides. */
   private applyChartPadding(p: ChartPresentation, hasLegend: boolean, overrides?: ChartPaddingOptions): void {
     // Every 2D render passes here: invalid axis format specs throw from the render call, not later
-    for (const a of [p.xAxis, p.yAxis, p.y2Axis]) resolveFormat(a?.format, this.chartLocale());
+    for (const a of [p.xAxis, p.yAxis, p.y2Axis, ...(p.extraY ?? [])]) resolveFormat(a?.format, this.chartLocale());
     // The legend takes a row above / below the plot, or a column beside it
     const side = hasLegend ? (p.legend.position ?? 'top') : null;
     const column = side === 'left' || side === 'right' ? legendColumnWidth(this.legendNames()) + LEGEND_SIDE_GAP_PX : 0;
     const top = 12 + (p.title ? 24 : 0) + (side === 'top' ? LEGEND_ROW_PX : 0);
-    const left = (p.yAxis.show === false ? 12 : 56) + (p.yAxis.title ? 20 : 0) + (side === 'left' ? column : 0);
+    const yWidth = (p.yAxis.show === false ? 12 : 56) + (p.yAxis.title ? 20 : 0);
+    const y2Width = p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 0;
+    // Extra y axes stack outward after the left / right axis
+    const extra = p.extraY?.length ? layoutExtraAxes(p.extraY, { left: yWidth, right: y2Width }) : null;
+    p.extraSlots = extra?.slots;
+    const left = (extra?.left ?? yWidth) + (side === 'left' ? column : 0);
     // Rotated x labels hang below the upright row: room for the known category labels (other
     // axes grow it once their ticks are laid out, see updateChartOverlay)
     const rotate = p.xAxis.show === false ? 0 : labelRotation(p.xAxis.labelRotate);
@@ -6177,7 +6266,7 @@ export class Charturbo {
     this.xLabelReserveGrows = rotate !== 0 && overrides?.bottom === undefined;
     const bottom =
       (p.xAxis.show === false ? 12 : 30) + this.xLabelReserve + (p.xAxis.title ? 20 : 0) + (side === 'bottom' ? LEGEND_ROW_PX : 0);
-    const right = (p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16) + (side === 'right' ? column : 0);
+    const right = ((extra?.right ?? y2Width) || 16) + (side === 'right' ? column : 0);
     const pad = { top, right, bottom, left, ...overrides };
     this.backend.set_chart_padding?.(pad.top, pad.right, pad.bottom, pad.left);
     this.chartPadding = pad;
@@ -6401,8 +6490,28 @@ export class Charturbo {
       y2Title.textContent = p.y2Axis.title ?? '';
     }
 
+    // Extra y axes: title + axis line at their slot (laid out with the ticks)
+    const extraAxes = (p.extraY ?? []).map((a, i) => {
+      const right = p.extraSlots?.[i]?.side !== 'left';
+      const color = parseOptionalColor(a.color);
+      const title = div(
+        {
+          fontSize: '12px',
+          color: color ? rgbaToCss(color) : t.textSecondary,
+          transform: `translate(-50%, -50%) rotate(${right ? 90 : -90}deg)`,
+          whiteSpace: 'nowrap',
+        },
+        'charturbo-sdk-axis-title'
+      );
+      title.textContent = a.title ?? '';
+      // 2px: image exports skip rects 1px or narrower
+      const line = div({ width: '2px', background: color ? rgbaToCss(color) : t.textMuted, opacity: '0.45' }, 'charturbo-sdk-axis-line');
+      return { title, line };
+    });
+
     root.append(title, legend, xTitle, yTitle);
     if (y2Title) root.append(y2Title);
+    for (const e of extraAxes) root.append(e.title, e.line);
     (canvas.parentElement ?? document.body).appendChild(root);
     this.chartOverlay = {
       root,
@@ -6411,6 +6520,7 @@ export class Charturbo {
       xTitle,
       yTitle,
       y2Title,
+      extraAxes,
       ticks: [],
       axesRevision: -1,
       annotations: new AnnotationLabelLayer(root),
@@ -6510,8 +6620,9 @@ export class Charturbo {
       const value = a[6 + k * 4];
       const x = a[7 + k * 4];
       const y = a[8 + k * 4];
-      // axis 2 = right y (dual-axis line charts)
-      const opts = axis === 0 ? p.xAxis : axis === 2 ? (p.y2Axis ?? { show: false }) : p.yAxis;
+      // axis 2 = right y (dual-axis line charts), 16 + k = extra y axis k
+      const extra = axis >= 18 ? p.extraY?.[axis - 18] : undefined;
+      const opts = axis === 0 ? p.xAxis : axis === 2 ? (p.y2Axis ?? { show: false }) : axis >= 18 ? (extra ?? { show: false }) : p.yAxis;
       if (opts.show === false) continue;
       let el = o.ticks[used];
       if (!el) {
@@ -6562,6 +6673,15 @@ export class Charturbo {
         el.style.left = `${x + 8}px`;
         el.style.top = `${y}px`;
         el.style.transform = 'translate(0, -50%)';
+      } else if (axis >= 18) {
+        const slot = p.extraSlots?.[axis - 18];
+        const right = slot?.side !== 'left';
+        const dist = slot?.dist ?? 0;
+        el.style.left = `${right ? plotL + plotW + dist + 8 : plotL - dist - 8}px`;
+        el.style.top = `${y}px`;
+        el.style.transform = right ? 'translate(0, -50%)' : 'translate(-100%, -50%)';
+        const color = parseOptionalColor(extra?.color);
+        if (color) el.style.color = rgbaToCss(color);
       } else {
         el.style.left = `${x - 8}px`;
         el.style.top = `${y}px`;
@@ -6599,6 +6719,15 @@ export class Charturbo {
       o.y2Title.style.left = `${plotL + plotW + (p.y2Axis?.show === false ? 14 : 62)}px`;
       o.y2Title.style.top = `${plotT + plotH / 2}px`;
     }
+    o.extraAxes.forEach((e, i) => {
+      const slot = p.extraSlots?.[i];
+      const right = slot?.side !== 'left';
+      const dist = slot?.dist ?? 0;
+      const gap = dist + (p.extraY?.[i]?.show === false ? 14 : 62);
+      e.title.style.left = `${right ? plotL + plotW + gap : plotL - gap}px`;
+      e.title.style.top = `${plotT + plotH / 2}px`;
+      Object.assign(e.line.style, { left: `${right ? plotL + plotW + dist : plotL - dist}px`, top: `${plotT}px`, height: `${plotH}px` });
+    });
     // Parallel coordinates: clear of the last axis' centered name and brush band
     const colorbarGap = meta?.kind === 'parallel' ? 24 : 0;
     o.colorbar?.layout([plotL, plotT, plotW + colorbarGap, plotH], this.chartLocale());
@@ -7122,6 +7251,16 @@ export class Charturbo {
     const fn = standaloneBands ? 'renderBandChart' : river ? 'renderThemeRiverChart' : area ? 'renderAreaChart' : 'renderLineChart';
     // Unknown zones throw here, not on a later frame
     if (options?.timeZone !== undefined) validateTimeZone(options.timeZone);
+    // Axis input throws before the current chart is cleared (areas ignore series axes)
+    const extraY = area ? [] : (options?.axes?.extraY ?? []);
+    if (!Array.isArray(extraY) || extraY.length > MAX_Y_AXES - 2) throw new Error(`${fn}: axes.extraY must be an array of at most ${MAX_Y_AXES - 2} axes`);
+    if (!area) validateSeriesAxisIndex(seriesList, 2 + extraY.length, fn);
+    const yAxisOpts: [string, LineYAxisOptions | undefined][] = [
+      ['y', options?.axes?.y],
+      ['y2', area ? undefined : options?.axes?.y2],
+      ...extraY.map((a, i): [string, LineYAxisOptions] => [`extraY[${i}]`, a]),
+    ];
+    for (const [name, a] of yAxisOpts) validateBreaks(a?.breaks, `${fn}: axes.${name}`, a?.scale === 'log');
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7292,15 +7431,24 @@ export class Charturbo {
     this.flatCameraView = flat;
     const percentAxis: ChartAxisOptions =
       area?.mode === 'percent' ? { format: (v) => `${formatTickValue(v)}%` } : {};
-    // Opt-in right y axis: only when a series asks for it (line charts)
+    // Opt-in right / extra y axes: only when a series asks for one (line charts)
     const seriesAxes = area ? null : encodeSeriesAxes(seriesList);
+    const hasY2 = !!seriesAxes && seriesAxes.includes(1);
+    if (seriesAxes) {
+      // Tooltips format each value like its axis
+      const live = (a?: ChartAxisOptions) => resolveFormatLive(a?.format, locale);
+      const axisFormats = yAxisOpts.map(([, a]) => live(a));
+      (this.chartMeta as LineChartMeta).seriesFormats = Array.from(seriesAxes, (k) => axisFormats[k]);
+      (this.chartMeta as LineChartMeta).seriesAxes = Array.from(seriesAxes);
+    }
     // Axes are a 2D concept; the 2.5D view keeps legend + title only
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
       xAxis: flat ? xAxisOpt : { show: false },
       yAxis: flat ? { ...percentAxis, ...(options?.axes?.y ?? {}) } : { show: false },
-      ...(seriesAxes && flat ? { y2Axis: options?.axes?.y2 ?? {} } : {}),
+      ...(hasY2 && flat ? { y2Axis: options?.axes?.y2 ?? {} } : {}),
+      ...(extraY.length && flat ? { extraY } : {}),
       legend,
       navigable: flat,
       formatX,
@@ -7308,13 +7456,29 @@ export class Charturbo {
       timeZone: options?.timeZone,
     };
     if (seriesAxes) this.backend.set_chart_series_axes?.(seriesAxes);
-    this.applyAxisScales({ x: xAxisOpt, y: options?.axes?.y, ...(seriesAxes ? { y2: options?.axes?.y2 } : {}) });
+    this.applyAxisScales({ x: xAxisOpt, y: options?.axes?.y, ...(hasY2 ? { y2: options?.axes?.y2 } : {}) });
+    extraY.forEach((a, i) => {
+      if (hasScaleOptions(a)) this.backend.set_chart_axis_scale?.(yAxisCode(i + 2), ...encodeScale(a));
+      if (hasDomainOptions(a)) {
+        this.backend.set_chart_y_axis_at?.(i + 2, a.min ?? NaN, a.max ?? NaN, Y_AUTOSCALE_CODES[a.autoscale ?? 'all'] ?? 0, a.nice ?? true);
+      }
+    });
+    // Breaks after the scales (a log scale rejects them); percent gaps follow each axis' data
+    const axisBreaks: NonNullable<ChartPresentation['axisBreaks']> = [];
+    yAxisOpts.forEach(([name, a], k) => {
+      // Axes no series uses do not exist in the engine
+      if (!a?.breaks?.length || (k >= 1 && !seriesAxes?.includes(k))) return;
+      const onAxis = seriesList.filter((_, i) => (seriesAxes ? seriesAxes[i] : 0) === k).map((s) => numericSamples(s.values));
+      const entry = this.sendAxisBreaks(yAxisCode(k), k < 2 ? name : String(k), a, breakExtent(onAxis));
+      if (entry) axisBreaks.push(entry);
+    });
+    if (axisBreaks.length) this.chartPresentation.axisBreaks = axisBreaks;
     const y = options?.axes?.y;
-    if (y && (y.min !== undefined || y.max !== undefined || y.autoscale !== undefined || y.nice !== undefined)) {
+    if (y && hasDomainOptions(y)) {
       this.setYDomain({ min: y.min, max: y.max, autoscale: y.autoscale, nice: y.nice });
     }
-    const y2 = seriesAxes ? options?.axes?.y2 : undefined;
-    if (y2 && (y2.min !== undefined || y2.max !== undefined || y2.autoscale !== undefined || y2.nice !== undefined)) {
+    const y2 = hasY2 ? options?.axes?.y2 : undefined;
+    if (y2 && hasDomainOptions(y2)) {
       this.setY2Domain({ min: y2.min, max: y2.max, autoscale: y2.autoscale, nice: y2.nice });
     }
     this.applyChartPadding(this.chartPresentation, legend.show, options?.padding);
@@ -7332,6 +7496,11 @@ export class Charturbo {
     items: BarChartItemDescriptor[],
     options?: BarChartOptions
   ): { barCount: number } {
+    const valueName = options?.orientation === 'horizontal' ? 'x' : 'y';
+    validateBreaks(options?.axes?.[valueName]?.breaks, `renderBarChart: axes.${valueName}`, false);
+    if (options?.axes?.[valueName]?.breaks?.length && items.some((it) => it.error != null)) {
+      throw new Error(`renderBarChart: axes.${valueName}: breaks do not support error bars`);
+    }
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7380,6 +7549,8 @@ export class Charturbo {
     );
     const barStyle = viewMode === '2d' ? this.initBarStyle(options, encodeErrors([items.map((it) => it.error)], n)) : undefined;
     const barBackground = viewMode === '2d' ? this.initBarBackground(options) : undefined;
+    // Value-axis breaks (2D; the engine's value axis is 1 in either orientation)
+    const breaks = viewMode === '2d' ? this.sendAxisBreaks(1, valueName, options?.axes?.[valueName], breakExtent([values], true)) : null;
     this.chartHover = options?.hover;
     this.chartGrid = options?.grid;
     this.chartGridShown = viewMode === '2d';
@@ -7424,6 +7595,7 @@ export class Charturbo {
       ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, {}, n),
       legend: { show: legendShown, toggle: false, emphasize: false, position: legendOpt.position, overflow: legendOpt.overflow },
       navigable: false,
+      ...(breaks ? { axisBreaks: [breaks] } : {}),
     };
     this.syncBarLabels();
     this.applyChartPadding(this.chartPresentation, legendShown, {
@@ -7573,6 +7745,11 @@ export class Charturbo {
     data: GroupedBarChartData,
     options?: GroupedBarChartOptions
   ): { barCount: number; seriesCount: number; categoryCount: number } {
+    const valueName = options?.orientation === 'horizontal' ? 'x' : 'y';
+    validateBreaks(options?.axes?.[valueName]?.breaks, `renderGroupedBarChart: axes.${valueName}`, false);
+    if (options?.axes?.[valueName]?.breaks?.length && data.series?.some((s) => s.error != null)) {
+      throw new Error(`renderGroupedBarChart: axes.${valueName}: breaks do not support error bars`);
+    }
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7615,6 +7792,24 @@ export class Charturbo {
     );
     const barStyle = flat ? this.initBarStyle(options, encodeErrors(seriesList.map((series) => series.error), n)) : undefined;
     const barBackground = flat ? this.initBarBackground(options) : undefined;
+    // Value-axis breaks (2D): percent of the stacked / percent extent
+    const stackExtent = (): [number, number] => {
+      let lo = 0;
+      let hi = 0;
+      for (let i = 0; i < n; i++) {
+        let pos = 0;
+        let neg = 0;
+        for (let k = 0; k < s; k++) {
+          const v = values[k * n + i];
+          if (Number.isFinite(v)) v >= 0 ? (pos += v) : (neg += v);
+        }
+        hi = Math.max(hi, pos);
+        lo = Math.min(lo, neg);
+      }
+      return [lo, hi];
+    };
+    const extent = mode === 'percent' ? ([0, 100] as [number, number]) : mode === 'stacked' ? stackExtent() : breakExtent([values], true);
+    const breaks = flat ? this.sendAxisBreaks(1, valueName, options?.axes?.[valueName], extent) : null;
     this.chartHover = options?.hover;
     this.chartGrid = options?.grid;
     this.chartGridShown = flat;
@@ -7651,6 +7846,7 @@ export class Charturbo {
       ...this.barAxes(flat, barStyle, options?.axes ?? {}, category, percentAxis, n),
       legend,
       navigable: false,
+      ...(breaks ? { axisBreaks: [breaks] } : {}),
     };
     this.syncBarLabels();
     this.applyChartPadding(this.chartPresentation, legend.show, {
@@ -7668,6 +7864,10 @@ export class Charturbo {
    */
   renderScatterChart(data: ScatterChartData, options?: ScatterChartOptions): { pointCount: number; trendlines: ScatterTrendlineFit[] } {
     const trendlines = checkTrendlines(options?.trendline, 'renderScatterChart');
+    for (const name of ['x', 'y'] as const) {
+      const a = options?.axes?.[name];
+      validateBreaks(a?.breaks, `renderScatterChart: axes.${name}`, a?.scale === 'log');
+    }
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7771,6 +7971,11 @@ export class Charturbo {
       formatX: (v) => (formatScatterX ? formatScatterX(v) : formatTickValue(v, this.chartLocale())),
     };
     this.applyAxisScales({ x: options?.axes?.x, y: options?.axes?.y });
+    const breaks = [
+      this.sendAxisBreaks(0, 'x', options?.axes?.x, breakExtent([xs])),
+      this.sendAxisBreaks(1, 'y', options?.axes?.y, breakExtent([ys])),
+    ].filter((b) => b !== null);
+    if (breaks.length) this.chartPresentation.axisBreaks = breaks;
     this.applyChartPadding(this.chartPresentation, legend.show, options?.padding);
     this.rebuildChartOverlay();
     return { pointCount: n, trendlines: fits };
@@ -8042,6 +8247,7 @@ export class Charturbo {
   ): { barCount: number } {
     const fn = 'renderPictorialBarChart';
     if (options?.viewMode === '3d') throw new Error(`${fn}: pictorial bars are 2D only`);
+    if (options?.axes?.x?.breaks?.length || options?.axes?.y?.breaks?.length) throw new Error(`${fn}: axis breaks are not supported on pictorial bars`);
     const { set_chart_bar_pictorial: setPictorial, pictorial_symbol_valid: symbolValid } = this.backend;
     if (!setPictorial || !symbolValid) {
       throw new Error(`${fn}: the engine has no pictorial bar support (set_chart_bar_pictorial); rebuild the wasm`);
@@ -8649,13 +8855,14 @@ export class Charturbo {
   ): { seriesCount: number; categoryCount: number; pointCount: number } {
     const fn = 'renderComboChart';
     if (options?.timeZone !== undefined) validateTimeZone(options.timeZone);
+    // Validates series axes / breaks before the current scene is cleared
+    const enc = encodeCombo(data, options, this.theme.palette, this.theme.baseline, fn);
     this.clearScene();
     this.clearSelection();
     this.setRigidPhysics(false);
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
 
-    const enc = encodeCombo(data, options, this.theme.palette, this.theme.baseline, fn);
     const s = enc.names.length;
     if (enc.n === 0 || s === 0) return { seriesCount: 0, categoryCount: 0, pointCount: 0 };
     const pointCount =
@@ -8691,12 +8898,38 @@ export class Charturbo {
     const barAxis = meta.axes[meta.types.indexOf('bar')];
     const percent: ChartAxisOptions = barMode === 'percent' ? { format: (v) => `${formatTickValue(v, locale())}%` } : {};
     const hasRight = meta.axes.includes(1);
+    const extraY = (options?.axes?.extraY ?? []).slice(0, 6).map((a, i) => (barAxis === i + 2 ? { ...percent, ...a } : a));
+    // Breaks of every drawn y axis; extents: the axis' series (bars / areas from 0, stacked sums)
+    const yOpts = [options?.axes?.y, options?.axes?.y2, ...extraY];
+    const axisBreaks: NonNullable<ChartPresentation['axisBreaks']> = [];
+    yOpts.forEach((a, k) => {
+      if (!a?.breaks?.length || !meta.axes.includes(k)) return;
+      const on = meta.values.filter((_, j) => meta.axes[j] === k);
+      const fromZero = meta.types.some((t, j) => meta.axes[j] === k && t !== 'line');
+      let extent = breakExtent(on, fromZero);
+      if (barAxis === k && barMode === 'percent') extent = [0, 100];
+      else if (barAxis === k && barMode === 'stacked') {
+        const bars = meta.values.filter((_, j) => meta.types[j] === 'bar');
+        const sums = [0, 0];
+        for (let i = 0; i < enc.n; i++) {
+          let pos = 0;
+          let neg = 0;
+          for (const v of bars) if (Number.isFinite(v[i])) v[i] >= 0 ? (pos += v[i]) : (neg += v[i]);
+          sums.push(pos, neg);
+        }
+        extent = breakExtent([on.flatMap((v) => Array.from(v)), sums], true);
+      }
+      const entry = this.sendAxisBreaks(yAxisCode(k), k === 0 ? 'y' : k === 1 ? 'y2' : String(k), a, extent);
+      if (entry) axisBreaks.push(entry);
+    });
     this.chartPresentation = {
       title: options?.title,
       description: options?.description,
       xAxis: xAxisOpt,
       yAxis: { ...(barAxis === 0 ? percent : {}), ...(options?.axes?.y ?? {}) },
       ...(hasRight ? { y2Axis: { ...(barAxis === 1 ? percent : {}), ...(options?.axes?.y2 ?? {}) } } : {}),
+      ...(extraY.length ? { extraY } : {}),
+      ...(axisBreaks.length ? { axisBreaks } : {}),
       legend,
       navigable: true,
       formatX: (v, g) =>
@@ -8706,6 +8939,12 @@ export class Charturbo {
       locale: options?.locale,
       timeZone: options?.timeZone,
     };
+    if (meta.axes.some((a) => a !== 0)) {
+      // Multi-axis: tooltips format each value like its (drawn) axis
+      const p = this.chartPresentation;
+      const axisFormats = [p.yAxis, p.y2Axis, ...extraY].map((a) => resolveFormatLive(a?.format, locale));
+      meta.seriesFormats = meta.axes.map((k) => axisFormats[k]);
+    }
     this.applyChartPadding(this.chartPresentation, legend.show, options?.padding);
     this.rebuildChartOverlay();
     return { seriesCount: s, categoryCount: enc.n, pointCount };

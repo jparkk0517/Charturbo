@@ -260,6 +260,21 @@ describe('Chart tooltip options and format specs (SDK)', () => {
     ).toThrow(TypeError);
   });
 
+  it('multi-axis line charts format each tooltip value with its own axis format', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));
+    sdk.setLocale('en-US');
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    sdk.renderLineChart([SERIES[0], { ...SERIES[1], yAxisIndex: 1 }, { ...SERIES[2], yAxisIndex: 2 }], {
+      axes: { y2: { format: (v) => `${v} mm` }, extraY: [{ format: '.1f' }] },
+    });
+    canvas.fire('pointermove', mouse(100));
+    const html = tooltipOf().innerHTML;
+    expect(html).toContain('>20<');
+    expect(html).toContain('5 mm');
+    expect(html).toContain('40.0');
+  });
+
   it('valueFormatter formats default tooltip values; formatChartTooltip still wins', () => {
     const calls: Calls = {};
     const sdk = Charturbo.fromBackend(mockBackend(calls, () => HIT_AT_1, () => new Float64Array(0)));

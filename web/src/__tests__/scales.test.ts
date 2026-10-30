@@ -121,6 +121,8 @@ function mockBackend(calls: Calls, axes: () => Float64Array = () => new Float64A
     set_chart_y2_domain: record('set_chart_y2_domain'),
     chart_y2_domain: () => new Float64Array([1, 1000, 0]),
     set_chart_series_axes: record('set_chart_series_axes'),
+    set_chart_y_axis_at: record('set_chart_y_axis_at'),
+    set_chart_axis_breaks: record('set_chart_axis_breaks', true),
     set_chart_axis_scale: (axis: number, kind: number, reverse: boolean, ticks: number) => {
       (calls.set_chart_axis_scale ??= []).push([axis, kind, reverse, ticks]);
       scales.set(axis, [kind, reverse, ticks]);
@@ -167,7 +169,7 @@ function mockBackend(calls: Calls, axes: () => Float64Array = () => new Float64A
     set_scene_helpers: () => {},
     set_rigid_physics: () => {},
     set_graph_visible: () => {},
-    clear_scene_objects: () => {},
+    clear_scene_objects: record('clear_scene_objects'),
   };
 }
 
@@ -329,5 +331,158 @@ describe('axis scales and dual y axes in the SDK', () => {
     sdk.addAnnotation({ type: 'hline', y: 500, yAxis: 'right' });
     expect(calls.set_chart_annotations).toHaveLength(2);
     expect(calls.set_chart_annotation_y_axes).toEqual([[new Uint8Array([0, 1])]]);
+  });
+});
+
+describe('multiple y axes and axis breaks in the SDK', () => {
+  let container: FakeEl;
+  let canvas: FakeEl;
+
+  beforeEach(() => {
+    const body = new FakeEl('body');
+    container = new FakeEl('div');
+    canvas = container.appendChild(new FakeEl('canvas'));
+    vi.stubGlobal('document', {
+      body,
+      head: new FakeEl('head'),
+      createElement: (tag: string) => new FakeEl(tag),
+      getElementById: () => null,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const WIND = { name: 'Wind', values: [3, 4, 5], yAxisIndex: 2 };
+  const PRESSURE = { name: 'Pressure', values: [1000, 990, 1010], yAxisIndex: 3 };
+
+  it('extra y axes: series indices, per-axis scale / domain, stacked padding, labels, titles, axis lines', () => {
+    const calls: Calls = {};
+    // Plot 120,40 600x300; ticks: left, right, extra 2 (code 18), extra 3 (code 19); no breaks
+    const axes = () =>
+      new Float64Array([120, 40, 600, 300, 4, 1, 10, 120, 200, 2, 100, 720, 100, 18, 5, 120, 150, 19, 1000, 120, 120, 0, 0, 0, 0, 0]);
+    const sdk = Charturbo.fromBackend(mockBackend(calls, axes));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement);
+    sdk.renderLineChart([TEMP, RAIN, WIND, PRESSURE], {
+      axes: {
+        y2: { title: 'Rain' },
+        extraY: [
+          { title: 'Wind', format: (v) => `${v} m/s`, min: 0, tickCount: 3, color: '#ff0000' },
+          { position: 'left', offset: 8 },
+        ],
+      },
+    });
+    expect(calls.set_chart_series_axes).toEqual([[new Uint8Array([0, 1, 2, 3])]]);
+    // a11y: series per axis on the meta
+    expect((sdk as unknown as { chartMeta: { seriesAxes?: number[] } }).chartMeta.seriesAxes).toEqual([0, 1, 2, 3]);
+    expect(calls.set_chart_axis_scale).toEqual([[18, 0, false, 3]]);
+    expect(calls.set_chart_y_axis_at).toEqual([[2, 0, NaN, 0, true]]);
+    // Left: y (56) + extra 3 (8 + 56); right: y2 (56 + 20) + extra 2 (56 + 20)
+    expect(calls.set_chart_padding.at(-1)).toEqual([40, 152, 30, 120]);
+
+    sdk.render();
+    const ticks = container.querySelectorAll('.charturbo-sdk-axis-tick');
+    expect(ticks.map((t) => t.textContent)).toEqual(['10', '100', '5 m/s', '1,000']);
+    expect([ticks[2].style.left, ticks[2].style.transform, ticks[2].style.color]).toEqual(['804px', 'translate(0, -50%)', 'rgb(255, 0, 0)']);
+    expect([ticks[3].style.left, ticks[3].style.transform]).toEqual(['48px', 'translate(-100%, -50%)']);
+    const titles = container.querySelectorAll('.charturbo-sdk-axis-title');
+    expect(titles.map((t) => t.textContent)).toEqual(['', '', 'Rain', 'Wind', '']);
+    expect(titles[3].style.left).toBe('858px');
+    expect(titles[3].style.color).toBe('rgb(255, 0, 0)');
+    const lines = container.querySelectorAll('.charturbo-sdk-axis-line');
+    // 2px wide: PNG / SVG export keep rects wider than 1px
+    expect(lines.map((l) => l.style.width)).toEqual(['2px', '2px']);
+    expect(lines.map((l) => [l.style.left, l.style.top, l.style.height])).toEqual([
+      ['796px', '40px', '300px'],
+      ['56px', '40px', '300px'],
+    ]);
+  });
+
+  it('sends value-axis breaks with resolved gaps (line y / extra, bar value axis, scatter x)', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
+    const SPIKE = { name: 'Spike', values: [10, 20, 500] };
+    // Kept span 490 - 450 = 40: default gap 2% = 0.8
+    sdk.renderLineChart([SPIKE, { ...WIND, values: [0, 50, 100] }], {
+      axes: { y: { breaks: [{ start: 30, end: 480 }] }, extraY: [{ breaks: [{ start: 10, end: 20, gap: '10%' }] }] },
+    });
+    const flat = (c: unknown[]) => [c[0], ...Array.from(c[1] as Float64Array).map((v) => +v.toFixed(6))];
+    expect(calls.set_chart_axis_breaks.map(flat)).toEqual([
+      [1, 30, 480, 0.8],
+      [18, 10, 20, 9],
+    ]);
+
+    sdk.renderBarChart(
+      [
+        { label: 'a', value: 10 },
+        { label: 'b', value: 500 },
+      ],
+      { axes: { y: { breaks: [{ start: 30, end: 480, gap: 5 }] } } }
+    );
+    expect(flat(calls.set_chart_axis_breaks.at(-1)!)).toEqual([1, 30, 480, 5]);
+    // Horizontal bars: `axes.x` is the value axis
+    sdk.renderBarChart([{ label: 'a', value: 500 }], { orientation: 'horizontal', axes: { x: { breaks: [{ start: 30, end: 480, gap: 4 }] } } });
+    expect(flat(calls.set_chart_axis_breaks.at(-1)!)).toEqual([1, 30, 480, 4]);
+
+    sdk.renderScatterChart({ x: [1, 2, 100], y: [3, 2, 1] }, { axes: { x: { breaks: [{ start: 5, end: 90, gap: 1 }] } } });
+    expect(flat(calls.set_chart_axis_breaks.at(-1)!)).toEqual([0, 5, 90, 1]);
+    // Breaks of an extra axis no series uses are skipped (the engine has no such axis)
+    const before = calls.set_chart_axis_breaks.length;
+    sdk.renderLineChart([SPIKE, { ...WIND, values: [0, 50, 100] }], {
+      axes: { extraY: [{}, { breaks: [{ start: 10, end: 50 }] }] },
+    });
+    expect(calls.set_chart_axis_breaks).toHaveLength(before);
+    // Charts without breaks never call the engine
+    const n = calls.set_chart_axis_breaks.length;
+    sdk.renderLineChart([SPIKE]);
+    sdk.renderBarChart([{ label: 'a', value: 1 }]);
+    expect(calls.set_chart_axis_breaks).toHaveLength(n);
+  });
+
+  it('validates breaks and yAxisIndex before clearing the current chart', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
+    sdk.renderLineChart([TEMP]);
+    const cleared = calls.clear_scene_objects.length;
+    expect(() => sdk.renderLineChart([TEMP], { axes: { y: { breaks: [{ start: 5, end: 1 }] } } })).toThrow(/renderLineChart: axes\.y: break 0/);
+    expect(() => sdk.renderLineChart([TEMP], { axes: { y: { scale: 'log', breaks: [{ start: 1, end: 5 }] } } })).toThrow(/linear/);
+    expect(() => sdk.renderLineChart([TEMP, WIND])).toThrow(/series 1 yAxisIndex 2/);
+    expect(() =>
+      sdk.renderLineChart([TEMP], { axes: { extraY: [{ breaks: [{ start: 1, end: 3 }, { start: 2, end: 4 }] }] } })
+    ).toThrow(/axes\.extraY\[0\]: breaks overlap/);
+    expect(() => sdk.renderBarChart([{ label: 'a', value: 1 }], { axes: { y: { breaks: [{ start: 1, end: NaN }] } } })).toThrow(
+      /renderBarChart: axes\.y/
+    );
+    // Error bars are drawn in linear data units: not combinable with breaks yet
+    expect(() =>
+      sdk.renderBarChart([{ label: 'a', value: 1, error: 0.5 }], { axes: { y: { breaks: [{ start: 2, end: 3 }] } } })
+    ).toThrow(/renderBarChart: axes\.y: breaks do not support error bars/);
+    expect(() =>
+      sdk.renderGroupedBarChart(
+        { categories: ['a'], series: [{ name: 's', values: [1], error: [0.5] }] },
+        { axes: { y: { breaks: [{ start: 2, end: 3 }] } } }
+      )
+    ).toThrow(/renderGroupedBarChart: axes\.y: breaks do not support error bars/);
+    expect(() => sdk.renderScatterChart({ x: [1], y: [1] }, { axes: { x: { scale: 'log', breaks: [{ start: 1, end: 2 }] } } })).toThrow(
+      /renderScatterChart: axes\.x: breaks need a linear scale/
+    );
+    expect(calls.clear_scene_objects).toHaveLength(cleared);
+    expect(calls.set_line_chart).toHaveLength(1);
+    expect(calls.set_bar_chart).toBeUndefined();
+    expect(calls.set_scatter_chart).toBeUndefined();
+  });
+
+  it('setAxisScale rejects log on an axis with breaks', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls));
+    sdk.renderLineChart([TEMP, RAIN], { axes: { y: { breaks: [{ start: 1, end: 5 }] } } });
+    const n = calls.set_chart_axis_scale?.length ?? 0;
+    expect(() => sdk.setAxisScale('y', { scale: 'log' })).toThrow(/setAxisScale: axes\.y: breaks need a linear scale/);
+    expect(calls.set_chart_axis_scale?.length ?? 0).toBe(n);
+    // Other options and axes without breaks still apply
+    sdk.setAxisScale('y', { reverse: true });
+    sdk.setAxisScale('y2', { scale: 'log' });
+    expect(calls.set_chart_axis_scale).toHaveLength(n + 2);
   });
 });

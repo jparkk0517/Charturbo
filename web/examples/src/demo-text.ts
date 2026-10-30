@@ -41,6 +41,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '픽토리얼 막대', description: 'renderPictorialBarChart: 막대를 심볼로 그립니다. 그림자 트랙 위에서 값에서 잘리는 반복 사각형, 늘린 path:// 아이콘, 가로 막대를 따라 반복되는 사람 아이콘.' },
     zh: { title: '象形柱图', description: 'renderPictorialBarChart：用符号绘制柱子。阴影轨道上在数值处裁剪的重复矩形、拉伸的 path:// 图标，以及沿条形重复的人形图标。' },
   },
+  'bar/07-axis-break': {
+    ko: { title: '이상치를 위한 축 끊김', description: '이상치 하나가 다른 막대를 납작하게 만듭니다. 값 축 끊김이 40–430 구간을 접어 둘 다 읽을 수 있게 하고, 플롯 전체에 끊김 표시를 그립니다.' },
+    zh: { title: '为离群值设置坐标轴断裂', description: '一个离群值会压扁其他所有柱子。数值轴断裂折叠 40–430 区间，使两者都清晰可读，并在整个绘图区标出断裂。' },
+  },
   'box/01-boxplot': {
     ko: { title: '상자 그림', description: 'Rust에서 정렬 없이 선택 알고리즘으로 사분위수를 구하고, Tukey 수염, 샘플링된 이상값, 평균 마커를 표시합니다.' },
     zh: { title: '箱线图', description: '在 Rust 中通过选择算法（无需排序）计算四分位数，并显示 Tukey 须线、抽样异常值和均值标记。' },
@@ -92,6 +96,10 @@ const DEMO_TEXT: Record<string, Entry> = {
   'combo/01-combo': {
     ko: { title: '막대 + 영역 + 선(오른쪽 축)', description: '시리즈가 하나의 x 매핑을 공유하므로 선의 점은 각 막대 칸의 가운데에 놓입니다. 툴팁 하나에 모든 시리즈를 표시합니다.' },
     zh: { title: '柱状 + 面积 + 折线（右轴）', description: '各系列共享同一 x 映射：折线点位于每个柱槽的中心。一个提示框显示所有系列。' },
+  },
+  'combo/02-multi-axis': {
+    ko: { title: 'Y축 3개 (금융)', description: '거래량 막대는 왼쪽 축, 가격은 오른쪽 축, RSI는 0–100 고정 범위의 추가 왼쪽 축에 표시됩니다(`axes.extraY`, 시리즈 `yAxisIndex: 2`).' },
+    zh: { title: '三个 Y 轴（金融）', description: '成交量柱位于左轴，价格位于右轴，RSI 位于固定 0–100 范围的附加左轴（`axes.extraY`，系列 `yAxisIndex: 2`）。' },
   },
   'embeddings/01-similarity': {
     ko: { title: '1536차원 임베딩 → 3D, 코사인 k-NN', description: '문서 임베딩(합성 데이터, 주제 8개)을 Rust에서 3D로 투영하고 최근접 이웃과 연결합니다. 점을 클릭하면 원래 1536차원에서 정확한 코사인 유사도로 가장 비슷한 문서 5개를 계산합니다.' },
@@ -220,6 +228,14 @@ const DEMO_TEXT: Record<string, Entry> = {
   'line/13-theme-river': {
     ko: { title: '테마 리버 (스트림 그래프)', description: '[날짜, 값, 이름] 행이 흔들림을 최소화한 기준선(d3 stackOffsetWiggle) 둘레의 스트림이 됩니다. 호버하면 그 날짜의 모든 스트림을 나열하고 포인터 아래 스트림을 강조합니다. 범례를 토글하면 기준선을 다시 계산합니다.' },
     zh: { title: '主题河流图（流图）', description: '[日期, 数值, 名称] 行围绕最小摆动基线（d3 stackOffsetWiggle）组成河流。悬停时列出该日期的所有河流并突出指针下的河流；切换图例会重新计算基线。' },
+  },
+  'line/14-multi-axis': {
+    ko: { title: 'Y축 3개 (날씨)', description: '시리즈는 `yAxisIndex`로 축에 연결됩니다: 기온은 왼쪽, 강수량은 오른쪽, 기압은 색이 있는 추가 축. 축마다 따로 스케일되고, 툴팁은 축별 형식으로 값을 표시합니다.' },
+    zh: { title: '三个 Y 轴（天气）', description: '系列通过 `yAxisIndex` 绑定坐标轴：气温在左，降雨在右，气压在带颜色的附加轴上。每个轴独立缩放；提示框按各自轴的格式显示数值。' },
+  },
+  'line/15-axis-break': {
+    ko: { title: '끊긴 Y축', description: '두 개의 `breaks`가 빈 값 구간을 지그재그 표시가 있는 작은 간격으로 접습니다. 눈금은 접힌 구간을 건너뛰고, 호버·확대·내보내기도 같은 매핑을 사용합니다.' },
+    zh: { title: '断裂的 Y 轴', description: '两个 `breaks` 将空的数值区间折叠为带锯齿标记的小间隙。刻度跳过折叠区间；悬停、缩放和导出使用同一映射。' },
   },
   'pie/01-pie': {
     ko: { title: '바깥 레이블이 있는 파이', description: '정렬, 작은 조각을 "기타" 하나로 묶기, 각도, 지시선 배치를 Rust에서 계산합니다. 호버하면 조각이 튀어나옵니다.' },

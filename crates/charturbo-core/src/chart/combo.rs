@@ -15,7 +15,10 @@
 //! items, a11y) are the combo order; data point ids are `series * categories + category`.
 
 use super::bar::{BarChart, BarMode, BarSeriesLayout};
-use super::line::{y_domain, LineChart, LodWindow, DIMMED_SERIES_ALPHA};
+use super::axis_break::AxisBreaks;
+use super::line::{LineChart, LodWindow, DIMMED_SERIES_ALPHA};
+use super::multi_axis::{y_axis_code, MAX_Y_AXES};
+use super::scale::linear_y_domain;
 use super::linestyle::{apply_curve, CurveScratch, LineCurve, Path, StyleCtx};
 use super::time_zone::TimeZone;
 use super::*;
@@ -137,10 +140,9 @@ pub(crate) struct ComboChart {
     /// Raw bar value extent (stacked sums, zero included) before mapping onto `bar_axis`
     bar_extent: (f32, f32),
     pub(crate) fill_opacity: f32,
-    /// Domain options of the left / right y axis (`autoscale` is ignored: domains are fixed)
-    pub(crate) y_axes: [LineYAxis; 2],
-    /// Any series on the right axis
-    pub(crate) has_right: bool,
+    /// Domain options of the left / right / extra y axes (`autoscale` is ignored: domains are
+    /// fixed); at least 2
+    pub(crate) y_axes: Vec<LineYAxis>,
 }
 
 /// Smallest positive gap between consecutive `xs` (1 without any).
@@ -178,14 +180,16 @@ fn bar_extent(values: &[f32], n: usize, mode: BarMode) -> (f32, f32) {
 
 impl ComboChart {
     /// Expects input accepted by `validate_combo`.
-    pub(crate) fn new(series: Vec<ComboSeries>, x: Option<Vec<f64>>, layout: ComboLayout, y_axes: [LineYAxis; 2]) -> Self {
+    pub(crate) fn new(series: Vec<ComboSeries>, x: Option<Vec<f64>>, layout: ComboLayout, y_axes: &[LineYAxis]) -> Self {
         let n = series.first().map_or(0, |s| s.values.len()).max(1);
         let categorical = x.is_none();
         let xs = x.unwrap_or_else(|| (0..n).map(|i| i as f64).collect());
         let gap = if categorical { 1.0 } else { min_gap(&xs) };
         // Bars share the first bar series' axis; then a right axis needs a left one: all-right
         // input moves to the left
-        let mut axes: Vec<u8> = series.iter().map(|s| u8::from(s.axis == 1)).collect();
+        // Axes 2.. need options (`y_axes`); unknown axes fall back to the left one
+        let n_axes = y_axes.len().clamp(2, MAX_Y_AXES);
+        let mut axes: Vec<u8> = series.iter().map(|s| if (s.axis as usize) < n_axes { s.axis } else { 0 }).collect();
         let mut bar_axis = series.iter().zip(&axes).find(|(s, _)| s.kind == ComboSeriesKind::Bar).map_or(0, |(_, &a)| a);
         for (a, s) in axes.iter_mut().zip(&series) {
             if s.kind == ComboSeriesKind::Bar {
@@ -222,6 +226,9 @@ impl ComboChart {
         }
         let line_layout = LineLayout { width: layout.width, height: layout.height, view: ChartViewMode::Flat, x_kind: layout.x_kind };
         let mut line = LineChart::new(lines, line_layout);
+        if let Some(&k) = axes.iter().max() {
+            line.ensure_axis(k);
+        }
         line.series_axis = line_axes;
         if placeholder {
             line.visible[0] = false;
@@ -243,8 +250,7 @@ impl ComboChart {
             bar_axis,
             bar_extent: (0.0, 0.0),
             fill_opacity: if layout.fill_opacity.is_finite() { layout.fill_opacity.clamp(0.0, 1.0) } else { 0.2 },
-            y_axes: y_axes.map(|a| LineYAxis { autoscale: YAutoscale::None, ..a }),
-            has_right: axes.contains(&1),
+            y_axes: (0..n_axes).map(|k| LineYAxis { autoscale: YAutoscale::None, ..y_axes.get(k).copied().unwrap_or_default() }).collect(),
         };
         if !bar_colors.is_empty() {
             let count = bar_colors.len();
@@ -274,7 +280,7 @@ impl ComboChart {
     /// Re-derives both y domains (tick target / options) and maps the bars onto theirs.
     pub(crate) fn update_domains(&mut self) {
         let target = self.line.tick_target;
-        for k in 0..2u8 {
+        for k in 0..self.line.y_axis_count() {
             let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
             for slot in &self.slots {
                 let (a, b) = match slot.kind {
@@ -299,11 +305,13 @@ impl ComboChart {
             if lo > hi {
                 (lo, hi) = (0.0, 1.0);
             }
-            let axis = self.y_axes[k as usize];
-            let (mut a, mut b, mut step) = y_domain(lo as f64, hi as f64, &axis, target);
-            // Bars grow from zero: their axis always shows it
-            if bars && (a > 0.0 || b < 0.0) {
-                (a, b) = (a.min(0.0), b.max(0.0));
+            let axis = self.y_axes.get(k as usize).copied().unwrap_or_default();
+            let scale = self.line.scale_of_axis(k);
+            let (mut a, mut b, mut step) = linear_y_domain(lo as f64, hi as f64, &axis, target, &scale);
+            // Bars grow from zero: their axis always shows it (compressed zero under breaks)
+            let zero = scale.fwd(0.0);
+            if bars && (a > zero || b < zero) {
+                (a, b) = (a.min(zero), b.max(zero));
                 step = nice_step(b - a, target);
             }
             let (y_min, y_span) = (a as f32, ((b - a) as f32).max(1e-6));
@@ -312,21 +320,17 @@ impl ComboChart {
             let l = &mut self.line;
             if k == 0 {
                 (l.y_min, l.y_span, l.y_step, l.y_axis) = (y_min, y_span, step, fixed);
-            } else {
-                (l.right.y_min, l.right.y_span, l.right.y_step, l.right.axis) = (y_min, y_span, step, fixed);
-                (l.right.data_min, l.right.data_max) = (lo, hi);
-            }
-            if k == 0 {
                 (l.data_min, l.data_max) = (lo, hi);
+            } else {
+                let r = l.rec_mut(k);
+                (r.y_min, r.y_span, r.y_step, r.axis) = (y_min, y_span, step, fixed);
+                (r.data_min, r.data_max) = (lo, hi);
             }
         }
         if let Some(b) = self.bars.as_mut() {
-            let (min, span, step) = if self.bar_axis == 0 {
-                (self.line.y_min, self.line.y_span, self.line.y_step)
-            } else {
-                let r = &self.line.right;
-                (r.y_min, r.y_span, r.y_step)
-            };
+            let (min, span, step) = self.line.dom(self.bar_axis);
+            // Bars follow their axis' breaks (not its log / reverse: combo axes are linear)
+            b.vscale.breaks = self.line.scale_of_axis(self.bar_axis).breaks;
             let h = self.line.layout.height;
             b.v_min = min;
             b.v_max = min + span;
@@ -590,7 +594,7 @@ impl ComboChart {
     /// World y of zero on y axis `axis`, clamped into its domain.
     fn baseline_y(&self, axis: u8) -> f32 {
         let l = &self.line;
-        let (min, span) = if axis == 0 { (l.y_min, l.y_span) } else { (l.right.y_min, l.right.y_span) };
+        let (min, span, _) = l.dom(axis);
         l.y_of_axis(axis, 0.0f32.clamp(min, min + span))
     }
 
@@ -647,11 +651,13 @@ impl ComboChart {
             return;
         }
         let half_w = l.layout.width * 0.5;
-        // Bars alone on the right axis: the line chart has no right series to tick it
-        if self.has_right && !l.has_right() {
-            for v in l.y_ticks(1) {
-                if let Some((_, y)) = view.project_css(Vec3::new(half_w, l.y_of_axis(1, v as f32), 0.0)) {
-                    out.ticks.push(AxisTick { axis: 2, value: v, x_css: plot[0] + plot[2], y_css: y, granularity: 0 });
+        // Bars alone on the right / an extra axis: the line chart has no series to tick it
+        let k = self.bar_axis;
+        if self.bars.is_some() && k > 0 && !l.uses_axis(k) {
+            let (x, x_css) = if k == 1 { (half_w, plot[0] + plot[2]) } else { (-half_w, plot[0]) };
+            for v in l.y_ticks(k) {
+                if let Some((_, y)) = view.project_css(Vec3::new(x, l.y_of_axis(k, v as f32), 0.0)) {
+                    out.ticks.push(AxisTick { axis: y_axis_code(k), value: v, x_css, y_css: y, granularity: 0 });
                 }
             }
         }
@@ -732,10 +738,10 @@ impl ChartState {
         series: Vec<ComboSeries>,
         x: Option<Vec<f64>>,
         layout: ComboLayout,
-        y_axes: [LineYAxis; 2],
+        y_axes: impl AsRef<[LineYAxis]>,
     ) -> Result<Self, String> {
         validate_combo(&series, x.as_deref())?;
-        Ok(Self::with_kind(ChartKind::Combo(Box::new(ComboChart::new(series, x, layout, y_axes)))))
+        Ok(Self::with_kind(ChartKind::Combo(Box::new(ComboChart::new(series, x, layout, y_axes.as_ref())))))
     }
 
     /// Kind and y axis of each combo series (`None` for other charts).
@@ -744,15 +750,34 @@ impl ChartState {
         Some((0..c.len()).map(|s| (c.slots[s].kind, c.axis_of(s))).collect())
     }
 
-    /// `(min, max)` of the left (`axis` 0) or right (1) y domain of a combo chart; `None` when
-    /// no series uses that axis.
+    /// `(min, max)` of the left (`axis` 0), right (1) or extra (2..) y domain of a combo chart;
+    /// `None` when no series uses that axis.
     pub fn combo_y_domain(&self, axis: u8) -> Option<(f64, f64)> {
         let ChartKind::Combo(c) = &self.kind else { return None };
-        if axis == 1 && !c.has_right {
+        if axis >= 1 && !(0..c.len()).any(|s| c.axis_of(s) == axis) {
             return None;
         }
-        let (min, max, _) = c.line.domain_data(axis.min(1));
+        let (min, max, _) = c.line.domain_data(axis);
         Some((min, max))
+    }
+
+    /// Breaks of combo y axis `k` (bars follow their axis); true when they changed.
+    pub(crate) fn set_combo_breaks(&mut self, k: u8, breaks: AxisBreaks) -> bool {
+        let ChartKind::Combo(c) = &mut self.kind else { return false };
+        if k >= c.line.y_axis_count() || c.line.scale_of_axis(k).breaks == breaks {
+            return false;
+        }
+        if k == 0 {
+            c.line.y_scale.breaks = breaks;
+        } else {
+            c.line.rec_mut(k).scale.breaks = breaks;
+        }
+        c.update_domains();
+        self.hover = None;
+        self.lod = None;
+        self.dirty.overlay = true;
+        self.on_y_domain_changed();
+        true
     }
 
     /// Builds the combo layers (called from `prepare_layers`): strokes / markers and area fills

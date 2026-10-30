@@ -3,6 +3,7 @@
  * 2D line charts. The engine maps values, builds ticks / gridlines and hit-tests in scale space
  * (crates/charturbo-core/src/chart/scale.rs); this module only encodes the options for it.
  */
+import { seriesAxisIndex } from './chart-axes';
 
 /** Value scale of an axis. `'log'`: log10, decade ticks; zero / negative values are not drawn. */
 export type ChartScaleType = 'linear' | 'log';
@@ -40,8 +41,11 @@ export function decodeScale(a: Float64Array | undefined): Required<ChartScaleOpt
   return { scale: a[0] === 1 ? 'log' : 'linear', reverse: a[1] === 1, tickCount: a[2] };
 }
 
-/** Per-series y axis codes (0 = left, 1 = right), or null when every series uses the left axis. */
-export function encodeSeriesAxes(series: readonly { yAxis?: 'left' | 'right' }[]): Uint8Array | null {
-  if (!series.some((s) => s.yAxis === 'right')) return null;
-  return Uint8Array.from(series, (s) => (s.yAxis === 'right' ? 1 : 0));
+/**
+ * Per-series y axis indices (0 = left, 1 = right, 2.. = extra; `yAxisIndex` wins over `yAxis`),
+ * or null when every series uses the left axis.
+ */
+export function encodeSeriesAxes(series: readonly { yAxis?: 'left' | 'right'; yAxisIndex?: number }[]): Uint8Array | null {
+  const axes = Uint8Array.from(series, (s) => seriesAxisIndex(s));
+  return axes.some((a) => a !== 0) ? axes : null;
 }

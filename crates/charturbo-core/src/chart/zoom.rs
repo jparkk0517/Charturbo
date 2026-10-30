@@ -11,6 +11,7 @@
 
 use super::area::AreaChart;
 use super::line::LineChart;
+use super::multi_axis::MAX_Y_AXES;
 use super::*;
 
 /// Undo steps kept by the zoom history.
@@ -25,7 +26,7 @@ const Y_ZOOM_MAX_SPAN: f64 = 1e3;
 pub(crate) struct ZoomState {
     x: (f32, f32),
     y: (f32, f32),
-    y_zoom: Option<[(f64, f64); 2]>,
+    y_zoom: Option<[(f64, f64); MAX_Y_AXES]>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,11 +43,7 @@ impl LineChart {
         // Log axes tick by decade (step unused), linear ones by a nice step of the window
         let step = if scale.is_log() { 0.0 } else { nice_step(span, scale.target(self.tick_target)) };
         let (y_min, y_span) = (lo as f32, (span as f32).max(1e-6));
-        let slot = if k == 0 {
-            (&mut self.y_min, &mut self.y_span, &mut self.y_step)
-        } else {
-            (&mut self.right.y_min, &mut self.right.y_span, &mut self.right.y_step)
-        };
+        let slot = self.dom_mut(k);
         if (*slot.0, *slot.1, *slot.2) == (y_min, y_span, step) {
             return false;
         }
@@ -56,13 +53,13 @@ impl LineChart {
 
     /// Current scale-space `(lo, hi)` of y axis `k`.
     fn y_window_u(&self, k: u8) -> (f64, f64) {
-        let (min, span) = if k == 0 { (self.y_min, self.y_span) } else { (self.right.y_min, self.right.y_span) };
+        let (min, span) = if k == 0 { (self.y_min, self.y_span) } else { (self.rec(k).y_min, self.rec(k).y_span) };
         (min as f64, (min + span) as f64)
     }
 
     /// Scale-space extent of the data on axis `k` (zoom limits; flat data: its magnitude).
     fn y_data_span_u(&self, k: u8) -> f64 {
-        let (lo, hi) = if k == 0 { (self.data_min, self.data_max) } else { (self.right.data_min, self.right.data_max) };
+        let (lo, hi) = self.data_extent(k);
         let scale = self.scale_of_axis(k);
         let (a, b) = (scale.fwd(lo as f64), scale.fwd(hi as f64));
         if !a.is_finite() || !b.is_finite() {
@@ -84,8 +81,8 @@ impl LineChart {
             return false;
         }
         let (f0, f1) = (f0.min(f1), f0.max(f1));
-        let mut pin = self.y_zoom.unwrap_or([self.y_window_u(0), self.y_window_u(1)]);
-        for k in 0..2u8 {
+        let mut pin = self.y_zoom.unwrap_or_else(|| std::array::from_fn(|k| self.y_window_u(k as u8)));
+        for k in 0..self.y_axis_count() {
             let (lo, hi) = self.y_window_u(k);
             let (a, b) = (lo + f0 * (hi - lo), lo + f1 * (hi - lo));
             let base = self.y_data_span_u(k);

@@ -136,6 +136,23 @@ describe('chart-a11y text in Korean', () => {
   });
 });
 
+describe('chart-a11y axis breaks and extra axes in Korean / Chinese', () => {
+  const p = pres({
+    extraY: [{ title: 'Latency' }],
+    axisBreaks: [{ axis: 'y', breaks: [{ start: 30, end: 480 }] }],
+  });
+  it('ko', () => {
+    const d = buildChartDescription(buildA11yModel(lineMeta({ seriesAxes: [0, 2] }), p, undefined, 'ko')!);
+    expect(d).toContain('추가 Y축(Latency): Latency.');
+    expect(d).toContain('Y축: 30~480 구간 생략.');
+  });
+  it('zh', () => {
+    const d = buildChartDescription(buildA11yModel(lineMeta({ seriesAxes: [0, 2] }), p, undefined, 'zh-CN')!);
+    expect(d).toContain('附加 Y 轴（Latency）：Latency。');
+    expect(d).toContain('Y 轴：省略 30–480 区间。');
+  });
+});
+
 describe('chart-a11y text in Simplified Chinese', () => {
   it('pie summary, description, announcement, table', () => {
     const m = buildA11yModel(pieMeta, {}, undefined, 'zh-CN')!;

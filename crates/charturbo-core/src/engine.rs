@@ -1,5 +1,5 @@
 use crate::camera::OrbitCamera;
-use crate::chart::AxisScale;
+use crate::chart::{AxisBreaks, AxisScale};
 use crate::chart::{
     empty_chart_layers, AnnotationLabel, AreaMode, AxisLayout, BarLayout, BarSeriesLayout, ChartAnnotation,
     ChartFrameStyle, ChartHoverStyle, ChartPadding,
@@ -841,7 +841,7 @@ impl VisualizationEngine {
         series: Vec<ComboSeries>,
         x: Option<Vec<f64>>,
         layout: ComboLayout,
-        y_axes: [LineYAxis; 2],
+        y_axes: impl AsRef<[LineYAxis]>,
     ) -> Result<usize, String> {
         let chart = ChartState::new_combo(series, x, layout, y_axes)?;
         self.begin_chart();
@@ -1197,7 +1197,25 @@ impl VisualizationEngine {
         self.refresh_chart_hover();
     }
 
-    /// Assigns line series to y axes (0 = left, 1 = right).
+    /// Breaks of one value axis (validated first: an error leaves the chart unchanged). Positions
+    /// move, so the hover is re-picked at the resting pointer.
+    pub fn set_chart_axis_breaks(&mut self, axis: u8, breaks: AxisBreaks) -> Result<bool, String> {
+        let changed = match self.chart.as_mut() {
+            Some(chart) => chart.set_axis_breaks(axis, breaks)?,
+            None => return Err("no chart".into()),
+        };
+        self.refresh_chart_hover();
+        Ok(changed)
+    }
+
+    /// Domain options of y axis `k` (0 = left, 1 = right, 2.. = extra) of a line chart.
+    pub fn set_chart_y_axis_at(&mut self, k: u8, axis: LineYAxis) {
+        if let Some(chart) = self.chart.as_mut() {
+            chart.set_y_axis_at(k, axis);
+        }
+    }
+
+    /// Assigns line series to y axes (0 = left, 1 = right, 2.. = extra).
     pub fn set_chart_series_axes(&mut self, axes: &[u8]) {
         if let Some(chart) = self.chart.as_mut() {
             chart.set_series_axes(axes);

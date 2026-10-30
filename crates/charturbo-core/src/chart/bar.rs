@@ -97,6 +97,8 @@ pub(crate) struct BarChart {
     pub(crate) v_min: f32,
     pub(crate) v_max: f32,
     pub(crate) v_step: f64,
+    /// Value-axis scale (axis breaks; `v_min` / `v_max` are in its compressed space)
+    pub(crate) vscale: super::scale::AxisScale,
     /// Scene objects of the 3D matrix view (bars, then floor)
     pub(crate) bar_objects: Vec<u32>,
     pub(crate) floor_object: Option<u32>,
@@ -155,6 +157,7 @@ impl BarChart {
             v_min: 0.0,
             v_max: 0.0,
             v_step: 1.0,
+            vscale: super::scale::AxisScale::LINEAR,
             bar_objects: Vec::new(),
             floor_object: None,
             histogram: None,
@@ -245,8 +248,10 @@ impl BarChart {
                 (vmin, vmax) = (vmin.min(lo), vmax.max(hi));
             }
         }
-        let (nmin, nmax, v_step) = nice_domain(vmin as f64, vmax as f64, ChartFrameStyle::default().grid_rows);
-        let (vmin, vmax) = (nmin.min(0.0) as f32, nmax.max(0.0) as f32);
+        let vs = self.vscale;
+        let (nmin, nmax, v_step) = vs.nice_linear(vs.fwd(vmin as f64), vs.fwd(vmax as f64), ChartFrameStyle::default().grid_rows);
+        let zero = vs.fwd(0.0);
+        let (vmin, vmax) = (nmin.min(zero) as f32, nmax.max(zero) as f32);
         let span = (vmax - vmin).max(1e-6);
         let (cat_len, val_len) = self.axis_lengths();
         let scale = val_len / span;
@@ -294,6 +299,29 @@ impl BarChart {
         (self.v_min, self.v_max, self.v_step) = (vmin, vmax, v_step);
     }
 
+    /// World value coordinate of `v` (through the value-axis breaks).
+    #[inline]
+    pub(crate) fn vy(&self, v: f32) -> f32 {
+        self.zero_y + self.vscale.fwd32(v) * self.scale
+    }
+
+    /// Value tick values (data units) of the nice domain.
+    pub(crate) fn value_ticks(&self) -> Vec<f64> {
+        self.vscale.ticks(self.v_min as f64, self.v_max as f64, self.v_step, 0)
+    }
+
+    /// Sets the value-axis breaks (2D, not histograms): re-shapes the domain and layout; true
+    /// when they changed.
+    pub(crate) fn set_value_breaks(&mut self, breaks: super::axis_break::AxisBreaks) -> bool {
+        if self.vscale.breaks == breaks || self.histogram.is_some() {
+            return false;
+        }
+        self.vscale.breaks = breaks;
+        self.reshape();
+        self.relayout();
+        true
+    }
+
     /// Applies orientation / error bars (2D, not histograms): re-shapes the domain and layout.
     pub(crate) fn set_style(&mut self, style: BarStyle) -> bool {
         if self.layout.view != ChartViewMode::Flat || self.histogram.is_some() {
@@ -332,8 +360,8 @@ impl BarChart {
                         self.segs[s * n + i] = Some(BarSeg {
                             x0,
                             x1: x0 + sub,
-                            y0: self.zero_y + base * self.scale,
-                            y1: self.zero_y + v * self.scale,
+                            y0: self.vy(base),
+                            y1: self.vy(v),
                             outer: true,
                         });
                     }
@@ -368,13 +396,13 @@ impl BarChart {
                             continue;
                         }
                         let acc = if v > 0.0 { &mut pos } else { &mut neg };
-                        let y0 = self.zero_y + *acc * self.scale;
+                        let y0 = self.vy(*acc);
                         *acc += v;
                         self.segs[g] = Some(BarSeg {
                             x0: x - hw,
                             x1: x + hw,
                             y0,
-                            y1: self.zero_y + *acc * self.scale,
+                            y1: self.vy(*acc),
                             outer: false,
                         });
                         if v > 0.0 {
@@ -501,11 +529,11 @@ impl BarChart {
                 color,
             });
         };
-        for v in ticks_between(self.v_min as f64, self.v_max as f64, self.v_step) {
+        for v in self.value_ticks() {
             if v == 0.0 {
                 continue; // drawn as the baseline below
             }
-            line(self.zero_y + v as f32 * self.scale, style.grid_color);
+            line(self.vy(v as f32), style.grid_color);
         }
         line(self.zero_y, style.baseline_color);
     }
@@ -526,8 +554,8 @@ impl BarChart {
         if self.horizontal() {
             return self.horizontal_axes(view, plot, out);
         }
-        for v in ticks_between(self.v_min as f64, self.v_max as f64, self.v_step) {
-            let y = self.zero_y + v as f32 * self.scale;
+        for v in self.value_ticks() {
+            let y = self.vy(v as f32);
             if let Some((_, cy)) = view.project_css(Vec3::new(-half_w, y, 0.0)) {
                 out.ticks.push(AxisTick { axis: 1, value: v, x_css: plot[0], y_css: cy, granularity: 0 });
             }
@@ -550,8 +578,8 @@ impl BarChart {
     /// (axis 1, one per ~18 px of plot height so labels never collide).
     fn horizontal_axes(&self, view: &ChartView, plot: [f32; 4], out: &mut AxisLayout) {
         let bottom = plot[1] + plot[3];
-        for v in ticks_between(self.v_min as f64, self.v_max as f64, self.v_step) {
-            let x = self.zero_y + v as f32 * self.scale;
+        for v in self.value_ticks() {
+            let x = self.vy(v as f32);
             if let Some((cx, _)) = view.project_css(Vec3::new(x, 0.0, 0.0)) {
                 out.ticks.push(AxisTick { axis: 0, value: v, x_css: cx, y_css: bottom, granularity: 0 });
             }

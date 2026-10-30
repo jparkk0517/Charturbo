@@ -1,6 +1,7 @@
 //! Line chart: layout, zoom window, M4 LOD, hover, axes.
 
-use super::scale::{log_or_identity, log_ticks, log_y_domain, AxisScale, ScaleType};
+use super::multi_axis::{y_axis_code, MAX_Y_AXES};
+use super::scale::{linear_y_domain, log_or_identity, log_ticks, log_y_domain, AxisScale, ScaleType};
 use super::time_zone::{time_ticks_tz, TimeZone};
 use super::*;
 use super::linestyle::{LineStyles, NullPolicy};
@@ -55,15 +56,17 @@ pub(crate) struct LineChart {
     /// Effective log x: series x are stored as `log10(x) - x_origin`, so the zoom window, M4
     /// buckets and binary searches stay linear (`x_data` / `x_abs_to_data` map back)
     pub(crate) x_log: bool,
-    /// y axis of each series: 0 = left, 1 = right (dual axis)
+    /// y axis of each series: 0 = left, 1 = right (dual axis), 2.. = extra axes
     pub(crate) series_axis: Vec<u8>,
     /// Right y axis, used when any series is assigned to it
     pub(crate) right: RightAxis,
+    /// Extra y axes 2.. (`extra[k - 2]`; multi_axis.rs), used when a series is assigned to them
+    pub(crate) extra: Vec<RightAxis>,
     /// Per-series markers / dashes / curves / null policies / bands (see linestyle.rs)
     pub(crate) style: LineStyles,
     /// Manual y zoom: scale-space `(min, max)` of the left and right y axes. Pins both domains
     /// (autoscale and nice ends are suspended) until `reset_zoom` (see zoom.rs).
-    pub(crate) y_zoom: Option<[(f64, f64); 2]>,
+    pub(crate) y_zoom: Option<[(f64, f64); MAX_Y_AXES]>,
 }
 
 /// Right y axis of a dual-axis line chart: own options, scale, data extent and domain (scale
@@ -325,6 +328,7 @@ impl LineChart {
             x_log: false,
             series_axis: vec![0; n],
             right: RightAxis::default(),
+            extra: Vec::new(),
             style: LineStyles::default(),
             y_zoom: None,
         };
@@ -376,10 +380,88 @@ impl LineChart {
         self.update_y_domain(true)
     }
 
-    /// Scale of the left (`axis` 0) or right (1) y axis; true when it changed (the domain is
-    /// re-derived in the new scale space).
+    /// Domain options of y axis `k` (0 = left, 1 = right, 2.. = extra); true when a domain
+    /// moved. Out-of-range axes are ignored.
+    pub(crate) fn set_axis_options(&mut self, k: u8, axis: LineYAxis) -> bool {
+        if k == 0 {
+            return self.set_y_axis(axis);
+        }
+        if !self.ensure_axis(k) {
+            return false;
+        }
+        self.rec_mut(k).axis = normalize_y_axis(axis);
+        self.update_y_domain(true)
+    }
+
+    /// Number of y axis slots (left, right, then the extra axes created so far).
+    #[inline]
+    pub(crate) fn y_axis_count(&self) -> u8 {
+        2 + self.extra.len() as u8
+    }
+
+    /// Creates extra y axes up to `k`; false when `k` is out of range.
+    pub(crate) fn ensure_axis(&mut self, k: u8) -> bool {
+        if k as usize >= MAX_Y_AXES {
+            return false;
+        }
+        while self.y_axis_count() <= k {
+            self.extra.push(RightAxis::default());
+        }
+        true
+    }
+
+    /// Record of y axis `k >= 1` (the right axis for unknown extra axes).
+    #[inline]
+    pub(crate) fn rec(&self, k: u8) -> &RightAxis {
+        if k >= 2 {
+            self.extra.get(k as usize - 2).unwrap_or(&self.right)
+        } else {
+            &self.right
+        }
+    }
+
+    #[inline]
+    pub(crate) fn rec_mut(&mut self, k: u8) -> &mut RightAxis {
+        if k >= 2 && (k as usize - 2) < self.extra.len() {
+            &mut self.extra[k as usize - 2]
+        } else {
+            &mut self.right
+        }
+    }
+
+    /// `(min, span, step)` slots of y axis `k`'s domain.
+    pub(crate) fn dom_mut(&mut self, k: u8) -> (&mut f32, &mut f32, &mut f64) {
+        if k == 0 {
+            (&mut self.y_min, &mut self.y_span, &mut self.y_step)
+        } else {
+            let r = self.rec_mut(k);
+            (&mut r.y_min, &mut r.y_span, &mut r.y_step)
+        }
+    }
+
+    /// Data extent of y axis `k`.
+    #[inline]
+    pub(crate) fn data_extent(&self, k: u8) -> (f32, f32) {
+        if k == 0 {
+            (self.data_min, self.data_max)
+        } else {
+            (self.rec(k).data_min, self.rec(k).data_max)
+        }
+    }
+
+    /// Any series on y axis `k`.
+    #[inline]
+    pub(crate) fn uses_axis(&self, k: u8) -> bool {
+        self.series_axis.contains(&k)
+    }
+
+    /// Scale of the left (`axis` 0), right (1) or extra (2..) y axis; true when it changed (the
+    /// domain is re-derived in the new scale space).
     pub(crate) fn set_y_scale(&mut self, axis: u8, scale: AxisScale) -> bool {
-        let slot = if axis == 0 { &mut self.y_scale } else { &mut self.right.scale };
+        if axis > 0 && !self.ensure_axis(axis) {
+            return false;
+        }
+        let slot = if axis == 0 { &mut self.y_scale } else { &mut self.rec_mut(axis).scale };
         if *slot == scale {
             return false;
         }
@@ -429,11 +511,16 @@ impl LineChart {
         true
     }
 
-    /// Assigns series to y axes (1 = right, anything else / missing = left); true when changed.
+    /// Assigns series to y axes (1 = right, 2.. = extra axes below `MAX_Y_AXES`; anything else /
+    /// missing = left); true when changed.
     pub(crate) fn set_series_axes(&mut self, axes: &[u8]) -> bool {
-        let axes: Vec<u8> = (0..self.series.len()).map(|s| u8::from(axes.get(s) == Some(&1))).collect();
+        let axes: Vec<u8> =
+            (0..self.series.len()).map(|s| axes.get(s).copied().filter(|&a| (a as usize) < MAX_Y_AXES).unwrap_or(0)).collect();
         if axes == self.series_axis {
             return false;
+        }
+        if let Some(&k) = axes.iter().max() {
+            self.ensure_axis(k);
         }
         self.series_axis = axes;
         self.update_data_extent();
@@ -458,17 +545,18 @@ impl LineChart {
         if axis == 0 {
             self.y_scale
         } else {
-            self.right.scale
+            self.rec(axis).scale
         }
     }
 
     /// `(min, span, step)` of a y axis domain in scale space.
     #[inline]
-    fn dom(&self, axis: u8) -> (f32, f32, f64) {
+    pub(crate) fn dom(&self, axis: u8) -> (f32, f32, f64) {
         if axis == 0 {
             (self.y_min, self.y_span, self.y_step)
         } else {
-            (self.right.y_min, self.right.y_span, self.right.y_step)
+            let r = self.rec(axis);
+            (r.y_min, r.y_span, r.y_step)
         }
     }
 
@@ -497,14 +585,18 @@ impl LineChart {
     pub(crate) fn update_y_domain(&mut self, force: bool) -> bool {
         let left = self.update_axis_domain(0, force);
         let right = self.has_right() && self.update_axis_domain(1, force);
-        left || right
+        let mut extra = false;
+        for k in 2..self.y_axis_count() {
+            extra |= self.uses_axis(k) && self.update_axis_domain(k, force);
+        }
+        left || right || extra
     }
 
     fn update_axis_domain(&mut self, k: u8, force: bool) -> bool {
         let (axis, scale, all) = if k == 0 {
             (self.y_axis, self.y_scale, (self.data_min as f64, self.data_max as f64))
         } else {
-            let r = &self.right;
+            let r = self.rec(k);
             (r.axis, r.scale, (r.data_min as f64, r.data_max as f64))
         };
         if let Some(pin) = self.y_zoom {
@@ -547,17 +639,14 @@ impl LineChart {
         let (lo, hi, step) = if scale.is_log() {
             log_y_domain(e0, e1, &axis)
         } else {
-            y_domain(e0, e1, &axis, scale.target(self.tick_target))
+            linear_y_domain(e0, e1, &axis, scale.target(self.tick_target), &scale)
         };
         let (y_min, y_span) = (lo as f32, ((hi - lo) as f32).max(1e-6));
         if (y_min, y_span, step) == (d_min, d_span, d_step) {
             return false;
         }
-        if k == 0 {
-            (self.y_min, self.y_span, self.y_step) = (y_min, y_span, step);
-        } else {
-            (self.right.y_min, self.right.y_span, self.right.y_step) = (y_min, y_span, step);
-        }
+        let slot = self.dom_mut(k);
+        (*slot.0, *slot.1, *slot.2) = (y_min, y_span, step);
         true
     }
 
@@ -652,8 +741,12 @@ impl LineChart {
             }
         };
         let (left, right) = (fold(0), fold(1));
+        let extra: Vec<(f32, f32)> = (2..self.y_axis_count()).map(fold).collect();
         (self.data_min, self.data_max) = left;
         (self.right.data_min, self.right.data_max) = right;
+        for (r, (lo, hi)) in self.extra.iter_mut().zip(extra) {
+            (r.data_min, r.data_max) = (lo, hi);
+        }
     }
 
     /// Smallest average sample gap in `t` (O(series): first / last sample only).
@@ -1022,9 +1115,18 @@ impl LineChart {
         let (min, span, sign) = if axis == 0 {
             (self.y_min, self.y_span, self.y_scale.sign())
         } else {
-            (self.right.y_min, self.right.y_span, self.right.scale.sign())
+            let r = self.rec(axis);
+            (r.y_min, r.y_span, r.scale.sign())
         };
         ((u - min) / span - 0.5) * self.layout.height * sign
+    }
+
+    /// Data value on y axis `axis` at world `y` (inverse of `y_of_axis`).
+    pub(crate) fn value_at_world(&self, axis: u8, y: f32) -> f64 {
+        let (min, span, _) = self.dom(axis);
+        let scale = self.scale_of_axis(axis);
+        let f = y as f64 / (self.layout.height as f64 * scale.sign() as f64) + 0.5;
+        scale.inv(min as f64 + f * span as f64)
     }
 
     /// World y of value `v` on the left axis (NaN when not drawable on its scale).
@@ -1219,6 +1321,14 @@ impl LineChart {
             for v in self.y_ticks(1) {
                 if let Some((_, y)) = view.project_css(Vec3::new(half_w, self.y_of_axis(1, v as f32), z0)) {
                     out.ticks.push(AxisTick { axis: 2, value: v, x_css: plot[0] + plot[2], y_css: y, granularity: 0 });
+                }
+            }
+        }
+        // Extra y axes: anchored on the left edge (the SDK places them by side / offset)
+        for k in (2..self.y_axis_count()).filter(|&k| self.uses_axis(k)) {
+            for v in self.y_ticks(k) {
+                if let Some((_, y)) = view.project_css(Vec3::new(-half_w, self.y_of_axis(k, v as f32), z0)) {
+                    out.ticks.push(AxisTick { axis: y_axis_code(k), value: v, x_css: plot[0], y_css: y, granularity: 0 });
                 }
             }
         }

@@ -117,6 +117,7 @@ function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64A
   let axesRevision = 0;
   return {
     set_combo_chart: record('set_combo_chart', 12),
+    set_chart_axis_breaks: record('set_chart_axis_breaks', true),
     set_line_series_styles: record('set_line_series_styles', true),
     chart_combo_y_domain: (axis: number) => new Float64Array(axis === 0 ? [0, 50] : [0.1, 0.3]),
     set_chart_hover_style: record('set_chart_hover_style'),
@@ -160,7 +161,7 @@ function mockBackend(calls: Calls, hit: () => Float64Array, axes: () => Float64A
     set_scene_helpers: () => {},
     set_rigid_physics: () => {},
     set_graph_visible: () => {},
-    clear_scene_objects: () => {},
+    clear_scene_objects: record('clear_scene_objects'),
   };
 }
 
@@ -226,6 +227,29 @@ describe('encodeCombo', () => {
       [0.5, 0.5, 0.5, 1]
     );
     expect(many.rgba[2]).toEqual([0.5, 0.5, 0.5, 1]);
+  });
+
+  it('encodes extra y axes (yAxisIndex, triples) and validates them and breaks', () => {
+    const data: ComboChartData = {
+      categories: ['a', 'b'],
+      series: [
+        { name: 'Bar', type: 'bar', values: [1, 2] },
+        { name: 'Line', type: 'line', values: [3, 4], yAxisIndex: 2 },
+        { name: 'Right', type: 'line', values: [5, 6], yAxis: 'right', yAxisIndex: 3 },
+      ],
+    };
+    const enc = encodeCombo(data, { axes: { extraY: [{ min: 0 }, { max: 9, nice: false }] } }, [], [0, 0, 0, 1]);
+    expect(Array.from(enc.axes)).toEqual([0, 2, 3]);
+    expect(enc.yAxes).toHaveLength(12);
+    expect([enc.yAxes[6], enc.yAxes[8], enc.yAxes[10], enc.yAxes[11]]).toEqual([0, 1, 9, 0]);
+    // Without extra axes the triples stay 2
+    expect(encodeCombo(DATA, undefined, [], [0, 0, 0, 1]).yAxes).toHaveLength(6);
+    expect(() => encodeCombo(data, undefined, [], [0, 0, 0, 1])).toThrow(/series 1 yAxisIndex 2/);
+    expect(() => encodeCombo(DATA, { axes: { y: { breaks: [{ start: 2, end: 1 }] } } }, [], [0, 0, 0, 1])).toThrow(
+      /renderComboChart: axes\.y: break 0/
+    );
+    expect(drawnAxes(['line', 'line', 'bar'], [2, 0, 3])).toEqual([2, 0, 3]);
+    expect(drawnAxes(['line', 'line'], [2, 3])).toEqual([0, 0]);
   });
 
   it('mirrors the engine axis rules', () => {
@@ -308,6 +332,26 @@ describe('Combo charts (SDK)', () => {
     expect(ticks).toEqual(['Q3', '50', '0.2']);
   });
 
+  it('sends breaks per used y axis after the chart, validated before clearing', () => {
+    const calls: Calls = {};
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => new Float64Array(0), () => new Float64Array(0)));
+    sdk.renderComboChart(
+      { categories: ['a', 'b', 'c'], series: [{ name: 'Bar', type: 'bar', values: [10, 20, 500] }, { name: 'L', type: 'line', values: [1, 2, 3], yAxisIndex: 2 }] },
+      { axes: { y: { breaks: [{ start: 30, end: 480, gap: 4 }] }, extraY: [{ title: 'L', breaks: [{ start: 1.5, end: 2.5, gap: 0.1 }] }] } }
+    );
+    const flat = (c: unknown[]) => [c[0], ...Array.from(c[1] as Float64Array).map((v) => +v.toFixed(6))];
+    expect(calls.set_chart_axis_breaks.map(flat)).toEqual([
+      [1, 30, 480, 4],
+      [18, 1.5, 2.5, 0.1],
+    ]);
+    // Left + extra right axis with a title
+    expect(calls.set_chart_padding.at(-1)).toEqual([40, 76, 30, 56]);
+    const cleared = calls.clear_scene_objects.length;
+    expect(() => sdk.renderComboChart(DATA, { axes: { y2: { breaks: [{ start: 1, end: 2 }, { start: 1.5, end: 3 }] } } })).toThrow(/overlap/);
+    expect(calls.clear_scene_objects).toHaveLength(cleared);
+    expect(calls.set_combo_chart).toHaveLength(1);
+  });
+
   it('tooltip lists bars and lines at the hovered category', () => {
     const calls: Calls = {};
     const hit = hitOf(1, [
@@ -344,6 +388,34 @@ describe('Combo charts (SDK)', () => {
     const html = tips[tips.length - 1].innerHTML;
     expect(html).toContain('Cost');
     expect(html).not.toContain('Margin');
+  });
+
+  it('default tooltip formats each value with its own y axis format', () => {
+    const calls: Calls = {};
+    const hit = hitOf(0, [
+      [0, 1, 30, 1],
+      [1, 1, 5, 4],
+      [2, 1, 0.5, 7],
+    ]);
+    const sdk = Charturbo.fromBackend(mockBackend(calls, () => hit, () => new Float64Array(0)));
+    sdk.enableNodeInteractions(canvas as unknown as HTMLCanvasElement, {});
+    sdk.renderComboChart(
+      {
+        categories: ['a', 'b', 'c'],
+        series: [
+          { name: 'Bar', type: 'bar', values: [10, 30, 20] },
+          { name: 'Right', type: 'line', values: [4, 5, 6], yAxis: 'right' },
+          { name: 'Extra', type: 'line', values: [0.1, 0.5, 0.9], yAxisIndex: 2 },
+        ],
+      },
+      { axes: { y: { format: (v) => `$${v}` }, y2: { format: (v) => `${v} mm` }, extraY: [{ format: (v) => `${v * 100}%` }] } }
+    );
+    canvas.fire('pointermove', { clientX: 400, clientY: 200, buttons: 0 });
+    const tips = body.querySelectorAll('.charturbo-sdk-node-tooltip');
+    const html = tips[tips.length - 1].innerHTML;
+    expect(html).toContain('>$30<');
+    expect(html).toContain('>5 mm<');
+    expect(html).toContain('>50%<');
   });
 
   it('numeric x labels the tooltip with the formatted x', () => {

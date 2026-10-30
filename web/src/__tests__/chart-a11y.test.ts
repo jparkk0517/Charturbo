@@ -189,6 +189,44 @@ describe('chart-a11y model + text', () => {
   });
 });
 
+describe('chart-a11y extra y axes and axis breaks', () => {
+  it('describes extra y axes with their series and every axis break in its axis format', () => {
+    const m = lineModel(
+      lineMeta({ seriesAxes: [0, 2] }),
+      linePresentation({
+        yAxis: { format: (v: number) => `${v} ms` },
+        extraY: [{ title: 'Latency', format: (v: number) => `${v}%` }],
+        axisBreaks: [
+          { axis: 'y', breaks: [{ start: 30, end: 480 }, { start: 600, end: 700 }] },
+          { axis: '2', title: 'Latency', breaks: [{ start: 1, end: 2 }] },
+        ],
+      })
+    );
+    const d = buildChartDescription(m);
+    expect(d).toContain('Additional y axis (Latency): DB-Latency.');
+    expect(d).toContain('Y axis skips 30 ms–480 ms, 600 ms–700 ms.');
+    expect(d).toContain('Y axis 3 (Latency) skips 1%–2%.');
+    // Sentences come before the keyboard help
+    expect(d.indexOf('skips')).toBeLessThan(d.indexOf(keyboardHelp('line')));
+    // No options: no sentences
+    expect(buildChartDescription(lineModel())).not.toContain('skips');
+    expect(buildChartDescription(lineModel())).not.toContain('Additional');
+  });
+
+  it('describes combo extra axes and bar / scatter breaks', () => {
+    const combo = buildA11yModel(
+      { kind: 'combo', names: ['Bar', 'Rain'], colors: [], types: ['bar', 'line'], axes: [0, 2], values: [new Float32Array([1, 2]), new Float32Array([3, 4])], categories: ['a', 'b'], xs: null, label: (i: number) => `c${i}`, visible: [true, true], barMode: 'grouped' },
+      linePresentation({ extraY: [{}] })
+    )!;
+    expect(buildChartDescription(combo)).toContain('Additional y axis: Rain.');
+    const scatter = buildA11yModel(
+      { kind: 'scatter', x: [1, 2], y: [3, 4], series: null, names: [], colors: [] },
+      linePresentation({ axisBreaks: [{ axis: 'x', breaks: [{ start: 5, end: 90 }] }] })
+    )!;
+    expect(buildChartDescription(scatter)).toContain('X axis skips T+5–T+90.');
+  });
+});
+
 describe('chart-a11y keyboard', () => {
   const m: A11yChartModel = lineModel(
     lineMeta({ values: [Array.from({ length: 30 }, (_, i) => i), [1, 2, 3], [9]], names: ['A', 'B', 'C'], offsets: [0, 30, 33], visible: [true, true, true] })

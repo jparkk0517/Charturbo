@@ -789,6 +789,89 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // Three y axes (weather): temperature left, rain right, pressure on an extra colored right
+    // axis; padding grows for the extra label slot and title
+    name: 'axes-multi-line',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 48;
+        const temp = Array.from({ length: n }, (_, i) => 14 + 8 * Math.sin((i / n) * Math.PI * 2 - 1.2));
+        const rain = Array.from({ length: n }, (_, i) => Math.max(0, 6 * Math.sin(i / 3.1) + 2 * Math.cos(i / 1.7)));
+        const pressure = Array.from({ length: n }, (_, i) => 1008 + 7 * Math.cos(i / 9));
+        sdk.renderLineChart(
+          [
+            { name: 'Temp', values: temp, color: firstColor(ctx) },
+            { name: 'Rain', values: rain, yAxis: 'right' },
+            { name: 'Pressure', values: pressure, yAxisIndex: 2, color: '#c2410c' },
+          ],
+          {
+            title: 'Three y axes',
+            legend: false,
+            axes: {
+              y: { title: '°C' },
+              y2: { title: 'mm', min: 0 },
+              extraY: [{ title: 'hPa', color: '#c2410c', format: (v) => v.toFixed(0) }],
+            },
+          }
+        );
+      }),
+  },
+  {
+    // One outlier bar: the y break collapses 40..430, zigzag across the plot and the axis
+    name: 'axes-break-bar',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        const values = [22, 31, 18, 460, 27, 35, 24];
+        sdk.renderBarChart(
+          labels.map((label, i) => ({ label, value: values[i], color: firstColor(ctx) })),
+          { title: 'Axis break', padding: PADDING, axes: { y: { breaks: [{ start: 40, end: 430, gap: '8%' }] } } }
+        );
+      }),
+  },
+  {
+    // Broken y axis on a line: two breaks; segments crossing a break stay continuous
+    name: 'axes-break-line',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const n = 60;
+        const a = Array.from({ length: n }, (_, i) => (i < 20 ? 10 + 3 * Math.sin(i / 2) : i < 40 ? 210 + 4 * Math.cos(i / 3) : 610 + 5 * Math.sin(i / 4)));
+        sdk.renderLineChart([{ name: 'Load', values: a, color: firstColor(ctx) }], {
+          title: 'Broken line',
+          padding: PADDING,
+          legend: false,
+          axes: { y: { breaks: [{ start: 25, end: 195, gap: 6 }, { start: 225, end: 595, gap: 6 }] } },
+        });
+      }),
+  },
+  {
+    // Finance combo: volume bars (left), price (right), RSI on an extra left axis
+    name: 'axes-multi-combo',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const categories = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9', 'W10'];
+        sdk.renderComboChart(
+          {
+            categories,
+            series: [
+              { name: 'Volume', type: 'bar', values: [12, 18, 15, 22, 30, 26, 19, 24, 28, 21], color: firstColor(ctx) },
+              { name: 'Price', type: 'line', yAxis: 'right', values: [101, 104, 103, 108, 112, 109, 111, 115, 118, 116] },
+              { name: 'RSI', type: 'line', yAxisIndex: 2, values: [48, 55, 52, 61, 70, 64, 58, 66, 72, 63], dash: [4, 3], color: '#e5a50a' },
+            ],
+          },
+          {
+            title: 'Three y axes combo',
+            legend: false,
+            axes: { y: { title: 'Volume' }, y2: { title: 'Price' }, extraY: [{ title: 'RSI', position: 'left', min: 0, max: 100, color: '#e5a50a' }] },
+          }
+        );
+      }),
+  },
+  {
     name: 'radar',
     theme: 'dark',
     render: (ctx) =>

@@ -302,10 +302,10 @@ impl Navigator {
         // Each series maps through its own y axis (left / right) and scale (log): extents come
         // from the M4 picks, which keep every pixel column's min / max, so they equal the full
         // data extent in scale space (stacked tops for areas) and stay stable while zooming
-        let scales = [l.y_scale, l.right.scale];
-        let axis_of = |s: usize| usize::from(l.series_axis.get(s).copied().unwrap_or(0) == 1);
+        let scales: [AxisScale; MAX_Y_AXES] = std::array::from_fn(|k| l.scale_of_axis(k as u8));
+        let axis_of = |s: usize| l.axis_of(s) as usize;
         let mut runs: Vec<(usize, Vec<usize>)> = Vec::new();
-        let mut ext = [(f32::INFINITY, f32::NEG_INFINITY); 2];
+        let mut ext = [(f32::INFINITY, f32::NEG_INFINITY); MAX_Y_AXES];
         for s in (0..l.series.len()).filter(|&s| l.visible[s]) {
             let mut picks = Vec::new();
             l.lod_picks(s, &window, &mut picks);
