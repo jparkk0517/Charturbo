@@ -55,6 +55,8 @@ const en = {
   pdfTitle: 'Chart',
   /** Default name of the `index`-th ring of a multi-ring pie (1-based) */
   ringName: (index: number) => `Ring ${index}`,
+  /** Default text of the loading indicator (`showLoading`) */
+  loading: 'Loading…',
   /** Legend pager buttons */
   prevLegendPage: 'Previous legend page',
   nextLegendPage: 'Next legend page',
@@ -117,6 +119,7 @@ const ko: CoreMessages = {
   colorScale: (title, lo, hi, mid) => `${title} 색상 척도, ${lo}~${hi}${mid !== undefined ? `, 중간값 ${mid}` : ''}`,
   pdfTitle: '차트',
   ringName: (index) => `링 ${index}`,
+  loading: '로딩 중…',
   prevLegendPage: '이전 범례 페이지',
   nextLegendPage: '다음 범례 페이지',
   trendKind: (type, order) =>
@@ -167,6 +170,7 @@ const zh: CoreMessages = {
   colorScale: (title, lo, hi, mid) => `${title}色阶，从 ${lo} 到 ${hi}${mid !== undefined ? `，中点 ${mid}` : ''}`,
   pdfTitle: '图表',
   ringName: (index) => `环 ${index}`,
+  loading: '加载中…',
   prevLegendPage: '上一页图例',
   nextLegendPage: '下一页图例',
   trendKind: (type, order) =>

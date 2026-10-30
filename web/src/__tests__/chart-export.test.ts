@@ -419,6 +419,13 @@ function setup(opts: { blankFrames?: number; clearHook?: boolean } = {}) {
 describe('captureChartCanvas', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('paints the watermark hook onto the capture at its scale, after the frame', async () => {
+    const { log, host } = setup();
+    host.watermark = (_ctx, w, h, scale) => log.push(`watermark ${w}x${h}@${scale}`);
+    await captureChartCanvas(host);
+    expect(log).toEqual(['render 800x400', 'drawImage 800x400 -> 800x400', 'watermark 400x200@2']);
+  });
+
   it('renders and reads back in one pass at the current ratio', async () => {
     const { log, host } = setup();
     const out = await captureChartCanvas(host);

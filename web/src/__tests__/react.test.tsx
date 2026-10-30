@@ -303,6 +303,33 @@ describe('React CharturboChart', () => {
     expect(sdk.calls).toEqual(['setSync']);
   });
 
+  it('loading and watermark props: applied once ready, then on change', async () => {
+    const mark = { text: 'DRAFT' };
+    await mount(<Line loading watermark={mark} />);
+    const sdk = await ready();
+    expect(sdk.calls.slice(0, 2)).toEqual(['setWatermark', 'showLoading']);
+    expect(sdk.setWatermark).toHaveBeenCalledWith(mark);
+    expect(sdk.showLoading).toHaveBeenCalledWith(undefined);
+    sdk.calls.length = 0;
+    // Same values: no call
+    await mount(<Line loading watermark={mark} />);
+    expect(sdk.calls).toEqual([]);
+    const opts = { text: 'Fetching' };
+    await mount(<Line loading={opts} watermark={mark} />);
+    expect(sdk.showLoading).toHaveBeenLastCalledWith(opts);
+    await mount(<Line loading={false} />);
+    expect(sdk.calls).toEqual(['showLoading', 'hideLoading', 'setWatermark']);
+    expect(sdk.setWatermark).toHaveBeenLastCalledWith(null);
+  });
+
+  it('no loading / watermark props: no calls', async () => {
+    await mount(<Line />);
+    const sdk = await ready();
+    expect(sdk.showLoading).not.toHaveBeenCalled();
+    expect(sdk.hideLoading).not.toHaveBeenCalled();
+    expect(sdk.setWatermark).not.toHaveBeenCalled();
+  });
+
   it('reports create failure through onError and the hook state', async () => {
     const onError = vi.fn();
     let seen: unknown = null;

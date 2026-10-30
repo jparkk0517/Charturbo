@@ -45,6 +45,8 @@ export interface ChartExportHost {
   };
   /** `sdk.render()`: draw a frame (and keep the overlay in sync) */
   render: () => void;
+  /** Paints the watermark over a `cssW x cssH` frame at `scale` (under the overlay) */
+  watermark?: (ctx: CanvasRenderingContext2D, cssW: number, cssH: number, scale: number) => void;
 }
 
 /** WebGPU's guaranteed `maxTextureDimension2D` */
@@ -578,6 +580,7 @@ function captureFrame(host: ChartExportHost, opts: ChartImageOptions): HTMLCanva
       ctx.restore();
     }
   }
+  host.watermark?.(ctx, cssW, cssH, size.width / cssW);
   if (opts.overlay !== false && host.overlay) {
     const ops = collectOverlayOps(host.overlay, { left: cr.left + canvas.clientLeft, top: cr.top + canvas.clientTop }, domEnv);
     paintOverlay(ctx, ops, size.width / cssW, cssW, cssH);

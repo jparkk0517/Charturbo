@@ -145,3 +145,10 @@ export function parseOptionalColor(input: ColorInput | undefined): RgbaTuple | u
   return input === undefined ? undefined : parseColor(input);
 }
 
+/** CSS `rgb()` / `rgba()` text of a color (channels clamped, alpha rounded to 3 decimals). */
+export function cssColor(input: ColorInput): string {
+  const c = parseColor(input).map((v) => Math.min(1, Math.max(0, v)));
+  const [r, g, b] = c.map((v) => Math.round(v * 255));
+  const a = Math.round(c[3] * 1000) / 1000;
+  return a >= 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a})`;
+}

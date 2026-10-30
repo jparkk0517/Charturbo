@@ -215,6 +215,36 @@ describe('Vue CharturboChart', () => {
     expect(sdk.listenerCount()).toBe(0);
   });
 
+  it('loading and watermark props: applied once ready, then on change', async () => {
+    const mark = { text: 'DRAFT' };
+    const state = reactive({ loading: true as unknown, watermark: mark as unknown });
+    mountChart(() => ({ type: 'line', data: series, loading: state.loading, watermark: state.watermark }));
+    await flush();
+    const sdk = await ready();
+    expect(sdk.calls.slice(0, 2)).toEqual(['setWatermark', 'showLoading']);
+    expect(sdk.setWatermark).toHaveBeenCalledWith(mark);
+    expect(sdk.showLoading).toHaveBeenCalledWith(undefined);
+    sdk.calls.length = 0;
+    const opts = { text: 'Fetching' };
+    state.loading = opts;
+    await nextTick();
+    expect(sdk.showLoading).toHaveBeenLastCalledWith(opts);
+    state.loading = false;
+    state.watermark = null;
+    await nextTick();
+    expect(sdk.calls).toEqual(['showLoading', 'hideLoading', 'setWatermark']);
+    expect(sdk.setWatermark).toHaveBeenLastCalledWith(null);
+  });
+
+  it('no loading / watermark props: no calls', async () => {
+    mountChart(() => ({ type: 'line', data: series }));
+    await flush();
+    const sdk = await ready();
+    expect(sdk.showLoading).not.toHaveBeenCalled();
+    expect(sdk.hideLoading).not.toHaveBeenCalled();
+    expect(sdk.setWatermark).not.toHaveBeenCalled();
+  });
+
   it('syncGroup / interactions / type updates', async () => {
     const state = reactive({
       type: 'line' as string,

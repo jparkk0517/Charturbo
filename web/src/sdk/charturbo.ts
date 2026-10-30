@@ -201,6 +201,7 @@ export type {
 import {
   PieLabelLayer,
   pieMeta,
+  validatePieLabel,
   pieTooltipContext,
   pieTooltipHtml,
   sendPie,
@@ -212,6 +213,12 @@ import {
   type PieRingsData,
 } from './chart-pie';
 import { EffectClock } from './chart-effect';
+import { validateRichLabel } from './chart-rich-text';
+import { ChartLoadingLayer, validateLoadingOptions, type ChartLoadingOptions } from './chart-loading';
+export type { ChartLoadingOptions } from './chart-loading';
+import { ChartWatermarkLayer, resolveWatermark, watermarkSvg, type ChartWatermarkOptions, type ResolvedWatermark } from './chart-watermark';
+import { measureText as measureSvgText } from './chart-svg';
+export type { ChartWatermarkOptions, ResolvedWatermark } from './chart-watermark';
 import {
   checkTrendlines,
   decodeTrendFits,
@@ -233,7 +240,7 @@ import {
   type ScatterSymbol,
 } from './chart-legend';
 export type { ChartLegendPosition, ScatterSymbol } from './chart-legend';
-export type { PieChartData, PieChartOptions, PieLabelMode, PieRingData, PieRingsData, PieRoseMode } from './chart-pie';
+export type { PieChartData, PieChartOptions, PieLabelContext, PieLabelMode, PieRingData, PieRingsData, PieRoseMode } from './chart-pie';
 import {
   comboMeta,
   comboPointMetadata,
@@ -283,7 +290,8 @@ import {
 } from './chart-waterfall';
 export type { ChartRadarTooltip, RadarChartData, RadarChartOptions, RadarSeries } from './chart-radar';
 export type { ChartGaugeTooltip, GaugeBandOptions, GaugeChartData, GaugeChartOptions, GaugeStatus } from './chart-gauge';
-export type { ChartFunnelTooltip, FunnelChartData, FunnelChartOptions, FunnelConversion } from './chart-funnel';
+export type { ChartFunnelTooltip, FunnelChartData, FunnelChartOptions, FunnelConversion, FunnelLabelContext } from './chart-funnel';
+export type { RichLabelOptions, RichTextStyle, RichTextStyles } from './chart-rich-text';
 export type { ChartWaterfallTooltip, WaterfallChartData, WaterfallChartOptions, WaterfallItemKind } from './chart-waterfall';
 import { encodePictorial, pictorialPerBar, type PictorialBarChartData, type PictorialBarChartOptions, type PictorialBarItem } from './chart-pictorial';
 import { calendarMeta, sendCalendar, type CalendarHeatmapData, type CalendarHeatmapOptions, type ChartCalendarTooltip } from './chart-calendar';
@@ -385,6 +393,7 @@ export type {
   HierarchyChartOptions,
   HierarchyData,
   HierarchyFlatNode,
+  HierarchyLabelContext,
   HierarchyNode,
   SankeyChartData,
   SankeyChartOptions,
@@ -2758,6 +2767,17 @@ export class Charturbo {
   private flatCameraView = false;
   private canvas: HTMLCanvasElement | null = null;
   private theme: CharturboTheme = CHARTURBO_THEMES.dark;
+  /** `showLoading` mask (chart-loading.ts) */
+  private readonly loading = new ChartLoadingLayer(
+    () => this.canvas,
+    () => this.theme,
+    () => getMessages(this.chartLocale()).core.loading
+  );
+  /** `setWatermark` layer (chart-watermark.ts) */
+  private readonly watermark = new ChartWatermarkLayer(
+    () => this.canvas,
+    () => this.theme
+  );
   private chartOverlay: ChartOverlay | null = null;
   private chartPresentation: ChartPresentation | null = null;
   /** Annotations of the active chart (reset when the chart is replaced) */
@@ -2970,6 +2990,7 @@ export class Charturbo {
    */
   setLocale(locale: string | undefined): void {
     this.locale = locale;
+    this.loading.restyle();
     const o = this.chartOverlay;
     if (o) {
       // Re-format the tick labels with the new locale
@@ -3228,6 +3249,8 @@ export class Charturbo {
     this.backend.sync_and_render();
     this.syncRaceLabels();
     this.updateChartOverlay();
+    this.loading.layout();
+    this.watermark.layout();
     // A new chart / data update may have started an animation: drive it (no idle loop)
     if (this.animationApplied) this.animDriver().kick();
   }
@@ -5454,6 +5477,8 @@ export class Charturbo {
     const t = this.theme;
     this.backend.set_clear_color?.(t.surface[0], t.surface[1], t.surface[2], t.surface[3]);
     for (const hook of this.themeHooks) hook();
+    this.loading.restyle();
+    this.watermark.restyle();
     if (this.chartMode) {
       // Re-apply theme-derived defaults to the live chart
       this.backend.set_chart_hover_style?.(encodeHoverStyle(this.themedHover(this.chartHover)));
@@ -6122,6 +6147,44 @@ export class Charturbo {
     this.chartOverlay?.annotations.invalidate();
   }
 
+  /**
+   * Shows a loading indicator over the chart (ECharts `showLoading`): a mask with a spinner and
+   * a status text (`'Loading…'` in the chart language), `aria-busy` on the chart container and
+   * a polite live-region announcement. It stays until `hideLoading` (rendering a chart does not
+   * hide it); calling it again updates the options. Exports never include it. Bad options throw
+   * and keep the current indicator.
+   */
+  showLoading(options?: ChartLoadingOptions): void {
+    validateLoadingOptions(options);
+    this.loading.show(options);
+  }
+
+  /** Removes the loading indicator (and a pending delayed one). */
+  hideLoading(): void {
+    this.loading.hide();
+  }
+
+  /** True between `showLoading` and `hideLoading` (also while a `delay` is pending). */
+  isLoading(): boolean {
+    return this.loading.isShown();
+  }
+
+  /**
+   * Draws a text or image watermark over the chart (tiled by default, or one centered mark with
+   * `repeat: false`), above the plot and under labels and tooltips; null removes it. It stays
+   * across charts and follows theme switches; image / SVG / PDF exports include it unless
+   * `export: false`. Screen readers skip it. Bad options throw and keep the current watermark.
+   */
+  setWatermark(options: ChartWatermarkOptions | null): void {
+    this.watermark.set(options === null ? null : resolveWatermark(options));
+  }
+
+  /** The current watermark with defaults filled in (null = none). */
+  getWatermark(): ResolvedWatermark | null {
+    const w = this.watermark.get();
+    return w ? { ...w, gap: [w.gap[0], w.gap[1]] } : null;
+  }
+
   /** Accessible `<table>` of the active chart's data (caption, scoped headers); see chart-a11y.ts. */
   showDataTable(container?: HTMLElement, options?: DataTableOptions): HTMLTableElement | null {
     return this.a11y.showDataTable(container, options);
@@ -6213,6 +6276,10 @@ export class Charturbo {
       backend: this.backend,
       render: () => this.render(),
       kind: this.chartMode,
+      watermark: (w: number, h: number) => {
+        const wm = this.watermark.get();
+        return wm ? watermarkSvg(wm, this.theme, w, h, measureSvgText) : '';
+      },
     };
   }
 
@@ -6225,6 +6292,9 @@ export class Charturbo {
       theme: this.theme,
       backend: this.backend,
       render: () => this.render(),
+      watermark: (ctx, w, h, scale) => {
+        if (this.watermark.get()?.export) this.watermark.paint(ctx, w, h, scale);
+      },
     };
   }
 
@@ -6297,6 +6367,8 @@ export class Charturbo {
     this.sparkline = null;
     this.sparklineInteractions = null;
     this.removeChartOverlay();
+    this.loading.dispose();
+    this.watermark.dispose();
     if (this.a11yRefreshTimer !== null) clearTimeout(this.a11yRefreshTimer);
     this.a11yRefreshTimer = null;
     this.a11y.dispose();
@@ -7600,6 +7672,7 @@ export class Charturbo {
     if (options?.animation !== undefined) resolveAnimation(options.animation, true);
     const raceFrom = race ? this.raceShownValues() : null;
     if (race) items = raceOrder(items, race.max);
+    resolveBarLabels(options?.labels);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7858,6 +7931,8 @@ export class Charturbo {
     if (options?.axes?.[valueName]?.breaks?.length && data.series?.some((s) => s.error != null)) {
       throw new Error(`renderGroupedBarChart: axes.${valueName}: breaks do not support error bars`);
     }
+    // Bad label options (format spec, rich styles) throw before the current chart is cleared
+    resolveBarLabels(options?.labels);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -8555,6 +8630,7 @@ export class Charturbo {
    */
   renderPieChart(data: PieChartData | PieRingsData, options?: PieChartOptions): { sliceCount: number } {
     if (options?.animation !== undefined) resolveAnimation(options.animation, true);
+    validatePieLabel(options?.label);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -8653,6 +8729,7 @@ export class Charturbo {
 
   private renderHierarchy(kind: 'treemap' | 'sunburst', data: HierarchyData, options?: TreemapChartOptions): { nodeCount: number } {
     if (options?.animation !== undefined) resolveAnimation(options.animation, true);
+    validateRichLabel(options?.label, kind === 'treemap' ? 'renderTreemap' : 'renderSunburst');
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -8678,6 +8755,7 @@ export class Charturbo {
    * point ids: node index, then node count + link index.
    */
   renderSankey(data: SankeyChartData, options?: SankeyChartOptions): { nodeCount: number; linkCount: number } {
+    validateRichLabel(options?.label, 'renderSankey');
     this.clearScene();
     this.clearSelection();
     this.setRigidPhysics(false);
@@ -9266,6 +9344,7 @@ export class Charturbo {
    * a hover tooltip with both rates. Values must be finite and >= 0. Point ids = stage index.
    */
   renderFunnelChart(data: FunnelChartData, options?: FunnelChartOptions): { stageCount: number } {
+    validateRichLabel(options?.label, 'renderFunnelChart');
     this.beginBusinessChart();
     const meta = funnelMeta(data, options, this.businessFormat(options?.format), this.locale);
     const stageCount = sendFunnel(this.backend, meta, options, this.theme);

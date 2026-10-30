@@ -37,6 +37,8 @@ import type { ThemeRiverChartOptions, ThemeRiverDatum } from './chart-theme-rive
 import type { WaterfallChartData, WaterfallChartOptions } from './chart-waterfall';
 import type { CalendarHeatmapData, CalendarHeatmapOptions } from './chart-calendar';
 import type { ChordChartData, ChordChartOptions } from './chart-chord';
+import type { ChartLoadingOptions } from './chart-loading';
+import type { ChartWatermarkOptions } from './chart-watermark';
 import type { HierarchyData, SankeyChartData, SankeyChartOptions, SunburstChartOptions, TreemapChartOptions } from './chart-hierarchy';
 import type { TreeChartData, TreeChartOptions } from './chart-tree';
 import type { PictorialBarChartData, PictorialBarChartOptions, PictorialBarItem } from './chart-pictorial';
@@ -266,6 +268,9 @@ function syncOptions(sync: CharturboChartSync): ChartSyncMemberOptions | null {
  * change never re-renders the data). `dispose()` is safe at any time, including while `create`
  * is pending: the late engine is disposed on arrival and no callback fires.
  */
+/** Loading prop: `true` / options show the indicator (`showLoading`), falsy hides it. */
+export type CharturboChartLoading = boolean | ChartLoadingOptions | null | undefined;
+
 export class CharturboChartBinding {
   private engine: Charturbo | null = null;
   private disposed = false;
@@ -274,6 +279,8 @@ export class CharturboChartBinding {
   private sync: ChartSyncMemberOptions | null = null;
   private interactions: CharturboChartInteractions = DEFAULT_INTERACTIONS;
   private detachInteractions: (() => void) | null = null;
+  private loading: CharturboChartLoading = undefined;
+  private watermark: ChartWatermarkOptions | null | undefined = undefined;
   private readonly unsubscribers: (() => void)[] = [];
   /** Resolves with the engine, or `null` when disposed first / `create` failed */
   readonly ready: Promise<Charturbo | null>;
@@ -319,6 +326,12 @@ export class CharturboChartBinding {
         sdk.on(event, (payload) => (this.callbacks()[name] as ((p: typeof payload) => void) | undefined)?.(payload))
       );
     }
+    this.guard(() => {
+      if (this.watermark) sdk.setWatermark(this.watermark);
+    });
+    this.guard(() => {
+      if (this.loading) this.applyLoading(sdk);
+    });
     this.guard(() => {
       if (this.theme !== undefined) sdk.setTheme(this.theme);
       if (this.sync) sdk.setSync(this.sync);
@@ -386,6 +399,28 @@ export class CharturboChartBinding {
     if (sameSync(next, this.sync)) return;
     this.sync = next;
     this.engine?.setSync(next);
+  }
+
+  /** `true` / options = `showLoading`, falsy = `hideLoading` (identity compared). */
+  setLoading(loading: CharturboChartLoading): void {
+    if (loading === this.loading) return;
+    this.loading = loading;
+    const sdk = this.engine;
+    if (sdk) this.guard(() => this.applyLoading(sdk));
+  }
+
+  private applyLoading(sdk: Charturbo): void {
+    const v = this.loading;
+    if (v) sdk.showLoading(v === true ? undefined : v);
+    else sdk.hideLoading();
+  }
+
+  /** `setWatermark` (absent / null removes it; identity compared). */
+  setWatermark(watermark: ChartWatermarkOptions | null | undefined): void {
+    if (watermark === this.watermark) return;
+    this.watermark = watermark;
+    const sdk = this.engine;
+    if (sdk) this.guard(() => sdk.setWatermark(watermark ?? null));
   }
 
   setInteractions(interactions: CharturboChartInteractions | undefined): void {

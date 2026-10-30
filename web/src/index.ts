@@ -133,7 +133,7 @@ export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from '
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';
 export { type ChartAxisBreak, type ChartAxisBreakOptions, type ChartExtraAxisPlacement } from './sdk/chart-axes';
-export { type PieChartData, type PieChartOptions, type PieLabelMode, type PieRingData, type PieRingsData, type PieRoseMode } from './sdk/chart-pie';
+export { type PieChartData, type PieChartOptions, type PieLabelContext, type PieLabelMode, type PieRingData, type PieRingsData, type PieRoseMode } from './sdk/chart-pie';
 export {
   type ComboChartData,
   type ComboChartOptions,
@@ -152,7 +152,10 @@ export {
   type GaugeChartOptions,
   type GaugeStatus,
 } from './sdk/chart-gauge';
-export { type ChartFunnelTooltip, type FunnelChartData, type FunnelChartOptions, type FunnelConversion } from './sdk/chart-funnel';
+export { type ChartFunnelTooltip, type FunnelChartData, type FunnelChartOptions, type FunnelConversion, type FunnelLabelContext } from './sdk/chart-funnel';
+export { type RichLabelOptions, type RichTextStyle, type RichTextStyles } from './sdk/chart-rich-text';
+export { type ChartLoadingOptions } from './sdk/chart-loading';
+export { type ChartWatermarkOptions, type ResolvedWatermark } from './sdk/chart-watermark';
 export {
   themeRiverSeries,
   type ThemeRiverChartOptions,
@@ -190,6 +193,7 @@ export {
   type HierarchyChartOptions,
   type HierarchyData,
   type HierarchyFlatNode,
+  type HierarchyLabelContext,
   type HierarchyNode,
   type SankeyChartData,
   type SankeyChartOptions,

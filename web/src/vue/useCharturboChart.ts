@@ -6,15 +6,17 @@
  * Watches are shallow (identity only, never deep): replace `data` / `options` to re-render
  * (`shallowRef` + new array / object; in-place mutation of a `reactive` array is not seen).
  * `theme` change -> `setTheme` only; `syncGroup` -> `setSync`; `interactions` -> re-bind
- * `enableNodeInteractions`. Values are unwrapped with `toRaw` before reaching the SDK.
+ * `enableNodeInteractions`; `loading` -> `showLoading` / `hideLoading`; `watermark` -> `setWatermark`. Values are unwrapped with `toRaw` before reaching the SDK.
  */
 import { onBeforeUnmount, onMounted, shallowRef, toRaw, toValue, watch, type MaybeRefOrGetter, type Ref, type ShallowRef } from 'vue';
 import type { Charturbo } from '../sdk/charturbo';
+import type { ChartWatermarkOptions } from '../sdk/chart-watermark';
 import {
   CharturboChartBinding,
   type CharturboChartCallbacks,
   type CharturboChartData,
   type CharturboChartInteractions,
+  type CharturboChartLoading,
   type CharturboChartOptions,
   type CharturboChartSync,
   type CharturboChartTheme,
@@ -31,6 +33,10 @@ export interface UseCharturboChartOptions<T extends CharturboChartType = Chartur
   syncGroup?: MaybeRefOrGetter<CharturboChartSync>;
   /** Tooltip / zoom / pan / touch / brush options; `false` = static chart (default: SDK defaults) */
   interactions?: MaybeRefOrGetter<CharturboChartInteractions | undefined>;
+  /** `true` / `showLoading` options = loading indicator, falsy = hidden (rendering never hides it) */
+  loading?: MaybeRefOrGetter<CharturboChartLoading>;
+  /** `setWatermark` options (absent / null = none) */
+  watermark?: MaybeRefOrGetter<ChartWatermarkOptions | null | undefined>;
   /** `Charturbo.create` options (`autoResize` default true, `locale`, ...); read on mount */
   createOptions?: CharturboCreateOptions;
 }
@@ -73,6 +79,8 @@ export function useCharturboChart<T extends CharturboChartType>(
   const theme = () => raw(toValue(props.theme));
   const sync = () => raw(toValue(props.syncGroup));
   const interactions = () => raw(toValue(props.interactions));
+  const loading = () => raw(toValue(props.loading));
+  const watermark = () => raw(toValue(props.watermark));
 
   onMounted(() => {
     const el = canvas.value;
@@ -82,6 +90,8 @@ export function useCharturboChart<T extends CharturboChartType>(
     binding.setTheme(theme());
     binding.setSync(sync());
     binding.setInteractions(interactions());
+    binding.setLoading(loading());
+    binding.setWatermark(watermark());
   });
 
   // Multi-source: each value compared by identity (one call when several change in one tick)
@@ -89,6 +99,8 @@ export function useCharturboChart<T extends CharturboChartType>(
   watch(theme, (v) => binding?.setTheme(v));
   watch(sync, (v) => binding?.setSync(v));
   watch(interactions, (v) => binding?.setInteractions(v));
+  watch(loading, (v) => binding?.setLoading(v));
+  watch(watermark, (v) => binding?.setWatermark(v));
 
   onBeforeUnmount(() => {
     binding?.dispose();

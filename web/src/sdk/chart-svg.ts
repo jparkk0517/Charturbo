@@ -45,6 +45,8 @@ export interface ChartSvgHost {
   kind: string | null;
   /** Logs warnings (default `console.warn`) */
   warn?: (msg: string) => void;
+  /** Watermark group for a `cssW x cssH` document ('' / absent = none) */
+  watermark?: (cssW: number, cssH: number) => string;
 }
 
 /** Decoded `chart_export_svg` result. */
@@ -132,6 +134,8 @@ export function svgDocument(parts: {
   image?: { href: string; x: number; y: number; width: number; height: number } | null;
   marks: string;
   overlay: string;
+  /** Watermark group, between the marks and the overlay */
+  watermark?: string;
 }): string {
   const { width: w, height: h } = parts;
   let s =
@@ -145,6 +149,7 @@ export function svgDocument(parts: {
       `preserveAspectRatio="none" href="${img.href}" xlink:href="${img.href}"/>`;
   }
   s += parts.marks;
+  if (parts.watermark) s += parts.watermark;
   if (parts.overlay) s += `<g data-layer="overlay">${parts.overlay}</g>`;
   return s + '</svg>';
 }
@@ -179,7 +184,8 @@ function canvasRegionPng(host: ChartSvgHost, region?: [number, number, number, n
 }
 
 let measureCtx: CanvasRenderingContext2D | null | undefined;
-function measureText(text: string, font: string): number {
+/** Canvas text width in CSS px (0 without a 2D canvas). */
+export function measureText(text: string, font: string): number {
   if (measureCtx === undefined) {
     measureCtx = typeof document !== 'undefined' ? (document.createElement('canvas').getContext?.('2d') ?? null) : null;
   }
@@ -228,7 +234,8 @@ export function chartToSvg(host: ChartSvgHost, opts: ChartSvgOptions = {}): stri
     const ops = collectOverlayOps(host.overlay, { left: cr.left + canvas.clientLeft, top: cr.top + canvas.clientTop }, domEnv);
     overlay = overlayOpsToSvg(ops, measureText);
   }
-  return svgDocument({ width: cssW, height: cssH, background, image, marks, overlay });
+  const watermark = host.watermark?.(cssW, cssH) ?? '';
+  return svgDocument({ width: cssW, height: cssH, background, image, marks, overlay, watermark });
 }
 
 /** Saves a blob through a temporary `<a download>`. */

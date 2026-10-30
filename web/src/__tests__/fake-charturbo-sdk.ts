@@ -90,6 +90,9 @@ export class FakeSDK {
   renderThemeRiverChart = this.spy('renderThemeRiverChart');
   setTheme = this.spy('setTheme');
   setSync = this.spy('setSync');
+  showLoading = this.spy('showLoading');
+  hideLoading = this.spy('hideLoading');
+  setWatermark = this.spy('setWatermark');
   render = this.spy('render');
   enableNodeInteractions = vi.fn((..._args: unknown[]) => {
     this.calls.push('enableNodeInteractions');

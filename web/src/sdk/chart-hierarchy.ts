@@ -13,6 +13,7 @@ import type { A11yChartModel, ChartDataCell } from './chart-a11y';
 import type { A11yCommon, A11yCustomModel } from './chart-business-util';
 import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import { formatCount, formatNumber, getMessages, resolveLocale } from './i18n';
+import { measureRichText, parseRichText, renderRichText, type RichLabelOptions } from './chart-rich-text';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -41,6 +42,16 @@ export interface HierarchyFlatNode {
 /** One root node, or flat rows (several roots get a synthetic `rootLabel` root). */
 export type HierarchyData = HierarchyNode | HierarchyFlatNode[];
 
+/** Input of a treemap / sunburst / sankey `label.formatter` (one labeled node). */
+export interface HierarchyLabelContext {
+  name: string;
+  value: number;
+  /** Tree depth (top-level nodes 0; treemap / sunburst) */
+  depth?: number;
+  /** Column (sankey) */
+  column?: number;
+}
+
 export interface HierarchyChartOptions {
   title?: string;
   /** Accessible name of the canvas */
@@ -59,6 +70,11 @@ export interface HierarchyChartOptions {
   format?: ChartValueFormat;
   /** DOM labels where they fit (default: true) */
   labels?: boolean;
+  /**
+   * Text of the labels the engine places (rich text `{style|text}` runs, see chart-rich-text.ts;
+   * treemap labels clip to their cell; header strips show the first line). Default: the name (treemap: + value when it fits)
+   */
+  label?: RichLabelOptions<HierarchyLabelContext>;
   /** Levels shown below the current root (default: all) */
   maxDepth?: number;
   /** Top-level group legend (default: shown in group color mode with 2+ groups); hover emphasizes a group */
@@ -124,6 +140,8 @@ export interface SankeyChartOptions {
   format?: ChartValueFormat;
   /** Node labels beside the bars (default: true) */
   labels?: boolean;
+  /** Text of node labels (rich text, see chart-rich-text.ts). Default: name + value */
+  label?: RichLabelOptions<HierarchyLabelContext>;
   legend?: ChartLegendOptions | boolean;
   padding?: ChartPaddingOptions;
   /** Node bar width (CSS px, default 12; the bar height when vertical) */
@@ -313,6 +331,7 @@ interface HierarchyMetaFields {
   labels: boolean;
   /** `valueLabel` / `rootLabel` options (absent = built-in text of the locale) */
   labelOptions?: { valueLabel?: string; rootLabel?: string };
+  label?: RichLabelOptions<HierarchyLabelContext>;
   engine?: HierarchyEngineHooks;
 }
 
@@ -339,6 +358,7 @@ export interface SankeyChartMeta {
   labels: boolean;
   /** `valueLabel` option (absent = built-in text of the locale) */
   labelOptions?: { valueLabel?: string };
+  label?: RichLabelOptions<HierarchyLabelContext>;
   engine?: HierarchyEngineHooks;
 }
 
@@ -387,6 +407,7 @@ export function sendHierarchy(
     colormap: COLORMAPS[o.colormap ?? 'sequential'] ?? 0,
     labels,
     labelOptions: { valueLabel: o.valueLabel, rootLabel: o.rootLabel },
+    ...(o.label ? { label: o.label } : {}),
   };
 }
 
@@ -442,7 +463,7 @@ export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChar
         14,
         o.orient === 'vertical' ? 1 : 0,
         // Vertical rows: label centers keep the widest label apart (name + value, ~6.5 px per character)
-        (Math.max(0, ...names.map((n) => n.length)) + 8) * 6.5,
+        o.label?.formatter ? richSankeyWidth(names, sources, targets, values, o.label) : (Math.max(0, ...names.map((n) => n.length)) + 8) * 6.5,
       ]),
       encodeSankeyLevels(o.levels)
     );
@@ -467,7 +488,23 @@ export function sendSankey(backend: WasmCharturboEngineBackend, data: SankeyChar
     palette: o.colors,
     labels: o.labels ?? true,
     labelOptions: { valueLabel: o.valueLabel },
+    ...(o.label ? { label: o.label } : {}),
   };
+}
+
+/** Base font of hierarchy labels (rich runs inherit it). */
+const LABEL_BASE = { fontSize: 11, fontWeight: '400', fontFamily: 'sans-serif', lineHeight: 14 };
+
+/** Widest formatter label of a sankey (node value = the larger of its in / out flow). */
+function richSankeyWidth(names: string[], sources: Uint32Array, targets: Uint32Array, values: Float64Array, label: RichLabelOptions<HierarchyLabelContext>): number {
+  const inflow = new Float64Array(names.length);
+  const outflow = new Float64Array(names.length);
+  values.forEach((v, i) => {
+    if (!(v > 0)) return;
+    outflow[sources[i]] += v;
+    inflow[targets[i]] += v;
+  });
+  return names.reduce((w, name, i) => Math.max(w, measureRichText(parseRichText(label.formatter!({ name, value: Math.max(inflow[i], outflow[i]) }), label.rich), label.rich, LABEL_BASE).width), 0) + 8;
 }
 
 /** Palette, per-node colors, neutral / surface / highlight colors (and the value colormap). */
@@ -990,6 +1027,11 @@ export class HierarchyLabelLayer {
         el.replaceChildren();
         const fill = meta.nodeColors.length > node * 4 + 3 ? rgbaAt(meta.nodeColors, node) : ([0.5, 0.5, 0.5, 1] as RgbaTuple);
         const name = meta.nodeNames[node] ?? '';
+        const f = meta.label?.formatter;
+        if (f) {
+          this.placeRich(el, meta, node, name, f, fill, [x, y, w, h, flags], theme);
+          continue;
+        }
         // A stub like "ab…" says nothing: such cells stay unlabeled (tooltip / table)
         const fitted = meta.kind === 'sankey' ? name : fitText(name, w);
         if (fitted.endsWith('…') && fitted.length < 5) {
@@ -1059,6 +1101,54 @@ export class HierarchyLabelLayer {
     if (meta.kind === 'sankey' || !layout || layout.length < 10) return;
     this.updateCrumbs(meta, layout, theme, locale);
     this.updateCenter(meta, layout, theme, formatValue, locale);
+  }
+
+  /** Formatter label (rich text) at an engine anchor: same box / anchor as the default label. */
+  private placeRich(
+    el: HTMLDivElement,
+    meta: HierarchyChartMeta | SankeyChartMeta,
+    node: number,
+    name: string,
+    f: (ctx: HierarchyLabelContext) => string,
+    fill: RgbaTuple,
+    [x, y, w, h, flags]: number[],
+    theme: CharturboTheme
+  ): void {
+    const ctx: HierarchyLabelContext =
+      meta.kind === 'sankey'
+        ? { name, value: meta.nodes[node * 8 + 1], column: meta.nodes[node * 8] }
+        : { name, value: meta.values[node], depth: Math.max(0, hierarchyPath(meta, node).length - 1) };
+    const lines = parseRichText(f(ctx), meta.label?.rich);
+    const header = meta.kind === 'treemap' && (flags & 1) === 1;
+    // Header strips are one line high: the template's first line, centered in the strip
+    renderRichText(el, header ? lines.slice(0, 1) : lines, meta.label?.rich);
+    if (meta.kind === 'treemap') {
+      const bg = header ? mixRgba(fill, theme.surface, 0.5) : fill;
+      Object.assign(el.style, {
+        left: `${x}px`,
+        top: `${y}px`,
+        width: `${w}px`,
+        height: `${h}px`,
+        transform: 'none',
+        color: textOn(bg),
+        fontWeight: header ? '600' : '500',
+        lineHeight: header ? `${h}px` : '14px',
+        textAlign: 'left',
+      });
+    } else if (meta.kind === 'sunburst') {
+      Object.assign(el.style, { left: `${x}px`, top: `${y}px`, width: 'auto', height: 'auto', transform: 'translate(-50%, -50%)', color: textOn(fill), fontWeight: '500', textAlign: 'center' });
+    } else {
+      Object.assign(el.style, {
+        left: `${x}px`,
+        top: `${y}px`,
+        width: 'auto',
+        height: 'auto',
+        transform: flags === 2 ? 'translate(-50%, 0)' : flags === -2 ? 'translate(-50%, -100%)' : flags > 0 ? 'translate(0, -50%)' : 'translate(-100%, -50%)',
+        color: theme.textSecondary,
+        fontWeight: '400',
+        overflow: 'visible',
+      });
+    }
   }
 
   private updateCrumbs(meta: HierarchyChartMeta, layout: Float64Array, theme: CharturboTheme, locale?: string): void {
