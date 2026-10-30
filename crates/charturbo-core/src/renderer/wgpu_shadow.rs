@@ -33,13 +33,17 @@ pub(crate) struct LazyShadow {
     pub(super) format: wgpu::TextureFormat,
     pub(super) mesh_bgl: wgpu::BindGroupLayout,
     pub(super) texture_bgl: wgpu::BindGroupLayout,
+    /// PBR receivers' group 1 (base + material maps)
+    pub(super) material_bgl: wgpu::BindGroupLayout,
     pub(super) pipelines: OnceCell<ShadowPipelines>,
 }
 
-fn mesh_buffers() -> [wgpu::VertexBufferLayout<'static>; 2] {
+/// Vertex + instance buffers; the PBR shaders also read the map parameters / emission.
+fn mesh_buffers(pbr: bool) -> [wgpu::VertexBufferLayout<'static>; 2] {
+    let attrs: &'static [wgpu::VertexAttribute] = if pbr { &MESH_PBR_INSTANCE_ATTRS } else { &MESH_INSTANCE_ATTRS };
     [
         layout_of::<MeshVertexRaw>(wgpu::VertexStepMode::Vertex, &ATTRS_2),
-        layout_of::<MeshInstanceRaw>(wgpu::VertexStepMode::Instance, &MESH_INSTANCE_ATTRS),
+        layout_of::<MeshInstanceRaw>(wgpu::VertexStepMode::Instance, attrs),
     ]
 }
 
@@ -100,7 +104,7 @@ impl LazyShadow {
                 bind_group_layouts: &[&pass_bgl, &self.texture_bgl],
                 push_constant_ranges: &[],
             });
-            let buffers = mesh_buffers();
+            let buffers = mesh_buffers(false);
             // Depth only (no color target), reversed-Z like the main pass, both faces drawn
             let depth = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("mesh-shadow-depth"),
@@ -139,8 +143,8 @@ impl LazyShadow {
         })
     }
 
-    /// Receiving pipelines: classic layout `[mesh, base map, shadow]`, PBR `[mesh, base map,
-    /// env map, shadow]` (4 groups: the WebGL2 limit).
+    /// Receiving pipelines: classic layout `[mesh, base map, shadow]`, PBR `[mesh, material
+    /// maps, env map, shadow]` (4 groups: the WebGL2 limit).
     fn receivers(
         &self,
         device: &wgpu::Device,
@@ -160,7 +164,7 @@ impl LazyShadow {
         let groups: Vec<&wgpu::BindGroupLayout> = if pbr {
             vec![
                 &self.mesh_bgl,
-                &self.texture_bgl,
+                &self.material_bgl,
                 &self.texture_bgl,
                 receive_bgl,
             ]
@@ -172,7 +176,7 @@ impl LazyShadow {
             bind_group_layouts: &groups,
             push_constant_ranges: &[],
         });
-        let buffers = mesh_buffers();
+        let buffers = mesh_buffers(pbr);
         let spec = |label, depth_write| PipelineSpec {
             label,
             layout: &layout,

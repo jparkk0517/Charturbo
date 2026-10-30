@@ -1426,7 +1426,33 @@ export interface ObjectMapDescriptor {
   alphaTest?: number;
 }
 
-export interface ObjectMaterialDescriptor extends ObjectMapDescriptor, ObjectShadowDescriptor {
+/**
+ * glTF-style PBR material maps (used by the `'pbr'` shading model only; classic shading ignores
+ * them). Every map is sampled with the base map's uvs and `mapRepeat` / `mapOffset`. Texture ids
+ * come from `loadTexture` / `createDataTexture`; `null` (or 0) clears a slot. Metallic-roughness,
+ * normal and occlusion maps are linear data; the emissive map is sRGB color.
+ */
+export interface ObjectPbrMapsDescriptor {
+  /** Blue = metalness, green = roughness, multiplying `metallic` / `roughness` */
+  metallicRoughnessMap?: number | null;
+  /** Tangent-space normal map (OpenGL / glTF convention: green = up in the image) */
+  normalMap?: number | null;
+  /** Scales the normal map's x / y (default 1; clamped to [-16, 16]) */
+  normalScale?: number;
+  /** Ambient occlusion in the red channel; darkens environment (indirect) light only */
+  aoMap?: number | null;
+  /** 0..1 (default 1): `1 + aoStrength * (ao - 1)` */
+  aoStrength?: number;
+  /**
+   * Linear emitted color (default [0, 0, 0], components 0..1000). When non-black it replaces the
+   * PBR `color * emissive` glow with `emissiveColor * emissiveMap` (glTF `emissiveFactor`)
+   */
+  emissiveColor?: RgbTuple;
+  /** sRGB emissive texture multiplying `emissiveColor` (no effect while `emissiveColor` is black) */
+  emissiveMap?: number | null;
+}
+
+export interface ObjectMaterialDescriptor extends ObjectMapDescriptor, ObjectPbrMapsDescriptor, ObjectShadowDescriptor {
   color?: RgbaTuple;
   metallic?: number;
   roughness?: number;
@@ -1442,7 +1468,7 @@ export interface ObjectPhysicsDescriptor {
   restitution?: number;
 }
 
-export interface PrimitiveObjectDescriptor extends ObjectMapDescriptor, ObjectShadowDescriptor {
+export interface PrimitiveObjectDescriptor extends ObjectMapDescriptor, ObjectPbrMapsDescriptor, ObjectShadowDescriptor {
   name?: string;
   shape: PrimitiveShape;
   position?: Vec3Tuple;
@@ -1461,7 +1487,7 @@ export interface PrimitiveObjectDescriptor extends ObjectMapDescriptor, ObjectSh
   parentId?: number | null;
 }
 
-export interface CustomMeshObjectDescriptor extends ObjectMapDescriptor, ObjectShadowDescriptor {
+export interface CustomMeshObjectDescriptor extends ObjectMapDescriptor, ObjectPbrMapsDescriptor, ObjectShadowDescriptor {
   name?: string;
   positions: Float32Array | number[];
   normals?: Float32Array | number[];
@@ -1575,6 +1601,14 @@ export interface SceneObjectRecord {
   mapOffset: Vec2Tuple;
   /** Effective alpha cutoff (0.5 by default with a map, else 0) */
   alphaTest: number;
+  /** PBR material maps (`ObjectPbrMapsDescriptor`; texture ids, null = none) */
+  metallicRoughnessMap: number | null;
+  normalMap: number | null;
+  normalScale: number;
+  aoMap: number | null;
+  aoStrength: number;
+  emissiveColor: RgbTuple;
+  emissiveMap: number | null;
   /** Drawn into the shadow map (translucent objects never cast) */
   castShadow: boolean;
   /** Darkened by other objects' shadows */
@@ -1781,6 +1815,20 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   ): boolean;
   /** `[texture id, repeat u, repeat v, offset u, offset v, alpha test]`, or empty for an unknown object */
   get_object_map?(objectId: number): Float32Array;
+  set_object_material_maps?(
+    objectId: number,
+    metalRoughId: number,
+    normalId: number,
+    normalScale: number,
+    occlusionId: number,
+    occlusionStrength: number,
+    emissiveId: number,
+    emissiveR: number,
+    emissiveG: number,
+    emissiveB: number
+  ): boolean;
+  /** `[mr id, normal id, normal scale, occlusion id, strength, emissive id, r, g, b]`, or empty */
+  get_object_material_maps?(objectId: number): Float32Array;
   /** Two floats (u, v) per vertex, or empty to fall back to planar projection */
   set_custom_mesh_uvs?(objectId: number, uvs: Float32Array): boolean;
   set_object_physics?(
@@ -2485,6 +2533,52 @@ function resolveObjectMap(desc: ObjectMapDescriptor): Pick<SceneObjectRecord, 'm
     mapOffset: desc.mapOffset ? [desc.mapOffset[0], desc.mapOffset[1]] : [0, 0],
     alphaTest: desc.alphaTest ?? (map !== null ? DEFAULT_ALPHA_TEST : 0),
   };
+}
+
+/** Record keys of the PBR material maps that hold texture ids. */
+const PBR_MAP_KEYS = ['metallicRoughnessMap', 'normalMap', 'aoMap', 'emissiveMap'] as const;
+type PbrMapKey = (typeof PBR_MAP_KEYS)[number];
+type PbrMapsState = Pick<SceneObjectRecord, PbrMapKey | 'normalScale' | 'aoStrength' | 'emissiveColor'>;
+
+/** PBR map state of a scene object from a descriptor (ids 0 / null / undefined = none). */
+function resolvePbrMaps(desc: ObjectPbrMapsDescriptor): PbrMapsState {
+  return {
+    metallicRoughnessMap: desc.metallicRoughnessMap ? desc.metallicRoughnessMap : null,
+    normalMap: desc.normalMap ? desc.normalMap : null,
+    normalScale: desc.normalScale ?? 1,
+    aoMap: desc.aoMap ? desc.aoMap : null,
+    aoStrength: desc.aoStrength ?? 1,
+    emissiveColor: desc.emissiveColor ? [desc.emissiveColor[0], desc.emissiveColor[1], desc.emissiveColor[2]] : [0, 0, 0],
+    emissiveMap: desc.emissiveMap ? desc.emissiveMap : null,
+  };
+}
+
+/** Applies the PBR map fields a descriptor sets; true when any was given. */
+function applyPbrMaps(rec: SceneObjectRecord, desc: ObjectPbrMapsDescriptor): boolean {
+  let changed = false;
+  for (const key of PBR_MAP_KEYS) {
+    const v = desc[key];
+    if (v === undefined) continue;
+    rec[key] = v ? v : null;
+    changed = true;
+  }
+  if (desc.normalScale !== undefined) (rec.normalScale = desc.normalScale), (changed = true);
+  if (desc.aoStrength !== undefined) (rec.aoStrength = desc.aoStrength), (changed = true);
+  if (desc.emissiveColor !== undefined) {
+    rec.emissiveColor = [desc.emissiveColor[0], desc.emissiveColor[1], desc.emissiveColor[2]];
+    changed = true;
+  }
+  return changed;
+}
+
+/** True when a record's PBR maps differ from the defaults (sent to the engine / exported). */
+function hasPbrMaps(rec: PbrMapsState): boolean {
+  return (
+    PBR_MAP_KEYS.some((k) => rec[k] !== null) ||
+    rec.normalScale !== 1 ||
+    rec.aoStrength !== 1 ||
+    rec.emissiveColor.some((c) => c !== 0)
+  );
 }
 
 /** True when a record carries any texture state worth sending to the engine. */
@@ -5739,6 +5833,11 @@ export class Charturbo {
       this.sendShading();
     }
     for (const rec of this.objectRecords.values()) {
+      if (PBR_MAP_KEYS.some((k) => rec[k] === textureId)) {
+        // The engine cleared the slots already; keep the record in sync
+        for (const k of PBR_MAP_KEYS) if (rec[k] === textureId) rec[k] = null;
+        this.sendPbrMaps(rec);
+      }
       if (rec.map !== textureId) continue;
       rec.map = null;
       // Untextured again: the texture cutoff goes with it
@@ -5798,6 +5897,7 @@ export class Charturbo {
       restitution: desc.restitution ?? 0.55,
       parentId: desc.parentId ?? null,
       ...resolveObjectMap(desc),
+      ...resolvePbrMaps(desc),
       ...shadowFlags,
     };
 
@@ -5894,6 +5994,7 @@ export class Charturbo {
       restitution: desc.restitution ?? 0.6,
       parentId: desc.parentId ?? null,
       ...resolveObjectMap(desc),
+      ...resolvePbrMaps(desc),
       ...shadowFlags,
     };
 
@@ -5926,6 +6027,7 @@ export class Charturbo {
       record.emissive
     );
     if (hasObjectMap(record)) this.sendObjectMap(record);
+    if (hasPbrMaps(record)) this.sendPbrMaps(record);
     if (!record.castShadow || !record.receiveShadow) this.sendShadowFlags(record);
     this.backend.set_object_physics?.(
       record.id,
@@ -6023,6 +6125,7 @@ export class Charturbo {
     if (mat.mapRepeat) rec.mapRepeat = [mat.mapRepeat[0], mat.mapRepeat[1]];
     if (mat.mapOffset) rec.mapOffset = [mat.mapOffset[0], mat.mapOffset[1]];
     if (mat.alphaTest !== undefined) rec.alphaTest = mat.alphaTest;
+    const mapsChanged = applyPbrMaps(rec, mat);
     if (shadowFlags) Object.assign(rec, shadowFlags);
 
     const ok =
@@ -6037,7 +6140,26 @@ export class Charturbo {
         rec.emissive
       ) ?? true;
     const shadowOk = shadowChanged ? this.sendShadowFlags(rec) : true;
-    return (mapChanged ? this.sendObjectMap(rec) && ok : ok) && shadowOk;
+    const mapsOk = mapsChanged ? this.sendPbrMaps(rec) : true;
+    return (mapChanged ? this.sendObjectMap(rec) && ok : ok) && shadowOk && mapsOk;
+  }
+
+  /** Pushes a record's PBR material maps to the engine (the engine clamps the parameters). */
+  private sendPbrMaps(rec: SceneObjectRecord): boolean {
+    return (
+      this.backend.set_object_material_maps?.(
+        rec.id,
+        rec.metallicRoughnessMap ?? 0,
+        rec.normalMap ?? 0,
+        rec.normalScale,
+        rec.aoMap ?? 0,
+        rec.aoStrength,
+        rec.emissiveMap ?? 0,
+        rec.emissiveColor[0],
+        rec.emissiveColor[1],
+        rec.emissiveColor[2]
+      ) ?? true
+    );
   }
 
   /** Pushes a record's cast / receive shadow flags to the engine. */
@@ -7903,6 +8025,13 @@ export class Charturbo {
         console.warn(`loadScene: unknown texture id ${item.map}; its map is dropped (loadSceneWithTextures reloads textures that have a src)`);
         item = { ...item, map: null, alphaTest: 0 };
       }
+      for (const key of PBR_MAP_KEYS) {
+        const id = item[key];
+        if (id && !this.textureRecords.has(id)) {
+          console.warn(`loadScene: unknown texture id ${id}; its ${key} is dropped (loadSceneWithTextures reloads textures that have a src)`);
+          item = { ...item, [key]: null };
+        }
+      }
       if (item.kind === 'primitive') {
         createdIds.push(this.addPrimitive(item));
       } else {
@@ -7943,7 +8072,13 @@ export class Charturbo {
         console.warn(`loadSceneWithTextures: could not load texture ${t.id} (${t.src}): ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    const objects = descriptor.objects.map((item) => {
+    const objects = descriptor.objects.map((raw) => {
+      let item = raw;
+      for (const key of PBR_MAP_KEYS) {
+        const id = item[key];
+        const to = id ? idMap.get(id) : undefined;
+        if (to !== undefined) item = { ...item, [key]: to };
+      }
       const mapped = item.map ? idMap.get(item.map) : undefined;
       if (mapped === undefined) return item;
       return mapped === null ? { ...item, map: null, alphaTest: 0 } : { ...item, map: mapped };
@@ -7965,6 +8100,18 @@ export class Charturbo {
       alphaTest: rec.alphaTest,
       castShadow: rec.castShadow,
       receiveShadow: rec.receiveShadow,
+      // Only when set, so scenes without PBR maps export as before
+      ...(hasPbrMaps(rec)
+        ? {
+            metallicRoughnessMap: rec.metallicRoughnessMap,
+            normalMap: rec.normalMap,
+            normalScale: rec.normalScale,
+            aoMap: rec.aoMap,
+            aoStrength: rec.aoStrength,
+            emissiveColor: [...rec.emissiveColor] as RgbTuple,
+            emissiveMap: rec.emissiveMap,
+          }
+        : {}),
     };
   }
 
@@ -8022,7 +8169,7 @@ export class Charturbo {
 
     // Only textures the objects reference travel with the scene
     const textures: SceneTextureDescriptor[] = [];
-    const used = new Set(this.getObjects().map((rec) => rec.map));
+    const used = new Set(this.getObjects().flatMap((rec) => [rec.map, ...PBR_MAP_KEYS.map((k) => rec[k])]));
     used.add(this.shadingState.environment.map);
     for (const id of used) {
       const t = id === null ? undefined : this.textureRecords.get(id);

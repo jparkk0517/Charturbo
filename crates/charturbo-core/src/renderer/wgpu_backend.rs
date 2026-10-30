@@ -229,8 +229,8 @@ struct EnvBinding {
     bind_group: wgpu::BindGroup,
 }
 
-/// Opaque / translucent PBR mesh pipelines (`fs_mesh_pbr`, layout: mesh uniforms, base-color
-/// texture, environment map). Compiled lazily so classic-only pages never pay for them.
+/// Opaque / translucent PBR mesh pipelines (`fs_mesh_pbr`, layout: mesh uniforms, material
+/// maps, environment map). Compiled lazily so classic-only pages never pay for them.
 struct MeshPbrPipelines {
     opaque: wgpu::RenderPipeline,
     translucent: wgpu::RenderPipeline,
@@ -242,6 +242,8 @@ pub(crate) struct LazyMeshPbr {
     format: wgpu::TextureFormat,
     mesh_bgl: wgpu::BindGroupLayout,
     texture_bgl: wgpu::BindGroupLayout,
+    /// Group 1: base map + sampler + metallic-roughness / normal / occlusion / emissive maps
+    material_bgl: wgpu::BindGroupLayout,
     pipelines: [OnceCell<MeshPbrPipelines>; 2],
 }
 
@@ -261,12 +263,12 @@ impl LazyMeshPbr {
             // The environment map group has the base-color group's layout (texture + sampler)
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("mesh-pbr-pipeline-layout"),
-                bind_group_layouts: &[&self.mesh_bgl, &self.texture_bgl, &self.texture_bgl],
+                bind_group_layouts: &[&self.mesh_bgl, &self.material_bgl, &self.texture_bgl],
                 push_constant_ranges: &[],
             });
             let buffers = [
                 layout_of::<MeshVertexRaw>(wgpu::VertexStepMode::Vertex, &ATTRS_2),
-                layout_of::<MeshInstanceRaw>(wgpu::VertexStepMode::Instance, &MESH_INSTANCE_ATTRS),
+                layout_of::<MeshInstanceRaw>(wgpu::VertexStepMode::Instance, &MESH_PBR_INSTANCE_ATTRS),
             ];
             let spec = |label, depth_write| PipelineSpec {
                 label,
@@ -435,16 +437,52 @@ const POINT_ATTRS: [wgpu::VertexAttribute; 2] = [
     },
 ];
 
-/// Mesh instance attributes at shader locations 2..=11 (after the 2 per-vertex attributes).
-const MESH_INSTANCE_ATTRS: [wgpu::VertexAttribute; 10] = {
-    let mut attrs = vec4_attrs::<10>();
+/// Mesh instance attributes at shader locations 2..=11 (after the 2 per-vertex attributes);
+/// the classic and depth-pass shaders read these only.
+const MESH_INSTANCE_ATTRS: [wgpu::VertexAttribute; 10] = mesh_instance_attrs::<10>();
+/// PBR shaders: plus the map parameters and emission at 12, 13 (14 of WebGL2's 16 attributes).
+const MESH_PBR_INSTANCE_ATTRS: [wgpu::VertexAttribute; 12] = mesh_instance_attrs::<12>();
+
+const fn mesh_instance_attrs<const N: usize>() -> [wgpu::VertexAttribute; N] {
+    let mut attrs = vec4_attrs::<N>();
     let mut i = 0;
-    while i < 10 {
+    while i < N {
         attrs[i].shader_location = 2 + i as u32;
         i += 1;
     }
     attrs
-};
+}
+
+/// Group 1 of the PBR mesh pipelines: base map (b0), sampler (b1), metallic-roughness (b2),
+/// normal (b3), occlusion (b4) and emissive (b5) maps.
+fn material_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    let texture = |binding| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    };
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("mesh-material-bgl"),
+        entries: &[
+            texture(0),
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            texture(2),
+            texture(3),
+            texture(4),
+            texture(5),
+        ],
+    })
+}
 
 fn layout_of<T>(step_mode: wgpu::VertexStepMode, attributes: &'static [wgpu::VertexAttribute]) -> wgpu::VertexBufferLayout<'static> {
     wgpu::VertexBufferLayout {
@@ -522,6 +560,8 @@ pub struct GpuPipelines {
     mesh_bgl: wgpu::BindGroupLayout,
     /// Mesh base-color texture (b0) + sampler (b1), bind group 1 of the mesh pipelines
     mesh_texture_bgl: wgpu::BindGroupLayout,
+    /// PBR mesh material maps, bind group 1 of the PBR pipelines
+    mesh_material_bgl: wgpu::BindGroupLayout,
     heatmap_bgl: wgpu::BindGroupLayout,
     parallel_bgl: wgpu::BindGroupLayout,
     mesh_pipeline: wgpu::RenderPipeline,
@@ -821,7 +861,12 @@ impl WgpuRenderBackend {
 
         let heatmap = HeatmapGpu::new(&device, pipes.heatmap_bgl.clone(), &camera_buffer);
         let parallel = ParallelGpu::new(&device, pipes.parallel_bgl.clone(), &camera_buffer);
-        let textures = TextureRegistry::new(&device, &queue, pipes.mesh_texture_bgl.clone());
+        let textures = TextureRegistry::new(
+            &device,
+            &queue,
+            pipes.mesh_texture_bgl.clone(),
+            pipes.mesh_material_bgl.clone(),
+        );
         let env = EnvBinding { id: 0, levels: 0, bind_group: textures.env_bind_group(&device, 0) };
 
         let vb = wgpu::BufferUsages::VERTEX;
@@ -1082,6 +1127,7 @@ impl GpuPipelines {
                 },
             ],
         }), |b| b.mesh_texture_bgl.clone());
+        let mesh_material_bgl = base.map_or_else(|| material_bind_group_layout(device), |b| b.mesh_material_bgl.clone());
         let mesh_lit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh-lit-pipeline-layout"),
             bind_group_layouts: &[&mesh_bind_group_layout, &mesh_texture_bgl],
@@ -1370,6 +1416,7 @@ impl GpuPipelines {
                     format,
                     mesh_bgl: mesh_bind_group_layout.clone(),
                     texture_bgl: mesh_texture_bgl.clone(),
+                    material_bgl: mesh_material_bgl.clone(),
                     pipelines: Default::default(),
                 })
             },
@@ -1381,6 +1428,7 @@ impl GpuPipelines {
                     format,
                     mesh_bgl: mesh_bind_group_layout.clone(),
                     texture_bgl: mesh_texture_bgl.clone(),
+                    material_bgl: mesh_material_bgl.clone(),
                     pipelines: OnceCell::new(),
                 })
             },
@@ -1392,6 +1440,7 @@ impl GpuPipelines {
             camera_bgl: camera_bind_group_layout,
             mesh_bgl: mesh_bind_group_layout,
             mesh_texture_bgl,
+            mesh_material_bgl,
             heatmap_bgl,
             parallel_bgl,
             mesh_pipeline,
@@ -1418,6 +1467,12 @@ impl GpuPipelines {
             parallel_pipeline,
         }
     }
+}
+
+/// Texture ids of a draw's PBR material group.
+fn material_key(d: &MeshDraw) -> crate::renderer::texture::MaterialKey {
+    let [a, b, c, e] = d.maps;
+    [d.texture, a, b, c, e]
 }
 
 impl WgpuRenderBackend {
@@ -1455,10 +1510,20 @@ impl WgpuRenderBackend {
                 rpass.set_index_buffer(self.mesh_indices.slice(), wgpu::IndexFormat::Uint32);
                 bound = true;
             }
-            // Opaque draws are sorted by texture, so this rebinds once per texture
-            if bound_texture != Some(d.texture) {
-                rpass.set_bind_group(1, self.textures.bind_group(d.texture), &[]);
-                bound_texture = Some(d.texture);
+            // Opaque draws are sorted by texture, so this rebinds once per texture (PBR: per
+            // material map combination, groups built by `prepare_materials`)
+            let key = material_key(d);
+            if bound_texture != Some(key) {
+                let group = if self.pbr {
+                    match self.textures.material_bind_group(&key) {
+                        Some(g) => g,
+                        None => continue,
+                    }
+                } else {
+                    self.textures.bind_group(d.texture)
+                };
+                rpass.set_bind_group(1, group, &[]);
+                bound_texture = Some(key);
             }
             let from = d.first_instance as u64 * stride;
             let to = from + d.instance_count as u64 * stride;
@@ -1813,6 +1878,11 @@ impl RenderBackend for WgpuRenderBackend {
             });
         // Resident graphs read positions from the current GPU layout buffer (ping-pong: per frame)
         let resident_bind = self.resident_layout_bind();
+        // PBR mesh draws bind their material map combination as group 1
+        if self.pbr {
+            let keys = self.mesh_draws.iter().map(material_key);
+            self.textures.prepare_materials(&self.device, &self.queue, keys);
+        }
         // Shadow casters first (depth only), sampled by the main pass's mesh draws
         self.encode_shadow_pass(&mut encoder);
 

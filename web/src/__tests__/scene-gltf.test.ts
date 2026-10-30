@@ -53,6 +53,10 @@ function gltfBackend(options: { withTextures?: boolean } = {}) {
       log('set_object_map', args);
       return true;
     },
+    set_object_material_maps: (...args: unknown[]) => {
+      log('set_object_material_maps', args);
+      return true;
+    },
     set_custom_mesh_uvs: (...args: unknown[]) => {
       log('set_custom_mesh_uvs', args);
       return true;
@@ -570,6 +574,10 @@ describe('loadGltf materials', () => {
     close(recs[0].color, [0.5, 0.7354, 1, 1], 3);
     expect(recs[0]).toMatchObject({ metallic: 0, roughness: 0.5, alphaTest: 0, map: null });
     expect(recs[0].emissive).toBeCloseTo(0.6);
+    // PBR emission: the linear factor (times the strength)
+    close(recs[0].emissiveColor, [0.2, 0.6, 0.1]);
+    expect(recs[1].emissiveColor).toEqual([0, 0, 0]);
+    expect(recs[4].emissiveColor).toEqual([2, 2, 2]);
     close(recs[1].color, [1, 1, 1, 0.4]);
     expect(recs[1]).toMatchObject({ alphaTest: 0, metallic: 1, roughness: 1 });
     expect(recs[2].alphaTest).toBe(0.3);
@@ -591,14 +599,61 @@ describe('loadGltf materials', () => {
         { extensionsUsed: ['KHR_texture_transform', 'KHR_lights_punctual'], animations: [{}], skins: [{}] }
       )
     );
-    expect(sdk.getObjectRecord(objects[0])).toMatchObject({ map: 1, mapOffset: [0.25, 0.5], mapRepeat: [2, 3], alphaTest: 0 });
-    expect(sdk.getObjectRecord(objects[1])!.map).toBeNull();
+    expect(sdk.getObjectRecord(objects[0])).toMatchObject({ map: 1, normalMap: 1, mapOffset: [0.25, 0.5], mapRepeat: [2, 3], alphaTest: 0 });
+    // The base map on TEXCOORD_1 is dropped; the occlusion map still loads (and sets the transform)
+    expect(sdk.getObjectRecord(objects[1])).toMatchObject({ map: null, aoMap: 1, mapOffset: [0, 0], mapRepeat: [1, 1] });
     expect(warn.mock.calls.map((c) => c[0])).toEqual([
       'loadGltf: extension KHR_lights_punctual is not supported and is ignored',
       'loadGltf: animations are not supported and are ignored',
-      'loadGltf: normal, occlusion, metallic-roughness and emissive textures are ignored',
       'loadGltf: KHR_texture_transform rotation is not supported and is ignored',
-      'loadGltf: base color textures on TEXCOORD_1 or higher are not supported and are ignored',
+      "loadGltf: all textures of a material share one uv transform; the normal texture's KHR_texture_transform is ignored",
+      'loadGltf: textures on TEXCOORD_1 or higher are not supported and are ignored',
+    ]);
+  });
+
+  it('maps metallic-roughness, normal, occlusion and emissive textures onto the PBR map fields', async () => {
+    const createImageBitmap = stubBitmaps();
+    const { sdk, calls } = gltfBackend();
+    const img = { bufferView: 4, mimeType: 'image/png' };
+    const { objects, textures } = await sdk.loadGltf(
+      materialModel(
+        [
+          {
+            pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicRoughnessTexture: { index: 1 }, metallicFactor: 0.5 },
+            normalTexture: { index: 2, scale: 0.5 },
+            occlusionTexture: { index: 3, strength: 0.25 },
+            emissiveTexture: { index: 4 },
+            emissiveFactor: [1, 0.5, 0],
+          },
+          // Shares the normal image; strength is clamped
+          { normalTexture: { index: 2 }, occlusionTexture: { index: 2, strength: 7 } },
+        ],
+        {
+          textures: [{ source: 0 }, { source: 1 }, { source: 2 }, { source: 3 }, { source: 4 }],
+          images: [img, img, img, img, img],
+        }
+      )
+    );
+    expect(createImageBitmap).toHaveBeenCalledTimes(5);
+    expect(textures).toHaveLength(5);
+    const [a, b] = objects.map((id) => sdk.getObjectRecord(id)!);
+    const byImage = (image: number) => textures[image];
+    expect(a).toMatchObject({
+      map: byImage(0),
+      metallicRoughnessMap: byImage(1),
+      normalMap: byImage(2),
+      normalScale: 0.5,
+      aoMap: byImage(3),
+      aoStrength: 0.25,
+      emissiveMap: byImage(4),
+      emissiveColor: [1, 0.5, 0],
+      metallic: 0.5,
+    });
+    expect(b).toMatchObject({ map: null, metallicRoughnessMap: null, normalMap: byImage(2), normalScale: 1, aoMap: byImage(2), aoStrength: 1, emissiveMap: null });
+    // Sent to the engine: [id, mr, normal, scale, occlusion, strength, emissive, r, g, b]
+    expect(calls.set_object_material_maps).toEqual([
+      [a.id, byImage(1), byImage(2), 0.5, byImage(3), 0.25, byImage(4), 1, 0.5, 0],
+      [b.id, 0, byImage(2), 1, byImage(2), 1, 0, 0, 0, 0],
     ]);
   });
 

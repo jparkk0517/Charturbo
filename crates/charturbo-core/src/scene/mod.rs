@@ -91,6 +91,79 @@ impl Default for TextureMap {
     }
 }
 
+/// PBR material maps of a `SceneObject` (glTF conventions, sampled with the base map's uv
+/// transform; ignored by the classic shading model). Texture id 0 = no map: the defaults
+/// (white metallic-roughness and occlusion, no normal perturbation, black emission) leave the
+/// untextured PBR output unchanged.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaterialMaps {
+    /// Blue = metallic, green = roughness (linear), multiplying `Material::metallic / roughness`
+    pub metal_rough: u32,
+    /// Tangent-space normal map (linear, +y up in the image)
+    pub normal: u32,
+    /// Scales the normal map's x / y (0 = flat)
+    pub normal_scale: f32,
+    /// Ambient occlusion in the red channel (linear); darkens the environment light only
+    pub occlusion: u32,
+    /// `1 + strength * (occlusion - 1)`, 0..1
+    pub occlusion_strength: f32,
+    /// Emissive color texture (sRGB), multiplying `emissive_color`
+    pub emissive: u32,
+    /// Linear emitted radiance (>= 0). Non-black replaces the PBR `color * Material::emissive`
+    /// glow with `emissive_color * emissive map`
+    pub emissive_color: [f32; 3],
+}
+
+impl Default for MaterialMaps {
+    fn default() -> Self {
+        Self {
+            metal_rough: 0,
+            normal: 0,
+            normal_scale: 1.0,
+            occlusion: 0,
+            occlusion_strength: 1.0,
+            emissive: 0,
+            emissive_color: [0.0; 3],
+        }
+    }
+}
+
+/// Largest accepted emissive color component.
+pub const MAX_EMISSIVE: f32 = 1000.0;
+/// Largest accepted normal scale magnitude.
+pub const MAX_NORMAL_SCALE: f32 = 16.0;
+
+impl MaterialMaps {
+    /// Non-finite values fall back to the defaults; scales / strengths / colors are clamped.
+    pub fn sanitized(self) -> Self {
+        let finite_or = |v: f32, d: f32| if v.is_finite() { v } else { d };
+        let d = Self::default();
+        Self {
+            normal_scale: finite_or(self.normal_scale, d.normal_scale).clamp(-MAX_NORMAL_SCALE, MAX_NORMAL_SCALE),
+            occlusion_strength: finite_or(self.occlusion_strength, d.occlusion_strength).clamp(0.0, 1.0),
+            emissive_color: self.emissive_color.map(|c| finite_or(c, 0.0).clamp(0.0, MAX_EMISSIVE)),
+            ..self
+        }
+    }
+
+    /// Texture ids in draw-key order: metallic-roughness, normal, occlusion, emissive.
+    pub fn textures(&self) -> [u32; 4] {
+        [self.metal_rough, self.normal, self.occlusion, self.emissive]
+    }
+
+    /// Clears every slot pointing at `texture_id`; true when one changed.
+    fn clear_texture(&mut self, texture_id: u32) -> bool {
+        let mut changed = false;
+        for slot in [&mut self.metal_rough, &mut self.normal, &mut self.occlusion, &mut self.emissive] {
+            if *slot == texture_id {
+                *slot = 0;
+                changed = true;
+            }
+        }
+        changed
+    }
+}
+
 /// Geometry representation for a `SceneObject`.
 #[derive(Debug, Clone)]
 pub enum SceneGeometry {
@@ -191,6 +264,8 @@ pub struct SceneObject {
     pub material: Material,
     /// Base-color texture (kept apart from `Material`, which callers replace wholesale)
     pub map: TextureMap,
+    /// PBR metallic-roughness / normal / occlusion / emissive maps
+    pub maps: MaterialMaps,
     pub body: RigidBody,
     pub selected: bool,
     pub visible: bool,
@@ -521,6 +596,7 @@ impl SceneWorld {
                 ..Material::default()
             },
             map: TextureMap::default(),
+            maps: MaterialMaps::default(),
             body: RigidBody {
                 body_type,
                 mass,
@@ -628,6 +704,7 @@ impl SceneWorld {
                 ..Material::default()
             },
             map: TextureMap::default(),
+            maps: MaterialMaps::default(),
             body: RigidBody {
                 body_type,
                 mass: (scale.x.abs() * scale.y.abs() * scale.z.abs()).clamp(0.2, 100.0),
@@ -739,6 +816,17 @@ impl SceneWorld {
         }
     }
 
+    /// Sets the PBR material maps (sanitized, see `MaterialMaps::sanitized`; texture ids are
+    /// not checked: unknown / disposed ids behave as no map).
+    pub fn set_object_material_maps(&mut self, object_id: u32, maps: MaterialMaps) -> bool {
+        if let Some(obj) = self.find_object_mut(object_id) {
+            obj.maps = maps.sanitized();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Resets every map that points at `texture_id` (after the texture was disposed) to the
     /// white default texture with no alpha test (a translucent object must not be cut away by
     /// a test meant for the texture). Returns how many objects changed. An environment map
@@ -752,11 +840,13 @@ impl SceneWorld {
         }
         let mut changed = 0;
         for obj in &mut self.objects {
+            let mut hit = obj.maps.clear_texture(texture_id);
             if obj.map.texture == texture_id {
                 obj.map.texture = 0;
                 obj.map.alpha_test = 0.0;
-                changed += 1;
+                hit = true;
             }
+            changed += usize::from(hit);
         }
         if changed > 0 {
             self.touch();
@@ -1161,7 +1251,7 @@ impl SceneWorld {
         // shadow casters lead each draw (stable sort: the all-casting order is unchanged)
         order[..split].sort_by_key(|&i| {
             let o = &self.objects[i];
-            (o.map.texture, self.geometry_range(i).0, !o.cast_shadow)
+            (o.map.texture, o.maps.textures(), self.geometry_range(i).0, !o.cast_shadow)
         });
         // Translucent: far-to-near for correct blending
         order[split..].sort_by(|&a, &b| {
@@ -1174,6 +1264,7 @@ impl SceneWorld {
             let translucent = k >= split;
             let (first_index, index_count) = self.geometry_range(idx);
             let texture = self.objects[idx].map.texture;
+            let maps = self.objects[idx].maps.textures();
             let casts = u32::from(!translucent && self.objects[idx].cast_shadow);
             let instance = self.instances.len() as u32;
             self.pack_instance(idx, &world[idx]);
@@ -1182,6 +1273,7 @@ impl SceneWorld {
                 Some(d)
                     if d.first_index == first_index
                         && d.texture == texture
+                        && d.maps == maps
                         && d.translucent == translucent =>
                 {
                     d.instance_count += 1;
@@ -1194,6 +1286,7 @@ impl SceneWorld {
                     instance_count: 1,
                     translucent,
                     texture,
+                    maps,
                     shadow_instances: casts,
                 }),
             }
@@ -1363,6 +1456,14 @@ impl SceneWorld {
                 obj.map.offset[0],
                 obj.map.offset[1],
             ],
+            pbr_maps: [
+                // 0 = no normal map: the shader keeps the interpolated normal exactly
+                if obj.maps.normal != 0 { obj.maps.normal_scale } else { 0.0 },
+                obj.maps.occlusion_strength,
+                0.0,
+                0.0,
+            ],
+            emissive: pack_emissive(&obj.maps, emissive - obj.material.emissive),
         });
 
         // If selected or hovered, emit a bounding wireframe box in helper_lines
@@ -1475,6 +1576,18 @@ fn append_wireframe_box(
             position_pad: [pb.x, pb.y, pb.z, 1.0],
             color,
         });
+    }
+}
+
+/// `[r, g, b, w]` emission of the PBR shader: `w = 0` keeps `color * Material::emissive`; a
+/// non-black `emissive_color` packs `w = 1 + highlight` (the hover / selection glow added on
+/// top of `emissive_color * emissive map`, as base color * highlight).
+fn pack_emissive(maps: &MaterialMaps, highlight: f32) -> [f32; 4] {
+    let [r, g, b] = maps.emissive_color;
+    if r > 0.0 || g > 0.0 || b > 0.0 {
+        [r, g, b, 1.0 + highlight.max(0.0)]
+    } else {
+        [0.0; 4]
     }
 }
 
@@ -1989,6 +2102,63 @@ mod tests {
         assert_eq!(scene.clear_texture_refs(5), 0);
         assert_eq!(scene.clear_texture_refs(0), 0);
         assert_eq!(scene.revision(), rev);
+    }
+
+    #[test]
+    fn material_maps_default_sanitize_pack_and_clear() {
+        let d = MaterialMaps::default();
+        assert_eq!(d.textures(), [0; 4]);
+        assert_eq!((d.normal_scale, d.occlusion_strength, d.emissive_color), (1.0, 1.0, [0.0; 3]));
+        let mut scene = SceneWorld::new();
+        let a = scene.add_primitive(PrimitiveKind::Box, Vec3::ZERO, Vec3::ONE, [1.0; 4], BodyType::Static);
+        assert_eq!(scene.find_object(a).unwrap().maps, d, "objects start without maps");
+        // Untextured: no normal map packs scale 0 (exact geometric normal), emission mode 0
+        let packed = scene.pack_render_data(Vec3::Z * 10.0);
+        assert_eq!(packed.instances[0].pbr_maps, [0.0, 1.0, 0.0, 0.0]);
+        assert_eq!(packed.instances[0].emissive, [0.0; 4]);
+        assert_eq!(packed.draws[0].maps, [0; 4]);
+
+        assert!(!scene.set_object_material_maps(9999, d));
+        let maps = MaterialMaps {
+            metal_rough: 2,
+            normal: 3,
+            normal_scale: f32::NAN,
+            occlusion: 4,
+            occlusion_strength: 3.0,
+            emissive: 5,
+            emissive_color: [2.0, f32::INFINITY, -1.0],
+        };
+        let rev = scene.revision();
+        assert!(scene.set_object_material_maps(a, maps));
+        assert_ne!(scene.revision(), rev);
+        let m = scene.find_object(a).unwrap().maps;
+        assert_eq!((m.normal_scale, m.occlusion_strength, m.emissive_color), (1.0, 1.0, [2.0, 0.0, 0.0]));
+        scene.set_object_material_maps(a, MaterialMaps { normal_scale: -40.0, emissive_color: [5000.0, 0.0, 0.0], ..maps });
+        let m = scene.find_object(a).unwrap().maps;
+        assert_eq!((m.normal_scale, m.emissive_color[0]), (-MAX_NORMAL_SCALE, MAX_EMISSIVE));
+        scene.set_object_material_maps(a, MaterialMaps { normal_scale: 0.5, occlusion_strength: 0.25, emissive_color: [1.0, 0.5, 0.0], ..maps });
+        let packed = scene.pack_render_data(Vec3::Z * 10.0);
+        assert_eq!(packed.instances[0].pbr_maps, [0.5, 0.25, 0.0, 0.0]);
+        assert_eq!(packed.instances[0].emissive, [1.0, 0.5, 0.0, 1.0]);
+        assert_eq!(packed.draws[0].maps, [2, 3, 4, 5]);
+
+        // Draws split by map combination
+        let b = scene.add_primitive(PrimitiveKind::Box, Vec3::X * 3.0, Vec3::ONE, [1.0; 4], BodyType::Static);
+        assert_eq!(scene.pack_render_data(Vec3::Z * 10.0).draws.len(), 2);
+        scene.set_object_material_maps(b, scene.find_object(a).unwrap().maps);
+        assert_eq!(scene.pack_render_data(Vec3::Z * 10.0).draws.len(), 1);
+
+        // Disposal clears every slot pointing at the texture (each object counted once)
+        scene.set_object_material_maps(b, MaterialMaps { metal_rough: 3, normal: 3, ..maps });
+        scene.set_object_map(b, TextureMap { texture: 3, ..TextureMap::default() });
+        assert_eq!(scene.clear_texture_refs(3), 2);
+        assert_eq!(scene.find_object(a).unwrap().maps.textures(), [2, 0, 4, 5]);
+        assert_eq!(scene.find_object(b).unwrap().maps.textures(), [0, 0, 4, 5]);
+        assert_eq!(scene.find_object(b).unwrap().map.texture, 0);
+        assert_eq!(scene.find_object(a).unwrap().maps.normal_scale, 0.5, "parameters are kept");
+        let packed = scene.pack_render_data(Vec3::Z * 10.0);
+        assert!(packed.instances.iter().all(|i| i.pbr_maps[0] == 0.0), "no normal map: scale 0");
+        assert_eq!(scene.clear_texture_refs(3), 0);
     }
 
     #[test]

@@ -66,6 +66,10 @@ function textureBackend(options: { maxTextureSize?: number; withTextures?: boole
       maps.set(id, rest);
       return true;
     },
+    set_object_material_maps: (...args: unknown[]) => {
+      log('set_object_material_maps', args);
+      return true;
+    },
     set_custom_mesh_uvs: (...args: unknown[]) => {
       log('set_custom_mesh_uvs', args);
       return true;
@@ -412,6 +416,89 @@ describe('texture maps on scene objects', () => {
     const id = sdk.addBox({ map: 0 });
     expect(calls.set_object_map).toBeUndefined();
     expect(sdk.getObjectRecord(id)?.map).toBeNull();
+  });
+});
+
+describe('PBR material maps', () => {
+  const NO_MAPS = { metallicRoughnessMap: null, normalMap: null, normalScale: 1, aoMap: null, aoStrength: 1, emissiveColor: [0, 0, 0], emissiveMap: null };
+
+  it('defaults to no maps and sends nothing for objects without them', () => {
+    const { sdk, calls } = textureBackend();
+    const a = sdk.addBox();
+    const b = sdk.addCustomMesh(triangle);
+    expect(sdk.getObjectRecord(a)).toMatchObject(NO_MAPS);
+    expect(sdk.getObjectRecord(b)).toMatchObject(NO_MAPS);
+    expect(calls.set_object_material_maps).toBeUndefined();
+    // Exports keep their old shape
+    expect(sdk.exportScene().objects[0]).not.toHaveProperty('normalMap');
+  });
+
+  it('forwards the maps from addPrimitive / addCustomMesh and updates them with setObjectMaterial', () => {
+    const { sdk, calls } = textureBackend();
+    const [mr, nrm, ao, em] = [1, 2, 3, 4].map(() => sdk.createDataTexture(1, 1, checker(1)));
+    const box = sdk.addBox({ metallicRoughnessMap: mr, normalMap: nrm, normalScale: 0.5, aoMap: ao, aoStrength: 0.8, emissiveMap: em, emissiveColor: [1, 0.5, 0] });
+    expect(calls.set_object_material_maps).toEqual([[box, mr, nrm, 0.5, ao, 0.8, em, 1, 0.5, 0]]);
+    const mesh = sdk.addCustomMesh({ ...triangle, normalMap: nrm });
+    expect(calls.set_object_material_maps[1]).toEqual([mesh, 0, nrm, 1, 0, 1, 0, 0, 0, 0]);
+
+    // Only the given fields change; null / 0 clear a slot
+    expect(sdk.setObjectMaterial(box, { normalMap: null, aoStrength: 0.2 })).toBe(true);
+    expect(calls.set_object_material_maps[2]).toEqual([box, mr, 0, 0.5, ao, 0.2, em, 1, 0.5, 0]);
+    expect(sdk.getObjectRecord(box)).toMatchObject({ normalMap: null, aoStrength: 0.2, metallicRoughnessMap: mr });
+    sdk.setObjectMaterial(box, { emissiveMap: 0, emissiveColor: [0, 0, 2] });
+    expect(sdk.getObjectRecord(box)).toMatchObject({ emissiveMap: null, emissiveColor: [0, 0, 2] });
+    // Unrelated material changes do not resend the maps
+    const sent = calls.set_object_material_maps.length;
+    sdk.setObjectMaterial(box, { metallic: 1 });
+    expect(calls.set_object_material_maps).toHaveLength(sent);
+  });
+
+  it('disposeTexture clears every slot that used the texture', () => {
+    const { sdk, calls } = textureBackend();
+    const tex = sdk.createDataTexture(1, 1, checker(1));
+    const keep = sdk.createDataTexture(1, 1, checker(1));
+    const a = sdk.addBox({ metallicRoughnessMap: tex, normalMap: tex, aoMap: keep });
+    const b = sdk.addBox({ normalMap: keep });
+    const sent = calls.set_object_material_maps.length;
+    sdk.disposeTexture(tex);
+    expect(sdk.getObjectRecord(a)).toMatchObject({ metallicRoughnessMap: null, normalMap: null, aoMap: keep });
+    expect(sdk.getObjectRecord(b)?.normalMap).toBe(keep);
+    expect(calls.set_object_material_maps.slice(sent)).toEqual([[a, 0, 0, 1, keep, 1, 0, 0, 0, 0]]);
+  });
+
+  it('round-trips through exportScene / loadScene and remaps ids in loadSceneWithTextures', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { sdk, calls } = textureBackend();
+    const nrm = sdk.createDataTexture(2, 2, checker(2));
+    const em = sdk.createDataTexture(1, 1, checker(1));
+    sdk.addBox({ normalMap: nrm, normalScale: -1, emissiveMap: em, emissiveColor: [0.5, 0.5, 0.5] });
+    const scene = sdk.exportScene();
+    expect(scene.textures?.map((t) => t.id).sort()).toEqual([nrm, em].sort());
+    expect(scene.objects[0]).toMatchObject({ normalMap: nrm, normalScale: -1, emissiveMap: em, emissiveColor: [0.5, 0.5, 0.5], aoMap: null });
+    expect(JSON.parse(JSON.stringify(scene))).toEqual(scene);
+
+    const [id] = sdk.loadScene(scene);
+    expect(sdk.getObjectRecord(id)).toMatchObject({ normalMap: nrm, emissiveMap: em, normalScale: -1 });
+    expect(calls.set_object_material_maps.at(-1)).toEqual([id, 0, nrm, -1, 0, 1, em, 0.5, 0.5, 0.5]);
+    expect(warn).not.toHaveBeenCalled();
+
+    // Unknown ids are dropped per slot with a warning
+    const [lost] = sdk.loadScene({ objects: [{ kind: 'primitive', shape: 'box', aoMap: 42, normalMap: nrm }] });
+    expect(sdk.getObjectRecord(lost)).toMatchObject({ aoMap: null, normalMap: nrm });
+    expect(String(warn.mock.calls[0][0])).toContain('unknown texture id 42; its aoMap is dropped');
+
+    // Another session: the src texture is fetched and remapped, a missing data texture dropped
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, blob: async () => new Blob(['x']) })));
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => fakeBitmap(2, 2)));
+    const [remapped] = await sdk.loadSceneWithTextures({
+      textures: [
+        { id: 7, src: '/normal.png', width: 2, height: 2 },
+        { id: 8, src: null, width: 3, height: 3 },
+      ],
+      objects: [{ kind: 'primitive', shape: 'box', normalMap: 7, emissiveMap: 8, metallicRoughnessMap: 7 }],
+    });
+    const loaded = sdk.getTextures().find((t) => t.src === '/normal.png')!.id;
+    expect(sdk.getObjectRecord(remapped)).toMatchObject({ normalMap: loaded, metallicRoughnessMap: loaded, emissiveMap: null });
   });
 });
 

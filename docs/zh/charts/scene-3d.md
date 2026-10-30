@@ -162,8 +162,8 @@ sdk.disposeGltf(house);                      // 移除其对象和纹理
 结果为 `{ objects, textures, nodes, bounds }`：`nodes` 以深度优先顺序列出场景节点 `{ index, name, objectIds }`，`bounds` 是世界空间的 `{ min, max }`。每个网格图元成为一个自定义网格对象，以其节点（或网格）命名；网格有多个图元时追加 `#<n>`。
 
 - **支持。** 使用外部或 `data:` 缓冲区和图片的 `.gltf`，带二进制块的 `.glb`；所有访问器类型，包括交错（`byteStride`）、归一化、稀疏以及没有缓冲视图的访问器；三角形、三角形带和扇形（点和线会发出警告并跳过）。节点层级（TRS 或 `matrix`）烘焙进顶点，法线用逆转置矩阵变换，镜像节点翻转绕序；缺少法线时计算平滑法线。扩展 `KHR_texture_transform`、`KHR_mesh_quantization` 和 `KHR_materials_emissive_strength`。
-- **材质。** `baseColorFactor` 从线性空间转换到渲染器的伽马空间；`baseColorTexture` 成为 `map`（仅 `TEXCOORD_0`；`KHR_texture_transform` 的 offset 和 scale 成为 `mapOffset` / `mapRepeat`）；`metallicFactor` 和 `roughnessFactor` 与 glTF 一样默认为 1；引擎的自发光是乘在基础色上的标量，因此 `emissive` 取 `emissiveFactor` 的最大分量（乘以自发光强度）。`alphaMode: 'MASK'` 将 `alphaTest` 设为 `alphaCutoff`（默认 0.5），`'BLEND'` 保留颜色 alpha，`'OPAQUE'` 将颜色 alpha 固定为 1。多个材质共用的图片只解码一次。
-- **忽略。** 采样器（纹理始终重复并线性过滤）。以下会发出警告并忽略：法线、遮蔽、金属度-粗糙度和自发光纹理，纹理变换的旋转，`TEXCOORD_1` 及以上的基础色纹理，蒙皮（按绑定姿势渲染），变形目标，动画，相机以及其他扩展。若 `extensionsRequired` 中列出了不支持的扩展，则以 `loadGltf: extension X is required but not supported` 拒绝。
+- **材质。** `baseColorFactor` 从线性空间转换到渲染器的伽马空间；`baseColorTexture` 成为 `map`（仅 `TEXCOORD_0`；`KHR_texture_transform` 的 offset 和 scale 成为 `mapOffset` / `mapRepeat`）；`metallicFactor` 和 `roughnessFactor` 与 glTF 一样默认为 1；`emissiveFactor`（乘以自发光强度）成为 `emissiveColor`，其最大分量作为经典着色用的 `emissive`；金属度-粗糙度、法线、遮蔽和自发光纹理成为[材质贴图](#material-maps)（仅 `TEXCOORD_0`；同一材质的纹理共用一个 uv 变换，其余的发出警告并忽略）。`alphaMode: 'MASK'` 将 `alphaTest` 设为 `alphaCutoff`（默认 0.5），`'BLEND'` 保留颜色 alpha，`'OPAQUE'` 将颜色 alpha 固定为 1。多个材质共用的图片只解码一次。
+- **忽略。** 采样器（纹理始终重复并线性过滤）。以下会发出警告并忽略：纹理变换的旋转，`TEXCOORD_1` 及以上的纹理，蒙皮（按绑定姿势渲染），变形目标，动画，相机以及其他扩展。若 `extensionsRequired` 中列出了不支持的扩展，则以 `loadGltf: extension X is required but not supported` 拒绝。
 - **限制。** 单次加载最多创建 `GLTF_MAX_VERTICES`（8,388,608）个顶点和 `GLTF_MAX_INDICES`（67,108,864）个索引。所有对象共用一个几何缓冲区，因此多个大模型仍可能超出 GPU 缓冲区上限。纹理遵循上文的纹理限制。
 - **错误。** 错误信息以 `loadGltf:` 开头。任何失败（包括中止）都会移除已创建的对象和纹理。
 - 同一模型的所有对象都以模型原点为枢轴，因此对 `result.objects` 中的每个对象用相同的 `position` / `rotation` 调用 `setObjectTransform` 即可整体移动模型。
@@ -174,7 +174,7 @@ sdk.disposeGltf(house);                      // 移除其对象和纹理
 | --- | --- | --- |
 | `setObjectTransform(id, { position?, rotation?, scale?, parentId? })` | `boolean` | 部分更新变换 |
 | `getObjectTransform(id)` | `{ position, rotation, scale } \| null` | 当前变换（包含物理运动结果） |
-| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest? })` | `boolean` | 部分更新材质 |
+| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest?, ...material maps })` | `boolean` | 部分更新材质 |
 | `setObjectPhysics(id, { bodyType?, velocity?, angularVelocity?, mass?, restitution? })` | `boolean` | 部分更新物理属性 |
 | `setObjectParent(id, parentId \| null)` | `boolean` | 连接到父对象 / 解除连接 |
 | `removeObject(id)` | `boolean` | 删除一个对象 |
@@ -239,6 +239,40 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+
+### 材质贴图 {#material-maps}
+
+glTF 风格的纹理贴图按纹素细化 PBR 材质。仅在 `model: 'pbr'` 下使用（经典着色忽略它们），没有贴图的对象渲染结果与之前完全相同：
+
+```ts
+const normal = await sdk.loadTexture('/tex/bricks-normal.png');
+const orm = await sdk.loadTexture('/tex/bricks-mr.png');
+sdk.addBox({
+  map: bricks,
+  metallicRoughnessMap: orm,  // B = 金属度，G = 粗糙度
+  normalMap: normal,
+  normalScale: 1,
+  aoMap: orm,                 // R = 遮蔽（打包的 ORM 纹理可同时用于两者）
+  emissiveMap: windows,
+  emissiveColor: [1, 0.6, 0.2],
+});
+```
+
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `metallicRoughnessMap` | `number \| null` | `null` | 蓝色通道乘以 `metallic`，绿色通道乘以 `roughness`（线性数据） |
+| `normalMap` | `number \| null` | `null` | 切线空间法线贴图，OpenGL / glTF 约定（绿色 = 图片上方） |
+| `normalScale` | `number` | `1` | 缩放贴图的 x / y（限制在 −16..16） |
+| `aoMap` | `number \| null` | `null` | 红色通道的环境光遮蔽（线性）；只压暗环境光 |
+| `aoStrength` | `number` | `1` | 0..1：`1 + aoStrength × (ao − 1)` |
+| `emissiveColor` | `[r, g, b]` | `[0, 0, 0]` | 线性自发光颜色（glTF `emissiveFactor`，0..1000）。非黑色时替代 PBR 的 `color × emissive` 发光 |
+| `emissiveMap` | `number \| null` | `null` | 乘以 `emissiveColor` 的 sRGB 纹理（`emissiveColor` 为黑色时无效果） |
+
+- 这些字段适用于所有 `add*` 方法、`addCustomMesh` 和 `setObjectMaterial`（只修改给出的字段；`null` 或 `0` 清空槽位）。`getObjectRecord` 返回它们，`disposeTexture` 清空所有使用该纹理的槽位，`exportScene` 仅为带贴图的对象写出这些字段并把纹理列入 `textures`，`loadScene` 丢弃未知 ID 并发出警告，`loadSceneWithTextures` 会重新映射 ID。
+- 无论是否有基础 `map`，所有贴图都使用对象的 uv 和 `mapRepeat` / `mapOffset`。
+- 法线贴图的切线坐标系由位置和 uv 的屏幕空间导数求得（无需顶点切线），因此适用于所有网格，包括镜像 uv；不使用 glTF 的 `TANGENT` 属性。阴影仍使用几何法线。
+- 图片与其他纹理一样以 RGBA8 上传，因此一张打包的 ORM（遮蔽-粗糙度-金属度）纹理可同时用于 `aoMap` 和 `metallicRoughnessMap`。
+- `loadGltf` 读取 `metallicRoughnessTexture`、`normalTexture`（`scale`）、`occlusionTexture`（`strength`）和 `emissiveTexture`（`emissiveFactor` × 自发光强度作为 `emissiveColor`）。
 
 ## 阴影
 

@@ -1849,6 +1849,17 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // PBR material maps from procedural data textures, with shadows on (the shadowed PBR path):
+    // the floor and the left box carry a normal map of round bumps (raised: their sides facing
+    // the sun, upper right, are bright; no base map on the floor), the sphere metallic-roughness stripes
+    // (mirror-like metal / matte plastic), the middle box an occlusion grid with a dark centre
+    // (environment light only), the right box an emissive ring that glows orange regardless of
+    // the light. No NaN black.
+    name: 'scene-pbr-maps',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => pbrMapsScene(sdk)),
+  },
+  {
     // Directional shadows (classic): box / sphere / cylinder shadows fall left on the plane; the
     // small box inside the big box's shadow opts out of receiving (stays lit), the floating
     // sphere opts out of casting (no shadow), the floating checker cutout casts a holed shadow
@@ -1910,6 +1921,96 @@ function msaaParam(ctx: FixtureContext): CharturboAntialias {
 }
 
 /** Layout of the `scene-shadows` fixtures. */
+/** RGBA8 `size` x `size` texture from a per-texel function of (x, y) in [0, size). */
+function dataTexel(size: number, f: (x: number, y: number) => number[]): Uint8Array {
+  const out = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) out.set(f(x, y), (y * size + x) * 4);
+  return out;
+}
+
+function pbrMapsScene(sdk: Charturbo): void {
+  sdk.setGraphVisible(false);
+  sdk.setRigidPhysics(false);
+  const size = 64;
+  const cell = 16;
+  // Tangent-space normals of hemispherical bumps (+y = up in the image: rows grow downwards)
+  const bumps = sdk.createDataTexture(
+    size,
+    size,
+    dataTexel(size, (x, y) => {
+      const dx = ((x % cell) + 0.5) / (cell / 2) - 1;
+      const dy = ((y % cell) + 0.5) / (cell / 2) - 1;
+      const r2 = dx * dx + dy * dy;
+      const n = r2 < 0.81 ? [dx, -dy, Math.sqrt(1 - r2)] : [0, 0, 1];
+      return [...n.map((c) => Math.round((c * 0.5 + 0.5) * 255)), 255];
+    })
+  );
+  // Vertical stripes: polished metal (B 255, G 0.1) / rough dielectric (B 0, G 1)
+  const stripes = sdk.createDataTexture(
+    size,
+    size,
+    dataTexel(size, (x) => (Math.floor(x / 8) % 2 === 0 ? [0, 26, 255, 255] : [0, 255, 0, 255]))
+  );
+  // Occlusion: dark grid lines plus a darker centre (R channel)
+  const occlusion = sdk.createDataTexture(
+    size,
+    size,
+    dataTexel(size, (x, y) => {
+      const line = x % 16 < 2 || y % 16 < 2;
+      const r = Math.hypot(x - 31.5, y - 31.5) / 32;
+      const ao = line ? 0.1 : Math.min(1, 0.25 + r);
+      return [Math.round(ao * 255), 255, 255, 255];
+    })
+  );
+  // Emissive (sRGB): a bright ring on black
+  const ring = sdk.createDataTexture(
+    size,
+    size,
+    dataTexel(size, (x, y) => {
+      const r = Math.hypot(x - 31.5, y - 31.5);
+      return r > 14 && r < 24 ? [255, 255, 255, 255] : [0, 0, 0, 255];
+    })
+  );
+  const env = sdk.createDataTexture(128, 64, pbrSkyEquirect(128, 64));
+  sdk.addPlane({
+    position: [0, -1, 0],
+    scale: [160, 2, 110],
+    color: [0.55, 0.57, 0.6, 1],
+    roughness: 0.55,
+    normalMap: bumps,
+    mapRepeat: [8, 5.5],
+  });
+  sdk.addBox({ position: [-48, 12, 0], rotation: [0, 0.55, 0], scale: [22, 22, 22], color: [0.3, 0.6, 1, 1], roughness: 0.35, normalMap: bumps, normalScale: 1 });
+  sdk.addSphere({
+    position: [-16, 12, 4],
+    scale: [24, 24, 24],
+    color: [0.95, 0.75, 0.4, 1],
+    metallic: 1,
+    roughness: 1,
+    metallicRoughnessMap: stripes,
+  });
+  sdk.addBox({ position: [16, 12, 0], rotation: [0, -0.4, 0], scale: [22, 22, 22], color: [0.95, 0.95, 0.95, 1], roughness: 0.7, aoMap: occlusion });
+  sdk.addBox({
+    position: [48, 12, 0],
+    rotation: [0, -0.55, 0],
+    scale: [22, 22, 22],
+    color: [0.15, 0.15, 0.18, 1],
+    roughness: 0.6,
+    emissiveMap: ring,
+    emissiveColor: [1, 0.45, 0.1],
+  });
+  sdk.setLighting({
+    ambientIntensity: 0.3,
+    directionalDirection: [0.6, 1, 0.4],
+    directionalIntensity: 1.1,
+    pointPosition: [-30, 40, 40],
+    pointIntensity: 0.3,
+  });
+  sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 1, environment: { map: env, intensity: 1.2 } });
+  sdk.setShadows({ enabled: true });
+  sdk.setCameraPose([0, 40, 100], [0, 10, 0]);
+}
+
 function shadowScene(sdk: Charturbo, pbr: boolean): void {
   sdk.setGraphVisible(false);
   sdk.setRigidPhysics(false);

@@ -135,6 +135,7 @@ export {
   type SceneDescriptor,
   type SceneTextureDescriptor,
   type ObjectMapDescriptor,
+  type ObjectPbrMapsDescriptor,
   type TextureSource,
   type TextureRecord,
   type LoadTextureOptions,

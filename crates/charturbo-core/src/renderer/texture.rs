@@ -6,7 +6,7 @@
 //! object without a map (or pointing at a disposed / unknown id) renders exactly untextured.
 //! Device loss is out of scope: textures are not restored.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Largest texture edge accepted (further capped by the device's `max_texture_dimension_2d`).
 pub const MAX_TEXTURE_EDGE: u32 = 4096;
@@ -152,6 +152,15 @@ pub(crate) struct GpuTexture {
     bind_group: wgpu::BindGroup,
 }
 
+/// Texture ids of a PBR material bind group: base color, metallic-roughness, normal,
+/// occlusion, emissive (`MeshDraw::texture` + `MeshDraw::maps`).
+pub type MaterialKey = [u32; 5];
+
+/// Bind group slots of `MaterialKey` (binding 1 is the sampler).
+const MATERIAL_BINDINGS: [u32; 5] = [0, 2, 3, 4, 5];
+/// Slot of the normal map in `MaterialKey` (falls back to the flat texture, not white).
+const NORMAL_SLOT: usize = 2;
+
 /// Lazily built mip generation pipeline (render-pass blit chain).
 struct MipBlit {
     pipeline: wgpu::RenderPipeline,
@@ -159,7 +168,8 @@ struct MipBlit {
     sampler: wgpu::Sampler,
 }
 
-/// Per-engine base-color textures, their shared sampler and the default white texture.
+/// Per-engine mesh textures, their shared sampler, the default white texture and the PBR
+/// material bind groups.
 pub(crate) struct TextureRegistry {
     ledger: TextureLedger<GpuTexture>,
     layout: wgpu::BindGroupLayout,
@@ -169,15 +179,29 @@ pub(crate) struct TextureRegistry {
     white: wgpu::Texture,
     white_bind_group: wgpu::BindGroup,
     blit: Option<MipBlit>,
+    /// PBR material group layout (base map, sampler, 4 material maps)
+    material_layout: wgpu::BindGroupLayout,
+    /// 1 x 1 flat normal (128, 128, 255), created with the first material bind group
+    flat_normal: Option<wgpu::Texture>,
+    /// Material bind groups of the drawn texture combinations (`prepare_materials`); cleared
+    /// whenever a texture is created or disposed, so none outlives / misses its textures
+    materials: HashMap<MaterialKey, wgpu::BindGroup>,
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 impl TextureRegistry {
-    /// Bytes of the built-in 1 x 1 white texture (counted in `engine_gpu_bytes`).
+    /// Bytes of the built-in 1 x 1 white texture (counted in `engine_gpu_bytes`; the 1 x 1 flat
+    /// normal of the first PBR material frame is not).
     pub const WHITE_BYTES: u64 = 4;
 
-    /// `layout`: the mesh texture bind group layout (b0 texture, b1 sampler) of the pipelines.
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, layout: wgpu::BindGroupLayout) -> Self {
+    /// `layout`: the mesh texture bind group layout (b0 texture, b1 sampler) of the pipelines;
+    /// `material_layout`: the PBR material group (b0 base map, b1 sampler, b2..b5 maps).
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: wgpu::BindGroupLayout,
+        material_layout: wgpu::BindGroupLayout,
+    ) -> Self {
         let max_edge = device
             .limits()
             .max_texture_dimension_2d
@@ -215,7 +239,62 @@ impl TextureRegistry {
             white,
             white_bind_group,
             blit: None,
+            material_layout,
+            flat_normal: None,
+            materials: HashMap::new(),
         }
+    }
+
+    /// Builds the missing material bind groups of `keys` (PBR frames, before the pass).
+    pub fn prepare_materials(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        keys: impl IntoIterator<Item = MaterialKey>,
+    ) {
+        for key in keys {
+            if self.materials.contains_key(&key) {
+                continue;
+            }
+            let flat = self.flat_normal.get_or_insert_with(|| {
+                let t = Self::create_gpu_texture(device, "mesh-texture-flat-normal", 1, 1, 1);
+                Self::write_rgba8(queue, &t, 1, 1, &[128, 128, 255, 255]);
+                t
+            });
+            // Unknown / disposed ids: white (no effect), the normal slot flat
+            let views: Vec<wgpu::TextureView> = key
+                .iter()
+                .enumerate()
+                .map(|(slot, id)| {
+                    let fallback = if slot == NORMAL_SLOT { &*flat } else { &self.white };
+                    let texture = self.ledger.get(*id).map_or(fallback, |e| &e.value.texture);
+                    texture.create_view(&wgpu::TextureViewDescriptor::default())
+                })
+                .collect();
+            let mut entries: Vec<wgpu::BindGroupEntry> = views
+                .iter()
+                .zip(MATERIAL_BINDINGS)
+                .map(|(view, binding)| wgpu::BindGroupEntry {
+                    binding,
+                    resource: wgpu::BindingResource::TextureView(view),
+                })
+                .collect();
+            entries.push(wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&self.sampler),
+            });
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("mesh-material-bg"),
+                layout: &self.material_layout,
+                entries: &entries,
+            });
+            self.materials.insert(key, group);
+        }
+    }
+
+    /// Material bind group of `key` built by `prepare_materials` this frame.
+    pub fn material_bind_group(&self, key: &MaterialKey) -> Option<&wgpu::BindGroup> {
+        self.materials.get(key)
     }
 
     pub fn max_edge(&self) -> u32 {
@@ -283,6 +362,8 @@ impl TextureRegistry {
             self.generate_mips(device, queue, &texture, levels);
         }
         let bind_group = Self::create_bind_group(device, &self.layout, &self.sampler, &texture);
+        // A cached material group may hold the white fallback for this (future) id
+        self.materials.clear();
         Ok(self.ledger.insert(
             width,
             height,
@@ -331,6 +412,8 @@ impl TextureRegistry {
     pub fn dispose(&mut self, id: u32) -> bool {
         match self.ledger.remove(id) {
             Some(entry) => {
+                // Material groups must not outlive the texture
+                self.materials.clear();
                 // Frees the memory now; already submitted frames that sampled it stay valid
                 entry.value.texture.destroy();
                 true

@@ -162,8 +162,8 @@ sdk.disposeGltf(house);                      // 객체와 텍스처 제거
 결과는 `{ objects, textures, nodes, bounds }`입니다. `nodes`는 장면의 노드를 깊이 우선 순서의 `{ index, name, objectIds }`로 나열하고, `bounds`는 월드 공간의 `{ min, max }`입니다. 메시 프리미티브 하나가 사용자 메시 객체 하나가 되며, 이름은 노드(또는 메시) 이름이고 메시에 프리미티브가 여럿이면 `#<n>`이 붙습니다.
 
 - **지원.** 외부 또는 `data:` 버퍼 · 이미지를 쓰는 `.gltf`, 바이너리 청크가 있는 `.glb`. 인터리브(`byteStride`), 정규화, 희소(sparse), 버퍼 뷰 없는 접근자를 포함한 모든 접근자 타입. 삼각형, 삼각형 스트립 · 팬(점과 선은 경고 후 건너뜀). 노드 계층(TRS 또는 `matrix`)은 꼭짓점에 구워 넣으며, 법선은 역전치 행렬로 변환하고 거울상 노드는 감기 순서를 뒤집습니다. 법선이 없으면 부드러운 법선을 계산합니다. 확장 `KHR_texture_transform`, `KHR_mesh_quantization`, `KHR_materials_emissive_strength`.
-- **재질.** `baseColorFactor`는 선형에서 렌더러의 감마 공간으로 변환합니다. `baseColorTexture`는 `map`이 되고(`TEXCOORD_0`만, `KHR_texture_transform`의 offset과 scale은 `mapOffset` / `mapRepeat`), `metallicFactor`와 `roughnessFactor`는 glTF처럼 기본 1입니다. 엔진의 발광은 기본색에 곱하는 스칼라이므로 `emissive`는 `emissiveFactor`의 가장 큰 성분(× 발광 강도)입니다. `alphaMode: 'MASK'`는 `alphaTest`를 `alphaCutoff`(기본 0.5)로, `'BLEND'`는 색상 알파를 유지하고, `'OPAQUE'`는 색상 알파를 1로 고정합니다. 여러 재질이 쓰는 이미지는 한 번만 디코딩합니다.
-- **무시.** 샘플러(텍스처는 항상 반복 · 선형 필터링). 경고와 함께 무시: 법선 · 차폐 · 금속성-거칠기 · 발광 텍스처, 텍스처 변환 회전, `TEXCOORD_1` 이상의 기본색 텍스처, 스킨(바인드 포즈로 그림), 모프 타깃, 애니메이션, 카메라, 그 밖의 확장. `extensionsRequired`에 지원하지 않는 확장이 있으면 `loadGltf: extension X is required but not supported`로 거부합니다.
+- **재질.** `baseColorFactor`는 선형에서 렌더러의 감마 공간으로 변환합니다. `baseColorTexture`는 `map`이 되고(`TEXCOORD_0`만, `KHR_texture_transform`의 offset과 scale은 `mapOffset` / `mapRepeat`), `metallicFactor`와 `roughnessFactor`는 glTF처럼 기본 1입니다. `emissiveFactor`(× 발광 강도)는 `emissiveColor`가 되고, 그 가장 큰 성분은 클래식 셰이딩용 `emissive`가 됩니다. 금속성-거칠기 · 법선 · 차폐 · 발광 텍스처는 [재질 맵](#material-maps)이 됩니다(`TEXCOORD_0`만, 한 재질의 텍스처는 uv 변환 하나를 공유하며 나머지는 경고 후 무시). `alphaMode: 'MASK'`는 `alphaTest`를 `alphaCutoff`(기본 0.5)로, `'BLEND'`는 색상 알파를 유지하고, `'OPAQUE'`는 색상 알파를 1로 고정합니다. 여러 재질이 쓰는 이미지는 한 번만 디코딩합니다.
+- **무시.** 샘플러(텍스처는 항상 반복 · 선형 필터링). 경고와 함께 무시: 텍스처 변환 회전, `TEXCOORD_1` 이상의 텍스처, 스킨(바인드 포즈로 그림), 모프 타깃, 애니메이션, 카메라, 그 밖의 확장. `extensionsRequired`에 지원하지 않는 확장이 있으면 `loadGltf: extension X is required but not supported`로 거부합니다.
 - **한도.** 한 번에 불러오는 모델은 꼭짓점 `GLTF_MAX_VERTICES`(8,388,608)개, 인덱스 `GLTF_MAX_INDICES`(67,108,864)개까지입니다. 모든 객체가 지오메트리 버퍼 하나를 공유하므로 큰 모델 여러 개는 GPU 버퍼 한도를 넘을 수 있습니다. 텍스처는 위의 텍스처 한도를 따릅니다.
 - **오류.** 오류 메시지는 `loadGltf:`로 시작합니다. 중단을 포함해 실패하면 그때까지 만든 객체와 텍스처를 제거합니다.
 - 한 모델의 객체는 모두 모델 원점을 피벗으로 쓰므로, `result.objects`의 각 객체에 같은 `position` / `rotation`으로 `setObjectTransform`을 적용하면 모델 전체가 움직입니다.
@@ -174,7 +174,7 @@ sdk.disposeGltf(house);                      // 객체와 텍스처 제거
 | --- | --- | --- |
 | `setObjectTransform(id, { position?, rotation?, scale?, parentId? })` | `boolean` | 트랜스폼 일부 갱신 |
 | `getObjectTransform(id)` | `{ position, rotation, scale } \| null` | 물리로 움직인 결과를 포함한 현재 트랜스폼 |
-| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest? })` | `boolean` | 재질 일부 갱신 |
+| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest?, ...material maps })` | `boolean` | 재질 일부 갱신 |
 | `setObjectPhysics(id, { bodyType?, velocity?, angularVelocity?, mass?, restitution? })` | `boolean` | 물리 속성 일부 갱신 |
 | `setObjectParent(id, parentId \| null)` | `boolean` | 부모에 연결 / 분리 |
 | `removeObject(id)` | `boolean` | 객체 하나 제거 |
@@ -239,6 +239,40 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+
+### 재질 맵 {#material-maps}
+
+glTF 방식의 텍스처 맵으로 PBR 재질을 텍셀 단위로 조절합니다. `model: 'pbr'`에서만 쓰며(클래식 셰이딩은 무시), 맵이 없는 객체는 이전과 똑같이 그려집니다.
+
+```ts
+const normal = await sdk.loadTexture('/tex/bricks-normal.png');
+const orm = await sdk.loadTexture('/tex/bricks-mr.png');
+sdk.addBox({
+  map: bricks,
+  metallicRoughnessMap: orm,  // B = 금속성, G = 거칠기
+  normalMap: normal,
+  normalScale: 1,
+  aoMap: orm,                 // R = 차폐 (ORM 하나로 둘 다 사용 가능)
+  emissiveMap: windows,
+  emissiveColor: [1, 0.6, 0.2],
+});
+```
+
+| 옵션 | 타입 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `metallicRoughnessMap` | `number \| null` | `null` | 파랑 채널은 `metallic`, 초록 채널은 `roughness`에 곱함(선형 데이터) |
+| `normalMap` | `number \| null` | `null` | 접선 공간 법선 맵, OpenGL / glTF 규약(초록 = 이미지 위쪽) |
+| `normalScale` | `number` | `1` | 맵의 x / y 배율(−16..16으로 제한) |
+| `aoMap` | `number \| null` | `null` | 빨강 채널의 주변광 차폐(선형). 환경광만 어둡게 함 |
+| `aoStrength` | `number` | `1` | 0..1: `1 + aoStrength × (ao − 1)` |
+| `emissiveColor` | `[r, g, b]` | `[0, 0, 0]` | 선형 발광색(glTF `emissiveFactor`, 0..1000). 검정이 아니면 PBR의 `color × emissive` 발광을 대신함 |
+| `emissiveMap` | `number \| null` | `null` | `emissiveColor`에 곱하는 sRGB 텍스처(`emissiveColor`가 검정이면 효과 없음) |
+
+- 모든 `add*` 메서드, `addCustomMesh`, `setObjectMaterial`에서 쓸 수 있습니다(준 필드만 바뀌고 `null` 또는 `0`은 슬롯을 비움). `getObjectRecord`가 돌려주고, `disposeTexture`는 그 텍스처를 쓰던 슬롯을 모두 비우며, `exportScene`은 맵이 있는 객체에만 필드를 쓰고 텍스처를 `textures`에 넣습니다. `loadScene`은 모르는 ID를 경고와 함께 버리고 `loadSceneWithTextures`는 ID를 다시 매핑합니다.
+- 모든 맵은 기본 `map` 유무와 관계없이 객체의 uv와 `mapRepeat` / `mapOffset`을 씁니다.
+- 법선 맵의 접선 좌표계는 위치와 uv의 화면 공간 미분으로 구합니다(꼭짓점 접선 없음). 그래서 uv가 뒤집힌 메시를 포함해 모든 메시에서 동작하며, glTF `TANGENT` 속성은 쓰지 않습니다. 그림자는 계속 기하 법선을 씁니다.
+- 이미지는 다른 텍스처처럼 RGBA8로 올라가므로 ORM(차폐-거칠기-금속성) 텍스처 하나를 `aoMap`과 `metallicRoughnessMap`에 함께 쓸 수 있습니다.
+- `loadGltf`는 `metallicRoughnessTexture`, `normalTexture`(`scale`), `occlusionTexture`(`strength`), `emissiveTexture`(`emissiveFactor` × 발광 강도를 `emissiveColor`로)를 읽습니다.
 
 ## 그림자
 

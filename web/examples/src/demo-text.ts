@@ -373,6 +373,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '방향광 그림자 · setShadows', description: '방향광의 선택형 섀도 매핑입니다. 상자 · 구 · 원기둥 · 토러스가 바닥 위를 돌고 해가 머리 위를 회전합니다. 빨간 상자는 그림자를 받지 않고(receiveShadow: false), 유리 구는 그림자를 드리우지 않으며(castShadow: false), 공중에 뜬 알파 테스트 체크무늬 패널은 구멍 뚫린 그림자를 만듭니다. 그림자를 켜고 끄거나 가장자리를 부드럽게 하고(PCF 반경) 섀도 맵 크기를 바꿀 수 있으며, MSAA x4 안티에일리어싱(setAntialias)을 켜서 계단처럼 보이는 메시 가장자리를 매끄럽게 할 수 있습니다.' },
     zh: { title: '方向光阴影 · setShadows', description: '方向光的可选阴影贴图：盒体、球体、圆柱和圆环在地面上方环绕，太阳在头顶旋转。红色盒体不接收阴影（receiveShadow: false），玻璃球不投射阴影（castShadow: false），悬浮的 alpha 测试棋盘面板投下带孔的阴影。可开关阴影、柔化边缘（PCF 半径）、更改阴影贴图尺寸，并开启 MSAA x4 抗锯齿（setAntialias）使锯齿状的网格边缘变得平滑。' },
   },
+  'scene/07-pbr-maps': {
+    ko: { title: 'PBR 재질 맵 · normalMap · aoMap', description: 'PBR 재질에 쓰는 glTF 방식 텍스처 맵이며 모두 createDataTexture로 만들었습니다. 노멀 맵과 줄눈 부분 오클루전 맵을 입힌 벽돌 상자, 금속-거칠기 줄무늬 구(광택 금속과 무광 페인트가 번갈아 나옴), 노멀 맵으로 리벳을 표현한 패널, 발광 링이 있는 상자가 있습니다. 객체가 천천히 돌아 조명이 요철 위를 지나갑니다. 맵마다 켜고 끄거나 노멀 세기를 바꿀 수 있고, 맵을 무시하는 classic 모델로 전환할 수도 있습니다.' },
+    zh: { title: 'PBR 材质贴图 · normalMap · aoMap', description: 'PBR 材质上的 glTF 风格纹理贴图，全部由 createDataTexture 生成：带法线贴图并在砖缝处有遮蔽贴图的砖墙盒体、金属度-粗糙度条纹球（抛光金属与哑光漆交替）、用法线贴图表现铆钉的面板，以及带自发光圆环的盒体。物体缓慢旋转，光照在凹凸表面上移动。可逐个开关贴图、调整法线强度，或切换到忽略贴图的 classic 模型。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

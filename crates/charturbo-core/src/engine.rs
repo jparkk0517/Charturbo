@@ -2039,11 +2039,22 @@ mod tests {
         assert_eq!(engine.object_map(obj).map(|m| m.texture), Some(0));
         engine.sync_and_render();
         assert_eq!(state.borrow().synced_draws[0].texture, 0, "disposed map renders white");
+        // PBR map slots are cleared on disposal too
+        use crate::scene::MaterialMaps;
+        let maps = MaterialMaps { metal_rough: b, normal: b, emissive: b, emissive_color: [1.0; 3], ..MaterialMaps::default() };
+        assert!(engine.set_object_material_maps(obj, maps));
+        assert_eq!(engine.object_material_maps(obj), Some(maps));
+        engine.sync_and_render();
+        assert_eq!(state.borrow().synced_draws[0].maps, [b, b, 0, b]);
+        assert!(engine.dispose_texture(b));
+        assert_eq!(engine.object_material_maps(obj).map(|m| m.textures()), Some([0; 4]));
+        engine.sync_and_render();
+        assert_eq!(state.borrow().synced_draws[0].maps, [0; 4]);
         let c = engine.create_texture_rgba8(1, 1, &[1, 2, 3, 4], false).unwrap();
         assert_eq!(c, 3, "ids are never reused");
         let st = state.borrow();
         assert_eq!(st.texture_creates, vec![(2, 2, true), (1, 1, false), (1, 1, false)]);
-        assert_eq!(st.texture_disposes, vec![a]);
+        assert_eq!(st.texture_disposes, vec![a, b]);
     }
 
     #[test]

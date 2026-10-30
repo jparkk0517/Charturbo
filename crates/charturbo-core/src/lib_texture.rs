@@ -1,7 +1,7 @@
 //! WASM binding of the 3D scene textures (kept apart from `lib.rs`): texture creation from
 //! decoded images / RGBA8 data, disposal, per-object maps and custom mesh uvs.
 
-use crate::scene::TextureMap;
+use crate::scene::{MaterialMaps, TextureMap};
 use crate::WasmCharturboEngine;
 use wasm_bindgen::prelude::*;
 
@@ -85,6 +85,57 @@ impl WasmCharturboEngine {
                 m.offset[0],
                 m.offset[1],
                 m.alpha_test,
+            ]
+        })
+    }
+
+    /// Sets an object's PBR material maps (PBR shading only; texture ids 0 = none, sampled with
+    /// the base map's uv transform): metallic-roughness (B metal, G rough, multiplying the
+    /// factors), tangent-space normal map scaled by `normal_scale`, occlusion (R) with
+    /// `occlusion_strength`, emissive texture (sRGB) times the linear `emissive_*` color.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_object_material_maps(
+        &mut self,
+        object_id: u32,
+        metal_rough_id: u32,
+        normal_id: u32,
+        normal_scale: f32,
+        occlusion_id: u32,
+        occlusion_strength: f32,
+        emissive_id: u32,
+        emissive_r: f32,
+        emissive_g: f32,
+        emissive_b: f32,
+    ) -> bool {
+        self.inner.set_object_material_maps(
+            object_id,
+            MaterialMaps {
+                metal_rough: metal_rough_id,
+                normal: normal_id,
+                normal_scale,
+                occlusion: occlusion_id,
+                occlusion_strength,
+                emissive: emissive_id,
+                emissive_color: [emissive_r, emissive_g, emissive_b],
+            },
+        )
+    }
+
+    /// `[metal_rough_id, normal_id, normal_scale, occlusion_id, occlusion_strength,
+    /// emissive_id, emissive_r, emissive_g, emissive_b]`, or `[]` for an unknown object.
+    pub fn get_object_material_maps(&self, object_id: u32) -> Vec<f32> {
+        self.inner.object_material_maps(object_id).map_or_else(Vec::new, |m| {
+            let [r, g, b] = m.emissive_color;
+            vec![
+                m.metal_rough as f32,
+                m.normal as f32,
+                m.normal_scale,
+                m.occlusion as f32,
+                m.occlusion_strength,
+                m.emissive as f32,
+                r,
+                g,
+                b,
             ]
         })
     }

@@ -75,6 +75,10 @@ const TYPE_SIZE: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4
 interface GltfTextureInfo {
   index: number;
   texCoord?: number;
+  /** normalTexture */
+  scale?: number;
+  /** occlusionTexture */
+  strength?: number;
   extensions?: { KHR_texture_transform?: { offset?: number[]; scale?: number[]; rotation?: number; texCoord?: number } };
 }
 
@@ -149,16 +153,40 @@ interface GltfJson {
   cameras?: unknown[];
 }
 
-/** Engine material of a glTF material, plus the image its base color texture uses. */
+/** Engine material of a glTF material, plus the images its textures use (null = none). */
 interface MaterialInfo {
   color: RgbaTuple;
   metallic: number;
   roughness: number;
   emissive: number;
   alphaTest: number;
+  /** Base color image */
   image: number | null;
+  /** PBR map images (metallic-roughness, normal, occlusion, emissive) */
+  maps: Record<GltfMapSlot, number | null>;
+  normalScale: number;
+  aoStrength: number;
+  /** Linear emissiveFactor * emissive strength */
+  emissiveColor: [number, number, number];
+  /** Shared uv transform of every texture of the material */
   mapRepeat: Vec2Tuple;
   mapOffset: Vec2Tuple;
+}
+
+/** PBR map slots, in SDK field names. */
+const GLTF_MAP_SLOTS = ['metallicRoughnessMap', 'normalMap', 'aoMap', 'emissiveMap'] as const;
+type GltfMapSlot = (typeof GLTF_MAP_SLOTS)[number];
+
+/** Every image a material samples. */
+function materialImages(m: MaterialInfo): number[] {
+  const out: number[] = [];
+  if (m.image !== null) out.push(m.image);
+  for (const slot of GLTF_MAP_SLOTS) if (m.maps[slot] !== null) out.push(m.maps[slot]);
+  return out;
+}
+
+function hasImages(m: MaterialInfo): boolean {
+  return materialImages(m).length > 0;
 }
 
 /** A triangle mesh with the world transform baked in, ready for `addCustomMesh`. */
@@ -416,7 +444,14 @@ class GltfLoader {
     const rotation: Vec3Tuple = options.rotation ? [...options.rotation] : [0, 0, 0];
     for (const mesh of meshes) {
       const m = mesh.material;
-      const map = m.image !== null ? (textureOf.get(m.image) ?? null) : null;
+      const texture = (image: number | null) => (image !== null ? (textureOf.get(image) ?? null) : null);
+      const map = texture(m.image);
+      const maps: Partial<Record<GltfMapSlot, number>> = {};
+      for (const slot of GLTF_MAP_SLOTS) {
+        const id = texture(m.maps[slot]);
+        if (id !== null) maps[slot] = id;
+      }
+      const textured = map !== null || Object.keys(maps).length > 0;
       const id = this.host.addCustomMesh({
         ...(mesh.name !== undefined ? { name: mesh.name } : {}),
         positions: mesh.positions,
@@ -430,7 +465,12 @@ class GltfLoader {
         metallic: m.metallic,
         roughness: m.roughness,
         emissive: m.emissive,
-        ...(map !== null ? { map, mapRepeat: [...m.mapRepeat], mapOffset: [...m.mapOffset] } : {}),
+        ...(map !== null ? { map } : {}),
+        ...(textured ? { mapRepeat: [...m.mapRepeat], mapOffset: [...m.mapOffset] } : {}),
+        ...maps,
+        ...(m.maps.normalMap !== null && m.normalScale !== 1 ? { normalScale: m.normalScale } : {}),
+        ...(m.maps.aoMap !== null && m.aoStrength !== 1 ? { aoStrength: m.aoStrength } : {}),
+        ...(m.emissiveColor.some((c) => c !== 0) ? { emissiveColor: [...m.emissiveColor] } : {}),
         alphaTest: m.alphaTest,
       });
       created.objects.push(id);
@@ -490,9 +530,11 @@ class GltfLoader {
         addAccessor(prim.attributes?.NORMAL);
         addAccessor(prim.attributes?.TEXCOORD_0);
         addAccessor(prim.indices);
-        const image = prim.material !== undefined ? this.material(prim.material).image : null;
-        const imageView = image !== null ? json.images?.[image]?.bufferView : undefined;
-        if (imageView !== undefined) views.add(imageView);
+        const images = prim.material !== undefined ? materialImages(this.material(prim.material)) : [];
+        for (const image of images) {
+          const imageView = json.images?.[image]?.bufferView;
+          if (imageView !== undefined) views.add(imageView);
+        }
       }
     }
     const buffers = new Set<number>();
@@ -637,9 +679,9 @@ class GltfLoader {
       if (indices.length === 0) return;
 
       let mat = material;
-      if (mat.image !== null && !uvs) {
+      if (hasImages(mat) && !uvs) {
         this.warn('no-uvs', 'textured primitives without TEXCOORD_0 render untextured');
-        mat = { ...mat, image: null };
+        mat = { ...mat, image: null, maps: noMaps() };
       }
       const baked = bakeTransform(pos.values as Float32Array, normals, indices, matrix);
       out.push({
@@ -668,38 +710,58 @@ class GltfLoader {
     const color: RgbaTuple = [linearToSrgb(factor[0]), linearToSrgb(factor[1]), linearToSrgb(factor[2]), mode === 'OPAQUE' ? 1 : clamp01(factor[3] ?? 1)];
     const emissiveFactor = m.emissiveFactor ?? [0, 0, 0];
     const strength = m.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1;
-    if (pbr.metallicRoughnessTexture || m.normalTexture || m.occlusionTexture || m.emissiveTexture) {
-      this.warn('textures-ignored', 'normal, occlusion, metallic-roughness and emissive textures are ignored');
-    }
+    const finiteOr = (v: number | undefined, d: number) => (v !== undefined && Number.isFinite(v) ? v : d);
     const info: MaterialInfo = {
       color,
       metallic: clamp01(pbr.metallicFactor ?? 1),
       roughness: clamp01(pbr.roughnessFactor ?? 1),
+      // Classic shading's base-color glow; PBR uses emissiveColor (* the emissive texture)
       emissive: Math.max(0, emissiveFactor[0] ?? 0, emissiveFactor[1] ?? 0, emissiveFactor[2] ?? 0) * strength,
       alphaTest: mode === 'MASK' ? (m.alphaCutoff ?? 0.5) : 0,
       image: null,
+      maps: noMaps(),
+      normalScale: finiteOr(m.normalTexture?.scale, 1),
+      aoStrength: clamp01(finiteOr(m.occlusionTexture?.strength, 1)),
+      emissiveColor: [0, 1, 2].map((i) => Math.max(0, finiteOr(emissiveFactor[i], 0) * strength)) as [number, number, number],
       mapRepeat: [1, 1],
       mapOffset: [0, 0],
     };
-    const tex = pbr.baseColorTexture;
-    if (tex) {
+    // Every texture shares the object's uv transform: the first textured slot sets it
+    let transformOf: { repeat: Vec2Tuple; offset: Vec2Tuple } | null = null;
+    const slot = (tex: GltfTextureInfo | undefined, label: string): number | null => {
+      if (!tex) return null;
       const transform = tex.extensions?.KHR_texture_transform;
       const texCoord = transform?.texCoord ?? tex.texCoord ?? 0;
       const texture = this.json.textures?.[tex.index];
       if (!texture) throw new Error(`loadGltf: texture ${tex.index} does not exist`);
       if (texCoord !== 0) {
-        this.warn('texcoord', 'base color textures on TEXCOORD_1 or higher are not supported and are ignored');
-      } else if (texture.source === undefined) {
-        this.warn('texture-source', 'textures without a PNG / JPEG source are ignored');
-      } else {
-        if (!this.json.images?.[texture.source]) throw new Error(`loadGltf: image ${texture.source} does not exist`);
-        info.image = texture.source;
-        if (transform) {
-          if (transform.rotation) this.warn('uv-rotation', 'KHR_texture_transform rotation is not supported and is ignored');
-          if (transform.scale) info.mapRepeat = [transform.scale[0], transform.scale[1]];
-          if (transform.offset) info.mapOffset = [transform.offset[0], transform.offset[1]];
-        }
+        this.warn('texcoord', 'textures on TEXCOORD_1 or higher are not supported and are ignored');
+        return null;
       }
+      if (texture.source === undefined) {
+        this.warn('texture-source', 'textures without a PNG / JPEG source are ignored');
+        return null;
+      }
+      if (!this.json.images?.[texture.source]) throw new Error(`loadGltf: image ${texture.source} does not exist`);
+      if (transform?.rotation) this.warn('uv-rotation', 'KHR_texture_transform rotation is not supported and is ignored');
+      const repeat: Vec2Tuple = transform?.scale ? [transform.scale[0], transform.scale[1]] : [1, 1];
+      const offset: Vec2Tuple = transform?.offset ? [transform.offset[0], transform.offset[1]] : [0, 0];
+      if (!transformOf) {
+        transformOf = { repeat, offset };
+      } else if (repeat.some((v, i) => v !== transformOf!.repeat[i]) || offset.some((v, i) => v !== transformOf!.offset[i])) {
+        this.warn('map-transform', `all textures of a material share one uv transform; the ${label} texture's KHR_texture_transform is ignored`);
+      }
+      return texture.source;
+    };
+    info.image = slot(pbr.baseColorTexture, 'base color');
+    info.maps.metallicRoughnessMap = slot(pbr.metallicRoughnessTexture, 'metallic-roughness');
+    info.maps.normalMap = slot(m.normalTexture, 'normal');
+    info.maps.aoMap = slot(m.occlusionTexture, 'occlusion');
+    info.maps.emissiveMap = slot(m.emissiveTexture, 'emissive');
+    const shared = transformOf as { repeat: Vec2Tuple; offset: Vec2Tuple } | null;
+    if (shared) {
+      info.mapRepeat = shared.repeat;
+      info.mapOffset = shared.offset;
     }
     this.materials.set(index, info);
     return info;
@@ -708,7 +770,7 @@ class GltfLoader {
   /** Loads every image the meshes use once; returns image index -> texture id. */
   private async loadImages(meshes: PreparedMesh[], created: { textures: number[] }): Promise<Map<number, number>> {
     const images = new Set<number>();
-    for (const m of meshes) if (m.material.image !== null) images.add(m.material.image);
+    for (const m of meshes) for (const image of materialImages(m.material)) images.add(image);
     const out = new Map<number, number>();
     if (images.size === 0) return out;
     if (!(this.host.maxTextureSize > 0)) {
@@ -980,8 +1042,25 @@ function cross(a: ArrayLike<number>, b: ArrayLike<number>): [number, number, num
 // Small helpers
 // ---------------------------------------------------------------------------
 
+function noMaps(): Record<GltfMapSlot, number | null> {
+  return { metallicRoughnessMap: null, normalMap: null, aoMap: null, emissiveMap: null };
+}
+
 function defaultMaterial(): MaterialInfo {
-  return { color: [1, 1, 1, 1], metallic: 1, roughness: 1, emissive: 0, alphaTest: 0, image: null, mapRepeat: [1, 1], mapOffset: [0, 0] };
+  return {
+    color: [1, 1, 1, 1],
+    metallic: 1,
+    roughness: 1,
+    emissive: 0,
+    alphaTest: 0,
+    image: null,
+    maps: noMaps(),
+    normalScale: 1,
+    aoStrength: 1,
+    emissiveColor: [0, 0, 0],
+    mapRepeat: [1, 1],
+    mapOffset: [0, 0],
+  };
 }
 
 /** glTF factors are linear; the renderer shades in gamma (sRGB-like) space. */

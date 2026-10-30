@@ -304,7 +304,8 @@ pub struct MeshVertexRaw {
     pub normal: [f32; 4],
 }
 
-/// Per-object mesh instance (160 bytes): transform, normal matrix, material and uv transform.
+/// Per-object mesh instance (192 bytes): transform, normal matrix, material, uv transform and
+/// the PBR map parameters (read by the PBR shaders only).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct MeshInstanceRaw {
@@ -317,6 +318,11 @@ pub struct MeshInstanceRaw {
     pub material: [f32; 4],
     /// `[repeat_u, repeat_v, offset_u, offset_v]`: `uv * repeat + offset`
     pub uv_transform: [f32; 4],
+    /// `[normal scale (0 = no normal map), occlusion strength, 0, 0]`
+    pub pbr_maps: [f32; 4],
+    /// PBR emission: `[linear r, g, b, w]`, `w = 0` = `color * emissive`, `w >= 1` =
+    /// `rgb * emissive map + color * (w - 1)`
+    pub emissive: [f32; 4],
 }
 
 /// One instanced draw: `index_count` indices from `first_index` (absolute vertex ids) for
@@ -331,6 +337,8 @@ pub struct MeshDraw {
     pub translucent: bool,
     /// Base-color texture id (0 = built-in white)
     pub texture: u32,
+    /// PBR map texture ids: metallic-roughness, normal, occlusion, emissive (0 = none)
+    pub maps: [u32; 4],
     /// Leading instances of this draw that cast shadows (casters sort first; 0 when translucent)
     pub shadow_instances: u32,
 }
@@ -981,7 +989,7 @@ mod tests {
         assert_eq!(size_of::<NodeInstanceRaw>(), 32);
         assert_eq!(size_of::<EdgeVertexRaw>(), 32);
         assert_eq!(size_of::<MeshVertexRaw>(), 32);
-        assert_eq!(size_of::<MeshInstanceRaw>(), 160);
+        assert_eq!(size_of::<MeshInstanceRaw>(), 192);
         assert_eq!(size_of::<SceneLightUniformRaw>(), 96);
         assert_eq!(size_of::<ShadowUniformRaw>(), 96);
     }

@@ -269,21 +269,56 @@ const MESH_LIGHT_STRUCT_PBR: &str = "struct SceneLightUniform {
     env_ground: vec4<f32>,
 };";
 
-/// Physically based mesh shading: the classic module (same vertex stage, bindings and instance
-/// layout; its text stays untouched so classic output is unchanged) with the full light
-/// uniform, the environment map in group 2 and the `fs_mesh_pbr` entry point.
+/// Text edits turning the classic module into the PBR one (besides the light struct): the
+/// two PBR instance attributes (locations 12, 13) and their flat varyings.
+const MESH_PBR_EDITS: [(&str, &str); 3] = [
+    (
+        "    @location(11) uv_transform: vec4<f32>, // (repeat_u, repeat_v, offset_u, offset_v)\n",
+        "    @location(11) uv_transform: vec4<f32>, // (repeat_u, repeat_v, offset_u, offset_v)\n    @location(12) pbr_maps: vec4<f32>, // (normal scale, occlusion strength, 0, 0)\n    @location(13) emissive: vec4<f32>, // (linear rgb, mode: 0 = color * emissive, >= 1 = rgb * map + color * (w - 1))\n",
+    ),
+    (
+        "    @location(3) color: vec4<f32>,\n",
+        "    @location(3) color: vec4<f32>,\n    @location(6) @interpolate(flat) pbr_maps: vec4<f32>,\n    @location(7) @interpolate(flat) emissive: vec4<f32>,\n",
+    ),
+    (
+        "    out.color = inst.color;\n",
+        "    out.color = inst.color;\n    out.pbr_maps = inst.pbr_maps;\n    out.emissive = inst.emissive;\n",
+    ),
+];
+
+/// Physically based mesh shading: the classic module (same bindings; its text stays untouched
+/// so classic output is unchanged) with the full light uniform, the PBR instance attributes
+/// (`MESH_PBR_EDITS`), the material maps beside the base map in group 1, the environment map
+/// in group 2 and the `fs_mesh_pbr` entry point.
 pub fn mesh_pbr_wgsl() -> String {
     assert!(
         MESH_LIT_WGSL.contains(MESH_LIGHT_STRUCT_CLASSIC),
         "classic light struct changed"
     );
-    format!(
-        "{}{MESH_PBR_BODY_WGSL}",
-        MESH_LIT_WGSL.replacen(MESH_LIGHT_STRUCT_CLASSIC, MESH_LIGHT_STRUCT_PBR, 1)
-    )
+    let mut text = MESH_LIT_WGSL.replacen(MESH_LIGHT_STRUCT_CLASSIC, MESH_LIGHT_STRUCT_PBR, 1);
+    for (from, to) in MESH_PBR_EDITS {
+        assert_eq!(text.matches(from).count(), 1, "mesh shader changed: {from}");
+        text = text.replacen(from, to, 1);
+    }
+    format!("{text}{MESH_PBR_BODY_WGSL}")
 }
 
 const MESH_PBR_BODY_WGSL: &str = r#"
+// glTF material maps, sampled with the base map's sampler and uv (1 x 1 white when unset; the
+// normal map's fallback is flat): metallic (B) / roughness (G), tangent-space normal, occlusion
+// (R) and emissive (sRGB)
+@group(1) @binding(2)
+var metal_rough_map: texture_2d<f32>;
+
+@group(1) @binding(3)
+var normal_map: texture_2d<f32>;
+
+@group(1) @binding(4)
+var occlusion_map: texture_2d<f32>;
+
+@group(1) @binding(5)
+var emissive_map: texture_2d<f32>;
+
 // Equirectangular LDR (sRGB) environment, mipmapped; 1 x 1 white when unset (env_sky.w = 0)
 @group(2) @binding(0)
 var env_map: texture_2d<f32>;
@@ -359,6 +394,25 @@ fn punctual(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, n_dot_v: f32, f0: vec3<f32
     return (diffuse + f * (ndf * vis)) * (n_dot_l * PI);
 }
 
+// Normal-mapped normal from screen-space derivatives (cotangent frame, Schueler 2013): t / b
+// are the surface gradients of u / v scaled by the frame determinant, whose sign is divided
+// out so the result does not depend on the backend's screen y direction or the face winding
+// (mirrored uvs flip t / b as they should). Tangent-space +y is up in the image, i.e. -v.
+// `scale` 0 (no map) or a degenerate uv mapping keeps `ng` exactly.
+fn mapped_normal(ng: vec3<f32>, dp1: vec3<f32>, dp2: vec3<f32>, duv1: vec2<f32>, duv2: vec2<f32>, texel: vec3<f32>, scale: f32) -> vec3<f32> {
+    let dp2perp = cross(dp2, ng);
+    let dp1perp = cross(ng, dp1);
+    let t = dp2perp * duv1.x + dp1perp * duv2.x;
+    let b = dp2perp * duv1.y + dp1perp * duv2.y;
+    let det = dot(dp1, dp2perp);
+    let len2 = max(dot(t, t), dot(b, b));
+    let k = select(-1.0, 1.0, det >= 0.0) * inverseSqrt(max(len2, 1e-30));
+    let ts = (texel * 2.0 - vec3<f32>(1.0)) * vec3<f32>(scale, scale, 1.0);
+    let m = (t * ts.x - b * ts.y) * k + ng * ts.z;
+    let ok = scale != 0.0 && len2 > 1e-30 && dot(m, m) > 1e-12;
+    return select(ng, normalize(m), ok);
+}
+
 fn tone_map(c: vec3<f32>, mode: f32) -> vec3<f32> {
     if (mode > 1.5) {
         return c / (vec3<f32>(1.0) + c);
@@ -372,16 +426,26 @@ fn tone_map(c: vec3<f32>, mode: f32) -> vec3<f32> {
 
 @fragment
 fn fs_mesh_pbr(in: MeshVertexOutput) -> @location(0) vec4<f32> {
-    // Sampled first (uniform control flow) so the alpha-test discard can follow
+    // Sampled (and differentiated) first, in uniform control flow, so the alpha-test discard
+    // can follow
     let tex = textureSample(base_map, base_sampler, in.uv);
+    let mr = textureSample(metal_rough_map, base_sampler, in.uv);
+    let normal_texel = textureSample(normal_map, base_sampler, in.uv).xyz;
+    let occlusion_texel = textureSample(occlusion_map, base_sampler, in.uv).r;
+    let emissive_texel = textureSample(emissive_map, base_sampler, in.uv).rgb;
+    let dp1 = dpdx(in.world_pos);
+    let dp2 = dpdy(in.world_pos);
+    let duv1 = dpdx(in.uv);
+    let duv2 = dpdy(in.uv);
     let alpha = clamp(in.color.a, 0.0, 1.0) * tex.a;
     if (alpha < in.mat_params.w) {
         discard;
     }
-    let n = normalize(in.world_normal);
+    let ng = normalize(in.world_normal);
+    let n = mapped_normal(ng, dp1, dp2, duv1, duv2, normal_texel, in.pbr_maps.x);
     let v = normalize(light.eye_pos_ambient.xyz - in.world_pos);
-    let metallic = clamp(in.mat_params.x, 0.0, 1.0);
-    let roughness = clamp(in.mat_params.y, 0.045, 1.0);
+    let metallic = clamp(in.mat_params.x * mr.b, 0.0, 1.0);
+    let roughness = clamp(in.mat_params.y * mr.g, 0.045, 1.0);
     let base = srgb_to_linear3(clamp(in.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0))) * srgb_to_linear3(tex.rgb);
     let emissive = max(0.0, in.mat_params.z);
     let f0 = mix(vec3<f32>(0.04), base, metallic);
@@ -406,9 +470,13 @@ fn fs_mesh_pbr(in: MeshVertexOutput) -> @location(0) vec4<f32> {
     let spec_dir = normalize(mix(r, n, roughness * roughness));
     let spec_env = env_radiance(spec_dir, roughness * max(mips - 1.0, 0.0));
     let diffuse_env = env_radiance(n, max(mips - 3.0, (mips - 1.0) * 0.5));
-    color += diffuse_color * diffuse_env + spec_env * env_brdf_approx(f0, n_dot_v, roughness);
+    // Occlusion darkens the environment (indirect) light only
+    let ao = 1.0 + in.pbr_maps.y * (occlusion_texel - 1.0);
+    color += (diffuse_color * diffuse_env + spec_env * env_brdf_approx(f0, n_dot_v, roughness)) * ao;
 
-    color += base * emissive;
+    // Emission: color * emissive, or the emissive color * map (+ the highlight glow)
+    let glow = in.emissive.w;
+    color += select(base * emissive, in.emissive.rgb * srgb_to_linear3(emissive_texel) + base * (glow - 1.0), glow >= 1.0);
 
     let mapped = clamp(tone_map(color * light.shading.z, light.shading.y), vec3<f32>(0.0), vec3<f32>(1.0));
     let out_rgb = select(mapped, linear_to_srgb3(mapped), light.env_ground.w > 0.5);
@@ -447,7 +515,8 @@ pub fn mesh_shadowed_wgsl(pbr: bool) -> String {
     }
     if pbr {
         let from = "    var color = punctual(n, v, normalize(light.dir_light_dir_intensity.xyz), n_dot_v, f0, diffuse_color, roughness)\n        * light.dir_light_dir_intensity.w;";
-        let to = "    let l_dir = normalize(light.dir_light_dir_intensity.xyz);\n    var color = punctual(n, v, l_dir, n_dot_v, f0, diffuse_color, roughness)\n        * (light.dir_light_dir_intensity.w * shadow_visibility(in.world_pos, n, l_dir, in.receive_shadow));";
+        // The normal offset follows the geometric normal (a normal map must not move it)
+        let to = "    let l_dir = normalize(light.dir_light_dir_intensity.xyz);\n    var color = punctual(n, v, l_dir, n_dot_v, f0, diffuse_color, roughness)\n        * (light.dir_light_dir_intensity.w * shadow_visibility(in.world_pos, ng, l_dir, in.receive_shadow));";
         assert_eq!(text.matches(from).count(), 1, "pbr shader changed");
         text = text.replacen(from, to, 1);
     }
@@ -1801,8 +1870,20 @@ mod tests {
             .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
             out
         };
-        assert!(write(naga::ShaderStage::Vertex, "vs_mesh").contains("#version 300 es"));
+        let vs = write(naga::ShaderStage::Vertex, "vs_mesh");
+        assert!(vs.contains("#version 300 es"));
+        assert!(vs.contains("flat out"), "PBR map parameters are flat varyings: {vs}");
         let fs = write(naga::ShaderStage::Fragment, "fs_mesh_pbr");
+        // Material maps share group 1 with the base map; the normal map's tangent frame comes
+        // from screen-space derivatives (no vertex tangents)
+        for binding in 0..=5 {
+            if binding != 1 {
+                assert!(fs.contains(&format!("_group_1_binding_{binding}_fs")), "map binding {binding}: {fs}");
+            }
+        }
+        assert!(fs.contains("dFdx(") && fs.contains("dFdy("), "cotangent frame derivatives");
+        // 5 material maps + env map: well within WebGL2's 16 texture units
+        assert_eq!(fs.matches("uniform highp sampler2D").count(), 6, "{fs}");
         assert!(
             fs.contains("textureLod("),
             "env map sampled at an explicit mip"
@@ -1900,18 +1981,21 @@ mod tests {
 
     #[test]
     fn classic_mesh_shader_text_is_untouched_by_pbr() {
-        // The PBR module only swaps the light struct and appends its own entry point
+        // The PBR module only swaps the light struct, adds its instance attributes / varyings
+        // and appends its own entry point
         let pbr = mesh_pbr_wgsl();
         assert!(pbr.contains(MESH_LIGHT_STRUCT_PBR) && !pbr.contains(MESH_LIGHT_STRUCT_CLASSIC));
         assert!(pbr.ends_with(MESH_PBR_BODY_WGSL));
-        assert_eq!(
-            pbr.trim_end_matches(MESH_PBR_BODY_WGSL).replacen(
-                MESH_LIGHT_STRUCT_PBR,
-                MESH_LIGHT_STRUCT_CLASSIC,
-                1
-            ),
-            MESH_LIT_WGSL
+        let mut back = pbr.trim_end_matches(MESH_PBR_BODY_WGSL).replacen(
+            MESH_LIGHT_STRUCT_PBR,
+            MESH_LIGHT_STRUCT_CLASSIC,
+            1,
         );
+        for (from, to) in MESH_PBR_EDITS {
+            back = back.replacen(to, from, 1);
+        }
+        assert_eq!(back, MESH_LIT_WGSL);
+        assert!(!MESH_LIT_WGSL.contains("pbr_maps") && !MESH_LIT_WGSL.contains("@location(12)"));
         assert!(!MESH_LIT_WGSL.contains("env_map"));
         // Uniform layout: struct fields match `SceneLightUniformRaw` (6 x vec4)
         assert_eq!(

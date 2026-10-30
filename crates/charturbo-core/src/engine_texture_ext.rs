@@ -2,7 +2,7 @@
 //! GPU textures (ids, budget), the scene owns each object's `TextureMap`.
 
 use super::*;
-use crate::scene::TextureMap;
+use crate::scene::{MaterialMaps, TextureMap};
 
 impl VisualizationEngine {
     /// Largest accepted texture edge (0 when the backend has no textures).
@@ -55,6 +55,15 @@ impl VisualizationEngine {
 
     pub fn object_map(&self, object_id: u32) -> Option<TextureMap> {
         self.scene.find_object(object_id).map(|o| o.map)
+    }
+
+    /// Sets an object's PBR material maps (texture id 0 = none; classic shading ignores them).
+    pub fn set_object_material_maps(&mut self, object_id: u32, maps: MaterialMaps) -> bool {
+        self.scene.set_object_material_maps(object_id, maps)
+    }
+
+    pub fn object_material_maps(&self, object_id: u32) -> Option<MaterialMaps> {
+        self.scene.find_object(object_id).map(|o| o.maps)
     }
 
     /// Replaces a custom mesh's uvs (2 per vertex; empty = planar projection).

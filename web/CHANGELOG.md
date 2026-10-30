@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — PBR 재질 맵
+
+- 객체 재질 필드 `metallicRoughnessMap`(B = 금속성, G = 거칠기, 계수에 곱함) · `normalMap` + `normalScale`(접선 공간) · `aoMap` + `aoStrength`(R 채널, 환경광만 줄임) · `emissiveMap` + `emissiveColor`(sRGB 맵 × 색): 기본 도형 · 사용자 메시 · `setObjectMaterial`에서 지정하며 PBR 모델에서만 적용됩니다(classic과 맵 없는 PBR 렌더 결과는 그대로). 접선 프레임은 화면 미분으로 만드는 cotangent 프레임이라 정점 형식 변경 · `TANGENT` 속성 없이 WebGPU · WebGL2 모두 동작하고 뒤집힌 UV도 처리합니다. 모든 맵은 객체의 `mapRepeat` / `mapOffset`을 공유합니다.
+- `disposeTexture`가 해당 텍스처를 쓰는 맵 슬롯을 비웁니다. `exportScene` / `loadScene`이 맵 필드를 저장 · 복원하고 `loadSceneWithTextures`가 슬롯마다 텍스처 ID를 다시 매핑합니다. glTF 로더가 `metallicRoughnessTexture` · `normalTexture` · `occlusionTexture` · `emissiveTexture`(TEXCOORD_0, `KHR_texture_transform`)를 읽습니다. wasm `set_object_material_maps` / `get_object_material_maps` 추가.
+- 예제 `scene/07-pbr-maps`, fixture `scene-pbr-maps`, 문서 `charts/scene-3d`의 「재질 맵」 절.
+
 ### 추가 — MSAA 안티에일리어싱
 
 - `Charturbo.create(canvas, { antialias: true | 4 })`, `setAntialias(1 | 4)` / `getAntialias()`: 메인 패스를 멀티샘플 색상 · 깊이 타깃(샘플 4개)에 그린 뒤 캔버스로 resolve해 메시 윤곽의 계단 현상을 줄입니다(2D 선 · 마커는 셰이더에서 이미 안티에일리어싱되어 거의 같음)(기본값 꺼짐, 꺼져 있으면 텍스처 · 파이프라인 · 렌더 결과가 그대로). 지연 생성되는 PBR · 그림자 리시버 파이프라인까지 샘플 수를 맞추고, 섀도 패스 · 밉 생성 · 오프스크린 패스는 1x로 유지합니다. 장치가 캔버스 형식의 x4 렌더링을 지원하지 않으면 콘솔 경고와 함께 1로 남습니다. 타깃은 켤 때 만들고 크기 변경 시 다시 만들며 끌 때 해제해 `gpuBytes`에 집계됩니다. WebGPU · WebGL2 모두 지원. wasm `set_antialias` / `get_antialias` 추가.

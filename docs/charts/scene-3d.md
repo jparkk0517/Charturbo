@@ -162,8 +162,8 @@ sdk.disposeGltf(house);                      // removes its objects and textures
 The result is `{ objects, textures, nodes, bounds }`: `nodes` lists the scene's nodes depth first as `{ index, name, objectIds }`, and `bounds` is `{ min, max }` in world space. Each mesh primitive becomes one custom mesh object named after its node (or mesh), with `#<n>` appended when the mesh has several primitives.
 
 - **Supported.** `.gltf` with external or `data:` buffers and images, `.glb` with its binary chunk; every accessor type, including interleaved (`byteStride`), normalized, sparse and accessors without a buffer view; triangles, triangle strips and fans (points and lines are skipped with a warning). The node hierarchy (TRS or `matrix`) is baked into the vertices, with normals transformed by the inverse transpose and the winding flipped for mirrored nodes; missing normals are computed smooth. Extensions `KHR_texture_transform`, `KHR_mesh_quantization` and `KHR_materials_emissive_strength`.
-- **Materials.** `baseColorFactor` is converted from linear to the renderer's gamma space; `baseColorTexture` becomes `map` (`TEXCOORD_0` only; `KHR_texture_transform` offset and scale become `mapOffset` / `mapRepeat`); `metallicFactor` and `roughnessFactor` default to 1 as in glTF; `emissive` is the largest `emissiveFactor` component (times the emissive strength), since the engine's emission is a scalar on the base color. `alphaMode: 'MASK'` sets `alphaTest` to `alphaCutoff` (default 0.5), `'BLEND'` keeps the color alpha and `'OPAQUE'` forces color alpha 1. Images used by several materials are decoded once.
-- **Ignored.** Samplers (textures always repeat with linear filtering). With a warning: normal, occlusion, metallic-roughness and emissive textures, texture transform rotation, base color textures on `TEXCOORD_1` or higher, skins (meshes render in their bind pose), morph targets, animations, cameras and other extensions. A model that lists an unsupported extension in `extensionsRequired` is rejected with `loadGltf: extension X is required but not supported`.
+- **Materials.** `baseColorFactor` is converted from linear to the renderer's gamma space; `baseColorTexture` becomes `map` (`TEXCOORD_0` only; `KHR_texture_transform` offset and scale become `mapOffset` / `mapRepeat`); `metallicFactor` and `roughnessFactor` default to 1 as in glTF; `emissiveFactor` (times the emissive strength) becomes `emissiveColor`, and its largest component `emissive` for classic shading; metallic-roughness, normal, occlusion and emissive textures become the [material maps](#material-maps) (`TEXCOORD_0` only; all textures of a material share one uv transform, others are ignored with a warning). `alphaMode: 'MASK'` sets `alphaTest` to `alphaCutoff` (default 0.5), `'BLEND'` keeps the color alpha and `'OPAQUE'` forces color alpha 1. Images used by several materials are decoded once.
+- **Ignored.** Samplers (textures always repeat with linear filtering). With a warning: texture transform rotation, textures on `TEXCOORD_1` or higher, skins (meshes render in their bind pose), morph targets, animations, cameras and other extensions. A model that lists an unsupported extension in `extensionsRequired` is rejected with `loadGltf: extension X is required but not supported`.
 - **Limits.** One load creates at most `GLTF_MAX_VERTICES` (8,388,608) vertices and `GLTF_MAX_INDICES` (67,108,864) indices. All objects share one geometry buffer, so several large models can still exceed the GPU's buffer limit. Textures follow the texture limits above.
 - **Errors.** Error messages start with `loadGltf:`. On any failure, including an abort, the objects and textures created so far are removed.
 - All objects of one model use the model origin as pivot, so applying the same `position` / `rotation` with `setObjectTransform` to each of `result.objects` moves the model as a whole.
@@ -174,7 +174,7 @@ The result is `{ objects, textures, nodes, bounds }`: `nodes` lists the scene's 
 | --- | --- | --- |
 | `setObjectTransform(id, { position?, rotation?, scale?, parentId? })` | `boolean` | Partial transform update |
 | `getObjectTransform(id)` | `{ position, rotation, scale } \| null` | Current transform, including physics motion |
-| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest? })` | `boolean` | Partial material update |
+| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest?, ...material maps })` | `boolean` | Partial material update |
 | `setObjectPhysics(id, { bodyType?, velocity?, angularVelocity?, mass?, restitution? })` | `boolean` | Partial physics update |
 | `setObjectParent(id, parentId \| null)` | `boolean` | Attach to / detach from a parent |
 | `removeObject(id)` | `boolean` | Remove one object |
@@ -239,6 +239,40 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+
+### Material maps
+
+glTF-style texture maps refine the PBR material per texel. They are used by `model: 'pbr'` only (classic shading ignores them), and objects without maps render exactly as before:
+
+```ts
+const normal = await sdk.loadTexture('/tex/bricks-normal.png');
+const orm = await sdk.loadTexture('/tex/bricks-mr.png');
+sdk.addBox({
+  map: bricks,
+  metallicRoughnessMap: orm,  // B = metalness, G = roughness
+  normalMap: normal,
+  normalScale: 1,
+  aoMap: orm,                 // R = occlusion (a packed ORM texture works for both)
+  emissiveMap: windows,
+  emissiveColor: [1, 0.6, 0.2],
+});
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `metallicRoughnessMap` | `number \| null` | `null` | Blue channel multiplies `metallic`, green multiplies `roughness` (linear data) |
+| `normalMap` | `number \| null` | `null` | Tangent-space normal map, OpenGL / glTF convention (green = up in the image) |
+| `normalScale` | `number` | `1` | Scales the map's x / y (clamped to −16..16) |
+| `aoMap` | `number \| null` | `null` | Ambient occlusion in the red channel (linear); darkens environment light only |
+| `aoStrength` | `number` | `1` | 0..1: `1 + aoStrength × (ao − 1)` |
+| `emissiveColor` | `[r, g, b]` | `[0, 0, 0]` | Linear emitted color (glTF `emissiveFactor`, 0..1000). When non-black it replaces the PBR `color × emissive` glow |
+| `emissiveMap` | `number \| null` | `null` | sRGB texture multiplying `emissiveColor` (no effect while it is black) |
+
+- The fields work on every `add*` method, `addCustomMesh` and `setObjectMaterial` (only the given fields change; `null` or `0` clears a slot). `getObjectRecord` returns them, `disposeTexture` clears every slot that used the texture, `exportScene` writes them (only for objects that have maps) with their textures in `textures`, `loadScene` drops unknown ids with a warning and `loadSceneWithTextures` remaps them.
+- Every map uses the object's uvs and `mapRepeat` / `mapOffset`, with or without a base `map`.
+- The normal map's tangent frame comes from screen-space derivatives of the position and uvs (no vertex tangents), so it works on every mesh, including mirrored uvs; glTF `TANGENT` attributes are not used. Shadows keep using the geometric normal.
+- Images are uploaded as RGBA8 like other textures, so a single packed ORM (occlusion-roughness-metalness) texture can be used for both `aoMap` and `metallicRoughnessMap`.
+- `loadGltf` reads `metallicRoughnessTexture`, `normalTexture` (`scale`), `occlusionTexture` (`strength`) and `emissiveTexture` (with `emissiveFactor` × the emissive strength as `emissiveColor`).
 
 ## Shadows
 
