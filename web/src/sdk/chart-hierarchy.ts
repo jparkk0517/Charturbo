@@ -8,6 +8,7 @@
  */
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartValueFormat } from './chart-format';
+import type { ChartAnimationInput } from './chart-animation';
 import type { A11yChartModel, ChartDataCell } from './chart-a11y';
 import type { A11yCommon, A11yCustomModel } from './chart-business-util';
 import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
@@ -68,6 +69,11 @@ export interface HierarchyChartOptions {
   valueLabel?: string;
   /** Name of the synthetic root above several roots (default: `'All'` in the chart language) */
   rootLabel?: string;
+  /**
+   * Enter / update animation of this chart (default: the SDK setting, `setAnimation`);
+   * `{ transition: true }` morphs treemap <-> sunburst by node path
+   */
+  animation?: ChartAnimationInput;
 }
 
 export interface TreemapChartOptions extends HierarchyChartOptions {

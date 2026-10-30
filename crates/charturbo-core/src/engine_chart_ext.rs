@@ -18,6 +18,36 @@ impl VisualizationEngine {
         }
     }
 
+    /// Morphing transitions (transition.rs) of this and every later chart; needs animations on.
+    pub fn set_chart_transition(&mut self, on: bool) {
+        self.chart_animation = self.chart_animation.map(|o| o.with_transition(on));
+        if let Some(chart) = self.chart.as_mut() {
+            if let Some(o) = chart.animation() {
+                chart.set_animation(Some(o.with_transition(on)));
+            }
+        }
+    }
+
+    /// Mark keys of the current chart (see `ChartState::set_mark_keys`).
+    pub fn set_chart_mark_keys(&mut self, keys: Vec<u32>) -> bool {
+        self.chart.as_mut().map(|c| c.set_mark_keys(keys)).is_some()
+    }
+
+    /// Bar race of the current chart (see `ChartState::set_bar_race`).
+    pub fn set_chart_bar_race(&mut self, on: bool) -> bool {
+        self.chart.as_mut().is_some_and(|c| c.set_bar_race(on))
+    }
+
+    /// Eased progress of the running chart animation (1 when idle or without a chart).
+    pub fn chart_animation_progress(&self) -> f32 {
+        self.chart.as_ref().map_or(1.0, |c| c.animation_progress())
+    }
+
+    /// End label anchors of the line chart (see `ChartState::line_end_labels`).
+    pub fn chart_line_end_labels(&self) -> Vec<crate::chart::LineEndLabel> {
+        self.chart.as_ref().map(|c| c.line_end_labels(&self.chart_view())).unwrap_or_default()
+    }
+
     /// Shape per scatter series id (see `ChartState::set_scatter_shapes`).
     pub fn set_chart_scatter_shapes(&mut self, shapes: &[u8]) -> bool {
         self.chart.as_mut().is_some_and(|c| c.set_scatter_shapes(shapes))
@@ -207,6 +237,37 @@ mod tests {
         line(&mut e, vec![3.0, 2.0, 1.0]);
         assert!(e.chart_animating());
         assert!(e.chart.as_ref().unwrap().anim_is_update());
+    }
+
+    #[test]
+    fn transitions_morph_a_replaced_chart_and_races_pass_through() {
+        use crate::chart::{BarLayout, ChartViewMode, PieOptions, PieStyle};
+        let mut e = engine();
+        let layout = BarLayout { width: 160.0, max_height: 80.0, bar_width: 0.0, corner_radius_px: 0.0, view: ChartViewMode::Flat };
+        let bars = |e: &mut VisualizationEngine| e.set_bar_chart(vec![4.0, 3.0, 2.0], vec![[0.2, 0.4, 0.8, 1.0]], layout);
+        e.set_chart_transition(true); // no-op while animations are off
+        e.set_chart_animation(AnimationOptions::new(100.0, Easing::Linear));
+        e.set_chart_transition(true);
+        assert!(e.chart_animation().unwrap().transition);
+        bars(&mut e);
+        assert!(e.set_chart_bar_race(true) && e.set_chart_mark_keys(vec![7, 8, 9]));
+        e.chart_finish_animation();
+        e.sync_and_render();
+        assert_eq!(e.chart_animation_progress(), 1.0);
+        // Replaced by a pie of the same data: morphs from the bars drawn with the old camera
+        e.set_pie_chart(&[4.0, 3.0, 2.0], PieOptions::default(), PieStyle::default());
+        assert!(e.chart_animating());
+        assert!(e.chart.as_ref().unwrap().anim_is_morph());
+        assert!(!e.set_chart_bar_race(true), "not a bar chart");
+        assert!(e.chart_animation_tick(0.0));
+        assert!(e.chart_animation_tick(50.0));
+        assert!((e.chart_animation_progress() - 0.5).abs() < 1e-6);
+        e.sync_and_render();
+        // Transition off: the next replacement enters instead
+        e.set_chart_transition(false);
+        bars(&mut e);
+        assert!(e.chart_animating() && !e.chart.as_ref().unwrap().anim_is_morph());
+        assert!(e.chart_line_end_labels().is_empty());
     }
 
     #[test]

@@ -948,8 +948,10 @@ impl VisualizationEngine {
         if let Some(mut chart) = self.chart.take() {
             if chart.is_scientific3d() { self.camera.set_orthographic(None); }
             if keep_snapshot {
-                // A chart replaced before its first frame keeps the older chart's snapshot
-                if let Some(s) = chart.anim_snapshot() {
+                // A chart replaced before its first frame keeps the older chart's snapshot; the
+                // morph polygons (transitions) are measured with the camera it was drawn with
+                let view = ChartView { camera: &self.camera, viewport_px: self.viewport_px, pixel_ratio: self.pixel_ratio };
+                if let Some(s) = chart.anim_snapshot_in(&view) {
                     self.chart_anim_prev = Some(s);
                 }
             }

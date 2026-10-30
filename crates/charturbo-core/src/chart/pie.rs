@@ -929,6 +929,23 @@ impl PieChart {
         }
     }
 
+    /// Drawn slices for chart transitions (transition.rs): `(input index, padded compass interval,
+    /// world inner / outer radius, color)`, unexploded, culled like `build`.
+    pub(crate) fn morph_slices(&self) -> Vec<(Option<usize>, (f32, f32), f32, f32, [f32; 4])> {
+        let shown = self.shown_per_ring(self.slices.iter().map(|s| s.span()));
+        let mut out = Vec::new();
+        for (k, s) in self.slices.iter().enumerate() {
+            if s.span() <= 0.0 {
+                continue;
+            }
+            let full = shown[s.ring as usize] == 1 && self.sweep >= TAU;
+            if let Some(arc) = self.padded(self.compass(s), full) {
+                out.push((s.source, arc, s.r_in, s.r_out, self.display_color(k)));
+            }
+        }
+        out
+    }
+
     /// Slice `(start, end)` angles of the current layout (update animations, see animation.rs).
     pub(crate) fn angles(&self) -> Vec<(f32, f32)> {
         self.slices.iter().map(|s| (s.start, s.end)).collect()

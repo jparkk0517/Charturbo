@@ -1267,6 +1267,69 @@ export const FIXTURES: Fixture[] = [
         sdk.emphasizeSeries(Number(ctx.params.group ?? 1));
       }),
   },
+  // Races / transitions: no deterministic animation clock, so these capture the end state after
+  // the animated re-render (finishAnimation): the final layers must be restored exactly
+  {
+    name: 'race-bar-end',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const year = (k: number) =>
+          ['Aria', 'Brix', 'Cove', 'Dune', 'Echo', 'Fern', 'Gale'].map((label, i) => ({ label, value: 20 + ((i * 37 + k * 53) % 90), color: i === 0 ? firstColor(ctx) : undefined }));
+        const opts = {
+          title: 'Bar race',
+          padding: { ...PADDING, left: 64, right: 48 },
+          orientation: 'horizontal' as const,
+          labels: true,
+          realtimeSort: { max: 5 },
+          animation: { duration: 400 },
+        };
+        sdk.renderBarChart(year(0), opts);
+        sdk.render();
+        sdk.renderBarChart(year(1), opts);
+        sdk.render();
+        sdk.finishAnimation();
+      }),
+  },
+  {
+    name: 'race-line-end',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderLineChart(lineSeries(ctx, 200, 3, 11), { title: 'Line race', padding: { ...PADDING, right: 96 }, legend: false, endLabel: true, animation: { duration: 400 } });
+        sdk.render();
+        sdk.finishAnimation();
+      }),
+  },
+  {
+    name: 'transition-bar-pie-end',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const labels = ['North', 'South', 'East', 'West'];
+        const values = [40, 25, 20, 15];
+        const animation = { duration: 400, transition: true };
+        sdk.renderBarChart(labels.map((label, i) => ({ label, value: values[i] })), { title: 'Bar to pie', padding: PADDING, animation });
+        sdk.render();
+        sdk.renderPieChart({ labels, values }, { title: 'Bar to pie', padding: PADDING, legend: false, animation });
+        sdk.render();
+        sdk.finishAnimation();
+      }),
+  },
+  {
+    name: 'transition-treemap-sunburst-end',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const animation = { duration: 400, transition: true };
+        const padding = { top: 36, right: 12, bottom: 12, left: 12 };
+        sdk.renderTreemap(hierarchyData(), { title: 'Treemap to sunburst', legend: false, padding, animation });
+        sdk.render();
+        sdk.renderSunburst(hierarchyData(), { title: 'Treemap to sunburst', legend: false, padding, animation });
+        sdk.render();
+        sdk.finishAnimation();
+      }),
+  },
 ];
 
 function scatterData(): { x: Float32Array; y: Float32Array; clusters: Uint16Array } {

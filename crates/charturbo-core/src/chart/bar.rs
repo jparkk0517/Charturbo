@@ -117,6 +117,10 @@ pub(crate) struct BarChart {
     pub(crate) category_label_deg: f32,
     /// Symbols drawn instead of the bars (pictorial.rs)
     pub(crate) pictorial: Option<super::pictorial::Pictorial>,
+    /// Bar race on (race.rs): re-renders tween bars by mark key
+    pub(crate) race_sort: bool,
+    /// Interpolated bar race frame while a race runs (race.rs)
+    pub(crate) race: Option<Box<super::race::BarRaceFrame>>,
 }
 
 impl BarChart {
@@ -165,6 +169,8 @@ impl BarChart {
             background: None,
             category_label_deg: 0.0,
             pictorial: None,
+            race_sort: false,
+            race: None,
         };
         chart.reshape();
         chart.relayout();
@@ -445,12 +451,19 @@ impl BarChart {
         let n = self.categories.max(1);
         let side_gap = (self.mode == BarMode::Grouped && self.visible.iter().filter(|&&v| v).count() > 1)
             || self.histogram.is_some();
-        for (g, seg) in self.segs.iter().enumerate() {
+        // Bar race: leaving bars under the others, then the interpolated frame (race.rs)
+        if let Some(r) = &self.race {
+            for (seg, color) in &r.exits {
+                let (rect, end) = self.bar_rect(seg);
+                out.push(ChartBarRaw { rect, z_radius: [0.0, self.layout.corner_radius_px, end, 0.0], color: *color });
+            }
+        }
+        for (g, seg) in self.shown_segs().iter().enumerate() {
             let Some(seg) = seg else { continue };
             let mut color = if hovered == Some(g) {
                 self.hover_color(g, style)
             } else {
-                self.color_of(g)
+                self.race_color(g)
             };
             if self.emphasis.is_some_and(|e| e != g / n) {
                 color[3] *= DIMMED_SERIES_ALPHA;
@@ -540,7 +553,7 @@ impl BarChart {
         let n = self.slots.len();
         let every = ((n as f32 * self.category_tick_px() / plot[2].max(1.0)).ceil() as usize).max(1);
         for i in (0..n).step_by(every) {
-            if let Some((cx, _)) = view.project_css(Vec3::new(self.slots[i].0, self.bottom, 0.0)) {
+            if let Some((cx, _)) = view.project_css(Vec3::new(self.race_slot(i), self.bottom, 0.0)) {
                 out.ticks.push(AxisTick { axis: 0, value: i as f64, x_css: cx, y_css: bottom, granularity: 0 });
             }
         }
@@ -559,7 +572,7 @@ impl BarChart {
         let n = self.slots.len();
         let every = ((n as f32 * 18.0 / plot[3].max(1.0)).ceil() as usize).max(1);
         for i in (0..n).step_by(every) {
-            if let Some((_, cy)) = view.project_css(Vec3::new(0.0, -self.slots[i].0, 0.0)) {
+            if let Some((_, cy)) = view.project_css(Vec3::new(0.0, -self.race_slot(i), 0.0)) {
                 out.ticks.push(AxisTick { axis: 1, value: i as f64, x_css: plot[0], y_css: cy, granularity: 0 });
             }
         }

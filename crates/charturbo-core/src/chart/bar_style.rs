@@ -219,7 +219,7 @@ impl BarChart {
         let n = self.categories.max(1);
         let s = &self.style;
         let w = s.error_width_px.max(0.0);
-        for (g, seg) in self.segs.iter().enumerate() {
+        for (g, seg) in self.shown_segs().iter().enumerate() {
             let (Some(seg), Some((minus, plus))) = (seg, s.error(g)) else {
                 continue;
             };
@@ -347,7 +347,7 @@ impl BarChart {
         let mut cands = Vec::new();
         // Every drawn bar in CSS px: outside labels must not cover another one (auto mode)
         let mut bars: Vec<(usize, [f32; 4])> = Vec::new();
-        for (g, seg) in self.segs.iter().enumerate() {
+        for (g, seg) in self.shown_segs().iter().enumerate() {
             let Some(seg) = seg else { continue };
             let cm = (seg.x0 + seg.x1) * 0.5;
             let (Some(base), Some(end), Some(e0), Some(e1)) =

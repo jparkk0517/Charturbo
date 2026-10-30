@@ -17,6 +17,22 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '선 드러내기와 파이 진입', description: '선은 시저 사각형을 통해 왼쪽에서 오른쪽으로 드러납니다(지오메트리 변경 없음). 파이는 페이드와 확대로 나타납니다.' },
     zh: { title: '折线展开与饼图入场', description: '折线通过裁剪矩形从左到右展开（不改变几何数据）；饼图淡入并放大出现。' },
   },
+  'animation/03-bar-race': {
+    ko: { title: '막대 레이스', description: 'realtimeSort: 해마다 막대가 값 순으로 다시 정렬되어 새 순위로 미끄러집니다(Rust에서 이름 기준 트윈). 값 라벨은 카운트업되고 상위 8개만 남으며 나머지는 페이드아웃됩니다.' },
+    zh: { title: '柱状图竞赛', description: 'realtimeSort：每年柱子按数值重新排序并滑动到新名次（在 Rust 中按名称补间）；数值标签递增计数；只保留前 8 名，其余淡出。' },
+  },
+  'animation/04-line-race': {
+    ko: { title: '선 레이스', description: '선이 x 방향으로 자라나고(긴 드러내기), endLabel이 각 시리즈 이름과 값을 움직이는 선 끝에 붙여 보여 줍니다.' },
+    zh: { title: '折线竞赛', description: '折线沿 x 方向生长（较长的展开动画），endLabel 将每个系列的名称和数值固定在移动的线端。' },
+  },
+  'animation/05-bar-pie': {
+    ko: { title: '막대 ↔ 파이 전환', description: 'animation.transition: 각 막대가 같은 이름의 파이 조각으로 모핑되고(Rust 폴리곤 모핑), 다시 돌아옵니다.' },
+    zh: { title: '柱状图 ↔ 饼图过渡', description: 'animation.transition：每根柱子变形为同名的饼图扇区（在 Rust 中进行多边形变形），并可变回。' },
+  },
+  'animation/06-treemap-sunburst': {
+    ko: { title: '트리맵 ↔ 선버스트 전환', description: 'animation.transition: 각 트리맵 셀이 같은 노드 경로의 선버스트 호로 모핑되고, 다시 돌아옵니다.' },
+    zh: { title: '矩形树图 ↔ 旭日图过渡', description: 'animation.transition：每个矩形树图单元变形为节点路径相同的旭日图弧段，并可变回。' },
+  },
   'bar/01-grouped-stacked': {
     ko: { title: '그룹형 · 누적형 · 백분율 막대', description: '다중 시리즈 막대: 레이아웃을 전환하고, 범례를 클릭하면 시리즈가 숨겨지며 엔진이 다시 누적합니다.' },
     zh: { title: '分组 · 堆叠 · 百分比柱状图', description: '多系列柱状图：切换布局；点击图例可隐藏系列，引擎会重新堆叠。' },
