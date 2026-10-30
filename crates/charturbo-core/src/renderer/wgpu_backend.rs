@@ -1671,6 +1671,10 @@ impl RenderBackend for WgpuRenderBackend {
         self.textures.create_environment_rgb(&self.device, &self.queue, width, height, rgb)
     }
 
+    fn take_environment_check(&mut self, texture_id: u32) -> Option<super::EnvCheck> {
+        self.textures.take_env_check(texture_id)
+    }
+
     #[cfg(target_arch = "wasm32")]
     fn create_texture_from_bitmap(&mut self, bitmap: &web_sys::ImageBitmap, mipmaps: bool) -> Result<u32, String> {
         self.textures.create_from_bitmap(&self.device, &self.queue, bitmap, mipmaps)

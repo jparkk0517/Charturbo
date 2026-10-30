@@ -5,10 +5,19 @@
 //! temporary source is destroyed. Devices that cannot render into `Rgba16Float` (WebGL2
 //! without `EXT_color_buffer_float`) get a CPU box-filtered chain instead (blurrier, not GGX
 //! shaped). The SH diffuse irradiance is computed on the CPU in both cases.
+//!
+//! All GPU work of a creation runs inside validation + out-of-memory error scopes. wgpu-core
+//! (native, WebGL2) reports them synchronously: the texture is destroyed and the creation
+//! fails. Browser WebGPU resolves them later: the map is created and its pending check is
+//! handed out by `take_env_check` (the wasm `environment_ready` promise); the caller disposes
+//! the map when it fails.
 
 use super::env_map;
 use super::shader::ENV_PREFILTER_WGSL;
 use super::texture::{mip_level_count, GpuTexture, TextureRegistry};
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// Storage format of HDR environment maps: filterable on WebGPU and WebGL2 alike.
 pub const ENV_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -122,6 +131,11 @@ fn create_env_texture(
     if render {
         usage |= wgpu::TextureUsages::RENDER_ATTACHMENT;
     }
+    // Tests read the uploaded / prefiltered mips back
+    #[cfg(test)]
+    {
+        usage |= wgpu::TextureUsages::COPY_SRC;
+    }
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
         size: wgpu::Extent3d {
@@ -176,10 +190,25 @@ fn level_view(texture: &wgpu::Texture, base: u32, count: Option<u32>) -> wgpu::T
     })
 }
 
+/// GPU errors of an environment map creation still in flight (browser WebGPU reports error
+/// scopes asynchronously): resolves to the error message, `None` when the map is valid.
+pub type EnvCheck = Pin<Box<dyn Future<Output = Option<String>>>>;
+
+/// Polls `check` once without a waker: wgpu-core (native, WebGL2) pops error scopes
+/// synchronously, so only browser WebGPU stays pending.
+fn poll_now(check: &mut EnvCheck) -> Poll<Option<String>> {
+    check
+        .as_mut()
+        .poll(&mut Context::from_waker(std::task::Waker::noop()))
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 impl TextureRegistry {
     /// HDR environment map from `width * height` linear RGB texels (equirect, top row = +y);
     /// see the module docs. Validation (size, rgb length, budget) happens before any GPU work.
+    /// The GPU work (upload, prefilter passes, bind group) runs inside validation and
+    /// out-of-memory error scopes: an error reported synchronously destroys the texture and
+    /// returns `Err` (nothing is counted); one still pending is kept for `take_env_check`.
     pub fn create_environment_rgb(
         &mut self,
         device: &wgpu::Device,
@@ -195,15 +224,40 @@ impl TextureRegistry {
         self.ledger.plan_bytes(bw, bh, bytes)?;
         let (bw, bh, base) = env_map::env_base(width, height, rgb);
         let sh = env_map::irradiance_sh(bw, bh, &base);
+        device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        #[cfg(test)]
+        if self.inject_env_error {
+            // A zero-sized texture is a validation error
+            let _ = create_env_texture(device, "env-map-invalid", 0, 0, 1, false);
+        }
         let texture = if self.float_targets {
             self.prefilter_gpu(device, queue, bw, bh, levels, &base)
         } else {
             Self::box_chain(device, queue, bw, bh, levels, base)
         };
         let bind_group = Self::create_bind_group(device, &self.layout, &self.sampler, &texture);
+        let (validation, oom) = (device.pop_error_scope(), device.pop_error_scope());
+        let mut check: EnvCheck = Box::pin(async move {
+            let error = match validation.await {
+                Some(e) => Some(e),
+                None => oom.await,
+            };
+            error.map(|e| format!("GPU error while creating the environment map: {e}"))
+        });
+        let pending = match poll_now(&mut check) {
+            Poll::Ready(Some(error)) => {
+                texture.destroy();
+                // The prefilter pipelines may be the invalid objects: rebuilt on the next map
+                self.prefilter = None;
+                return Err(error);
+            }
+            Poll::Ready(None) => None,
+            Poll::Pending => Some(check),
+        };
         // A cached material group may hold the white fallback for this (future) id
         self.materials.clear();
-        Ok(self.ledger.insert(
+        let id = self.ledger.insert(
             bw,
             bh,
             levels,
@@ -213,10 +267,21 @@ impl TextureRegistry {
                 bind_group,
                 env_sh: Some(Box::new(sh)),
             },
-        ))
+        );
+        if let Some(check) = pending {
+            self.env_checks.insert(id, check);
+        }
+        Ok(id)
     }
 
-    /// CPU fallback: the 2 x 2 box chain of `base`, uploaded level by level.
+    /// The still pending GPU error check of environment map `id` (taken once; `None` when it
+    /// was already resolved at creation, taken before or the id is unknown).
+    pub fn take_env_check(&mut self, id: u32) -> Option<EnvCheck> {
+        self.env_checks.remove(&id)
+    }
+
+    /// CPU fallback: the 2 x 2 box chain of `base` (`env_map::box_chain_levels`), uploaded
+    /// level by level.
     fn box_chain(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -226,12 +291,11 @@ impl TextureRegistry {
         base: Vec<f32>,
     ) -> wgpu::Texture {
         let texture = create_env_texture(device, "env-map-box", width, height, levels, false);
-        let (mut w, mut h, mut data) = (width, height, base);
-        for level in 0..levels {
-            write_level(queue, &texture, level, w, h, &data);
-            if level + 1 < levels {
-                (w, h, data) = env_map::downsample_rgb(w, h, &data);
-            }
+        for (level, (w, h, data)) in env_map::box_chain_levels(width, height, levels, base)
+            .iter()
+            .enumerate()
+        {
+            write_level(queue, &texture, level as u32, *w, *h, data);
         }
         texture
     }
@@ -322,5 +386,183 @@ impl TextureRegistry {
         // Frees the temporary source once the submitted passes are done with it
         src.destroy();
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::gpu_layout::test_device;
+    use super::*;
+
+    fn registry(device: &wgpu::Device, queue: &wgpu::Queue, float_targets: bool) -> TextureRegistry {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("test-mesh-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let material = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("test-material-bgl"),
+            entries: &[],
+        });
+        TextureRegistry::new(device, queue, layout, material, float_targets)
+    }
+
+    fn f16_to_f32(h: u16) -> f32 {
+        let (exp, man) = ((h >> 10) & 0x1f, (h & 0x3ff) as f32);
+        let v = match exp {
+            0 => man * 2f32.powi(-24),
+            0x1f => f32::INFINITY,
+            e => (1.0 + man / 1024.0) * 2f32.powi(e as i32 - 15),
+        };
+        if h & 0x8000 != 0 {
+            -v
+        } else {
+            v
+        }
+    }
+
+    /// Raw `Rgba16Float` bytes of mip `level` of environment map `id` (rows unpadded).
+    fn read_level(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        reg: &TextureRegistry,
+        id: u32,
+        level: u32,
+    ) -> Vec<u8> {
+        let entry = reg.ledger.get(id).expect("live map");
+        let (w, h) = ((entry.width >> level).max(1), (entry.height >> level).max(1));
+        let row = w * 8;
+        let padded = row.div_ceil(256) * 256;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("test-env-readback"),
+            size: (padded * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &entry.value.texture,
+                mip_level: level,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(h),
+                },
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |r| r.unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        let data = buffer.slice(..).get_mapped_range();
+        data.chunks(padded as usize)
+            .flat_map(|r| r[..row as usize].to_vec())
+            .collect()
+    }
+
+    /// 64 x 32 source: gradients (not constant, so every box mip differs).
+    fn gradient() -> Vec<f32> {
+        (0..32u32)
+            .flat_map(|y| (0..64u32).flat_map(move |x| [y as f32 * 0.25, x as f32 / 64.0, 1.5]))
+            .collect()
+    }
+
+    #[test]
+    fn forced_cpu_fallback_uploads_the_box_chain() {
+        let Some((device, queue)) = test_device::get() else {
+            return eprintln!("skipping env box fallback: no native GPU adapter");
+        };
+        // float_targets = false selects the CPU path (WebGL2 without EXT_color_buffer_float)
+        let mut reg = registry(&device, &queue, false);
+        let rgb = gradient();
+        let id = reg.create_environment_rgb(&device, &queue, 64, 32, &rgb).unwrap();
+        assert!(reg.prefilter.is_none(), "fallback never builds the prefilter pipelines");
+        assert!(reg.take_env_check(id).is_none(), "wgpu-core settles the error scopes");
+        let levels = env_map::prefilter_levels(64, 32);
+        assert_eq!(reg.levels(id), levels);
+        assert_eq!(reg.bytes(), env_map::env_byte_size(64, 32, levels));
+        let chain = env_map::box_chain_levels(64, 32, levels, env_map::env_base(64, 32, &rgb).2);
+        assert_eq!(chain.len(), levels as usize);
+        for (level, (_, _, data)) in chain.iter().enumerate() {
+            assert_eq!(
+                read_level(&device, &queue, &reg, id, level as u32),
+                env_map::pack_rgba16f(data),
+                "mip {level}"
+            );
+        }
+    }
+
+    #[test]
+    fn gpu_prefilter_keeps_a_constant_environment_constant() {
+        let Some((device, queue)) = test_device::get() else {
+            return eprintln!("skipping env prefilter: no native GPU adapter");
+        };
+        let mut reg = registry(&device, &queue, true);
+        let id = reg
+            .create_environment_rgb(&device, &queue, 64, 32, &vec![2.0; 64 * 32 * 3])
+            .unwrap();
+        assert!(reg.prefilter.is_some());
+        assert!(reg.take_env_check(id).is_none());
+        let last = reg.levels(id) - 1;
+        let texels = read_level(&device, &queue, &reg, id, last);
+        for px in texels.chunks_exact(8) {
+            let r = f16_to_f32(u16::from_le_bytes([px[0], px[1]]));
+            assert!((r - 2.0).abs() < 0.02, "roughness 1 of a constant sky: {r}");
+        }
+    }
+
+    #[test]
+    fn gpu_errors_fail_the_creation_and_release_everything() {
+        let Some((device, queue)) = test_device::get() else {
+            return eprintln!("skipping env error scopes: no native GPU adapter");
+        };
+        for float_targets in [true, false] {
+            let mut reg = registry(&device, &queue, float_targets);
+            let rgb = vec![1.0; 64 * 32 * 3];
+            let kept = reg.create_environment_rgb(&device, &queue, 64, 32, &rgb).unwrap();
+            let (count, bytes) = (reg.count(), reg.bytes());
+            reg.inject_env_error = true;
+            let err = reg
+                .create_environment_rgb(&device, &queue, 64, 32, &rgb)
+                .unwrap_err();
+            assert!(
+                err.starts_with("GPU error while creating the environment map: "),
+                "{err}"
+            );
+            assert_eq!((reg.count(), reg.bytes()), (count, bytes), "nothing counted");
+            assert!(reg.prefilter.is_none(), "pipelines are rebuilt after an error");
+            assert!(reg.env_checks.is_empty());
+            // The scopes were popped: the next creation works and the old map is intact
+            reg.inject_env_error = false;
+            let next = reg.create_environment_rgb(&device, &queue, 64, 32, &rgb).unwrap();
+            assert!(next > kept && reg.levels(kept) > 0 && reg.count() == count + 1);
+            assert!(reg.dispose(next) && reg.dispose(kept) && reg.bytes() == 0);
+        }
     }
 }

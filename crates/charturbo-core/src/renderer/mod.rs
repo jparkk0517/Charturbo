@@ -19,6 +19,7 @@ pub mod wgpu_backend;
 pub use fill_style::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillPatch, ChartFillStyleRaw, FILL_EMPH_ALPHA, FILL_EMPH_FADE};
 pub use heatmap::{ChartHeatmapGrid, ChartHeatmapStyleRaw, HEATMAP_LUT_SIZE};
 pub use parallel::{ChartParallelStyleRaw, PARALLEL_ACTIVE, PARALLEL_HIDDEN, PARALLEL_INACTIVE};
+pub use env_prefilter::EnvCheck;
 pub use stats::{chart_layer_bytes, RenderStats};
 
 /// 16-byte aligned uniform buffer payload for camera matrices, billboard vectors, and viewport (112 bytes).
@@ -660,6 +661,11 @@ pub trait RenderBackend {
     /// stored as `Rgba16Float`, GGX-prefiltered per mip + SH diffuse irradiance; returns its id.
     fn create_environment_rgb(&mut self, _width: u32, _height: u32, _rgb: &[f32]) -> Result<u32, String> {
         Err("environment maps require a GPU render backend".into())
+    }
+    /// GPU error check of environment map `texture_id` still pending after its creation
+    /// (browser WebGPU); `None` when errors were already reported by `create_environment_rgb`.
+    fn take_environment_check(&mut self, _texture_id: u32) -> Option<EnvCheck> {
+        None
     }
     /// Frees a texture; draws still referencing its id fall back to white.
     fn dispose_texture(&mut self, _texture_id: u32) -> bool {

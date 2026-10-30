@@ -9,6 +9,7 @@
 
 - `loadEnvironmentHdr(source, { signal })`(Radiance `.hdr`: RGBE, 평면 · 새 형식 RLE, `-Y` / `+Y`; URL · `Blob` · `ArrayBuffer` · 타입 배열) / `createEnvironmentFromFloat(width, height, rgb)`(선형 RGB float): PBR `environment.map`에 쓸 HDR 환경 맵을 만듭니다(최대 4096x2048, 오류는 메서드 이름으로 시작). 너비 1024 이하로 줄여 `Rgba16Float`로 저장하고 생성 시 GPU에서 한 번 사전 필터링합니다: 밉 `i`는 거칠기 `i / (n - 1)`의 GGX 중요도 샘플링(텍셀당 128개, 필터링 중요도 샘플링), 확산광은 SH9 복사조도. 1보다 큰 값이 노출 · 톤 매핑까지 유지됩니다. half float 렌더 타깃이 없는 WebGL2는 CPU 박스 밉으로 대체합니다.
 - `environment.rotation`(+y 축 라디안, HDR · LDR 맵 모두). HDR 텍스처는 `getTextures()` / `exportScene`에 `hdr: true`로 표시되고 `loadSceneWithTextures`가 `loadEnvironmentHdr`로 다시 불러옵니다. 텍스처 예산 · `texture_bytes` · `gpuBytes`에 집계되고 `disposeTexture` · 엔진 해제로 풀립니다. LDR 맵 · 하늘/땅 반구 · classic 렌더 결과는 그대로입니다. wasm `create_environment_hdr` / `create_environment_from_float` / `set_scene_env_rotation` 추가, `get_scene_shading`이 회전 값을 12번째로 반환합니다.
+- 사전 필터링(업로드 · 다운샘플 · GGX 패스)을 GPU 검증 · 메모리 부족 오류 범위로 감쌉니다. 오류가 나면 텍스처를 해제하고 예산에 집계하지 않습니다: `loadEnvironmentHdr`는 메서드 이름으로 시작하는 오류로 거부되고 WebGL2의 `createEnvironmentFromFloat`는 예외를 던집니다. WebGPU는 오류를 비동기로 알리므로 `createEnvironmentFromFloat`는 동기 API 그대로 ID를 먼저 반환하고, 실패하면 맵을 해제하며 콘솔 경고를 남깁니다. 새 `environmentReady(id)`로 그 결과를 기다릴 수 있습니다(호환성 변경 없음). wasm `environment_ready` 추가.
 - 예제 `scene/08-hdr-environment`, fixture `scene-pbr-hdr`, 문서 `charts/scene-3d`의 「HDR 환경 맵」 절.
 
 ### 추가 — PBR 재질 맵

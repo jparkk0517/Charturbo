@@ -33,6 +33,15 @@ impl VisualizationEngine {
         self.renderer.create_environment_rgb(width, height, rgb)
     }
 
+    /// GPU error check of environment map `texture_id` still pending after its creation
+    /// (browser WebGPU reports error scopes asynchronously); `None` when already settled.
+    pub fn take_environment_check(
+        &mut self,
+        texture_id: u32,
+    ) -> Option<crate::renderer::EnvCheck> {
+        self.renderer.take_environment_check(texture_id)
+    }
+
     /// HDR environment map from a Radiance `.hdr` file; returns `(id, width, height)` of the
     /// decoded source image.
     pub fn create_environment_hdr(&mut self, bytes: &[u8]) -> Result<(u32, u32, u32), String> {

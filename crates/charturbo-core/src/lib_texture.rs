@@ -57,6 +57,22 @@ impl WasmCharturboEngine {
             .map_err(|e| JsValue::from_str(&e))
     }
 
+    /// Resolves once the GPU work of environment map `texture_id` is known to be valid; rejects
+    /// with the GPU error message otherwise (the map is not disposed here). Browser WebGPU
+    /// reports such errors after `create_environment_*` returned; elsewhere they make the
+    /// creation fail, so this resolves immediately. Each pending check is handed out once.
+    pub fn environment_ready(&mut self, texture_id: u32) -> js_sys::Promise {
+        match self.inner.take_environment_check(texture_id) {
+            None => js_sys::Promise::resolve(&JsValue::UNDEFINED),
+            Some(check) => wasm_bindgen_futures::future_to_promise(async move {
+                match check.await {
+                    None => Ok(JsValue::UNDEFINED),
+                    Some(e) => Err(js_sys::Error::new(&e).into()),
+                }
+            }),
+        }
+    }
+
     /// Frees a texture; objects using it fall back to no map. `false` for unknown ids.
     pub fn dispose_texture(&mut self, texture_id: u32) -> bool {
         self.inner.dispose_texture(texture_id)

@@ -256,6 +256,7 @@ const env = sdk.createEnvironmentFromFloat(256, 128, rgb);
 - `loadEnvironmentHdr(source, { signal })`는 Radiance `.hdr` 파일(`#?RADIANCE` / `#?RGBE`, `FORMAT=32-bit_rle_rgbe`, `-Y h +X w` 또는 `+Y h +X w`)을 담은 URL 문자열 · `URL` · `Blob` · `ArrayBuffer` · 타입 배열을 받습니다. `createEnvironmentFromFloat(width, height, rgb)`는 선형 RGB float를 받습니다. 둘 다 `environment.map`에 쓸 텍스처 ID를 반환하고 최대 4096x2048까지 받습니다. 오류 메시지에는 메서드 이름이 앞에 붙고, 중단된 `signal`은 `AbortError`로 거부됩니다.
 - 생성할 때 등장방형 이미지를 최대 너비 1024 텍셀로 줄여 `Rgba16Float`로 저장하고 GPU에서 한 번 사전 필터링합니다. `n`개 밉 중 `i`번째에는 거칠기 `i / (n - 1)`의 GGX 컨볼루션이 들어가므로(텍셀당 중요도 샘플 128개, 가장 작은 밉은 높이 8 텍셀) 거친 반사가 BRDF대로 흐려집니다. 확산광은 맵을 계수 9개짜리 구면 조화 함수로 투영해 계산합니다. 1보다 큰 값은 `exposure`와 톤 매핑까지 유지됩니다(65504를 넘는 값은 잘리고, 음수 · NaN 텍셀은 0이 됩니다).
 - 1024x512 맵은 약 5.6 MB를 차지합니다(`getTextures()`에 `hdr: true`로 나오고, 텍스처 예산과 `getRenderStats().gpuBytes`에 집계됩니다). `disposeTexture`로 해제합니다. 사전 필터링은 WebGPU에서 수 밀리초, WebGL2에서 수십 밀리초가 걸립니다. half float 렌더링을 지원하지 않는 WebGL2 장치에서는 단순 박스 필터 밉을 대신 씁니다(거친 반사가 더 흐릿하고 API는 같음).
+- 사전 필터링 중 GPU 오류(검증 · 메모리 부족)가 나면 맵을 다시 해제합니다. `loadEnvironmentHdr`는 그 오류로 거부되고, WebGL2에서는 `createEnvironmentFromFloat`가 예외를 던집니다. WebGPU는 이 오류를 비동기로 알리므로 `createEnvironmentFromFloat`가 먼저 ID를 반환하고 나중에 콘솔 경고와 함께 맵을 해제합니다. `await sdk.environmentReady(env)`는 맵이 정상으로 확인되면 이행되고, 실패하면 그 오류로 거부됩니다.
 - `environment.rotation`은 모든 환경 맵(HDR · LDR)을 +y 축으로 돌립니다. HDR 텍스처는 `environment.map` 전용이며 객체 `map`으로 쓰면 흰색으로 그려집니다. `exportScene`은 이를 `hdr: true`로 표시하고, `loadSceneWithTextures`는 `src`가 있는 것을 `loadEnvironmentHdr`로 다시 불러옵니다.
 
 ### 재질 맵 {#material-maps}

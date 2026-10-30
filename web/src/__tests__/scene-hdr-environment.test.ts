@@ -4,7 +4,7 @@ import { Charturbo, type WasmCharturboEngineBackend } from '../sdk/charturbo';
 type Calls = Record<string, unknown[][]>;
 
 /** Backend recording the HDR environment contract (texture ids from 1, like the engine). */
-function hdrBackend(opts: { hdr?: boolean } = {}) {
+function hdrBackend(opts: { hdr?: boolean; gpuError?: (id: number) => string | null } = {}) {
   const calls: Calls = {};
   const log = (name: string, args: unknown[]) => {
     (calls[name] ??= []).push(args);
@@ -49,6 +49,15 @@ function hdrBackend(opts: { hdr?: boolean } = {}) {
       const id = nextTexture++;
       live.add(id);
       return id;
+    };
+  }
+  if (opts.gpuError) {
+    const gpuError = opts.gpuError;
+    // WebGPU: the error scopes settle after the creation returned
+    backend.environment_ready = (id: number) => {
+      log('environment_ready', [id]);
+      const e = gpuError(id);
+      return e === null ? Promise.resolve() : Promise.reject(new Error(e));
     };
   }
   return { calls, sdk: Charturbo.fromBackend(backend as unknown as WasmCharturboEngineBackend) };
@@ -132,6 +141,53 @@ describe('createEnvironmentFromFloat', () => {
     expect(sdk.disposeTexture(env)).toBe(true);
     expect(sdk.getShading().environment).toMatchObject({ map: null, rotation: 1.25 });
     expect(sdk.getTextures()).toEqual([]);
+  });
+});
+
+describe('GPU errors while prefiltering', () => {
+  const OOM = 'GPU error while creating the environment map: Out of Memory';
+
+  it('loadEnvironmentHdr rejects with the method prefix and frees the map', async () => {
+    const { sdk, calls } = hdrBackend({ gpuError: (id) => (id === 2 ? OOM : null) });
+    const ok = await sdk.loadEnvironmentHdr(HDR);
+    await expect(sdk.environmentReady(ok)).resolves.toBeUndefined();
+    await expect(sdk.loadEnvironmentHdr(HDR)).rejects.toThrow(`loadEnvironmentHdr: ${OOM}`);
+    expect(calls.environment_ready).toEqual([[1], [2]]);
+    expect(calls.dispose_texture).toEqual([[2]]);
+    expect(sdk.getTextures().map((t) => t.id)).toEqual([1]);
+    await expect(sdk.environmentReady(2)).rejects.toThrow(`loadEnvironmentHdr: ${OOM}`);
+  });
+
+  it('createEnvironmentFromFloat stays synchronous; environmentReady reports a late error', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { sdk, calls } = hdrBackend({ gpuError: () => OOM });
+    const env = sdk.createEnvironmentFromFloat(2, 1, new Float32Array(6));
+    expect(typeof env).toBe('number');
+    sdk.setShading({ model: 'pbr', environment: { map: env } });
+    await expect(sdk.environmentReady(env)).rejects.toThrow(`createEnvironmentFromFloat: ${OOM}`);
+    expect(calls.dispose_texture).toEqual([[env]]);
+    expect(sdk.getTextures()).toEqual([]);
+    expect(sdk.getShading().environment.map).toBeNull();
+    expect(warn).toHaveBeenCalledWith(`createEnvironmentFromFloat: ${OOM}; environment map ${env} was disposed`);
+  });
+
+  it('a map disposed before its check settles is left alone', async () => {
+    const { sdk, calls } = hdrBackend({ gpuError: () => OOM });
+    const env = sdk.createEnvironmentFromFloat(2, 1, new Float32Array(6));
+    expect(sdk.disposeTexture(env)).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.dispose_texture).toEqual([[env]]);
+    await expect(sdk.environmentReady(env)).rejects.toThrow('environmentReady: 1 is not a live HDR environment map');
+  });
+
+  it('environmentReady resolves for live maps without a pending check and rejects otherwise', async () => {
+    const { sdk } = hdrBackend();
+    const env = sdk.createEnvironmentFromFloat(2, 1, new Float32Array(6));
+    await expect(sdk.environmentReady(env)).resolves.toBeUndefined();
+    const ldr = sdk.createDataTexture(1, 1, new Uint8Array(4));
+    await expect(sdk.environmentReady(ldr)).rejects.toThrow(`environmentReady: ${ldr} is not a live HDR environment map`);
+    await expect(sdk.environmentReady(99)).rejects.toThrow('not a live HDR environment map');
   });
 });
 

@@ -1821,6 +1821,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   /** Radiance `.hdr` bytes -> `[id, width, height]` (prefiltered HDR environment map) */
   create_environment_hdr?(bytes: Uint8Array): Uint32Array | number[];
   create_environment_from_float?(width: number, height: number, rgb: Float32Array): number;
+  /** Settles the GPU error scopes of a new environment map (rejects with the GPU error; WebGPU reports them asynchronously) */
+  environment_ready?(textureId: number): Promise<void>;
   dispose_texture?(textureId: number): boolean;
   texture_count?(): number;
   texture_bytes?(): number;
@@ -3173,6 +3175,8 @@ export class Charturbo {
   private forceOptions: ForceOptions = { ...DEFAULT_SDK_FORCE_OPTIONS };
   private objectRecords = new Map<number, SceneObjectRecord>();
   private textureRecords = new Map<number, TextureRecord>();
+  /** GPU error checks of HDR environment maps (`environmentReady`) */
+  private environmentChecks = new Map<number, Promise<void>>();
   private nodeMetadataMap = new Map<number, NodeMetadata>();
   private lightingState: Required<SceneLightingDescriptor> = {
     ambientIntensity: 0.32,
@@ -5849,7 +5853,8 @@ export class Charturbo {
    * GPU: a GGX mip chain read by roughness plus spherical-harmonics diffuse irradiance. Radiance
    * above 1 is kept for exposure and tone mapping. Strings and `URL`s are fetched (CORS applies).
    * Rejects with an `AbortError` when `signal` fires and with `loadEnvironmentHdr: ...` for
-   * malformed or oversized files. Free it with `disposeTexture`.
+   * malformed or oversized files and for GPU errors while prefiltering (validation or out of
+   * memory; the map is freed again). Free it with `disposeTexture`.
    */
   async loadEnvironmentHdr(source: EnvironmentHdrSource, options: LoadEnvironmentHdrOptions = {}): Promise<number> {
     const fn = 'loadEnvironmentHdr';
@@ -5887,6 +5892,7 @@ export class Charturbo {
     }, true);
     const rec = this.textureRecords.get(id);
     if (rec) Object.assign(rec, size);
+    await this.checkEnvironment(fn, id);
     return id;
   }
 
@@ -5894,7 +5900,9 @@ export class Charturbo {
    * Creates an HDR environment map from linear RGB floats: `width * height` texels, 3 floats each,
    * row-major with the top row straight up (equirect, 2:1, at most 4096x2048). Same prefiltering
    * and use as `loadEnvironmentHdr`. Negative and non-finite values are treated as 0, values
-   * above 65504 are clamped. Returns the texture id.
+   * above 65504 are clamped. Returns the texture id. GPU errors while prefiltering (validation
+   * or out of memory) throw on WebGL2; WebGPU reports them asynchronously, so there the map is
+   * returned, then freed again with a console warning: await `environmentReady(id)` to catch them.
    */
   createEnvironmentFromFloat(width: number, height: number, rgb: Float32Array | ArrayLike<number>): number {
     const fn = 'createEnvironmentFromFloat';
@@ -5910,7 +5918,49 @@ export class Charturbo {
       throw new Error(`${fn}: rgb must hold width * height * 3 = ${width * height * 3} floats (got ${rgb.length})`);
     }
     const data = rgb instanceof Float32Array ? rgb : Float32Array.from(rgb);
-    return this.registerTexture(fn, width, height, null, () => b.create_environment_from_float!(width, height, data), true);
+    const id = this.registerTexture(fn, width, height, null, () => b.create_environment_from_float!(width, height, data), true);
+    void this.checkEnvironment(fn, id, true).catch(() => {});
+    return id;
+  }
+
+  /**
+   * Resolves once the GPU prefiltering of an HDR environment map (`loadEnvironmentHdr` /
+   * `createEnvironmentFromFloat`) is known to have succeeded. Rejects with the creating method's
+   * error (`createEnvironmentFromFloat: GPU error while creating the environment map: ...`) when it
+   * failed; the map has then been freed with `disposeTexture`. Only needed for
+   * `createEnvironmentFromFloat` on WebGPU: everywhere else such errors already throw or reject.
+   * Rejects for ids that are not live HDR environment maps.
+   */
+  environmentReady(textureId: number): Promise<void> {
+    const check = this.environmentChecks.get(textureId);
+    if (check) return check;
+    if (this.textureRecords.get(textureId)?.hdr) return Promise.resolve();
+    return Promise.reject(new Error(`environmentReady: ${textureId} is not a live HDR environment map`));
+  }
+
+  /**
+   * Settles the engine's GPU error check of new environment map `id`: on failure the map is
+   * disposed and the check rejects with the `fn` prefix (kept for `environmentReady`).
+   */
+  private checkEnvironment(fn: string, id: number, warn = false): Promise<void> {
+    const pending = this.backend.environment_ready?.(id);
+    if (!pending) return Promise.resolve();
+    const check: Promise<void> = Promise.resolve(pending).then(
+      () => {
+        if (this.environmentChecks.get(id) === check) this.environmentChecks.delete(id);
+      },
+      (e: unknown) => {
+        const err = textureError(fn, e);
+        if (!this.disposed && this.textureRecords.has(id)) {
+          this.disposeTexture(id);
+          this.environmentChecks.set(id, check);
+          if (warn) console.warn(`${err.message}; environment map ${id} was disposed`);
+        }
+        throw err;
+      }
+    );
+    this.environmentChecks.set(id, check);
+    return check;
   }
 
   /** Runs an engine upload and records the texture; engine errors gain the method prefix. */
@@ -5934,6 +5984,7 @@ export class Charturbo {
     if (!this.backend.dispose_texture) throw new Error('disposeTexture: engine has no texture support (dispose_texture)');
     const ok = this.backend.dispose_texture(textureId);
     this.textureRecords.delete(textureId);
+    this.environmentChecks.delete(textureId);
     if (this.shadingState.environment.map === textureId) {
       // The engine already fell back to the hemisphere; keep the state in sync
       this.shadingState.environment.map = null;

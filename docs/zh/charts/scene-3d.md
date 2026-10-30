@@ -256,6 +256,7 @@ const env = sdk.createEnvironmentFromFloat(256, 128, rgb);
 - `loadEnvironmentHdr(source, { signal })` 接受包含 Radiance `.hdr` 文件（`#?RADIANCE` / `#?RGBE`、`FORMAT=32-bit_rle_rgbe`、`-Y h +X w` 或 `+Y h +X w`）的 URL 字符串、`URL`、`Blob`、`ArrayBuffer` 或类型化数组。`createEnvironmentFromFloat(width, height, rgb)` 接受线性 RGB 浮点数。两者都返回可用于 `environment.map` 的纹理 ID，最大支持 4096x2048；错误信息以方法名为前缀，已中止的 `signal` 以 `AbortError` 拒绝。
 - 创建时等距柱状图像被缩小到最多 1024 texel 宽，以 `Rgba16Float` 存储，并在 GPU 上预过滤一次：`n` 个 mip 中的第 `i` 级保存粗糙度 `i / (n - 1)` 的 GGX 卷积（每 texel 128 个重要性采样，最小 mip 高 8 texel），因此粗糙反射按 BRDF 的方式模糊。漫反射来自贴图的 9 系数球谐投影。大于 1 的值保留到 `exposure` 和色调映射（超过 65504 的值被截断，负值和 NaN texel 变为 0）。
 - 1024x512 的贴图约占 5.6 MB（`getTextures()` 中带 `hdr: true`，计入纹理预算和 `getRenderStats().gpuBytes`）。用 `disposeTexture` 释放。预过滤在 WebGPU 上需数毫秒，在 WebGL2 上需数十毫秒。无法渲染到半精度浮点的 WebGL2 设备改用简单的盒式滤波 mip（粗糙反射更模糊，API 相同）。
+- 预过滤时发生 GPU 错误（验证、内存不足）会再次释放贴图。`loadEnvironmentHdr` 以该错误拒绝，WebGL2 上 `createEnvironmentFromFloat` 直接抛出。WebGPU 异步报告这些错误，因此 `createEnvironmentFromFloat` 先返回 ID，之后释放贴图并输出控制台警告；`await sdk.environmentReady(env)` 在确认贴图有效后兑现，失败时以该错误拒绝。
 - `environment.rotation` 让任意环境贴图（HDR 或 LDR）绕 +y 轴旋转。HDR 纹理仅用于 `environment.map`：作为对象 `map` 时渲染为白色。`exportScene` 用 `hdr: true` 标记它们，`loadSceneWithTextures` 通过 `loadEnvironmentHdr` 重新加载带 `src` 的项。
 
 ### 材质贴图 {#material-maps}

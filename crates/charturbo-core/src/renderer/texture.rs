@@ -198,6 +198,11 @@ pub(crate) struct TextureRegistry {
     pub(super) float_targets: bool,
     /// Lazily built HDR environment prefilter pipelines
     pub(super) prefilter: Option<super::env_prefilter::EnvPrefilter>,
+    /// GPU error checks of environment maps still pending at creation (browser WebGPU)
+    pub(super) env_checks: HashMap<u32, super::env_prefilter::EnvCheck>,
+    /// Tests: the next environment maps hit a GPU validation error inside their error scopes
+    #[cfg(test)]
+    pub(super) inject_env_error: bool,
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -258,6 +263,9 @@ impl TextureRegistry {
             materials: HashMap::new(),
             float_targets,
             prefilter: None,
+            env_checks: HashMap::new(),
+            #[cfg(test)]
+            inject_env_error: false,
         }
     }
 
@@ -449,6 +457,7 @@ impl TextureRegistry {
     pub fn dispose(&mut self, id: u32) -> bool {
         match self.ledger.remove(id) {
             Some(entry) => {
+                self.env_checks.remove(&id);
                 // Material groups must not outlive the texture
                 self.materials.clear();
                 // Frees the memory now; already submitted frames that sampled it stay valid

@@ -288,6 +288,23 @@ pub fn downsample_rgb(width: u32, height: u32, rgb: &[f32]) -> (u32, u32, Vec<f3
     (nw as u32, nh as u32, out)
 }
 
+/// CPU fallback chain (devices that cannot render into `Rgba16Float`): `levels` mips of `base`,
+/// each the `downsample_rgb` 2 x 2 box average of the previous one, as `(width, height, rgb)`.
+pub fn box_chain_levels(
+    width: u32,
+    height: u32,
+    levels: u32,
+    base: Vec<f32>,
+) -> Vec<(u32, u32, Vec<f32>)> {
+    let mut out: Vec<(u32, u32, Vec<f32>)> = Vec::with_capacity(levels as usize);
+    out.push((width, height, base));
+    for _ in 1..levels {
+        let (w, h, data) = out.last().expect("level 0 is pushed above");
+        out.push(downsample_rgb(*w, *h, data));
+    }
+    out
+}
+
 /// Size of the prefiltered base of a `width x height` source (`env_base`).
 pub fn env_base_size(width: u32, height: u32) -> (u32, u32) {
     let (mut w, mut h) = (width, height);
@@ -570,6 +587,73 @@ mod tests {
         let (w, h, d) = downsample_rgb(3, 1, &[1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 8.0, 8.0, 8.0]);
         assert_eq!((w, h), (1, 1));
         assert_eq!(d, vec![2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn box_fallback_chain_sizes_values_and_packing() {
+        // 1024 x 512 base: 7 levels down to 16 x 8, like the GPU chain
+        let levels = prefilter_levels(1024, 512);
+        let chain = box_chain_levels(1024, 512, levels, vec![3.0; 1024 * 512 * 3]);
+        let sizes: Vec<_> = chain.iter().map(|(w, h, _)| (*w, *h)).collect();
+        assert_eq!(
+            sizes,
+            [
+                (1024, 512),
+                (512, 256),
+                (256, 128),
+                (128, 64),
+                (64, 32),
+                (32, 16),
+                (16, 8)
+            ]
+        );
+        for (w, h, d) in &chain {
+            assert_eq!(d.len(), (w * h * 3) as usize);
+            assert!(d.iter().all(|&v| v == 3.0), "constant stays constant");
+        }
+        assert_eq!(
+            box_chain_levels(4, 2, 1, vec![0.0; 24]).len(),
+            1,
+            "one level only"
+        );
+
+        // 4 x 2 -> 2 x 1 -> 1 x 1: each texel is the mean of its 2 x 2 block
+        let base: Vec<f32> = (0..8u32)
+            .flat_map(|i| [i as f32, 2.0 * i as f32, 0.0])
+            .collect();
+        let chain = box_chain_levels(4, 2, 3, base);
+        assert_eq!((chain[1].0, chain[1].1), (2, 1));
+        // texels (0, 1, 4, 5) and (2, 3, 6, 7)
+        assert_eq!(chain[1].2, vec![2.5, 5.0, 0.0, 4.5, 9.0, 0.0]);
+        assert_eq!((chain[2].0, chain[2].1), (1, 1));
+        assert_eq!(chain[2].2, vec![3.5, 7.0, 0.0]);
+
+        // Odd edges: sizes floor, so 3 x 3 -> 1 x 1 averages the top-left 2 x 2 block and the
+        // last row / column is dropped; a 1 px edge averages with itself
+        let odd: Vec<f32> = (0..9u32).flat_map(|i| [i as f32; 3]).collect();
+        let chain = box_chain_levels(3, 3, 2, odd);
+        assert_eq!((chain[1].0, chain[1].1), (1, 1));
+        assert_eq!(chain[1].2, vec![2.0; 3], "(0 + 1 + 3 + 4) / 4");
+        let (w, h, d) = downsample_rgb(1, 3, &[1.0, 1.0, 1.0, 5.0, 5.0, 5.0, 9.0, 9.0, 9.0]);
+        assert_eq!((w, h), (1, 1));
+        assert_eq!(d, vec![3.0; 3], "1-px column averages with itself");
+        let chain = box_chain_levels(5, 3, 3, vec![1.0; 45]);
+        let sizes: Vec<_> = chain.iter().map(|(w, h, _)| (*w, *h)).collect();
+        assert_eq!(sizes, [(5, 3), (2, 1), (1, 1)], "sizes floor and stop at 1");
+
+        // Upload bytes of a level: RGBA f16 little endian, alpha 1, values > 1 kept
+        let chain = box_chain_levels(
+            2,
+            2,
+            2,
+            vec![
+                1000.0, 0.5, 0.0, 1000.0, 0.5, 0.0, 1000.0, 0.5, 0.0, 1000.0, 0.5, 0.0,
+            ],
+        );
+        assert_eq!(
+            pack_rgba16f(&chain[1].2),
+            [0xd0, 0x63, 0x00, 0x38, 0x00, 0x00, 0x00, 0x3c]
+        );
     }
 
     #[test]
