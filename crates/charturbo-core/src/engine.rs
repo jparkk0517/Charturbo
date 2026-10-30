@@ -589,6 +589,17 @@ impl VisualizationEngine {
         self.scene.shadows
     }
 
+    /// Main-pass MSAA: 4 = x4, anything else = off; devices without x4 support for the surface
+    /// format stay at 1. Returns the applied sample count.
+    pub fn set_antialias(&mut self, samples: u32) -> u32 {
+        self.renderer.set_sample_count(samples)
+    }
+
+    /// Applied main-pass sample count (1 = off).
+    pub fn antialias(&self) -> u32 {
+        self.renderer.sample_count()
+    }
+
     /// Whether an object casts / receives shadows.
     pub fn set_object_shadow_flags(&mut self, object_id: u32, cast: bool, receive: bool) -> bool {
         self.scene.set_object_shadow_flags(object_id, cast, receive)
@@ -1646,6 +1657,14 @@ mod tests {
             self.0.borrow_mut().sync_shadows(shadows);
         }
 
+        fn set_sample_count(&mut self, samples: u32) -> u32 {
+            self.0.borrow_mut().set_sample_count(samples)
+        }
+
+        fn sample_count(&self) -> u32 {
+            self.0.borrow().sample_count()
+        }
+
         fn texture_count(&self) -> u32 {
             self.0.borrow().texture_count()
         }
@@ -2025,6 +2044,25 @@ mod tests {
         let st = state.borrow();
         assert_eq!(st.texture_creates, vec![(2, 2, true), (1, 1, false), (1, 1, false)]);
         assert_eq!(st.texture_disposes, vec![a]);
+    }
+
+    #[test]
+    fn antialias_is_off_by_default_and_falls_back_without_device_support() {
+        let (mut engine, state) = mock_engine(GraphDataset::default_empty());
+        assert_eq!(engine.antialias(), 1, "off by default");
+        // No x4 support for the surface format: stays at 1
+        assert_eq!(engine.set_antialias(4), 1);
+        assert_eq!(engine.antialias(), 1);
+        state.borrow_mut().msaa_x4 = true;
+        assert_eq!(engine.set_antialias(4), 4);
+        assert_eq!(engine.antialias(), 4);
+        engine.sync_and_render();
+        assert_eq!(state.borrow().rendered_frames, 1);
+        // Counts other than 4 switch it off
+        assert_eq!(engine.set_antialias(2), 1);
+        assert_eq!(engine.set_antialias(4), 4);
+        assert_eq!(engine.set_antialias(1), 1);
+        assert_eq!(engine.antialias(), 1);
     }
 
     #[test]

@@ -268,6 +268,22 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 不会变暗
 | `darkness` | `number`（0..1） | `1` |
 | `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
 
+## 抗锯齿 {#anti-aliasing}
+
+多重采样抗锯齿（MSAA）默认关闭，可在创建时或运行时开启：
+
+```ts
+const sdk = await Charturbo.create(canvas, { antialias: true }); // 或 4
+sdk.setAntialias(1); // 关闭
+sdk.setAntialias(4); // MSAA x4
+sdk.getAntialias(); // 实际采样数：1 或 4
+```
+
+- 使用 4 个采样时，主通道渲染到多重采样的颜色与深度目标，再 resolve 到画布。网格轮廓与相交处的锯齿（细杆、盒体与板的边缘）变得平滑。纹理内部、阴影贴图、离屏通道和 DOM 文本不受影响。2D 图表的线条和标记已由着色器抗锯齿，几乎没有变化。
+- `antialias` 接受 `true` / `4`（4 个采样）或 `false` / `1`（关闭）。`setAntialias` 只接受 `1` 或 `4`，其他值抛出 `setAntialias: ...`。若设备无法以 4 个采样渲染画布格式，则保持 `1` 并输出控制台警告；`getAntialias()` 返回实际生效的值。
+- 开销：多重采样目标每个画布像素占用 4 × (颜色 + 深度) 字节（480 × 300 ≈ 4.4 MiB，计入 `getRenderStats().gpuBytes`），主通道的填充开销也增加到 4 倍。开启 MSAA 时创建，尺寸变化时重建，`setAntialias(1)` 时释放。关闭时不分配任何资源，管线也保持不变。
+- 画布导出（`toImage`、`toDataURL`）得到的是 resolve 后的图像。WebGPU 与 WebGL2 均受支持。该设置属于画布而非场景，`exportScene` 不会保存它。
+
 ## 刚体物理
 
 `setRigidPhysics(enabled, gravity?)` 开启或关闭仿真；默认开启，重力为 `[0, -40, 0]`。`getRigidPhysics()` 返回 `{ enabled, gravity }`。

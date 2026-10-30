@@ -15,16 +15,17 @@ pub(super) struct ShadowedMeshPipelines {
     pub translucent: wgpu::RenderPipeline,
 }
 
-/// Bind group layouts + the depth pass and classic receivers (built on the first shadowed
-/// frame); the PBR receivers are built on the first shadowed PBR frame.
+/// Bind group layouts + the depth pass (built on the first shadowed frame); the receivers of a
+/// shading model and main-pass sample count (`msaa_slot`) on its first shadowed frame. The
+/// depth pass is always single-sampled.
 pub(super) struct ShadowPipelines {
     /// Depth pass group 0: the shadow uniform (vertex stage)
     pub pass_bgl: wgpu::BindGroupLayout,
     /// Receiver group (2 classic / 3 PBR): uniform, depth map, comparison sampler
     pub receive_bgl: wgpu::BindGroupLayout,
     pub depth: wgpu::RenderPipeline,
-    pub classic: ShadowedMeshPipelines,
-    pub pbr: OnceCell<ShadowedMeshPipelines>,
+    pub classic: [OnceCell<ShadowedMeshPipelines>; 2],
+    pub pbr: [OnceCell<ShadowedMeshPipelines>; 2],
 }
 
 /// What `ShadowPipelines` are built from, plus the once-built pipelines.
@@ -128,13 +129,12 @@ impl LazyShadow {
                 multiview: None,
                 cache: None,
             });
-            let classic = self.receivers(device, &receive_bgl, false);
             ShadowPipelines {
                 pass_bgl,
                 receive_bgl,
                 depth,
-                classic,
-                pbr: OnceCell::new(),
+                classic: Default::default(),
+                pbr: Default::default(),
             }
         })
     }
@@ -146,7 +146,9 @@ impl LazyShadow {
         device: &wgpu::Device,
         receive_bgl: &wgpu::BindGroupLayout,
         pbr: bool,
+        samples: u32,
     ) -> ShadowedMeshPipelines {
+        let target = ColorTarget { format: self.format, samples };
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(if pbr {
                 "mesh-pbr-shadowed-shader"
@@ -183,24 +185,25 @@ impl LazyShadow {
             depth_compare: DEPTH_TEST,
         };
         ShadowedMeshPipelines {
-            opaque: create_pipeline(device, self.format, spec("mesh-shadowed-opaque", true)),
+            opaque: create_pipeline(device, target, spec("mesh-shadowed-opaque", true)),
             translucent: create_pipeline(
                 device,
-                self.format,
+                target,
                 spec("mesh-shadowed-translucent", false),
             ),
         }
     }
 
-    /// The receiving pipelines of a shading model (PBR built on first use).
-    pub(super) fn receiving(&self, device: &wgpu::Device, pbr: bool) -> &ShadowedMeshPipelines {
+    /// The receiving pipelines of a shading model and sample count (built on first use).
+    pub(super) fn receiving(
+        &self,
+        device: &wgpu::Device,
+        pbr: bool,
+        samples: u32,
+    ) -> &ShadowedMeshPipelines {
         let p = self.get(device);
-        if pbr {
-            p.pbr
-                .get_or_init(|| self.receivers(device, &p.receive_bgl, true))
-        } else {
-            &p.classic
-        }
+        let cells = if pbr { &p.pbr } else { &p.classic };
+        cells[msaa_slot(samples)].get_or_init(|| self.receivers(device, &p.receive_bgl, pbr, samples))
     }
 }
 
@@ -377,10 +380,11 @@ impl WgpuRenderBackend {
     ) -> Option<(&wgpu::RenderPipeline, u32, &wgpu::BindGroup)> {
         let map = self.shadow_map.as_ref()?;
         let pipes = self.shadow.pipelines.get()?;
+        let slot = msaa_slot(self.samples);
         let (p, group) = if self.pbr {
-            (pipes.pbr.get()?, 3)
+            (pipes.pbr[slot].get()?, 3)
         } else {
-            (&pipes.classic, 2)
+            (pipes.classic[slot].get()?, 2)
         };
         Some((
             if translucent {

@@ -370,8 +370,8 @@ const DEMO_TEXT: Record<string, Entry> = {
     zh: { title: '基于物理的着色 · setShading', description: '可选的 PBR：从粗糙到光滑（左 → 右）、从电介质到金属（下 → 上）的球体、一个带纹理的盒体和一座小 glTF 房屋，由方向光、点光源以及用 createDataTexture 生成的等距柱状天空纹理照亮。光滑金属映出天空，粗糙金属则模糊反射。可切换回经典 Blinn-Phong（classic）外观，选择色调映射方式并调整曝光。' },
   },
   'scene/06-shadows': {
-    ko: { title: '방향광 그림자 · setShadows', description: '방향광의 선택형 섀도 매핑입니다. 상자 · 구 · 원기둥 · 토러스가 바닥 위를 돌고 해가 머리 위를 회전합니다. 빨간 상자는 그림자를 받지 않고(receiveShadow: false), 유리 구는 그림자를 드리우지 않으며(castShadow: false), 공중에 뜬 알파 테스트 체크무늬 패널은 구멍 뚫린 그림자를 만듭니다. 그림자를 켜고 끄거나 가장자리를 부드럽게 하고(PCF 반경) 섀도 맵 크기를 바꿀 수 있습니다.' },
-    zh: { title: '方向光阴影 · setShadows', description: '方向光的可选阴影贴图：盒体、球体、圆柱和圆环在地面上方环绕，太阳在头顶旋转。红色盒体不接收阴影（receiveShadow: false），玻璃球不投射阴影（castShadow: false），悬浮的 alpha 测试棋盘面板投下带孔的阴影。可开关阴影、柔化边缘（PCF 半径）并更改阴影贴图尺寸。' },
+    ko: { title: '방향광 그림자 · setShadows', description: '방향광의 선택형 섀도 매핑입니다. 상자 · 구 · 원기둥 · 토러스가 바닥 위를 돌고 해가 머리 위를 회전합니다. 빨간 상자는 그림자를 받지 않고(receiveShadow: false), 유리 구는 그림자를 드리우지 않으며(castShadow: false), 공중에 뜬 알파 테스트 체크무늬 패널은 구멍 뚫린 그림자를 만듭니다. 그림자를 켜고 끄거나 가장자리를 부드럽게 하고(PCF 반경) 섀도 맵 크기를 바꿀 수 있으며, MSAA x4 안티에일리어싱(setAntialias)을 켜서 계단처럼 보이는 메시 가장자리를 매끄럽게 할 수 있습니다.' },
+    zh: { title: '方向光阴影 · setShadows', description: '方向光的可选阴影贴图：盒体、球体、圆柱和圆环在地面上方环绕，太阳在头顶旋转。红色盒体不接收阴影（receiveShadow: false），玻璃球不投射阴影（castShadow: false），悬浮的 alpha 测试棋盘面板投下带孔的阴影。可开关阴影、柔化边缘（PCF 半径）、更改阴影贴图尺寸，并开启 MSAA x4 抗锯齿（setAntialias）使锯齿状的网格边缘变得平滑。' },
   },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },

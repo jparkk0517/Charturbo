@@ -27,6 +27,7 @@ const sdk = await Charturbo.create(canvas, { locale: 'en-US', autoResize: true }
 | `timeZone` | `CharturboTimeZone` | `'local'` | 시간 축, 라벨, 툴팁의 시간대: `'local'`, `'UTC'` 또는 IANA 이름 |
 | `sync` | `ChartSyncMemberOptions` | 없음 | 커서 / 줌 동기화 그룹에 참여([대시보드 동기화](./dashboard-sync) 참고) |
 | `animation` | `ChartAnimationInput` | 꺼짐 | enter / update 애니메이션([애니메이션](./animation) 참고) |
+| `antialias` | `boolean \| 1 \| 4` | 꺼짐 | 메인 패스 MSAA x4(`true` = `4`, [안티에일리어싱](../charts/scene-3d#anti-aliasing) 참고) |
 | `device` | `CharturboDevice` | 없음 | 공유 GPU 디바이스: 어댑터 / 디바이스 요청 없음, 파이프라인 캐시 |
 | `seed` | `number` | `42` | 생성되는 시작 그래프의 시드 |
 | `nodeCount` | `number` | `1000` (`device` 사용 시 `0`) | 생성되는 시작 그래프의 노드 수 |

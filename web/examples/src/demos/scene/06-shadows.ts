@@ -3,7 +3,7 @@ import { Charturbo, type SceneShadowMapSize } from 'charturbo';
 export const meta = {
   title: 'Directional shadows · setShadows',
   description:
-    'Opt-in shadow mapping from the directional light: a box, a sphere, a cylinder and a torus orbit over a plane while the sun circles overhead. The red box ignores incoming shadows (receiveShadow: false), the glass sphere casts none (castShadow: false), and the floating alpha-tested checker panel casts a shadow with holes. Toggle shadows, soften the edges (PCF radius) and change the shadow map size.',
+    'Opt-in shadow mapping from the directional light: a box, a sphere, a cylinder and a torus orbit over a plane while the sun circles overhead. The red box ignores incoming shadows (receiveShadow: false), the glass sphere casts none (castShadow: false), and the floating alpha-tested checker panel casts a shadow with holes. Toggle shadows, soften the edges (PCF radius), change the shadow map size, and switch MSAA x4 anti-aliasing (setAntialias) to smooth the stair-stepped mesh edges.',
   height: 440,
 };
 
@@ -73,6 +73,19 @@ export default async function mount(host: HTMLElement) {
     // The engine clamps to the device limit
     mapSize.value = String(sdk.getShadows().mapSize);
   };
+
+  const msaa = toolbar.appendChild(document.createElement('button'));
+  const syncMsaa = () => {
+    const on = sdk.getAntialias() === 4;
+    msaa.textContent = on ? 'MSAA x4' : 'MSAA off';
+    msaa.setAttribute('aria-pressed', String(on));
+  };
+  msaa.onclick = () => {
+    // Stays off (with a console warning) on a device without x4 support
+    sdk.setAntialias(sdk.getAntialias() === 4 ? 1 : 4);
+    syncMsaa();
+  };
+  syncMsaa();
 
   const detach = sdk.enableNodeInteractions(canvas, { builtInTooltip: false, focusOnDoubleClick: false });
   let frame = 0;

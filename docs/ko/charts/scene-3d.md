@@ -268,6 +268,22 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 어두워지지 �
 | `darkness` | `number` (0..1) | `1` |
 | `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
 
+## 안티에일리어싱 {#anti-aliasing}
+
+멀티샘플 안티에일리어싱(MSAA)은 기본적으로 꺼져 있습니다. 생성할 때나 실행 중에 켤 수 있습니다:
+
+```ts
+const sdk = await Charturbo.create(canvas, { antialias: true }); // 또는 4
+sdk.setAntialias(1); // 끔
+sdk.setAntialias(4); // MSAA x4
+sdk.getAntialias(); // 적용된 샘플 수: 1 또는 4
+```
+
+- 샘플 4개로 켜면 메인 패스가 멀티샘플 색상 · 깊이 타깃에 그린 뒤 캔버스로 resolve합니다. 계단처럼 보이던 메시 윤곽과 교차선(가는 막대, 상자 · 판 모서리)이 매끄러워집니다. 텍스처 내부, 섀도 맵, 오프스크린 패스, DOM 텍스트는 그대로입니다. 2D 차트의 선과 마커는 셰이더에서 이미 안티에일리어싱되므로 거의 달라지지 않습니다.
+- `antialias`는 `true` / `4`(샘플 4개) 또는 `false` / `1`(끔)을 받습니다. `setAntialias`는 `1` 또는 `4`만 받고 그 밖의 값에는 `setAntialias: ...` 오류를 던집니다. 장치가 캔버스 형식을 샘플 4개로 그릴 수 없으면 `1`로 남고 콘솔 경고를 남깁니다. `getAntialias()`가 적용된 값을 돌려줍니다.
+- 비용: 멀티샘플 타깃은 캔버스 픽셀당 4 × (색상 + 깊이) 바이트를 씁니다(480 × 300 ≈ 4.4 MiB, `getRenderStats().gpuBytes`에 집계). 메인 패스의 채우기 비용도 4배입니다. MSAA를 켤 때 만들고, 크기가 바뀌면 다시 만들고, `setAntialias(1)`에서 해제합니다. 꺼져 있으면 아무것도 할당하지 않고 파이프라인도 그대로입니다.
+- 캔버스 내보내기(`toImage`, `toDataURL`)는 resolve된 이미지를 받습니다. WebGPU와 WebGL2 모두 지원합니다. 이 설정은 장면이 아니라 캔버스에 속하므로 `exportScene`에 저장되지 않습니다.
+
 ## 강체 물리
 
 `setRigidPhysics(enabled, gravity?)`는 시뮬레이션을 켜거나 끕니다. 기본은 켜져 있고 중력은 `[0, -40, 0]`입니다. `getRigidPhysics()`는 `{ enabled, gravity }`를 반환합니다.

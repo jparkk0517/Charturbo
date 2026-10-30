@@ -27,6 +27,7 @@ const sdk = await Charturbo.create(canvas, { locale: 'en-US', autoResize: true }
 | `timeZone` | `CharturboTimeZone` | `'local'` | 时间轴、标签和提示框的时区：`'local'`、`'UTC'` 或 IANA 名称 |
 | `sync` | `ChartSyncMemberOptions` | 无 | 加入光标 / 缩放联动组（参见[仪表盘联动](./dashboard-sync)） |
 | `animation` | `ChartAnimationInput` | 关闭 | 进入 / 更新动画（参见[动画](./animation)） |
+| `antialias` | `boolean \| 1 \| 4` | 关闭 | 主通道 MSAA x4（`true` = `4`，参见[抗锯齿](../charts/scene-3d#anti-aliasing)） |
 | `device` | `CharturboDevice` | 无 | 共享 GPU 设备：不请求适配器 / 设备，复用已缓存的管线 |
 | `seed` | `number` | `42` | 生成的初始图的随机种子 |
 | `nodeCount` | `number` | `1000`（使用 `device` 时为 `0`） | 生成的初始图的节点数 |

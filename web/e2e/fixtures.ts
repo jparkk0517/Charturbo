@@ -9,7 +9,7 @@
  */
 
 import { CharturboDevice, Charturbo } from '../src/index';
-import type { CharturboDeviceBackend } from '../src/index';
+import type { CharturboAntialias, CharturboDeviceBackend } from '../src/index';
 
 export type FixtureTheme = 'dark' | 'light';
 
@@ -91,13 +91,14 @@ function detectBackend(canvas: HTMLCanvasElement): CharturboDeviceBackend {
   return canvas.getContext('webgl2') ? 'webgl2' : 'webgpu';
 }
 
-/** One full-card chart: create, theme, draw via `draw`, render once. */
+/** One full-card chart: create (plus `antialias`), theme, draw via `draw`, render once. */
 async function single(
   ctx: FixtureContext,
-  draw: (sdk: Charturbo) => void
+  draw: (sdk: Charturbo) => void,
+  antialias?: CharturboAntialias
 ): Promise<FixtureResult> {
   const canvas = makeCanvas(ctx.card, FIXTURE_WIDTH, FIXTURE_HEIGHT);
-  const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
+  const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0, antialias });
   sdk.setTheme(ctx.theme);
   draw(sdk);
   sdk.render();
@@ -1861,7 +1862,52 @@ export const FIXTURES: Fixture[] = [
     theme: 'dark',
     render: (ctx) => single(ctx, (sdk) => shadowScene(sdk, true)),
   },
+  {
+    // MSAA x4 (`antialias` param: 1 renders the aliased reference): the scene-shadows-pbr layout
+    // plus thin tilted rods and a slanted plank whose edges stair-step without anti-aliasing
+    name: 'scene-msaa',
+    theme: 'dark',
+    render: (ctx) =>
+      single(
+        ctx,
+        (sdk) => {
+          shadowScene(sdk, true);
+          for (let i = 0; i < 5; i++) {
+            sdk.addBox({ position: [-60 + i * 9, 16, 38], rotation: [0, 0, 0.35 + i * 0.12], scale: [0.7, 30, 0.7], color: [0.95, 0.9, 0.8, 1], roughness: 0.5 });
+          }
+          sdk.addBox({ position: [20, 3, 42], rotation: [0, 0.45, 0.08], scale: [50, 1.2, 3], color: [0.2, 0.25, 0.35, 1], roughness: 0.6 });
+        },
+        msaaParam(ctx)
+      ),
+  },
+  {
+    // MSAA x4 on a 2D chart: steep thin lines and markers (`antialias` param as scene-msaa)
+    name: 'line-msaa',
+    theme: 'dark',
+    render: (ctx) =>
+      single(
+        ctx,
+        (sdk) => {
+          const zig = (n: number, f: number, amp: number, base: number) =>
+            Float32Array.from({ length: n }, (_, i) => base + Math.sin(i * f) * amp + (i % 2 ? amp / 3 : 0));
+          sdk.renderLineChart(
+            [
+              { name: 'Thin', values: zig(60, 0.9, 30, 50), lineWidth: 1 },
+              { name: 'Markers', values: zig(24, 0.5, 20, 0), lineWidth: 2, marker: { size: 8 } },
+              { name: 'Steep', values: zig(120, 2.1, 12, -40), lineWidth: 1.5 },
+            ],
+            { title: 'MSAA x4', padding: PADDING, legend: false }
+          );
+        },
+        msaaParam(ctx)
+      ),
+  },
 ];
+
+/** `antialias` fixture param (default 4) of the MSAA fixtures. */
+function msaaParam(ctx: FixtureContext): CharturboAntialias {
+  return ctx.params.antialias === '1' ? 1 : 4;
+}
 
 /** Layout of the `scene-shadows` fixtures. */
 function shadowScene(sdk: Charturbo, pbr: boolean): void {

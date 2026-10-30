@@ -28,6 +28,9 @@ use wgpu::util::DeviceExt;
 
 #[path = "wgpu_shadow.rs"]
 mod shadow;
+#[path = "wgpu_msaa.rs"]
+mod msaa;
+pub use msaa::{msaa_target_bytes, resolve_sample_count};
 
 /// Float depth for reversed-Z (supported by WebGPU and WebGL2).
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -206,6 +209,15 @@ pub struct WgpuRenderBackend {
     /// Built on the first resident draw (WebGPU only: vertex-stage storage buffers)
     resident_pipelines: Option<ResidentGraphPipelines>,
     camera_bgl: wgpu::BindGroupLayout,
+    /// Main-pass MSAA sample count (1 = off) and whether the device renders / resolves x4
+    samples: u32,
+    msaa_x4: bool,
+    /// Multisampled color + depth targets while `samples > 1` (resolved into the frame)
+    msaa: Option<msaa::MsaaTargets>,
+    /// Single-sampled pipeline set (MSAA sets derive from it) and this engine's own MSAA set
+    /// (engines on a shared context use the context's cache instead)
+    base_pipes: Rc<GpuPipelines>,
+    msaa_pipes: Option<Rc<GpuPipelines>>,
 }
 
 /// Environment map bind group of the PBR mesh pipelines (group 2).
@@ -224,17 +236,24 @@ struct MeshPbrPipelines {
     translucent: wgpu::RenderPipeline,
 }
 
-/// What `MeshPbrPipelines` are built from, plus the once-built pipelines.
+/// What `MeshPbrPipelines` are built from, plus the once-built pipelines per sample count
+/// (`msaa_slot`; shared by the 1x and MSAA pipeline sets of a format).
 pub(crate) struct LazyMeshPbr {
     format: wgpu::TextureFormat,
     mesh_bgl: wgpu::BindGroupLayout,
     texture_bgl: wgpu::BindGroupLayout,
-    pipelines: OnceCell<MeshPbrPipelines>,
+    pipelines: [OnceCell<MeshPbrPipelines>; 2],
+}
+
+/// Index of a sample count's lazily built pipelines: 0 = 1x, 1 = MSAA.
+pub(crate) fn msaa_slot(samples: u32) -> usize {
+    usize::from(samples > 1)
 }
 
 impl LazyMeshPbr {
-    fn get(&self, device: &wgpu::Device) -> &MeshPbrPipelines {
-        self.pipelines.get_or_init(|| {
+    fn get(&self, device: &wgpu::Device, samples: u32) -> &MeshPbrPipelines {
+        self.pipelines[msaa_slot(samples)].get_or_init(|| {
+            let target = ColorTarget { format: self.format, samples };
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("mesh-pbr-shader"),
                 source: wgpu::ShaderSource::Wgsl(mesh_pbr_wgsl().into()),
@@ -261,8 +280,8 @@ impl LazyMeshPbr {
                 depth_compare: DEPTH_TEST,
             };
             MeshPbrPipelines {
-                opaque: create_pipeline(device, self.format, spec("mesh-pbr-opaque", true)),
-                translucent: create_pipeline(device, self.format, spec("mesh-pbr-translucent", false)),
+                opaque: create_pipeline(device, target, spec("mesh-pbr-opaque", true)),
+                translucent: create_pipeline(device, target, spec("mesh-pbr-translucent", false)),
             }
         })
     }
@@ -315,11 +334,26 @@ struct PipelineSpec<'a> {
     depth_compare: wgpu::CompareFunction,
 }
 
-fn create_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat, spec: PipelineSpec) -> wgpu::RenderPipeline {
-    create_biased_pipeline(device, format, spec, wgpu::DepthBiasState::default())
+/// Color target of the main-pass pipelines: surface format + MSAA sample count (1 = off).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ColorTarget {
+    pub format: wgpu::TextureFormat,
+    pub samples: u32,
 }
 
-fn create_biased_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat, spec: PipelineSpec, bias: wgpu::DepthBiasState) -> wgpu::RenderPipeline {
+impl ColorTarget {
+    /// Count 1 is `MultisampleState::default()` (the pipelines without anti-aliasing).
+    fn multisample(self) -> wgpu::MultisampleState {
+        wgpu::MultisampleState { count: self.samples, ..Default::default() }
+    }
+}
+
+fn create_pipeline(device: &wgpu::Device, target: ColorTarget, spec: PipelineSpec) -> wgpu::RenderPipeline {
+    create_biased_pipeline(device, target, spec, wgpu::DepthBiasState::default())
+}
+
+fn create_biased_pipeline(device: &wgpu::Device, target: ColorTarget, spec: PipelineSpec, bias: wgpu::DepthBiasState) -> wgpu::RenderPipeline {
+    let format = target.format;
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(spec.label),
         layout: Some(spec.layout),
@@ -350,7 +384,7 @@ fn create_biased_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat, sp
             stencil: wgpu::StencilState::default(),
             bias,
         }),
-        multisample: wgpu::MultisampleState::default(),
+        multisample: target.multisample(),
         multiview: None,
         cache: None,
     })
@@ -482,6 +516,8 @@ pub fn engine_gpu_bytes(compact: bool, width: u32, height: u32) -> u64 {
 /// engines hold cheap clones).
 #[derive(Clone)]
 pub struct GpuPipelines {
+    /// Surface format + sample count every pipeline below renders into
+    target: ColorTarget,
     camera_bgl: wgpu::BindGroupLayout,
     mesh_bgl: wgpu::BindGroupLayout,
     /// Mesh base-color texture (b0) + sampler (b1), bind group 1 of the mesh pipelines
@@ -610,8 +646,9 @@ impl WgpuRenderBackend {
 
         let config = surface_config(&surface, &adapter, width, height)?;
         surface.configure(&device, &config);
+        let msaa_x4 = msaa::msaa_x4_supported(&adapter, &device, config.format);
 
-        Ok(Self::build_pipelines(surface, device, queue, config))
+        Ok(Self::build_pipelines(surface, device, queue, config, msaa_x4))
     }
 
     /// Engine on a shared device: its own surface (WebGPU) or a 2D context the shared GL canvas
@@ -659,8 +696,9 @@ impl WgpuRenderBackend {
             surface.configure(&ctx.device, &config);
             (PresentTarget::Surface(surface), config)
         };
-        let pipes = ctx.pipelines.get_or_build(config.format, || GpuPipelines::new(&ctx.device, config.format));
-        let mut backend = Self::assemble(target, ctx.device.clone(), ctx.queue.clone(), config, &pipes, true);
+        let pipes = ctx.pipelines.get_or_build((config.format, 1), || GpuPipelines::new(&ctx.device, config.format));
+        let msaa_x4 = msaa::msaa_x4_supported(&ctx.adapter, &ctx.device, config.format);
+        let mut backend = Self::assemble(target, ctx.device.clone(), ctx.queue.clone(), config, pipes, true, msaa_x4);
         backend._shared = Some(ctx.clone());
         Ok(backend)
     }
@@ -671,9 +709,10 @@ impl WgpuRenderBackend {
         device: wgpu::Device,
         queue: wgpu::Queue,
         config: wgpu::SurfaceConfiguration,
+        msaa_x4: bool,
     ) -> Self {
-        let pipes = GpuPipelines::new(&device, config.format);
-        Self::assemble(PresentTarget::Surface(surface), device, queue, config, &pipes, false)
+        let pipes = Rc::new(GpuPipelines::new(&device, config.format));
+        Self::assemble(PresentTarget::Surface(surface), device, queue, config, pipes, false, msaa_x4)
     }
 
     /// Per-engine resources (depth texture, uniforms, bind groups, instance buffers) around
@@ -684,8 +723,9 @@ impl WgpuRenderBackend {
         device: wgpu::Device,
         queue: wgpu::Queue,
         config: wgpu::SurfaceConfiguration,
-        pipes: &GpuPipelines,
+        pipes: Rc<GpuPipelines>,
         compact: bool,
+        msaa_x4: bool,
     ) -> Self {
         let depth_view = Self::create_depth_view(&device, config.width, config.height);
         let max_buffer_bytes = device.limits().max_buffer_size;
@@ -811,7 +851,7 @@ impl WgpuRenderBackend {
         let navigator = AnnotationArrays::new(&device, "chart-navigator");
         let navigator_window = AnnotationArrays::new(&device, "chart-navigator-window");
 
-        let p = pipes.clone();
+        let p = (*pipes).clone();
         Self {
             target,
             _shared: None,
@@ -896,6 +936,11 @@ impl WgpuRenderBackend {
             graph_resident: false,
             resident_pipelines: None,
             camera_bgl: p.camera_bgl.clone(),
+            samples: 1,
+            msaa_x4,
+            msaa: None,
+            base_pipes: pipes,
+            msaa_pipes: None,
         }
     }
 
@@ -955,8 +1000,23 @@ impl WgpuRenderBackend {
 }
 
 impl GpuPipelines {
-    /// Compiles every shader and pipeline for `format`.
+    /// Compiles every shader and pipeline for `format` (single-sampled).
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        Self::build(device, ColorTarget { format, samples: 1 }, None)
+    }
+
+    /// The same pipelines rendering into `samples`-sample targets. Bind group layouts and the
+    /// lazy PBR / shadow builders are shared with `self`, so every engine bind group stays valid.
+    pub(crate) fn with_samples(&self, device: &wgpu::Device, samples: u32) -> Self {
+        Self::build(device, ColorTarget { format: self.target.format, samples }, Some(self))
+    }
+
+    pub(crate) fn target(&self) -> ColorTarget {
+        self.target
+    }
+
+    fn build(device: &wgpu::Device, target: ColorTarget, base: Option<&GpuPipelines>) -> Self {
+        let format = target.format;
         let uniform_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -968,11 +1028,15 @@ impl GpuPipelines {
             count: None,
         };
 
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("camera-bgl"),
-                entries: &[uniform_entry(0)],
-            });
+        let camera_bind_group_layout = base.map_or_else(
+            || {
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("camera-bgl"),
+                    entries: &[uniform_entry(0)],
+                })
+            },
+            |b| b.camera_bgl.clone(),
+        );
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("charturbo-pipeline-layout"),
@@ -980,11 +1044,15 @@ impl GpuPipelines {
             push_constant_ranges: &[],
         });
 
-        let mesh_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("mesh-bgl"),
-                entries: &[uniform_entry(0), uniform_entry(1)],
-            });
+        let mesh_bind_group_layout = base.map_or_else(
+            || {
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("mesh-bgl"),
+                    entries: &[uniform_entry(0), uniform_entry(1)],
+                })
+            },
+            |b| b.mesh_bgl.clone(),
+        );
 
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh-pipeline-layout"),
@@ -993,7 +1061,7 @@ impl GpuPipelines {
         });
 
         // Lit meshes: camera + light (group 0) and the base-color texture + sampler (group 1)
-        let mesh_texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let mesh_texture_bgl = base.map_or_else(|| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mesh-texture-bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -1013,7 +1081,7 @@ impl GpuPipelines {
                     count: None,
                 },
             ],
-        });
+        }), |b| b.mesh_texture_bgl.clone());
         let mesh_lit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh-lit-pipeline-layout"),
             bind_group_layouts: &[&mesh_bind_group_layout, &mesh_texture_bgl],
@@ -1063,9 +1131,9 @@ impl GpuPipelines {
             depth_write,
             depth_compare: DEPTH_TEST,
         };
-        let mesh_pipeline = create_pipeline(device, format, mesh_spec("mesh-opaque", true));
+        let mesh_pipeline = create_pipeline(device, target, mesh_spec("mesh-opaque", true));
         let mesh_translucent_pipeline =
-            create_pipeline(device, format, mesh_spec("mesh-translucent", false));
+            create_pipeline(device, target, mesh_spec("mesh-translucent", false));
 
         let node_buffers = [layout_of::<NodeInstanceRaw>(Instance, &ATTRS_2)];
         let node_spec = |label, depth_write| PipelineSpec {
@@ -1079,13 +1147,13 @@ impl GpuPipelines {
             depth_write,
             depth_compare: DEPTH_TEST,
         };
-        let node_pipeline = create_pipeline(device, format, node_spec("node-opaque", true));
+        let node_pipeline = create_pipeline(device, target, node_spec("node-opaque", true));
         let node_translucent_pipeline =
-            create_pipeline(device, format, node_spec("node-translucent", false));
+            create_pipeline(device, target, node_spec("node-translucent", false));
 
         let edge_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "edge-lines",
                 layout: &pipeline_layout,
@@ -1114,13 +1182,13 @@ impl GpuPipelines {
         // Strokes are depth-tested but never write depth: their anti-aliased edges would occlude
         // neighbouring segments. The chart orders series back-to-front instead.
         let segment_pipeline =
-            create_pipeline(device, format, segment_spec("chart-segments", false, DEPTH_TEST));
+            create_pipeline(device, target, segment_spec("chart-segments", false, DEPTH_TEST));
         let segment_overlay_pipeline =
-            create_pipeline(device, format, segment_spec("chart-overlay", false, Always));
+            create_pipeline(device, target, segment_spec("chart-overlay", false, Always));
         let dash_shader = shader("chart-dash-line-shader", chart_dash_line_wgsl());
         let dash_segment_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-dash-segments",
                 layout: &pipeline_layout,
@@ -1136,7 +1204,7 @@ impl GpuPipelines {
 
         let bar_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-bars",
                 layout: &pipeline_layout,
@@ -1151,7 +1219,7 @@ impl GpuPipelines {
         );
         let marker_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-markers",
                 layout: &pipeline_layout,
@@ -1168,7 +1236,7 @@ impl GpuPipelines {
         // Areas and points blend over the grid without writing depth (like strokes)
         let fill_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-fills",
                 layout: &fill_pipeline_layout,
@@ -1181,7 +1249,7 @@ impl GpuPipelines {
                 depth_compare: DEPTH_TEST,
             },
         );
-        let marker_3d_pipeline = create_pipeline(device, format, PipelineSpec {
+        let marker_3d_pipeline = create_pipeline(device, target, PipelineSpec {
             label: "chart-3d-markers", layout: &pipeline_layout, shader: &marker_shader,
             vs: "vs_marker", fs: "fs_marker", buffers: &[layout_of::<ChartMarkerRaw>(Instance, &ATTRS_4)],
             topology: TriangleList, depth_write: true, depth_compare: DEPTH_TEST,
@@ -1189,20 +1257,20 @@ impl GpuPipelines {
         // Polygon offset (glPolygonOffset factor 1, units 1; negative under reverse-Z) pushes
         // surfaces behind coplanar contour lines so line rasterization never loses depth ties.
         let surface_offset = wgpu::DepthBiasState { constant: -1, slope_scale: -1.0, clamp: 0.0 };
-        let fill_3d_pipeline = create_biased_pipeline(device, format, PipelineSpec {
+        let fill_3d_pipeline = create_biased_pipeline(device, target, PipelineSpec {
             label: "chart-3d-fills", layout: &fill_pipeline_layout, shader: &fill_shader,
             vs: "vs_fill", fs: "fs_fill", buffers: &[layout_of::<ChartFillRaw>(Vertex, &ATTRS_2)],
             topology: TriangleList, depth_write: true, depth_compare: DEPTH_TEST,
         }, surface_offset);
         // Untagged fill vertices (w = 0) as 1 px lines lying in the surface triangles' planes.
-        let contour_3d_pipeline = create_pipeline(device, format, PipelineSpec {
+        let contour_3d_pipeline = create_pipeline(device, target, PipelineSpec {
             label: "chart-3d-contours", layout: &fill_pipeline_layout, shader: &fill_shader,
             vs: "vs_fill", fs: "fs_fill", buffers: &[layout_of::<ChartFillRaw>(Vertex, &ATTRS_2)],
             topology: LineList, depth_write: false, depth_compare: DEPTH_TEST,
         });
         let fill_overlay_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-fills-overlay",
                 layout: &fill_pipeline_layout,
@@ -1219,13 +1287,13 @@ impl GpuPipelines {
         // blended over them without writing depth (equal depth passes the bars' test)
         let bar_decal_shader = shader("chart-bar-decal-shader", chart_bar_decal_wgsl());
         let fill_decal_shader = shader("chart-fill-decal-shader", chart_fill_decal_wgsl());
-        let bar_decal_pipeline = create_pipeline(device, format, PipelineSpec {
+        let bar_decal_pipeline = create_pipeline(device, target, PipelineSpec {
             label: "chart-bar-decals", layout: &pipeline_layout, shader: &bar_decal_shader,
             vs: "vs_bar_decal", fs: "fs_bar_decal",
             buffers: &[layout_of::<ChartBarRaw>(Instance, &ATTRS_3), layout_of::<ChartDecalRaw>(Instance, &BAR_DECAL_ATTRS)],
             topology: TriangleList, depth_write: false, depth_compare: DEPTH_TEST,
         });
-        let fill_decal_pipeline = create_pipeline(device, format, PipelineSpec {
+        let fill_decal_pipeline = create_pipeline(device, target, PipelineSpec {
             label: "chart-fill-decals", layout: &fill_pipeline_layout, shader: &fill_decal_shader,
             vs: "vs_fill_decal", fs: "fs_fill_decal",
             buffers: &[layout_of::<ChartFillRaw>(Vertex, &ATTRS_2), layout_of::<ChartDecalRaw>(Vertex, &FILL_DECAL_ATTRS)],
@@ -1234,7 +1302,7 @@ impl GpuPipelines {
         // Camera (binding 0) + point style (binding 1): same layout as the mesh pipelines
         let point_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-points",
                 layout: &mesh_pipeline_layout,
@@ -1249,7 +1317,7 @@ impl GpuPipelines {
         );
 
         // Heatmap: camera + style uniforms and the value / LUT textures, no vertex buffers
-        let heatmap_bgl = HeatmapGpu::bind_group_layout(device);
+        let heatmap_bgl = base.map_or_else(|| HeatmapGpu::bind_group_layout(device), |b| b.heatmap_bgl.clone());
         let heatmap_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("chart-heatmap-pipeline-layout"),
             bind_group_layouts: &[&heatmap_bgl],
@@ -1258,7 +1326,7 @@ impl GpuPipelines {
         let heatmap_shader = shader("chart-heatmap-shader", chart_heatmap_wgsl());
         let heatmap_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-heatmap",
                 layout: &heatmap_pipeline_layout,
@@ -1273,7 +1341,7 @@ impl GpuPipelines {
         );
 
         // Parallel coordinates: segment instances + camera / style uniforms and the row flags
-        let parallel_bgl = ParallelGpu::bind_group_layout(device);
+        let parallel_bgl = base.map_or_else(|| ParallelGpu::bind_group_layout(device), |b| b.parallel_bgl.clone());
         let parallel_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("chart-parallel-pipeline-layout"),
             bind_group_layouts: &[&parallel_bgl],
@@ -1282,7 +1350,7 @@ impl GpuPipelines {
         let parallel_shader = shader("chart-parallel-shader", chart_parallel_wgsl());
         let parallel_pipeline = create_pipeline(
             device,
-            format,
+            target,
             PipelineSpec {
                 label: "chart-parallel",
                 layout: &parallel_pipeline_layout,
@@ -1296,20 +1364,31 @@ impl GpuPipelines {
             },
         );
 
-        let mesh_pbr = Rc::new(LazyMeshPbr {
-            format,
-            mesh_bgl: mesh_bind_group_layout.clone(),
-            texture_bgl: mesh_texture_bgl.clone(),
-            pipelines: OnceCell::new(),
-        });
-        let shadow = Rc::new(shadow::LazyShadow {
-            format,
-            mesh_bgl: mesh_bind_group_layout.clone(),
-            texture_bgl: mesh_texture_bgl.clone(),
-            pipelines: OnceCell::new(),
-        });
+        let mesh_pbr = base.map_or_else(
+            || {
+                Rc::new(LazyMeshPbr {
+                    format,
+                    mesh_bgl: mesh_bind_group_layout.clone(),
+                    texture_bgl: mesh_texture_bgl.clone(),
+                    pipelines: Default::default(),
+                })
+            },
+            |b| b.mesh_pbr.clone(),
+        );
+        let shadow = base.map_or_else(
+            || {
+                Rc::new(shadow::LazyShadow {
+                    format,
+                    mesh_bgl: mesh_bind_group_layout.clone(),
+                    texture_bgl: mesh_texture_bgl.clone(),
+                    pipelines: OnceCell::new(),
+                })
+            },
+            |b| b.shadow.clone(),
+        );
 
         Self {
+            target,
             camera_bgl: camera_bind_group_layout,
             mesh_bgl: mesh_bind_group_layout,
             mesh_texture_bgl,
@@ -1354,7 +1433,7 @@ impl WgpuRenderBackend {
             }
             if !bound {
                 // `sync_lighting` built the PBR pipelines when it selected them
-                match self.mesh_pbr.pipelines.get().filter(|_| self.pbr) {
+                match self.mesh_pbr.pipelines[msaa_slot(self.samples)].get().filter(|_| self.pbr) {
                     Some(p) => {
                         rpass.set_pipeline(if translucent { &p.translucent } else { &p.opaque });
                         rpass.set_bind_group(2, &self.env.bind_group, &[]);
@@ -1444,7 +1523,7 @@ struct ResidentGraphPipelines {
 }
 
 impl ResidentGraphPipelines {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, camera_bgl: &wgpu::BindGroupLayout) -> Self {
+    fn new(device: &wgpu::Device, target: ColorTarget, camera_bgl: &wgpu::BindGroupLayout) -> Self {
         use wgpu::PrimitiveTopology::{LineList, TriangleList};
         use wgpu::VertexStepMode::{Instance, Vertex};
         let layout_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1463,14 +1542,14 @@ impl ResidentGraphPipelines {
         let (node_shader, edge_shader) = (shader("node-resident-shader", node_billboard_resident_wgsl()), shader("edge-resident-shader", edge_line_resident_wgsl()));
         let node_buffers = [layout_of::<NodeInstanceRaw>(Instance, &ATTRS_2)];
         let edge_buffers = [layout_of::<EdgeVertexRaw>(Vertex, &ATTRS_2)];
-        let node = |label, depth_write| create_pipeline(device, format, PipelineSpec {
+        let node = |label, depth_write| create_pipeline(device, target, PipelineSpec {
             label, layout: &layout, shader: &node_shader, vs: "vs_node", fs: "fs_node", buffers: &node_buffers,
             topology: TriangleList, depth_write, depth_compare: DEPTH_TEST,
         });
         Self {
             node: node("node-resident-opaque", true),
             node_translucent: node("node-resident-translucent", false),
-            edge: create_pipeline(device, format, PipelineSpec {
+            edge: create_pipeline(device, target, PipelineSpec {
                 label: "edge-resident-lines", layout: &layout, shader: &edge_shader, vs: "vs_edge", fs: "fs_edge", buffers: &edge_buffers,
                 topology: LineList, depth_write: false, depth_compare: DEPTH_TEST,
             }),
@@ -1484,8 +1563,9 @@ impl WgpuRenderBackend {
     fn resident_layout_bind(&mut self) -> Option<wgpu::BindGroup> {
         if !self.graph_resident { return None; }
         let state = self.gpu_physics.as_ref()?.state()?;
-        let (device, format, camera_bgl) = (&self.device, self.config.format, &self.camera_bgl);
-        let pipelines = self.resident_pipelines.get_or_insert_with(|| ResidentGraphPipelines::new(device, format, camera_bgl));
+        let target = ColorTarget { format: self.config.format, samples: self.samples };
+        let (device, camera_bgl) = (&self.device, &self.camera_bgl);
+        let pipelines = self.resident_pipelines.get_or_insert_with(|| ResidentGraphPipelines::new(device, target, camera_bgl));
         Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("resident-layout-bind"), layout: &pipelines.layout_bgl,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: state.as_entire_binding() }],
@@ -1599,7 +1679,7 @@ impl RenderBackend for WgpuRenderBackend {
         light.env_ground[3] = if self.config.format.is_srgb() { 0.0 } else { 1.0 };
         self.pbr = light.is_pbr();
         if self.pbr {
-            self.mesh_pbr.get(&self.device);
+            self.mesh_pbr.get(&self.device, self.samples);
         }
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&light));
@@ -1609,7 +1689,7 @@ impl RenderBackend for WgpuRenderBackend {
         self.apply_shadows(shadows);
         if self.shadow_map.is_some() {
             // After `sync_lighting`: build the receivers of the selected shading model
-            self.shadow.receiving(&self.device, self.pbr);
+            self.shadow.receiving(&self.device, self.pbr, self.samples);
         }
     }
 
@@ -1736,23 +1816,29 @@ impl RenderBackend for WgpuRenderBackend {
         // Shadow casters first (depth only), sampled by the main pass's mesh draws
         self.encode_shadow_pass(&mut encoder);
 
+        // MSAA: draw into the multisampled targets and resolve into the frame at the end of this
+        // (the frame's only) pass; the samples themselves are never read again
+        let (color_view, resolve_target, depth_view, store) = match &self.msaa {
+            Some(m) => (&m.color, Some(&view), &m.depth, wgpu::StoreOp::Discard),
+            None => (&view, None, &self.depth_view, wgpu::StoreOp::Store),
+        };
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("charturbo-main-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: color_view,
+                    resolve_target,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(self.clear_color),
-                        store: wgpu::StoreOp::Store,
+                        store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: depth_view,
                     depth_ops: Some(wgpu::Operations {
                         // Reversed-Z clears to the far plane (0)
                         load: wgpu::LoadOp::Clear(0.0),
-                        store: wgpu::StoreOp::Store,
+                        store,
                     }),
                     stencil_ops: None,
                 }),
@@ -1911,7 +1997,8 @@ impl RenderBackend for WgpuRenderBackend {
             + TextureRegistry::WHITE_BYTES
             + self.textures.bytes()
             + self.gpu_physics.as_ref().map_or(0, |g| g.bytes())
-            + self.shadow_map.as_ref().map_or(0, |m| m.bytes());
+            + self.shadow_map.as_ref().map_or(0, |m| m.bytes())
+            + self.msaa.as_ref().map_or(0, |m| m.bytes);
         RenderStats {
             gpu_bytes,
             series_segments: self.chart_series.len + self.chart_series_dashed.len,
@@ -1936,6 +2023,17 @@ impl RenderBackend for WgpuRenderBackend {
             PresentTarget::Blit { .. } => {}
         }
         self.depth_view = Self::create_depth_view(&self.device, width, height);
+        if self.msaa.is_some() {
+            self.msaa = Some(msaa::MsaaTargets::new(&self.device, self.config.format, self.samples, width, height));
+        }
+    }
+
+    fn set_sample_count(&mut self, samples: u32) -> u32 {
+        self.apply_sample_count(samples)
+    }
+
+    fn sample_count(&self) -> u32 {
+        self.samples
     }
 }
 

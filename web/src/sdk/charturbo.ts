@@ -15,6 +15,7 @@ import {
   type SceneShadowsDescriptor,
   type SceneShadowsState,
 } from './scene-shadows';
+import { resolveAntialias, sendAntialias, type AntialiasBackend, type CharturboAntialias, type CharturboAntialiasSamples } from './antialias';
 export type { CameraControlOptions } from './camera-controls';
 
 export type { TouchInteractionOptions } from './chart-gestures';
@@ -1608,7 +1609,7 @@ export interface SceneDescriptor {
   >;
 }
 
-export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend {
+export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend, AntialiasBackend {
   /** SVG of the last frame (chart/svg.rs; header comment + markup) */
   chart_export_svg?(maxMarks: number, id: string): string;
   reload_dataset(seed: number, nodeCount: number, edgeCount: number, clusterCount: number): void;
@@ -3062,6 +3063,7 @@ export class Charturbo {
   };
   private shadingState: SceneShadingState = defaultShadingState();
   private shadowsState: SceneShadowsState = defaultShadowsState();
+  private antialiasState: CharturboAntialiasSamples = 1;
   private helpersState: Required<SceneHelpersDescriptor> = {
     showGrid: false,
     gridSize: 200,
@@ -3226,6 +3228,12 @@ export class Charturbo {
       /** Chart enter / update animations (default off; see `setAnimation`) */
       animation?: ChartAnimationInput;
       /**
+       * Main-pass MSAA (default off): `true` / `4` = 4 samples per pixel, smoothing stair-stepped
+       * mesh edges; falls back to off with a console warning when the device cannot (see
+       * `setAntialias`).
+       */
+      antialias?: CharturboAntialias;
+      /**
        * Shared GPU device (`CharturboDevice.create()`): no adapter / device request, cached pipelines,
        * compact buffers — use it for pages with many charts. Graph defaults are 0 nodes / edges
        * on this path. WebGL2 devices need a canvas without a context (see charturbo-device.ts).
@@ -3235,6 +3243,7 @@ export class Charturbo {
   ): Promise<Charturbo> {
     // Before any engine exists: a bad zone must not leave one behind
     if (options?.timeZone !== undefined) validateTimeZone(options.timeZone);
+    if (options?.antialias !== undefined) resolveAntialias('create', options.antialias);
     if (options?.device) return Charturbo.createOnDevice(canvas, options.device, options);
     await loadWasm();
     let engine: WasmCharturboEngine;
@@ -3270,6 +3279,7 @@ export class Charturbo {
       timeZone?: CharturboTimeZone;
       sync?: ChartSyncMemberOptions;
       animation?: ChartAnimationInput;
+      antialias?: CharturboAntialias;
     }
   ): Charturbo {
     const engine = device.createEngine(canvas, {
@@ -3284,9 +3294,10 @@ export class Charturbo {
   private static attach(
     engine: WasmCharturboEngineBackend,
     canvas: HTMLCanvasElement,
-    options?: { autoResize?: boolean; locale?: string; timeZone?: CharturboTimeZone; sync?: ChartSyncMemberOptions; animation?: ChartAnimationInput }
+    options?: { autoResize?: boolean; locale?: string; timeZone?: CharturboTimeZone; sync?: ChartSyncMemberOptions; animation?: ChartAnimationInput; antialias?: CharturboAntialias }
   ): Charturbo {
     const sdk = new Charturbo(engine);
+    if (options?.antialias !== undefined) sdk.setAntialias(resolveAntialias('create', options.antialias));
     if (options?.animation !== undefined) sdk.setAnimation(options.animation);
     sdk.canvas = canvas;
     sdk.locale = options?.locale;
@@ -7757,6 +7768,25 @@ export class Charturbo {
 
   getShadows(): SceneShadowsState {
     return cloneShadows(this.shadowsState);
+  }
+
+  /**
+   * Multisample anti-aliasing of the main pass (default 1 = off): 4 renders 4 samples per pixel
+   * and resolves them, smoothing stair-stepped mesh edges (2D lines and markers are already
+   * shader anti-aliased; texture interiors and DOM text are unchanged). Costs 4x the color + depth memory of the canvas
+   * (`getRenderStats().gpuBytes`) and fill rate. A device that cannot render the canvas format x4
+   * stays at 1 with a console warning (see `getAntialias`). Throws on values other than 1 / 4.
+   */
+  setAntialias(samples: CharturboAntialiasSamples): void {
+    if (samples !== 1 && samples !== 4) {
+      throw new Error(`setAntialias: samples must be 1 or 4 (got ${String(samples)})`);
+    }
+    this.antialiasState = sendAntialias(this.backend, samples);
+  }
+
+  /** Applied main-pass sample count (1 = off, 4 = MSAA x4). */
+  getAntialias(): CharturboAntialiasSamples {
+    return this.antialiasState;
   }
 
   private sendShading(): void {

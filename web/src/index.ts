@@ -158,6 +158,7 @@ export {
   type ObjectShadowDescriptor,
   type SceneShadowsBackend,
 } from './sdk/scene-shadows';
+export { type CharturboAntialias, type CharturboAntialiasSamples, type AntialiasBackend } from './sdk/antialias';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';

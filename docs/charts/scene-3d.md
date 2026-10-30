@@ -268,6 +268,22 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // never darkened
 | `darkness` | `number` (0..1) | `1` |
 | `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
 
+## Anti-aliasing
+
+Multisample anti-aliasing (MSAA) is off by default. Turn it on at creation or at runtime:
+
+```ts
+const sdk = await Charturbo.create(canvas, { antialias: true }); // or 4
+sdk.setAntialias(1); // off
+sdk.setAntialias(4); // MSAA x4
+sdk.getAntialias(); // applied count: 1 or 4
+```
+
+- With 4 samples the main pass renders into multisampled color and depth targets and resolves them into the canvas. Stair-stepped mesh silhouettes and intersections (thin rods, box and plank edges) become smooth. Texture interiors, the shadow map, offscreen passes and DOM text are unchanged. 2D chart lines and markers are already anti-aliased by their shaders, so they barely change.
+- `antialias` takes `true` / `4` (4 samples) or `false` / `1` (off). `setAntialias` takes `1` or `4` and throws `setAntialias: ...` for anything else. If the device cannot render the canvas format with 4 samples, the setting stays at `1` and a console warning is logged; `getAntialias()` reports the applied count.
+- Cost: the multisampled targets take 4 × (color + depth) bytes per canvas pixel (480 × 300 ≈ 4.4 MiB, counted in `getRenderStats().gpuBytes`), plus 4x fill rate in the main pass. They are created when MSAA turns on, recreated on resize and released on `setAntialias(1)`. With MSAA off nothing is allocated and the pipelines are unchanged.
+- Canvas export (`toImage`, `toDataURL`) sees the resolved image. WebGPU and WebGL2 are both supported. The setting belongs to the canvas, not the scene: `exportScene` does not store it.
+
 ## Rigid-body physics
 
 `setRigidPhysics(enabled, gravity?)` turns the simulation on or off; it is on by default with gravity `[0, -40, 0]`. `getRigidPhysics()` returns `{ enabled, gravity }`.

@@ -27,6 +27,7 @@ const sdk = await Charturbo.create(canvas, { locale: 'en-US', autoResize: true }
 | `timeZone` | `CharturboTimeZone` | `'local'` | Zone of time axes, labels and tooltips: `'local'`, `'UTC'` or an IANA name |
 | `sync` | `ChartSyncMemberOptions` | none | Join a cursor / zoom sync group (see [Dashboard Sync](./dashboard-sync)) |
 | `animation` | `ChartAnimationInput` | off | Enter / update animations (see [Animation](./animation)) |
+| `antialias` | `boolean \| 1 \| 4` | off | MSAA x4 of the main pass (`true` = `4`); see [Anti-aliasing](../charts/scene-3d#anti-aliasing) |
 | `device` | `CharturboDevice` | none | Shared GPU device: no adapter / device request, cached pipelines |
 | `seed` | `number` | `42` | Seed of the generated starter graph |
 | `nodeCount` | `number` | `1000` (`0` with `device`) | Nodes of the generated starter graph |

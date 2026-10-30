@@ -154,7 +154,8 @@ pub struct GpuContext {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     pub(crate) kind: GpuBackendKind,
-    pub(crate) pipelines: KeyedCache<wgpu::TextureFormat, super::wgpu_backend::GpuPipelines>,
+    /// Pipeline sets per (surface format, main-pass MSAA sample count)
+    pub(crate) pipelines: KeyedCache<(wgpu::TextureFormat, u32), super::wgpu_backend::GpuPipelines>,
     #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
     pub(crate) gl: Option<Rc<SharedGlCanvas>>,
 }
@@ -164,7 +165,7 @@ impl GpuContext {
         self.kind
     }
 
-    /// Pipeline sets compiled so far (one per surface format in use).
+    /// Pipeline sets compiled so far (one per surface format and MSAA sample count in use).
     pub fn pipeline_sets(&self) -> usize {
         self.pipelines.len()
     }

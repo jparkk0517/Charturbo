@@ -614,6 +614,15 @@ pub trait RenderBackend {
     fn set_clear_color(&mut self, _rgba: [f32; 4]) {}
     fn render_frame(&mut self, camera: &CameraUniformRaw);
     fn resize(&mut self, width: u32, height: u32);
+    /// Main-pass multisample anti-aliasing: 4 = MSAA x4, anything else (or a device without
+    /// x4 support for the surface format) = 1. Returns the applied count.
+    fn set_sample_count(&mut self, _samples: u32) -> u32 {
+        1
+    }
+    /// Current main-pass sample count (1 = no MSAA).
+    fn sample_count(&self) -> u32 {
+        1
+    }
     /// GPU memory / upload counters (benchmarks, diagnostics); zeros when not tracked.
     fn stats(&self) -> RenderStats {
         RenderStats::default()
@@ -727,6 +736,9 @@ pub struct MockRenderBackend {
     pub environment_map: u32,
     /// Last `sync_shadows` frame (`None` = off)
     pub last_shadows: Option<ShadowFrame>,
+    /// Fake device support for MSAA x4 and the applied sample count (0 = never set: 1)
+    pub msaa_x4: bool,
+    pub samples: u32,
 }
 
 impl RenderBackend for MockRenderBackend {
@@ -790,6 +802,15 @@ impl RenderBackend for MockRenderBackend {
 
     fn sync_shadows(&mut self, shadows: Option<&ShadowFrame>) {
         self.last_shadows = shadows.copied();
+    }
+
+    fn set_sample_count(&mut self, samples: u32) -> u32 {
+        self.samples = wgpu_backend::resolve_sample_count(samples, self.msaa_x4);
+        self.samples
+    }
+
+    fn sample_count(&self) -> u32 {
+        self.samples.max(1)
     }
 
     fn max_texture_size(&self) -> u32 {
