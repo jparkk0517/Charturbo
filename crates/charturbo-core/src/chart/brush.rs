@@ -378,8 +378,20 @@ impl ChartState {
                     }
                     _ => y,
                 };
+                // Extra y axes (multi_axis.rs): the same screen band in their own units
+                let on_axis = |k: u8| match (y, self.annotation_frame()) {
+                    (Some((a, b)), Some(f)) => {
+                        let to = |v: f64| l.value_at_world(k, f.y.map(v));
+                        Some(ordered((to(a), to(b))))
+                    }
+                    _ => y,
+                };
                 for s in (0..l.series.len()).filter(|&s| l.visible.get(s).copied().unwrap_or(false)) {
-                    let ys = if l.axis_of(s) == 1 { y_right } else { y };
+                    let ys = match l.axis_of(s) {
+                        0 => y,
+                        1 => y_right,
+                        k => on_axis(k),
+                    };
                     line_ranges(l, s, x, ys, &mut sel.ranges);
                 }
             }

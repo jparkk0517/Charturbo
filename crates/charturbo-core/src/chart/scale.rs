@@ -9,7 +9,10 @@
 //! Non-positive values have no log: lines leave a gap there, scatter skips the point.
 
 use super::area::AreaChart;
-use super::ticks::{nice_step, ticks_between};
+use super::axis_break::AxisBreaks;
+use super::line::y_domain;
+use super::multi_axis::y_axis_of_code;
+use super::ticks::{nice_domain, nice_step, ticks_between};
 use super::{ChartKind, ChartState, LineYAxis};
 
 /// Value scale of one axis.
@@ -40,10 +43,12 @@ pub struct AxisScale {
     pub reverse: bool,
     /// Target tick count (0 = chart default: frame `grid_rows` for y, ~1 per 90 px for x)
     pub tick_count: u32,
+    /// Collapsed value ranges (linear scales only; a log scale ignores them)
+    pub breaks: AxisBreaks,
 }
 
 impl AxisScale {
-    pub const LINEAR: Self = Self { kind: ScaleType::Linear, reverse: false, tick_count: 0 };
+    pub const LINEAR: Self = Self { kind: ScaleType::Linear, reverse: false, tick_count: 0, breaks: AxisBreaks::NONE };
 
     #[inline]
     pub fn is_log(&self) -> bool {
@@ -53,7 +58,11 @@ impl AxisScale {
     /// Value -> scale space (`log10`; NaN for non-positive values on a log scale).
     #[inline]
     pub fn fwd(&self, v: f64) -> f64 {
-        log_or_identity(self.is_log(), v)
+        if self.has_breaks() {
+            self.breaks.fwd(v)
+        } else {
+            log_or_identity(self.is_log(), v)
+        }
     }
 
     #[inline]
@@ -64,9 +73,17 @@ impl AxisScale {
             } else {
                 f32::NAN
             }
-        } else {
+        } else if self.breaks.is_empty() {
             v
+        } else {
+            self.breaks.fwd(v as f64) as f32
         }
+    }
+
+    /// Breaks are in effect (linear scale with at least one break).
+    #[inline]
+    pub fn has_breaks(&self) -> bool {
+        !self.is_log() && !self.breaks.is_empty()
     }
 
     /// Scale space -> value.
@@ -74,8 +91,10 @@ impl AxisScale {
     pub fn inv(&self, u: f64) -> f64 {
         if self.is_log() {
             10f64.powf(u)
-        } else {
+        } else if self.breaks.is_empty() {
             u
+        } else {
+            self.breaks.inv(u)
         }
     }
 
@@ -105,11 +124,25 @@ impl AxisScale {
         v.is_finite() && (!self.is_log() || v > 0.0)
     }
 
+    /// Linear nice domain `(lo_u, hi_u, step)` of the scale-space extent `[lo_u, hi_u]`
+    /// (`nice_domain`, but break-aware: step from the compressed span, ends whole data steps).
+    pub fn nice_linear(&self, lo_u: f64, hi_u: f64, target: u32) -> (f64, f64, f64) {
+        if !self.has_breaks() {
+            return nice_domain(lo_u, hi_u, target);
+        }
+        let (lo_u, hi_u) = if hi_u > lo_u { (lo_u, hi_u) } else { (lo_u - 0.5, hi_u + 0.5) };
+        let step = nice_step(hi_u - lo_u, target);
+        let (lo, hi) = (self.inv(lo_u), self.inv(hi_u));
+        (self.fwd((lo / step).floor() * step), self.fwd((hi / step).ceil() * step), step)
+    }
+
     /// Tick values (data units) of the scale-space range `[lo_u, hi_u]`: multiples of `step` on
     /// a linear scale, `log_ticks` on a log scale.
     pub fn ticks(&self, lo_u: f64, hi_u: f64, step: f64, target: u32) -> Vec<f64> {
         if self.is_log() {
             log_ticks(10f64.powf(lo_u), 10f64.powf(hi_u), target)
+        } else if !self.breaks.is_empty() {
+            self.breaks.ticks(lo_u, hi_u, step)
         } else {
             ticks_between(lo_u, hi_u, step)
         }
@@ -202,6 +235,26 @@ fn snap(v: f64, e: i32) -> f64 {
     (v * f).round() / f
 }
 
+/// Linear y domain `(lo_u, hi_u, step)` in scale space for the data extent `[e0, e1]` under
+/// `axis` options; with breaks the step comes from the compressed span and data-derived ends
+/// snap to whole steps in data units.
+pub(crate) fn linear_y_domain(e0: f64, e1: f64, axis: &LineYAxis, target: u32, scale: &AxisScale) -> (f64, f64, f64) {
+    if !scale.has_breaks() {
+        return y_domain(e0, e1, axis, target);
+    }
+    let (mut lo, mut hi, _) = y_domain(e0, e1, &LineYAxis { nice: false, ..*axis }, target);
+    let step = nice_step(scale.fwd(hi) - scale.fwd(lo), target);
+    if axis.nice {
+        if axis.min.is_none() {
+            lo = (lo / step).floor() * step;
+        }
+        if axis.max.is_none() {
+            hi = (hi / step).ceil() * step;
+        }
+    }
+    (scale.fwd(lo), scale.fwd(hi), step)
+}
+
 /// y domain `(lo_u, hi_u, step)` in scale space for the data extent `[e0, e1]` (data units;
 /// positive part only for log) under `axis` options. Log: fixed ends must be positive (others
 /// are ignored), data ends expand to powers of ten when `nice`; `step` is 0 (decade ticks).
@@ -241,13 +294,13 @@ impl ChartState {
     /// Sets the scale of one axis: 0 = x (line: numeric x only for log; scatter), 1 = y (left),
     /// 2 = right y (line charts). Log on an axis without positive values (index / time x, x <= 0)
     /// keeps it linear; reverse and the tick hint still apply. Resets the zoom of a changed axis
-    /// mapping and drops the hover (positions moved).
+    /// mapping and drops the hover (positions moved). Log with breaks keeps the axis linear.
     pub fn set_axis_scale(&mut self, axis: u8, scale: AxisScale) {
+        let scale = if scale.is_log() && !scale.breaks.is_empty() { AxisScale { kind: ScaleType::Linear, ..scale } } else { scale };
         let changed = match &mut self.kind {
             ChartKind::Line(l) | ChartKind::Area(AreaChart { line: l, .. }) => match axis {
                 0 => l.set_x_scale(scale),
-                1 | 2 => l.set_y_scale(axis - 1, scale),
-                _ => false,
+                c => y_axis_of_code(c).is_some_and(|k| l.set_y_scale(k, scale)),
             },
             ChartKind::Scatter(s) if axis <= 1 => {
                 let changed = s.set_scale(axis, scale);
@@ -267,6 +320,56 @@ impl ChartState {
         }
     }
 
+    /// Breaks of one value axis (axis codes as in `set_axis_breaks`); none when unsupported.
+    pub fn axis_breaks(&self, axis: u8) -> AxisBreaks {
+        match &self.kind {
+            ChartKind::Bar(b) if axis == 1 => b.vscale.breaks,
+            ChartKind::Bar(_) => AxisBreaks::NONE,
+            ChartKind::Combo(c) => y_axis_of_code(axis)
+                .filter(|&k| k < c.line.y_axis_count())
+                .map_or(AxisBreaks::NONE, |k| c.line.scale_of_axis(k).breaks),
+            _ => self.axis_scale(axis).map_or(AxisBreaks::NONE, |s| s.breaks),
+        }
+    }
+
+    /// Sets the breaks of one value axis (axis codes as in `set_axis_scale`; bar charts: 1 = the
+    /// value axis in either orientation). Validated before anything changes: a log axis, or a
+    /// kind / axis without break support, is an error unless `breaks` is empty. True when the
+    /// mapping changed.
+    pub fn set_axis_breaks(&mut self, axis: u8, breaks: AxisBreaks) -> Result<bool, String> {
+        if let ChartKind::Bar(b) = &mut self.kind {
+            if axis != 1 {
+                return if breaks.is_empty() { Ok(false) } else { Err("bar charts break the value axis (1) only".into()) };
+            }
+            let changed = b.set_value_breaks(breaks);
+            if changed {
+                self.hover = None;
+                self.dirty.overlay = true;
+                self.on_y_domain_changed();
+            }
+            return Ok(changed);
+        }
+        if let ChartKind::Combo(c) = &self.kind {
+            let Some(k) = y_axis_of_code(axis).filter(|&k| k < c.line.y_axis_count()) else {
+                return if breaks.is_empty() { Ok(false) } else { Err(format!("axis {axis} does not support breaks")) };
+            };
+            return Ok(self.set_combo_breaks(k, breaks));
+        }
+        // Line / area x axes keep their own (index / time) mapping: no breaks
+        let line_x = axis == 0 && matches!(self.kind, ChartKind::Line(_) | ChartKind::Area(_));
+        let Some(current) = self.axis_scale(axis).filter(|_| !line_x) else {
+            return if breaks.is_empty() { Ok(false) } else { Err(format!("axis {axis} does not support breaks")) };
+        };
+        if current.is_log() && !breaks.is_empty() {
+            return Err("axis breaks need a linear scale".into());
+        }
+        if current.breaks == breaks {
+            return Ok(false);
+        }
+        self.set_axis_scale(axis, AxisScale { breaks, ..current });
+        Ok(true)
+    }
+
     /// Scale of one axis (see `set_axis_scale`); `None` without a line / area / scatter chart.
     pub fn axis_scale(&self, axis: u8) -> Option<AxisScale> {
         match &self.kind {
@@ -274,7 +377,7 @@ impl ChartState {
                 0 => Some(l.x_scale),
                 1 => Some(l.y_scale),
                 2 => Some(l.right.scale),
-                _ => None,
+                c => y_axis_of_code(c).filter(|&k| k < l.y_axis_count()).map(|k| l.scale_of_axis(k)),
             },
             ChartKind::Scatter(s) => match axis {
                 0 => Some(s.x_scale),
@@ -342,6 +445,34 @@ mod tests {
 
     fn close(a: &[f64], b: &[f64]) -> bool {
         a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-9 * y.abs().max(1.0))
+    }
+
+    fn broken(start: f64, end: f64, gap: f64) -> AxisScale {
+        let breaks = AxisBreaks::new(&[crate::chart::axis_break::AxisBreak { start, end, gap }]).unwrap();
+        AxisScale { breaks, ..AxisScale::LINEAR }
+    }
+
+    #[test]
+    fn linear_scale_applies_breaks_and_log_ignores_them() {
+        let s = broken(100.0, 1000.0, 10.0);
+        assert_eq!(s.fwd(550.0), 105.0);
+        assert_eq!(s.fwd32(1200.0), 310.0);
+        assert_eq!(s.inv(105.0), 550.0);
+        assert_eq!(s.ticks(0.0, s.fwd(1200.0), 100.0, 5), vec![0.0, 100.0, 1100.0, 1200.0]);
+        let log = AxisScale { kind: ScaleType::Log, ..s };
+        assert_eq!(log.fwd(1000.0), 3.0, "log ignores breaks");
+        assert_eq!(log.inv(3.0), 1000.0);
+    }
+
+    #[test]
+    fn broken_domains_nice_in_data_units() {
+        let s = broken(120.0, 4900.0, 20.0);
+        // compressed span 240 -> step 50; ends stay whole data steps
+        assert_eq!(linear_y_domain(0.0, 5000.0, &LineYAxis::default(), 5, &s), (0.0, 240.0, 50.0));
+        assert_eq!(linear_y_domain(3.0, 4990.0, &LineYAxis::default(), 5, &AxisScale::LINEAR), (0.0, 5000.0, 1000.0));
+        let (a, b, step) = s.nice_linear(s.fwd(0.0), s.fwd(5000.0), 5);
+        assert_eq!((a, b, step), (0.0, 240.0, 50.0));
+        assert_eq!(AxisScale::LINEAR.nice_linear(3.0, 4990.0, 5), (0.0, 5000.0, 1000.0));
     }
 
     #[test]
@@ -437,7 +568,7 @@ mod tests {
         chart.axes().ticks.iter().copied().filter(|t| t.axis == axis).collect()
     }
 
-    const LOG: AxisScale = AxisScale { kind: ScaleType::Log, reverse: false, tick_count: 0 };
+    const LOG: AxisScale = AxisScale { kind: ScaleType::Log, reverse: false, tick_count: 0, breaks: AxisBreaks::NONE };
 
     #[test]
     fn log_y_line_maps_decades_evenly_and_gaps_non_positive_values() {
@@ -464,6 +595,25 @@ mod tests {
         // Back to linear restores the old mapping
         chart.set_axis_scale(1, AxisScale::LINEAR);
         assert_eq!(chart.y_domain().unwrap().0, -2000.0);
+    }
+
+    #[test]
+    fn broken_y_line_compresses_geometry_and_ticks() {
+        let (cam, mut chart) = line(vec![vec![0.0, 50.0, 100.0, 5000.0, 80.0]], None);
+        chart.set_axis_scale(1, broken(120.0, 4900.0, 20.0));
+        assert_eq!(chart.y_domain().unwrap(), (0.0, 5000.0, 50.0));
+        let segs = chart.prepare_layers(&view(&cam)).series.unwrap().to_vec();
+        let ys: Vec<f64> = ticks(&chart, 1).iter().map(|t| t.value).collect();
+        assert!(!ys.iter().any(|&v| v > 120.0 && v < 4900.0), "{ys:?}");
+        assert!(ys.contains(&100.0) && ys.contains(&5000.0), "{ys:?}");
+        // compressed span 240: 100 sits at 100 / 240 of the 80-unit plot, 5000 at the top
+        let dy = segs[2].p1_pad[1] - segs[2].p0_width[1];
+        assert!((dy - 80.0 * 140.0 / 240.0).abs() < 1e-3, "{dy}");
+        assert!((chart.sample(3).unwrap().3.y - 40.0).abs() < 1e-3);
+        assert!((chart.sample(2).unwrap().3.y - (100.0 / 240.0 - 0.5) * 80.0).abs() < 1e-3);
+        // Removing the breaks restores the plain mapping
+        chart.set_axis_scale(1, AxisScale::LINEAR);
+        assert_eq!(chart.y_domain().unwrap(), (0.0, 5000.0, 1000.0));
     }
 
     #[test]

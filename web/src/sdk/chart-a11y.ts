@@ -110,6 +110,13 @@ export interface A11yScatterData {
   f32: boolean;
 }
 
+/** Extra y axes (`axes.extraY`) and axis breaks of a chart, formatted in their axis' format. */
+export interface A11yAxisNotes {
+  extra: { title?: string; names: string[] }[];
+  /** `axis`: `'x'`, `'y'`, `'y2'` or the extra y axis index (`'2'`..) */
+  breaks: { axis: string; title?: string; ranges: [string, string][] }[];
+}
+
 /** Chart data in the shape the a11y helpers work on (built by `buildA11yModel`). */
 export interface A11yChartModel {
   financialMode?: 'candlestick' | 'ohlc';
@@ -151,6 +158,8 @@ export interface A11yChartModel {
    * (chart-hierarchy.ts): summary, description, announcements, navigation, table, direct hover
    */
   custom?: A11yCustomModel;
+  /** Extra y axes (with their series) and axis breaks, described before the keyboard help */
+  axisNotes?: A11yAxisNotes;
   /** Display label of a row / x position (`T+120`, bar label); scatter: index in the series' x order */
   xLabel(index: number, series?: number): string;
   /** Raw x value of a row for exports (x value or sample index for line, label for bar) */
@@ -276,6 +285,65 @@ export function buildA11yModel(
   presentation: unknown,
   sample?: (id: number) => ArrayLike<number> | undefined,
   /** Effective locale of spec formats (chart option, else `setLocale`) */
+  locale?: string
+): A11yChartModel | null {
+  const model = buildKindModel(meta, presentation, sample, locale);
+  if (model && !model.custom) {
+    const notes = axisNotes(model, meta as Loose, (presentation && typeof presentation === 'object' ? presentation : {}) as Loose, locale);
+    if (notes) model.axisNotes = notes;
+  }
+  return model;
+}
+
+/**
+ * Extra y axes with their series (line `seriesAxes`, combo `axes`) and the presentation's axis
+ * breaks; `null` without either.
+ */
+function axisNotes(model: A11yChartModel, m: Loose, p: Loose, locale?: string): A11yAxisNotes | null {
+  const extraOpts = (Array.isArray(p.extraY) ? p.extraY : []) as Loose[];
+  const breakOpts = (Array.isArray(p.axisBreaks) ? p.axisBreaks : []) as { axis: string; title?: string; breaks: { start: number; end: number }[] }[];
+  if (!extraOpts.length && !breakOpts.length) return null;
+  const sAxes = (m.kind === 'line' ? m.seriesAxes : m.kind === 'combo' ? m.axes : null) as number[] | null | undefined;
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const extra = extraOpts
+    .map((a, i) => ({
+      ...(str(a?.title) ? { title: str(a.title) } : {}),
+      names: (sAxes ?? []).flatMap((k, j) => (k === i + 2 && model.series[j] ? [model.series[j].name] : [])),
+    }))
+    .filter((e) => e.names.length > 0);
+  const loc = locale ?? str(p.locale);
+  const fmtOf = (f: unknown): ((v: number) => string) => {
+    if (typeof f === 'function') return f as (v: number) => string;
+    if (f && (typeof f === 'string' || typeof f === 'object')) {
+      try {
+        return createFormatter(f as string | Intl.NumberFormatOptions, loc);
+      } catch {
+        // Invalid spec: default number text
+      }
+    }
+    return (v) => formatNumber(v, loc, 2);
+  };
+  const bars = model.kind === 'bar' || model.kind === 'bar-multi';
+  const breaks = breakOpts.map((b) => {
+    const k = Number(b.axis);
+    const f = bars || b.axis === 'y'
+      ? model.formatValue
+      : b.axis === 'x'
+        ? model.formatX
+        : fmtOf(((b.axis === 'y2' ? p.y2Axis : extraOpts[k - 2]) as Loose | undefined)?.format);
+    return {
+      axis: b.axis,
+      ...(b.title ? { title: b.title } : {}),
+      ranges: [...b.breaks].sort((x, y) => x.start - y.start).map((r): [string, string] => [f(r.start), f(r.end)]),
+    };
+  });
+  return extra.length || breaks.length ? { extra, breaks } : null;
+}
+
+function buildKindModel(
+  meta: unknown,
+  presentation: unknown,
+  sample?: (id: number) => ArrayLike<number> | undefined,
   locale?: string
 ): A11yChartModel | null {
   if (!meta || typeof meta !== 'object') return null;
@@ -1080,6 +1148,13 @@ export function buildChartDescription(model: A11yChartModel): string {
         t.barStats(c.categories(model.length, n(model.length)), model.xLabel(st.maxIndex), f(st.max), model.xLabel(st.minIndex), f(st.min), f(st.mean))
       );
     }
+  }
+  if (model.axisNotes) {
+    const a = model.axisNotes;
+    const label = (axis: string) =>
+      axis === 'x' ? c.xAxis : axis === 'y' ? c.yAxis : `${c.yAxis} ${axis === 'y2' ? 2 : Number(axis) + 1}`;
+    for (const e of a.extra) out.push(t.extraAxis(e.title, e.names.join(c.listSeparator)));
+    for (const b of a.breaks) out.push(t.axisBreaks(label(b.axis), b.title, b.ranges.map(([x, y]) => c.range(x, y)).join(c.listSeparator)));
   }
   out.push(keyboardHelp(model.kind, model.locale, model.financialMode === 'ohlc'));
   return t.join(out);

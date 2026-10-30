@@ -81,6 +81,10 @@ const en = {
   /** Axis with optional title and value span */
   axisRange: (axis: string, title?: string, from?: string, to?: string) =>
     `${axis}${title ? ` (${title})` : ''}${from !== undefined ? ` from ${from} to ${to}` : ''}.`,
+  /** Axis break ranges (`ranges`: already joined `common.range` texts) */
+  axisBreaks: (axis: string, title: string | undefined, ranges: string) => `${axis}${title ? ` (${title})` : ''} skips ${ranges}.`,
+  /** Extra y axis (`axes.extraY`) with the series names on it */
+  extraAxis: (title: string | undefined, names: string) => `Additional y axis${title ? ` (${title})` : ''}: ${names}.`,
   heatmapRows: (rows: string, title?: string, from?: string, to?: string) =>
     `Rows${title ? ` (${title})` : ''}: ${rows}${from !== undefined ? ` from ${from} to ${to}` : ''}.`,
   heatmapColumns: (cols: string, title?: string, from?: string, to?: string) =>
@@ -233,6 +237,8 @@ const ko: A11yMessages = {
   axisTitle: (axis, title) => `${axis}: ${title}.`,
   axisRange: (axis, title, from, to) =>
     `${axis}${title ? `(${title})` : ''}${from !== undefined ? `: ${from}~${to}` : ''}.`,
+  axisBreaks: (axis, title, ranges) => `${axis}${title ? `(${title})` : ''}: ${ranges} 구간 생략.`,
+  extraAxis: (title, names) => `추가 Y축${title ? `(${title})` : ''}: ${names}.`,
   heatmapRows: (rows, title, from, to) => `행${title ? `(${title})` : ''}: ${rows}${from !== undefined ? `, ${from}~${to}` : ''}.`,
   heatmapColumns: (cols, title, from, to) => `열${title ? `(${title})` : ''}: ${cols}${from !== undefined ? `, ${from}~${to}` : ''}.`,
   heatmapExtremes: (label, min, minCell, max, maxCell) => `${label}: 최솟값 ${min}(${minCell}), 최댓값 ${max}(${maxCell}).`,
@@ -359,6 +365,8 @@ const zh: A11yMessages = {
   axisTitle: (axis, title) => `${axis}：${title}。`,
   axisRange: (axis, title, from, to) =>
     `${axis}${title ? `（${title}）` : ''}${from !== undefined ? `：${from} 至 ${to}` : ''}。`,
+  axisBreaks: (axis, title, ranges) => `${axis}${title ? `（${title}）` : ''}：省略 ${ranges} 区间。`,
+  extraAxis: (title, names) => `附加 Y 轴${title ? `（${title}）` : ''}：${names}。`,
   heatmapRows: (rows, title, from, to) => `行${title ? `（${title}）` : ''}：${rows}${from !== undefined ? `，${from} 至 ${to}` : ''}。`,
   heatmapColumns: (cols, title, from, to) => `列${title ? `（${title}）` : ''}：${cols}${from !== undefined ? `，${from} 至 ${to}` : ''}。`,
   heatmapExtremes: (label, min, minCell, max, maxCell) => `${label}：最小值 ${min}（${minCell}），最大值 ${max}（${maxCell}）。`,

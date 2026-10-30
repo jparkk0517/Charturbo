@@ -14,6 +14,7 @@ use crate::spatial::Ray;
 use glam::{Vec3, Vec4};
 
 mod animation;
+mod axis_break;
 mod area;
 mod annotations;
 mod bar;
@@ -34,6 +35,7 @@ mod hierarchy;
 #[cfg(test)]
 mod hierarchy_emphasis_tests;
 mod line;
+mod multi_axis;
 mod linestyle;
 mod navigator;
 mod pictorial;
@@ -99,6 +101,8 @@ pub use heatmap::{
 };
 use line::{LineChart, LodWindow};
 pub use line::validate_line_x;
+pub use multi_axis::{y_axis_code, y_axis_of_code, EXTRA_Y_CODE, MAX_Y_AXES};
+pub use axis_break::{AxisBreak, AxisBreakMark, AxisBreaks, MAX_AXIS_BREAKS};
 pub use linestyle::{
     normalize_dash, LineCurve, LineSeriesStyle, MarkerShape, MarkerShow, NullPolicy, SeriesMarker,
     AUTO_MARKER_MIN_PX, DEFAULT_BAND_OPACITY,
@@ -384,6 +388,8 @@ pub struct AxisTick {
 pub struct AxisLayout {
     pub plot_css: [f32; 4],
     pub ticks: Vec<AxisTick>,
+    /// Visible axis breaks (axis_break.rs)
+    pub breaks: Vec<AxisBreakMark>,
 }
 
 
@@ -599,6 +605,8 @@ pub struct ChartState {
     axes_key: Option<([f32; 19], [f32; 4])>,
     /// Bumped whenever `axes` changes, so the DOM only re-lays out labels when needed
     axes_revision: u32,
+    /// Visible axis break spans of the last frame (axis_break.rs)
+    break_scratch: Vec<axis_break::BreakSpan>,
     /// Reference lines / bands / markers in data units (see annotations.rs)
     annotations: Annotations,
     /// Brush rectangle and committed selection (see brush.rs)
@@ -643,6 +651,7 @@ impl ChartState {
             axes_scratch: AxisLayout::default(),
             axes_key: None,
             axes_revision: 0,
+            break_scratch: Vec::new(),
             annotations: Annotations::default(),
             brush: Brush::default(),
             navigator: Navigator::default(),
@@ -1688,6 +1697,8 @@ impl ChartState {
             ChartKind::Parallel(_) => {}
         }
 
+        // Axis breaks follow the y domains / zoom window and the camera (cheap: no breaks, no spans)
+        self.prepare_breaks(view);
         // Axis labels follow the camera and the zoom window
         let (x0, x1) = self.x_window();
         let (y0, y1) = self.y_window();
@@ -1715,6 +1726,7 @@ impl ChartState {
                 ChartKind::Calendar(c) => c.axes(view, &self.padding, &mut axes),
                 ChartKind::Parallel(p) => p.axes(view, &self.padding, &mut axes),
             }
+            self.break_marks(view, &mut axes.breaks);
             if axes != self.axes {
                 self.axes_revision = self.axes_revision.wrapping_add(1);
                 std::mem::swap(&mut self.axes, &mut axes);

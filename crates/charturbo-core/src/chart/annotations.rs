@@ -4,6 +4,7 @@
 //! either beneath the series (with the gridlines) or above them (beneath hover overlays). Label
 //! text lives in the DOM; the engine only reports one CSS-px anchor per annotation.
 
+use super::axis_break::{AxisBreaks, BreakSpan};
 use super::scale::log_or_identity;
 use super::*;
 use crate::renderer::ChartAnnotationLayer;
@@ -148,6 +149,8 @@ pub(crate) struct AxisMap {
     scale: f64,
     offset: f64,
     log: bool,
+    /// Axis breaks of a linear axis (`u` = compressed value)
+    breaks: AxisBreaks,
 }
 
 impl AxisMap {
@@ -162,12 +165,38 @@ impl AxisMap {
             scale: if span > 0.0 { size / (span * ws) } else { 0.0 },
             offset: (-w0 / ws - 0.5) * size,
             log: false,
+            breaks: AxisBreaks::NONE,
         }
     }
 
     /// `world = (v - origin) * scale + offset`.
     pub(crate) fn new(origin: f64, scale: f64, offset: f64) -> Self {
-        Self { origin, scale, offset, log: false }
+        Self { origin, scale, offset, log: false, breaks: AxisBreaks::NONE }
+    }
+
+    /// Same map through the axis breaks of `scale` (ignored on a log axis).
+    fn broken(self, scale: AxisScale) -> Self {
+        Self { breaks: scale.breaks, ..self }
+    }
+
+    /// Axis breaks of the map (none on a log axis).
+    #[inline]
+    pub(crate) fn breaks(&self) -> AxisBreaks {
+        if self.log {
+            AxisBreaks::NONE
+        } else {
+            self.breaks
+        }
+    }
+
+    /// Scale-space value of `v` (log10, compressed through breaks, or `v`).
+    #[inline]
+    pub(crate) fn fwd(&self, v: f64) -> f64 {
+        if !self.log && !self.breaks.is_empty() {
+            self.breaks.fwd(v)
+        } else {
+            log_or_identity(self.log, v)
+        }
     }
 
     /// Same map through `log10` (`log`) and mirrored (`sign` -1 = reversed axis).
@@ -178,7 +207,7 @@ impl AxisMap {
 
     #[inline]
     pub(crate) fn map(&self, v: f64) -> f32 {
-        ((log_or_identity(self.log, v) - self.origin) * self.scale + self.offset) as f32
+        ((self.fwd(v) - self.origin) * self.scale + self.offset) as f32
     }
 
     /// Data value at world coordinate `w` (inverse of `map`, back through `10^` on a log axis; a
@@ -188,6 +217,8 @@ impl AxisMap {
         let u = if self.scale == 0.0 { self.origin } else { (w as f64 - self.offset) / self.scale + self.origin };
         if self.log {
             10f64.powf(u)
+        } else if !self.breaks.is_empty() {
+            self.breaks.inv(u)
         } else {
             u
         }
@@ -236,8 +267,10 @@ fn line_frame(l: &LineChart) -> Option<DataFrame> {
             scale: (h / span) as f64,
             offset: -0.5 * h as f64,
             log: false,
+            breaks: AxisBreaks::NONE,
         }
         .scaled(scale.is_log(), scale.sign())
+        .broken(scale)
     };
     let y = y_map(l.y_min, l.y_span, l.y_scale);
     // Without right-axis series, right-axis annotations fall back to the left axis
@@ -263,24 +296,14 @@ fn bar_frame(b: &BarChart) -> Option<DataFrame> {
     let bounds = [-w * 0.5, w * 0.5, -b.layout.max_height * 0.5, b.layout.max_height * 0.5];
     if b.horizontal() {
         // Horizontal bars: x = value, y = category (category 0 at the top)
-        let x = AxisMap { origin: 0.0, scale: b.scale as f64, offset: b.zero_y as f64, log: false };
-        let y = AxisMap { origin: (b.slots.len() as f64 - 1.0) * 0.5, scale: -b.spacing as f64, offset: 0.0, log: false };
+        let x = AxisMap::new(0.0, b.scale as f64, b.zero_y as f64).broken(b.vscale);
+        let y = AxisMap::new((b.slots.len() as f64 - 1.0) * 0.5, -b.spacing as f64, 0.0);
         return Some(DataFrame { x, y, y2: y, bounds, z: 0.0, z_below: -0.25, z_above: 0.25 });
     }
-    let y = AxisMap {
-        origin: 0.0,
-        scale: b.scale as f64,
-        offset: b.zero_y as f64,
-        log: false,
-    };
+    let y = AxisMap::new(0.0, b.scale as f64, b.zero_y as f64).broken(b.vscale);
     Some(DataFrame {
         // Category i is centred in slot i; the plot spans categories -0.5 .. n - 0.5
-        x: AxisMap {
-            origin: (b.slots.len() as f64 - 1.0) * 0.5,
-            scale: b.spacing as f64,
-            offset: 0.0,
-            log: false,
-        },
+        x: AxisMap::new((b.slots.len() as f64 - 1.0) * 0.5, b.spacing as f64, 0.0),
         y,
         y2: y,
         bounds,
@@ -294,9 +317,9 @@ fn scatter_frame(s: &ScatterChart) -> Option<DataFrame> {
     let (w, h) = (s.layout.width, s.layout.height);
     let (x0, x1) = s.x_domain;
     let (y0, y1) = s.y_domain;
-    let y = AxisMap::windowed(y0, y1 - y0, s.window_y, h).scaled(s.y_scale.is_log(), s.y_scale.sign());
+    let y = AxisMap::windowed(y0, y1 - y0, s.window_y, h).scaled(s.y_scale.is_log(), s.y_scale.sign()).broken(s.y_scale);
     Some(DataFrame {
-        x: AxisMap::windowed(x0, x1 - x0, s.window_x, w).scaled(s.x_scale.is_log(), s.x_scale.sign()),
+        x: AxisMap::windowed(x0, x1 - x0, s.window_x, w).scaled(s.x_scale.is_log(), s.x_scale.sign()).broken(s.x_scale),
         y,
         y2: y,
         bounds: [-w * 0.5, w * 0.5, -h * 0.5, h * 0.5],
@@ -344,6 +367,8 @@ pub(crate) struct Annotations {
     labels_scratch: Vec<AnnotationLabel>,
     labels_key: Option<([f32; 19], Option<DataFrame>)>,
     labels_revision: u32,
+    /// Axis break spans drawn above the series (axis_break.rs)
+    breaks: Vec<BreakSpan>,
 }
 
 /// Visible part `[lo, hi]` of the data range `[a, b]` (either order) inside `[min, max]`.
@@ -404,6 +429,9 @@ impl Annotations {
                     };
                     build_marks(a, f, ring, out);
                 }
+                for s in &self.breaks {
+                    build_break(s, f, &mut self.above);
+                }
             }
             self.marks_key = Some(marks_key);
         }
@@ -433,6 +461,15 @@ impl Annotations {
             self.labels_key = Some(labels_key);
         }
         upload
+    }
+
+    /// Axis break spans to draw; marks rebuild when they change.
+    pub(crate) fn set_breaks(&mut self, spans: &[BreakSpan]) {
+        if self.breaks != spans {
+            self.breaks.clear();
+            self.breaks.extend_from_slice(spans);
+            self.marks_key = None;
+        }
     }
 
     pub(crate) fn layers(&self) -> (ChartAnnotationLayer<'_>, ChartAnnotationLayer<'_>) {
@@ -528,6 +565,42 @@ fn build_marks(a: &ChartAnnotation, f: &DataFrame, ring: [f32; 4], out: &mut Mar
             }
         }
         AnnotationKind::Text => {}
+    }
+}
+
+/// Surface band over one axis break gap plus zigzag lines along both (visible) edges.
+fn build_break(s: &BreakSpan, f: &DataFrame, out: &mut Marks) {
+    let [x0, x1, y0, y1] = f.bounds;
+    let z = f.z_above;
+    // y breaks run across the plot horizontally, x breaks vertically
+    let horizontal = s.axis != 0;
+    let (min, max) = if horizontal { (y0.min(y1), y0.max(y1)) } else { (x0.min(x1), x0.max(x1)) };
+    let (s0, s1) = if horizontal { (x0.min(x1), x0.max(x1)) } else { (y0.min(y1), y0.max(y1)) };
+    let at = |along: f32, across: f32| if horizontal { [along, across] } else { [across, along] };
+    if let Some((lo, hi)) = clamp_range(s.a, s.b, min, max) {
+        let v = |p: [f32; 2]| ChartFillRaw { position: [p[0], p[1], z, 0.0], color: s.band };
+        let (p00, p10, p11, p01) = (at(s0, lo), at(s1, lo), at(s1, hi), at(s0, hi));
+        out.fills.extend([v(p00), v(p10), v(p11), v(p00), v(p11), v(p01)]);
+    }
+    let teeth = ((s1 - s0) / s.tooth.max(1e-6)).ceil().clamp(1.0, 4096.0) as usize;
+    let step = (s1 - s0) / (teeth * 2) as f32;
+    for edge in [s.a, s.b] {
+        if !inside(edge, min, max) {
+            continue;
+        }
+        // 0, +amp, 0, -amp, ... along the edge, kept inside the plot
+        let point = |i: usize| {
+            let off = match i % 4 {
+                1 => s.amp,
+                3 => -s.amp,
+                _ => 0.0,
+            };
+            at(s0 + step * i as f32, (edge + off).clamp(min, max))
+        };
+        for i in 0..teeth * 2 {
+            let (p, q) = (point(i), point(i + 1));
+            out.lines.push(ChartSegmentRaw { p0_width: [p[0], p[1], z, s.width_px], p1_pad: [q[0], q[1], z, 0.0], color: s.stroke });
+        }
     }
 }
 

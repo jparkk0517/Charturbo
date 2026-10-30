@@ -11,6 +11,11 @@ import type {
   CandlestickChartOptions,
   ChartAnnotation,
   ChartAnnotationBase,
+  ChartAxisBreak,
+  ChartAxisBreakOptions,
+  ChartExtraAxisPlacement,
+  ComboExtraYAxisOptions,
+  ExtraYAxisOptions,
   ChartDataTable,
   ChartFormatOptions,
   ChartFormatSpec,
@@ -54,6 +59,11 @@ export type PublicTypes = [
   CandlestickChartOptions,
   ChartAnnotation,
   ChartAnnotationBase,
+  ChartAxisBreak,
+  ChartAxisBreakOptions,
+  ChartExtraAxisPlacement,
+  ComboExtraYAxisOptions,
+  ExtraYAxisOptions,
   ChartDataTable,
   ChartFormatOptions,
   ChartFormatSpec,
@@ -85,3 +95,13 @@ export type PublicTypes = [
 export const axisFormatSpecs: LineYAxisOptions[] = [{ format: '.2f' }, { format: { style: 'percent' } }, { format: (v) => `${v}` }];
 export const tooltipOptions: ChartTooltipOptions = { sort: 'desc', shared: false, pin: 'click', valueFormatter: '$,.2f' };
 export const formatters = [createFormatter('.1%'), (v: number) => formatNumber(v, 'compact', 'en-US')];
+export const axisBreakOptions: [LineYAxisOptions, ExtraYAxisOptions, ComboExtraYAxisOptions] = [
+  { breaks: [{ start: 30, end: 480, gap: '2%' }] },
+  { position: 'left', offset: 8, color: '#f00', breaks: [{ start: 1, end: 2, gap: 0.5 }] },
+  { min: 0, position: 'right' },
+];
+// React / Vue bindings take the same option shapes
+export const bindingAxisOptions: [import('../react').CharturboChartOptions<'line'>, import('../react').CharturboChartOptions<'combo'>] = [
+  { axes: { y: { breaks: [{ start: 1, end: 2 }] }, extraY: [{ title: 'Rain', position: 'right' }] } },
+  { axes: { extraY: [{ breaks: [{ start: 1, end: 2 }] }] } },
+];

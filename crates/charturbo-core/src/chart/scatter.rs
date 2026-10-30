@@ -303,7 +303,7 @@ impl ScatterChart {
                 let (a, b) = log_nice_domain(scale.inv(lo), scale.inv(hi));
                 (a.log10(), b.log10())
             } else {
-                let (a, b, _) = nice_domain(lo, hi, scale.target(target));
+                let (a, b, _) = scale.nice_linear(lo, hi, scale.target(target));
                 (a, b)
             }
         };

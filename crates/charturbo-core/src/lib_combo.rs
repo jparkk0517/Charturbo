@@ -2,7 +2,7 @@
 //! same `WasmCharturboEngine`). Line styles of line / area series go through `set_line_series_styles`
 //! in line-local order (the combo's line / area series without the bars).
 
-use crate::chart::{BarMode, ComboLayout, ComboSeries, ComboSeriesKind, LineXKind, LineYAxis, YAutoscale};
+use crate::chart::{BarMode, MAX_Y_AXES, ComboLayout, ComboSeries, ComboSeriesKind, LineXKind, LineYAxis, YAutoscale};
 use crate::WasmCharturboEngine;
 use wasm_bindgen::prelude::*;
 
@@ -36,19 +36,26 @@ fn y_axis(v: &[f64]) -> LineYAxis {
     LineYAxis { min: at(0), max: at(1), autoscale: YAutoscale::None, nice: at(2).is_none_or(|n| n != 0.0) }
 }
 
+/// `[min, max, nice]` triples of the combo y axes (left, right, extra 2..); at least 2.
+fn combo_y_axes(v: &[f64]) -> Vec<LineYAxis> {
+    let n = v.len().div_ceil(3).clamp(2, MAX_Y_AXES);
+    (0..n).map(|k| y_axis(v.get(k * 3..).unwrap_or(&[]))).collect()
+}
+
 #[wasm_bindgen]
 impl WasmCharturboEngine {
     /// Renders a 2D combo chart: `series_count` series of `values.len() / series_count` values
     /// each (flat `[series * categories + category]`, NaN = missing) sharing one x. `kinds`: per
     /// series 0 = bar, 1 = line, 2 = area; `axes`: 0 = left, 1 = right y axis (bars all use the
-    /// first bar series' axis); `colors`: RGBA per series; `widths`: stroke px per series (line
+    /// first bar series' axis; 2.. = extra y axes, given `y_axes` triples); `colors`: RGBA per series; `widths`: stroke px per series (line
     /// / area, NaN = 2); `x`: one strictly increasing value per category, or empty = category
     /// index placement.
     ///
     /// `layout` (NaN / missing = default): `[width, height, bar_mode (0 grouped, 1 stacked,
     /// 2 percent), group_gap, gap_px, corner_radius_px, fill_opacity, x_kind (0 numeric, 1 time)]`.
-    /// `y_axes`: `[left_min, left_max, left_nice, right_min, right_max, right_nice]` (NaN end =
-    /// from the data; nice 0 = keep data ends). Returns the data point count.
+    /// `y_axes`: `[left_min, left_max, left_nice, right_min, right_max, right_nice, ...]` (one
+    /// triple per y axis, extra axes after the right one; NaN end = from the data; nice 0 = keep
+    /// data ends). Returns the data point count.
     #[allow(clippy::too_many_arguments)]
     pub fn set_combo_chart(
         &mut self,
@@ -80,14 +87,14 @@ impl WasmCharturboEngine {
             })
             .collect();
         let x = (!x.is_empty()).then(|| x.to_vec());
-        let y_axes = [y_axis(y_axes.get(..3).unwrap_or(&[])), y_axis(y_axes.get(3..6).unwrap_or(&[]))];
+        let y_axes = combo_y_axes(y_axes);
         self.inner
             .set_combo_chart(series, x, combo_layout(layout), y_axes)
             .map(|n| n as u32)
             .map_err(|e| JsValue::from_str(&e))
     }
 
-    /// `[min, max]` of the combo chart's left (`axis` 0) or right (1) y domain; empty without a
+    /// `[min, max]` of the combo chart's left (`axis` 0), right (1) or extra (2..) y domain; empty without a
     /// combo chart or when no series uses that axis.
     pub fn chart_combo_y_domain(&self, axis: u8) -> Vec<f64> {
         self.inner
@@ -111,5 +118,9 @@ mod tests {
         let y = y_axis(&[0.0, f64::NAN, 0.0]);
         assert_eq!((y.min, y.max, y.nice), (Some(0.0), None, false));
         assert!(y_axis(&[]).nice);
+        let axes = combo_y_axes(&[0.0, 10.0, 1.0, f64::NAN, f64::NAN, 1.0, -5.0, 5.0, 0.0]);
+        assert_eq!(axes.len(), 3);
+        assert_eq!((axes[2].min, axes[2].max, axes[2].nice), (Some(-5.0), Some(5.0), false));
+        assert_eq!(combo_y_axes(&[]).len(), 2, "left and right always present");
     }
 }

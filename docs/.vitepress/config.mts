@@ -30,6 +30,7 @@ const GUIDE: Group[] = [
     dir: 'guide',
     pages: [
       ['data-and-axes', t('Data & Axes', '데이터와 축', '数据与坐标轴')],
+      ['multiple-axes', t('Multiple Axes & Axis Breaks', '다중 축과 축 끊김', '多坐标轴与坐标轴断裂')],
       ['interactions', t('Interactions', '상호작용', '交互')],
       ['tooltips', t('Tooltips & Hover', '툴팁과 hover', '提示框与悬停')],
       ['styling', t('Styling & Themes', '스타일과 테마', '样式与主题')],

@@ -20,6 +20,20 @@
 - 히트 테스트 · 툴팁은 최종 레이아웃, 접근성은 최종 값을 씁니다. `prefers-reduced-motion`이면 트윈 · 카운트업 · 모핑이 꺼집니다. 잘못된 옵션은 현재 차트를 지우기 전에 예외를 던지며, 옵션을 주지 않으면 기존 동작은 그대로입니다. React / Vue 옵션 타입 포함.
 - 예제 `animation/03-bar-race` · `04-line-race` · `05-bar-pie` · `06-treemap-sunburst`, fixture `race-bar-end` · `race-line-end` · `transition-bar-pie-end` · `transition-treemap-sunburst-end`(종료 상태), 문서 `guide/animation`.
 
+### 추가 — 다중 축 (y축 3개 이상)
+
+- 선 · 콤보 차트의 `axes.extraY`(최대 6개, y축 합계 8개)와 시리즈 `yAxisIndex`(0 = `y`, 1 = `y2`, 2.. = `extraY[k - 2]`, `yAxis`보다 우선). 축마다 `min` / `max` · `autoscale` · `scale` · `format` · `title` · `tickCount` · `breaks` · `color`, 배치는 `position: 'left' | 'right'`와 `offset`(px). 여백은 추가 레이블 · 제목 폭만큼 자동으로 늘어납니다.
+- 도메인 · 눈금 · 자동 스케일은 축마다 Rust 엔진에서 계산합니다(`set_chart_y_axis_at`, `chart_y_domain_at`). x 확대 / 이동, 호버 · 크로스헤어, 브러시가 모든 축에서 동작하고, 툴팁은 값을 각 축의 `format`으로 표시합니다.
+- 접근성 설명이 추가 축과 그 축의 시리즈를 알려 줍니다(영어 · 한국어 · 중국어). 잘못된 `yAxisIndex`는 현재 차트를 지우기 전에 예외를 던집니다. 공개 타입 `ExtraYAxisOptions` · `ComboExtraYAxisOptions` · `ChartExtraAxisPlacement`.
+- 예제 `line/14-multi-axis` · `combo/02-multi-axis`, fixture `axes-multi-line` · `axes-multi-combo`, 문서 `guide/multiple-axes`. 추가 x축, 영역 차트의 다중 축, 주석의 추가 축 지정은 아직 없습니다.
+
+### 추가 — 축 끊김 (axis break)
+
+- 값 축의 `breaks: [{ start, end, gap? }]`(`gap`: 데이터 단위 또는 `'<n>%'`, 기본 `'2%'`). 선(y, y2, extraY), 영역(y), 콤보, 막대 · 그룹 막대의 값 축, 산점도 x / y를 지원합니다. 구간별 매핑은 Rust 스케일 한 곳에 있어 지오메트리 · 눈금(접힌 구간 건너뜀) · 호버 · 브러시 · 확대가 같은 매핑을 씁니다.
+- 접힌 자리는 축과 플롯 전체에 지그재그 표시로 그리며, PNG / SVG 내보내기에도 포함됩니다. 접근성 설명이 각 끊김을 축 형식으로 알려 줍니다(영어 · 한국어 · 중국어).
+- 축당 최대 8개, 겹침 · 맞닿음 금지, 선형 스케일만 가능(`log`, 픽토리얼 막대, 선 · 영역 x축은 예외). 끊김이 있는 축에 `setAxisScale(..., { scale: 'log' })`를 호출하거나 오차 막대와 끊김을 함께 쓰면 오류입니다. 검증은 현재 차트를 지우기 전에 합니다. 공개 타입 `ChartAxisBreak` · `ChartAxisBreakOptions`.
+- 예제 `bar/07-axis-break` · `line/15-axis-break`, fixture `axes-break-bar` · `axes-break-line`. 시간 축 끊김, 오차 막대 · 폭포 차트의 끊김은 아직 없습니다.
+
 ### 추가 — 픽토리얼 막대 (pictorialBar)
 
 - `renderPictorialBarChart(data, options)`: 막대를 심볼로 그리는 2D 막대 차트(ECharts `pictorialBar`). 데이터는 `renderBarChart` 항목 배열 또는 `{ categories, series }`이며, 축 · 가로 방향 · 그룹형 / 누적형 / 백분율 · 레이블 · 범례는 막대 차트를 그대로 씁니다. `background` 트랙이 그림자 막대가 됩니다.

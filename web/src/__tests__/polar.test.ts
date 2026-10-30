@@ -516,4 +516,3 @@ describe('Polar chart (SDK binding)', () => {
     expect((sdk.renderPolarChart as unknown as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([BARS, { angleAxis: { data: DAYS } }]);
   });
 });
-

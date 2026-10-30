@@ -24,6 +24,13 @@ import type {
 } from './charturbo';
 import type { CharturboTimeZone } from './chart-timezone';
 import { formatCount, getMessages } from './i18n';
+import {
+  seriesAxisIndex,
+  validateBreaks,
+  validateSeriesAxisIndex,
+  type ChartAxisBreakOptions,
+  type ChartExtraAxisPlacement,
+} from './chart-axes';
 
 export type ComboSeriesType = 'bar' | 'line' | 'area';
 
@@ -39,6 +46,10 @@ export interface ComboSeriesDescriptor extends LineStyleInput {
    * first bar series' axis (bars stack / group on one scale).
    */
   yAxis?: 'left' | 'right';
+  /**
+   * y axis index (overrides `yAxis`): 0 = `axes.y`, 1 = `axes.y2`, 2.. = `axes.extraY[k - 2]`.
+   */
+  yAxisIndex?: number;
   /** Default: theme palette in series order */
   color?: ColorInput;
   /** Stroke width of line / area series in CSS px (default: `ComboChartOptions.lineWidth`, 2) */
@@ -57,13 +68,18 @@ export interface ComboChartData {
 }
 
 /** y axis of a combo chart: labels plus a fixed domain (domains never autoscale). */
-export interface ComboYAxisOptions extends ChartAxisOptions {
+export interface ComboYAxisOptions extends ChartAxisOptions, ChartAxisBreakOptions {
   /** Fixed bottom (default: from the data; the bar axis always includes 0) */
   min?: number;
   /** Fixed top (default: from the data) */
   max?: number;
   /** Expand data-derived ends to whole tick steps (default: true) */
   nice?: boolean;
+}
+
+/** Extra combo y axis (`axes.extraY`): domain, breaks, placement and label / line color. */
+export interface ComboExtraYAxisOptions extends ComboYAxisOptions, ChartExtraAxisPlacement {
+  color?: ColorInput;
 }
 
 export interface ComboXAxisOptions extends ChartAxisOptions {
@@ -78,7 +94,13 @@ export interface ComboChartOptions {
    * `y2`: right y axis, shown when a series has `yAxis: 'right'`. Dual axes invite readers to
    * compare unrelated scales: prefer two charts unless the series share a unit relationship.
    */
-  axes?: { x?: ComboXAxisOptions; y?: ComboYAxisOptions; y2?: ComboYAxisOptions };
+  axes?: {
+    x?: ComboXAxisOptions;
+    y?: ComboYAxisOptions;
+    y2?: ComboYAxisOptions;
+    /** Extra y axes 2.. (series `yAxisIndex`), stacked beside the plot (at most 6) */
+    extraY?: ComboExtraYAxisOptions[];
+  };
   title?: string;
   /** Accessible name of the canvas; replaces the auto summary (which moves to the description) */
   description?: string;
@@ -116,7 +138,7 @@ export interface ComboChartMeta {
   names: string[];
   colors: RgbaTuple[];
   types: ComboSeriesType[];
-  /** y axis per series as drawn (0 = left, 1 = right; bars share one) */
+  /** y axis per series as drawn (0 = left, 1 = right, 2.. = extra; bars share one) */
   axes: number[];
   /** Per series, one value per category */
   values: Float32Array[];
@@ -128,6 +150,8 @@ export interface ComboChartMeta {
   label: (i: number) => string;
   visible: boolean[];
   barMode: 'grouped' | 'stacked' | 'percent';
+  /** Multi-axis: per series, its drawn axis' tooltip value format */
+  seriesFormats?: (((v: number) => string) | undefined)[];
 }
 
 /** Engine input of `set_combo_chart` (see lib_combo.rs). */
@@ -170,6 +194,14 @@ export function encodeCombo(
   const series = data.series ?? [];
   const xIn = data.x;
   if (xIn && data.categories) throw new Error(`${fn}: give \`categories\` or \`x\`, not both`);
+  const extraY = (options?.axes?.extraY ?? []).slice(0, 6);
+  validateSeriesAxisIndex(series, 2 + extraY.length, fn);
+  const yNamed: [string, ComboYAxisOptions | undefined][] = [
+    ['y', options?.axes?.y],
+    ['y2', options?.axes?.y2],
+    ...extraY.map((a, i): [string, ComboYAxisOptions] => [`extraY[${i}]`, a]),
+  ];
+  for (const [name, a] of yNamed) validateBreaks(a?.breaks, `${fn}: axes.${name}`, false);
   const n = data.categories?.length ?? xIn?.length ?? series[0]?.values.length ?? 0;
   const s = series.length;
   const values = new Float32Array(s * n).fill(NaN);
@@ -182,7 +214,7 @@ export function encodeCombo(
     const code = KIND_CODES[d.type];
     if (code === undefined) throw new Error(`${fn}: series ${k} has unknown type '${String(d.type)}' (bar | line | area)`);
     kinds[k] = code;
-    axes[k] = d.yAxis === 'right' ? 1 : 0;
+    axes[k] = seriesAxisIndex(d);
     const v = d.values;
     for (let i = 0; i < Math.min(n, v.length); i++) {
       const x = v[i] as unknown;
@@ -208,9 +240,7 @@ export function encodeCombo(
     timeX ? 1 : 0,
   ]);
   const nice = (a?: ComboYAxisOptions) => (a?.nice === false ? 0 : 1);
-  const y = o?.axes?.y;
-  const y2 = o?.axes?.y2;
-  const yAxes = new Float64Array([y?.min ?? NaN, y?.max ?? NaN, nice(y), y2?.min ?? NaN, y2?.max ?? NaN, nice(y2)]);
+  const yAxes = new Float64Array(yNamed.flatMap(([, a]) => [a?.min ?? NaN, a?.max ?? NaN, nice(a)]));
   return {
     n,
     values,
@@ -230,11 +260,12 @@ export function encodeCombo(
 }
 
 /**
- * Axis of each series as the engine draws it: bars share the first bar series' axis, then
- * all-right input moves to the left.
+ * Axis of each series as the engine draws it: axes past `axisCount` (left + right + extra)
+ * fall back to the left, bars share the first bar series' axis, then input without a left
+ * series moves to the left.
  */
-export function drawnAxes(types: ComboSeriesType[], axes: ArrayLike<number>): number[] {
-  const out = Array.from(axes, (a) => (a === 1 ? 1 : 0));
+export function drawnAxes(types: ComboSeriesType[], axes: ArrayLike<number>, axisCount = 8): number[] {
+  const out = Array.from(axes, (a) => (a < Math.max(2, axisCount) ? a : 0));
   const firstBar = types.indexOf('bar');
   if (firstBar >= 0) types.forEach((t, k) => t === 'bar' && (out[k] = out[firstBar]));
   if (!out.includes(0)) out.fill(0);
@@ -258,7 +289,7 @@ export function comboMeta(
     names: enc.names,
     colors: enc.rgba,
     types: enc.types,
-    axes: drawnAxes(enc.types, enc.axes),
+    axes: drawnAxes(enc.types, enc.axes, enc.yAxes.length / 3),
     values: enc.names.map((_, k) => enc.values.subarray(k * n, (k + 1) * n)),
     categories,
     xs,
@@ -334,7 +365,7 @@ export function comboPointMetadata(
       attributes: {
         series: name,
         type: meta.types[series],
-        axis: meta.axes[series] === 1 ? 'right' : 'left',
+        axis: meta.axes[series] === 1 ? 'right' : meta.axes[series] >= 2 ? `extraY[${meta.axes[series] - 2}]` : 'left',
         ...(meta.xs ? { x: where } : { category: where }),
         value: Number.isFinite(value) ? Number(value.toFixed(4)) : 'missing',
       },

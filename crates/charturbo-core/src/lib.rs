@@ -42,7 +42,7 @@ use crate::chart::{
 use crate::chart::{BrushMode, BrushStyle, ChartSelection, SelectionKind};
 use crate::chart::{NavigatorHit, NavigatorOptions, NavigatorStyle};
 use crate::chart::{validate_candles, BinRule, CandleData, CandleLayout, CandleMode, CandleStyle, HistogramBins, HistogramOptions};
-use crate::chart::{AxisScale, ScaleType};
+use crate::chart::{AxisBreaks, AxisScale, ScaleType};
 use crate::domain::DatasetConfig;
 use crate::engine::VisualizationEngine;
 use crate::physics::ForceConfig;
@@ -938,7 +938,9 @@ impl WasmCharturboEngine {
     /// (dual-axis line charts); `kind` 0 = linear, 1 = log10 (non-positive values not drawn);
     /// `reverse` inverts the axis; `tick_count` 0 = default tick density.
     pub fn set_chart_axis_scale(&mut self, axis: u8, kind: u8, reverse: bool, tick_count: u32) {
-        self.inner.set_chart_axis_scale(axis, AxisScale { kind: ScaleType::from_u8(kind), reverse, tick_count });
+        // Breaks are set apart (`set_chart_axis_breaks`): keep them
+        let breaks = self.inner.chart().map_or(AxisBreaks::NONE, |c| c.axis_breaks(axis));
+        self.inner.set_chart_axis_scale(axis, AxisScale { kind: ScaleType::from_u8(kind), reverse, tick_count, breaks });
     }
 
     /// `[kind, reverse, tick_count]` of one axis (see `set_chart_axis_scale`), or empty.
@@ -950,7 +952,40 @@ impl WasmCharturboEngine {
             .unwrap_or_default()
     }
 
-    /// y axis of each line series: 0 = left, 1 = right (missing entries = left).
+    /// Breaks of a value axis (`axis` as in `set_chart_axis_scale`; extra y axis k >= 2 =
+    /// `16 + k`; bar charts: 1 = the value axis): flat `[start, end, gap]` triples in data
+    /// units, ascending and disjoint, at most 8; empty clears. Linear axes only (log is an
+    /// error). Validated before anything changes. Returns true when the mapping changed.
+    pub fn set_chart_axis_breaks(&mut self, axis: u8, breaks: &[f64]) -> Result<bool, JsValue> {
+        let breaks = AxisBreaks::from_flat(breaks).map_err(|e| JsValue::from_str(&e))?;
+        self.inner.set_chart_axis_breaks(axis, breaks).map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// Flat `[start, end, gap]` triples of one axis' breaks (see `set_chart_axis_breaks`).
+    pub fn chart_axis_breaks(&self, axis: u8) -> Vec<f64> {
+        self.inner
+            .chart()
+            .map(|c| c.axis_breaks(axis).list().iter().flat_map(|b| [b.start, b.end, b.gap]).collect())
+            .unwrap_or_default()
+    }
+
+    /// Domain options of y axis `k` (0 = left, 1 = right, 2.. = extra; arguments as
+    /// `set_chart_y_domain`) of a line chart.
+    pub fn set_chart_y_axis_at(&mut self, k: u8, min: f64, max: f64, autoscale: u8, nice: bool) {
+        let end = |v: f64| v.is_finite().then_some(v);
+        self.inner.set_chart_y_axis_at(k, LineYAxis { min: end(min), max: end(max), autoscale: YAutoscale::from_u8(autoscale), nice });
+    }
+
+    /// `[min, max, step]` of y axis `k`'s domain, or empty when no series uses it.
+    pub fn chart_y_domain_at(&self, k: u8) -> Vec<f64> {
+        self.inner
+            .chart()
+            .and_then(|c| c.y_domain_at(k))
+            .map(|(lo, hi, step)| vec![lo, hi, step])
+            .unwrap_or_default()
+    }
+
+    /// y axis of each line series: 0 = left, 1 = right, 2..7 = extra (missing entries = left).
     pub fn set_chart_series_axes(&mut self, axes: &[u8]) {
         self.inner.set_chart_series_axes(axes);
     }
@@ -1130,7 +1165,9 @@ impl WasmCharturboEngine {
     /// granularity * count]` in CSS px from the canvas top-left (axis 0 = x, 1 = y, 2 = right y), or empty
     /// without a chart. The trailing granularity block (appended so older readers of the prefix
     /// keep working) is 0 for non-time ticks, else 1 = ms, 2 = s, 3 = min, 4 = h, 5 = day,
-    /// 6 = month, 7 = year: the coarsest UTC boundary the tick lands on.
+    /// 6 = month, 7 = year: the coarsest UTC boundary the tick lands on. Then (also appended)
+    /// `break_count, (axis, from, to) * break_count`: visible axis breaks, `from` / `to` the css
+    /// x (axis 0) or y of each break's start / end (extra y axis k >= 2 = axis `16 + k`).
     pub fn chart_axes(&self) -> Vec<f64> {
         let Some((axes, _)) = self.inner.chart_axes() else {
             return Vec::new();
@@ -1142,6 +1179,10 @@ impl WasmCharturboEngine {
             out.extend([t.axis as f64, t.value, t.x_css as f64, t.y_css as f64]);
         }
         out.extend(axes.ticks.iter().map(|t| t.granularity as f64));
+        out.push(axes.breaks.len() as f64);
+        for b in &axes.breaks {
+            out.extend([b.axis as f64, b.from_css as f64, b.to_css as f64]);
+        }
         out
     }
 
