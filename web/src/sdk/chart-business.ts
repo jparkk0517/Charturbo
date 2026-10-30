@@ -80,6 +80,16 @@ import {
   sendParallelStyle,
   type ParallelChartMeta,
 } from './chart-parallel';
+import {
+  localizePolarMeta,
+  polarA11yModel,
+  polarPointMetadata,
+  polarTooltipContext,
+  polarTooltipHtml,
+  PolarLabelLayer,
+  sendPolarStyle,
+  type PolarChartMeta,
+} from './chart-polar';
 
 export type BusinessChartMeta =
   | RadarChartMeta
@@ -88,10 +98,11 @@ export type BusinessChartMeta =
   | WaterfallChartMeta
   | CalendarChartMeta
   | ChordChartMeta
-  | ParallelChartMeta;
+  | ParallelChartMeta
+  | PolarChartMeta;
 export type BusinessChartKind = BusinessChartMeta['kind'];
 
-const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall', 'calendar', 'chord', 'parallel']);
+const KINDS: ReadonlySet<string> = new Set<BusinessChartKind>(['radar', 'gauge', 'funnel', 'waterfall', 'calendar', 'chord', 'parallel', 'polar']);
 
 export function isBusinessKind(kind: unknown): kind is BusinessChartKind {
   return typeof kind === 'string' && KINDS.has(kind);
@@ -122,6 +133,8 @@ export function createBusinessLabelLayer(parent: HTMLElement, meta: BusinessChar
       return new ChordLabelLayer(parent, meta);
     case 'parallel':
       return new ParallelLabelLayer(parent, meta);
+    case 'polar':
+      return new PolarLabelLayer(parent, meta);
   }
 }
 
@@ -142,6 +155,8 @@ export function sendBusinessTheme(backend: WasmCharturboEngineBackend, meta: Bus
       return sendChordStyle(backend, meta, theme);
     case 'parallel':
       return sendParallelStyle(backend, meta, theme);
+    case 'polar':
+      return sendPolarStyle(backend, meta, theme);
   }
 }
 
@@ -165,6 +180,8 @@ export function localizeBusinessMeta(meta: BusinessChartMeta, locale: string | u
       return localizeChordMeta(meta, locale);
     case 'parallel':
       return localizeParallelMeta(meta, locale);
+    case 'polar':
+      return localizePolarMeta(meta, locale);
   }
 }
 
@@ -193,6 +210,8 @@ export function businessTooltipContext(
       return chordTooltipContext(meta, hit, details);
     case 'parallel':
       return parallelTooltipContext(meta, hit[4], details);
+    case 'polar':
+      return polarTooltipContext(meta, hit, details);
   }
 }
 
@@ -220,6 +239,8 @@ export function businessTooltipHtml(
       return chordTooltipHtml(ctx, meta, theme, formatValue);
     case 'parallel':
       return parallelTooltipHtml(ctx, theme);
+    case 'polar':
+      return polarTooltipHtml(ctx, meta, theme, formatValue);
   }
 }
 
@@ -240,6 +261,8 @@ export function businessPointMetadata(meta: BusinessChartMeta, id: number): { se
       return chordPointMetadata(meta, id);
     case 'parallel':
       return parallelPointMetadata(meta, id);
+    case 'polar':
+      return polarPointMetadata(meta, id);
   }
 }
 
@@ -267,6 +290,8 @@ export function businessA11yModel(m: Record<string, unknown>, common: A11yCommon
       return chordA11yModel(m as unknown as ChordChartMeta, c);
     case 'parallel':
       return parallelA11yModel(m as unknown as ParallelChartMeta, c);
+    case 'polar':
+      return polarA11yModel(m as unknown as PolarChartMeta, c);
     default:
       return null;
   }

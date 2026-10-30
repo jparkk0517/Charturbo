@@ -232,6 +232,15 @@ export {
   type ParallelDimension,
   type ParallelSeries,
 } from './sdk/chart-parallel';
+export {
+  type ChartPolarTooltip,
+  type PolarAxisOptions,
+  type PolarChartData,
+  type PolarChartOptions,
+  type PolarCoord,
+  type PolarSeriesOptions,
+  type PolarSeriesType,
+} from './sdk/chart-polar';
 // Types reachable from public signatures (guarded by __tests__/public-types.test.ts)
 export {
   createFormatter,

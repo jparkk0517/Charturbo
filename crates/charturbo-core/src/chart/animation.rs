@@ -453,9 +453,11 @@ impl ChartState {
             let f = &self.anim.from;
             let pie_match = matches!(&self.kind, ChartKind::Pie(p) if p.len() == f.pie.len() && !f.pie.is_empty());
             let chord_match = matches!(&self.kind, ChartKind::Hierarchy(HierChart::Chord(c)) if c.tween_from.is_some());
+            let polar_match = matches!(&self.kind, ChartKind::Hierarchy(HierChart::Polar(p)) if p.tween_from.is_some());
             let matched = pie_match
                 || super::pictorial::pictorial_matches(&self.kind, &f.pictorial)
                 || chord_match
+                || polar_match
                 || (!f.series.is_empty() && f.series.len() == self.series.len())
                 || (!f.bars.is_empty() && f.bars.len() == self.bars.len() && f.bar_tracks == self.bar_track_count())
                 || (!f.fills.is_empty() && f.fills.len() == self.fills.len())
@@ -488,6 +490,16 @@ impl ChartState {
             if c.tween_build(e, &mut a.out.fills, &mut a.out.series) {
                 used.fills = true;
                 used.series = true;
+            }
+            return;
+        }
+        if let ChartKind::Hierarchy(HierChart::Polar(p)) = &mut self.kind {
+            // Polar sectors / points tween their layout geometry (rebuilt per frame)
+            if p.tween_build(e, &mut a.out.fills, &mut a.out.series, &mut a.out.markers) {
+                a.out.dashed.clone_from(&self.styled.dashed);
+                used.fills = true;
+                used.series = true;
+                used.series_style = true;
             }
             return;
         }

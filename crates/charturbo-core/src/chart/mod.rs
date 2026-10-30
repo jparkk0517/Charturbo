@@ -39,6 +39,7 @@ mod navigator;
 mod pictorial;
 mod parallel;
 mod pie;
+mod polar;
 mod pieces;
 mod radar;
 mod range;
@@ -134,6 +135,9 @@ pub use sankey::{
 pub use sunburst::{SunburstOptions, SUNBURST_GAP_PX};
 pub use chord::{
     chord_layout, validate_chord, Chord, ChordEnd, ChordGroup, ChordLayout, ChordOptions, ChordRibbonColor, ChordSort, ChordSorts, MAX_CHORD_GROUPS,
+};
+pub use polar::{
+    validate_polar, PolarAxis, PolarOptions, PolarScale, PolarSeries, PolarSeriesKind, MAX_POLAR_CATEGORIES, MAX_POLAR_ITEMS, MAX_POLAR_SERIES, POLAR_RADIUS_LABEL,
 };
 pub use treemap::{squarify, TreemapOptions, MAX_TREEMAP_LABELS, TREEMAP_GAP_PX};
 pub use tidy_tree::{tidy_fit, tidy_layout, TidyTreeOptions, TreeEdgeShape, TreeLayout, TreeOrient, TreeSymbol, MAX_TREE_LABELS, TREE_CURVE_SEGMENTS};
@@ -845,7 +849,7 @@ impl ChartState {
         // 2D graph: a hidden category takes its nodes' hover with it; chord groups re-lay out
         let restacked = restacked || matches!(self.kind, ChartKind::Hierarchy(_));
         // Chord groups tween their angles from the frame on screen
-        if changed && matches!(self.kind, ChartKind::Hierarchy(HierChart::Chord(_))) {
+        if changed && matches!(self.kind, ChartKind::Hierarchy(HierChart::Chord(_) | HierChart::Polar(_))) {
             self.begin_update_animation();
         }
         let stale = |h: &HoverResult| {

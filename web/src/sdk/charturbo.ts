@@ -303,6 +303,8 @@ export type {
 } from './chart-calendar';
 import { chordMeta, sendChord, syncChord, type ChartChordTooltip, type ChordChartData, type ChordChartOptions } from './chart-chord';
 export type { ChartChordTooltip, ChordChartData, ChordChartOptions, ChordLink, ChordNode, ChordSortOrder } from './chart-chord';
+import { polarMeta, sendPolar, syncPolar, type ChartPolarTooltip, type PolarChartData, type PolarChartOptions } from './chart-polar';
+export type { ChartPolarTooltip, PolarAxisOptions, PolarChartData, PolarChartOptions, PolarCoord, PolarSeriesOptions, PolarSeriesType } from './chart-polar';
 import {
   HierarchyLabelLayer,
   drillEvent,
@@ -988,7 +990,7 @@ export interface ChartTooltipContext {
   chartType:
     | 'pointCloud3d' | 'surface3d'
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
-    | 'calendar' | 'chord' | 'parallel'
+    | 'calendar' | 'chord' | 'parallel' | 'polar'
     | 'radar' | 'gauge' | 'funnel' | 'waterfall' | 'treemap' | 'sunburst' | 'sankey' | 'tree'
     | 'graph'
     | 'themeRiver';
@@ -1012,6 +1014,8 @@ export interface ChartTooltipContext {
   chord?: ChartChordTooltip;
   /** Hovered parallel coordinates row: every dimension */
   parallel?: ChartParallelTooltip;
+  /** Hovered polar item: series, angle / radius coordinates and value */
+  polar?: ChartPolarTooltip;
   /** Hovered treemap / sunburst node: path, value, shares of its parent and of the total */
   hierarchy?: ChartHierarchyTooltip;
   /** Hovered sankey link (`A → B`, share of A) or node (inflow / outflow) */
@@ -1995,6 +1999,10 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_chord_groups?(): Float64Array;
   /** `[(source, start, end, value, target, start, end, value) * chords]` in draw order */
   chart_chord_chords?(): Float64Array;
+  /** Polar chart (chart-polar.ts): options / series / items as in lib_polar.rs. Returns the series count */
+  set_polar_chart?(options: Float64Array, series: Float64Array, data: Float64Array): number;
+  /** `[angle lo, hi, categories, radius lo, hi, categories, nA, ..angle labels, nR, ..radius labels]` */
+  chart_polar_axes?(): Float64Array;
   /** Parallel coordinates (chart-parallel.ts): per-dim kinds / `[min, max]` (NaN = auto) / inverse / category counts; row-major values */
   set_parallel_chart?(
     kinds: Uint8Array,
@@ -2426,7 +2434,7 @@ function scatterPointColor(meta: ScatterChartMeta, i: number): RgbaTuple {
 
 /** Brush selection kind of a chart mode (`null`: no brush, e.g. pies and hierarchy charts). */
 function selectionKind(mode: Charturbo['chartMode']): CharturboSelection['kind'] | null {
-  if (mode === 'calendar' || mode === 'chord' || mode === 'parallel') return null;
+  if (mode === 'calendar' || mode === 'chord' || mode === 'parallel' || mode === 'polar') return null;
   return mode === null || mode === 'pointCloud3d' || mode === 'surface3d' || mode === 'pie' || mode === 'treemap' || mode === 'sunburst' || mode === 'sankey' || mode === 'tree' || mode === 'graph' ? null : mode;
 }
 
@@ -5396,6 +5404,12 @@ export class Charturbo {
     if (meta.kind === 'graph' && !visible) this.emphasizeSeries(null);
     // Chord: the engine re-laid out the groups and ribbons
     if (meta.kind === 'chord') syncChord(this.backend, meta);
+    // Polar: the engine re-fit the axes to the visible series
+    if (meta.kind === 'polar') {
+      syncPolar(this.backend, meta);
+      // The heatmap domain follows the visible series
+      if (meta.heat) this.chartOverlay?.colorbar?.refresh(this.backend, this.theme, this.chartLocale());
+    }
     this.syncLegendState();
     this.a11y.refresh();
     if (changed) this.events.emit('legendtoggle', { series: seriesIndex, visible });
@@ -6270,7 +6284,7 @@ export class Charturbo {
     legend.setAttribute('aria-label', getMessages(this.chartLocale()).core.legend);
     const meta = this.chartMeta;
     if (meta && meta.kind !== 'bar' && meta.kind !== 'heatmap' && p.legend.show) {
-      const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey' || meta.kind === 'chord';
+      const bars = meta.kind === 'bar-multi' || meta.kind === 'box' || meta.kind === 'pie' || meta.kind === 'waterfall' || meta.kind === 'treemap' || meta.kind === 'sunburst' || meta.kind === 'sankey' || meta.kind === 'chord' || meta.kind === 'polar';
       // Scatter series read as dots
       const dot = meta.kind === 'scatter' || meta.kind === 'graph';
       // Multi-ring pies: one entry per name, toggling / emphasizing its slices in every ring
@@ -6422,7 +6436,7 @@ export class Charturbo {
       colorbar.refresh(this.backend, t, this.chartLocale());
       this.chartOverlay.colorbar = colorbar;
     }
-    if ((meta?.kind === 'calendar' || meta?.kind === 'parallel') && meta.colorbar.show) {
+    if ((meta?.kind === 'calendar' || meta?.kind === 'parallel' || meta?.kind === 'polar') && meta.colorbar.show) {
       const colorbar = new HeatmapColorbarLayer(root, meta);
       colorbar.refresh(this.backend, t, this.chartLocale());
       this.chartOverlay.colorbar = colorbar;
@@ -6600,7 +6614,8 @@ export class Charturbo {
       o.y2Title.style.top = `${plotT + plotH / 2}px`;
     }
     // Parallel coordinates: clear of the last axis' centered name and brush band
-    const colorbarGap = meta?.kind === 'parallel' ? 24 : 0;
+    // Polar: clear of the angle labels outside the rim
+    const colorbarGap = meta?.kind === 'parallel' ? 24 : meta?.kind === 'polar' ? meta.options[5] + 14 : 0;
     o.colorbar?.layout([plotL, plotT, plotW + colorbarGap, plotH], this.chartLocale());
   }
 
@@ -8946,6 +8961,36 @@ export class Charturbo {
     };
     this.showBusinessChart('chord', meta, options, legend, { left: 16, right: 16, bottom: 12 });
     return { groupCount: meta.n, chordCount: meta.chords.length };
+  }
+
+  /**
+   * Renders a polar chart natively (ECharts `polar` with `angleAxis` / `radiusAxis`): each axis
+   * is a category or value axis (nice ticks, `min` / `max`, labels, split circles / spokes);
+   * `startAngle` (degrees clockwise from 12 o'clock) and `clockwise` orient the angle axis,
+   * `innerRadius` opens a hole. Series: radial / ring bars (whichever axis is the category one;
+   * stacked by `stack`, `roundCap`), lines (open / `closed`, `smooth`, `area`, markers), scatter
+   * points and heatmap cells (category angle x category radius, colormap and colorbar). Hover
+   * outlines the item; the legend emphasizes / hides series (axes re-fit, tweened when animation
+   * is on). Throws for an invalid item or option before the current chart is replaced. Point
+   * ids = series offset + item index.
+   */
+  renderPolarChart(data: PolarChartData, options?: PolarChartOptions): { seriesCount: number; itemCount: number } {
+    // Validated before the active chart is torn down
+    const meta = polarMeta(data, options, this.businessFormat(options?.format), this.locale);
+    this.beginBusinessChart();
+    const seriesCount = sendPolar(this.backend, meta, this.theme);
+    meta.engine = { hover: (series, index) => this.backend.chart_hover_hierarchy_item?.(series, index) };
+    const legendOpt = typeof options?.legend === 'boolean' ? { show: options.legend } : (options?.legend ?? {});
+    const legend: ChartLegendState = {
+      show: legendOpt.show ?? meta.names.length >= 2,
+      toggle: legendOpt.toggle ?? true,
+      emphasize: legendOpt.emphasize ?? true,
+      position: legendOpt.position,
+      overflow: legendOpt.overflow,
+    };
+    const right = meta.colorbar.show ? COLORBAR_RESERVE_PX : 16;
+    this.showBusinessChart('polar', meta, options, legend, { left: 16, right, top: 12, bottom: 12 }, options?.showGrid ?? true);
+    return { seriesCount, itemCount: meta.offsets[meta.offsets.length - 1] };
   }
 
   /**

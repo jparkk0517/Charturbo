@@ -210,6 +210,7 @@ describe('React CharturboChart', () => {
       ['calendar', [['2023-01-01', 1]], 'renderCalendarHeatmap'],
       ['chord', { matrix: [[0, 1], [1, 0]] }, 'renderChordChart'],
       ['parallel', { dimensions: ['a', 'b'], rows: [[1, 2]] }, 'renderParallelChart'],
+      ['polar', { series: [{ type: 'bar', data: [1, 2] }] }, 'renderPolarChart'],
       ['waterfall', { labels: ['a', 'b'], values: [2, -1] }, 'renderWaterfallChart'],
       ['treemap', { name: 'root', children: [{ name: 'a', value: 1 }] }, 'renderTreemap'],
       ['sunburst', [{ id: 'r' }, { id: 'a', parent: 'r', value: 2 }], 'renderSunburst'],

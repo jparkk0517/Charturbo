@@ -42,7 +42,7 @@ WebGL2 스택을 뺀 WebGPU 전용 빌드도 함께 패키징됩니다. [설치�
 | 그룹 | 차트 |
 |---|---|
 | 직교 좌표 | [선](../charts/line), [영역](../charts/area), [밴드 · 범위](../charts/band), [오차 막대 · 임펄스](../charts/errorbar-impulse), [막대](../charts/bar), [히스토그램](../charts/histogram), [산점도 · 버블](../charts/scatter), [캔들스틱 · OHLC](../charts/candlestick), [히트맵](../charts/heatmap), [박스 플롯 · 바이올린](../charts/box-violin), [콤보](../charts/combo) |
-| 비즈니스 | [파이 · 도넛](../charts/pie), [레이더](../charts/radar), [게이지](../charts/gauge), [퍼널](../charts/funnel), [워터폴](../charts/waterfall), [스파크라인](../charts/sparkline) |
+| 비즈니스 | [파이 · 도넛](../charts/pie), [레이더](../charts/radar), [게이지](../charts/gauge), [퍼널](../charts/funnel), [워터폴](../charts/waterfall), [극좌표](../charts/polar), [스파크라인](../charts/sparkline) |
 | 계층 · 흐름 | [트리맵 · 선버스트](../charts/treemap-sunburst), [생키](../charts/sankey), [코드 다이어그램](../charts/chord) |
 | 3D | [PointCloud3D · Surface3D](../charts/scientific-3d), [3D 네트워크 그래프](../charts/graph-3d), [임베딩 · 유사도](../charts/embeddings), [3D 장면 · 물리](../charts/scene-3d) |
 
