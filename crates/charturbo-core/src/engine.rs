@@ -27,6 +27,10 @@ mod chart_ext;
 #[path = "engine_parallel_ext.rs"]
 mod parallel_ext;
 
+/// Point editing passthroughs (drag / click to add).
+#[path = "engine_edit_ext.rs"]
+mod edit_ext;
+
 #[cfg(test)]
 #[path = "engine_sleep_tests.rs"]
 mod sleep_tests;

@@ -1630,6 +1630,12 @@ export interface ChartA11yHostState {
    * description / live region DOM, not focusable. `null` / absent = full chart a11y.
    */
   label?: string | null;
+  /**
+   * Point editing (`editable`, chart-edit.ts): Shift + arrow (Alt: fine step) moves point `index`
+   * of `series` (line: index in the series; scatter: point index). Returns the new value, or
+   * `null` when the point is not editable (the key then keeps its navigation meaning).
+   */
+  editPoint?(series: number, index: number, key: string, fine: boolean): { x: number; y: number } | null;
 }
 
 /** Tooltip hook installed by `enableNodeInteractions` (`null` ctx hides it). */
@@ -1686,6 +1692,15 @@ export class ChartA11y {
   private table: { wrap: HTMLDivElement; container?: HTMLElement; options?: DataTableOptions } | null = null;
 
   constructor(private readonly host: () => ChartA11yHostState) {}
+
+  /**
+   * The active chart's data changed in place (point editing): drops the cached scatter x order
+   * and per-series counts, which are otherwise kept for the life of the chart meta.
+   */
+  dataChanged(): void {
+    const m = this.host().meta;
+    if (m && typeof m === 'object') scatterIndexCache.delete(m);
+  }
 
   /** Current normalized chart model (`null` when no chart is active). */
   model(): A11yChartModel | null {
@@ -1883,6 +1898,10 @@ export class ChartA11y {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if ((e.shiftKey || e.altKey) && !e.ctrlKey && !e.metaKey && /^Arrow/.test(e.key) && this.editFocused(e.key, e.altKey === true)) {
+      e.preventDefault();
+      return;
+    }
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     // Treemap / sunburst: Enter drills into the focused node, Escape goes back up (tree: Enter / Space toggle)
     // Parallel coordinates: Delete / Backspace clear the focused axis brush, Shift + moves brush
@@ -1918,6 +1937,32 @@ export class ChartA11y {
     this.announce(pointAnnouncement(model, next));
     this.hoverPoint(model, next);
   };
+
+  /** Shift / Alt + arrow on a focused line / scatter point: edits it through the host. */
+  private editFocused(key: string, fine: boolean): boolean {
+    const h = this.host();
+    const focus = this.focus;
+    const model = focus && h.editPoint ? this.model() : null;
+    if (!focus || !model || (model.kind !== 'line' && model.kind !== 'scatter')) return false;
+    const scatter = model.kind === 'scatter';
+    const id = scatter ? model.pointId(focus.series, focus.index) : focus.index;
+    if (id < 0 || !h.editPoint?.(focus.series, id, key, fine)) return false;
+    const next = this.model() ?? model;
+    let moved = focus;
+    // Scatter focus walks the points by x: the edited point may have a new position
+    if (scatter) {
+      for (let i = 0; i < next.length; i++) {
+        if (next.pointId(focus.series, i) === id) {
+          moved = { series: focus.series, index: i };
+          break;
+        }
+      }
+    }
+    this.focus = moved;
+    this.announce(messagesOf(next).a11y.pointEdited(pointAnnouncement(next, moved)));
+    this.hoverPoint(next, moved);
+    return true;
+  }
 
   private announce(text: string): void {
     if (this.liveEl) this.liveEl.textContent = text;

@@ -126,6 +126,10 @@ export interface CharturboChartCallbacks {
   onTreeToggle?: (e: CharturboEventMap['treeToggle']) => void;
   /** Parallel coordinates brush changed */
   onParallelBrush?: (e: CharturboEventMap['parallelBrush']) => void;
+  /** `editable` point moved / drag ended / point added */
+  onPointDrag?: (e: CharturboEventMap['pointDrag']) => void;
+  onPointDragEnd?: (e: CharturboEventMap['pointDragEnd']) => void;
+  onPointAdd?: (e: CharturboEventMap['pointAdd']) => void;
 }
 
 /** SDK event -> callback name (subscribed once; the binding reads the latest callbacks). */
@@ -140,6 +144,9 @@ export const CHARTURBO_CHART_EVENTS = {
   drill: 'onDrill',
   treeToggle: 'onTreeToggle',
   parallelBrush: 'onParallelBrush',
+  pointDrag: 'onPointDrag',
+  pointDragEnd: 'onPointDragEnd',
+  pointAdd: 'onPointAdd',
 } as const satisfies { [K in keyof CharturboEventMap]: keyof CharturboChartCallbacks };
 
 interface ChartSpec {

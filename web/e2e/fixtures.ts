@@ -109,6 +109,31 @@ function firstColor(ctx: FixtureContext): string | undefined {
   return ctx.params.color;
 }
 
+/**
+ * Scripted mouse gesture on the fixture's chart canvas: `path` is canvas CSS px, the first entry
+ * is the press, the last the release (one entry = a click). Ends with a pointer leave so no
+ * hover state is left in the shot.
+ */
+function scriptPointer(ctx: FixtureContext, path: [number, number][]): void {
+  const canvas = ctx.card.querySelector('canvas');
+  if (!canvas || !path.length) return;
+  const r = canvas.getBoundingClientRect();
+  const fire = (type: string, [x, y]: [number, number], buttons: number) =>
+    canvas.dispatchEvent(
+      new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons, clientX: r.left + x, clientY: r.top + y })
+    );
+  fire('pointerdown', path[0], 1);
+  for (const p of path.slice(1)) fire('pointermove', p, 1);
+  fire('pointerup', path[path.length - 1], 0);
+  fire('pointerleave', path[path.length - 1], 0);
+}
+
+/** Canvas CSS px of global point id `id` of the active chart. */
+function pointPx(sdk: Charturbo, id: number): [number, number] {
+  const p = sdk.projectNodeToScreen(id, FIXTURE_WIDTH, FIXTURE_HEIGHT);
+  return p ? [p.x, p.y] : [NaN, NaN];
+}
+
 function lineSeries(ctx: FixtureContext, n: number, count: number, seed: number) {
   const rand = mulberry32(seed);
   return Array.from({ length: count }, (_, s) => ({
@@ -845,6 +870,44 @@ export const FIXTURES: Fixture[] = [
           legend: false,
           axes: { y: { breaks: [{ start: 25, end: 195, gap: 6 }, { start: 225, end: 595, gap: 6 }] } },
         });
+      }),
+  },
+  {
+    // Point editing: a scripted drag lifts point 3 of an editable line (clamped by `max`)
+    name: 'edit-drag-line',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const canvas = ctx.card.querySelector('canvas')!;
+        sdk.renderLineChart(
+          [{ name: 'Target', values: [42, 48, 55, 51, 63, 70, 74, 69], color: firstColor(ctx), marker: { shape: 'circle', size: 8, show: 'always' } }],
+          { title: 'Drag a point', padding: PADDING, legend: false, animation: false, axes: { y: { min: 0, max: 100 } } }
+        );
+        sdk.enableNodeInteractions(canvas, { builtInTooltip: false, editable: { dragAxis: 'y', max: 90 } });
+        sdk.render();
+        const [x, y] = pointPx(sdk, 3);
+        scriptPointer(ctx, [[x, y], [x, y - 40], [x, y - 400]]);
+      }),
+  },
+  {
+    // Point editing: click to add on an empty spot, then an xy drag of point 0
+    name: 'edit-add-scatter',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const canvas = ctx.card.querySelector('canvas')!;
+        const x = Float32Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
+        const y = Float32Array.from([2, 4, 3, 6, 5, 7, 6, 8]);
+        const clusters = Uint16Array.from([0, 0, 0, 0, 1, 1, 1, 1]);
+        sdk.renderScatterChart({ x, y, clusters }, { title: 'Click to add', pointRadius: 6, legend: false, animation: false });
+        sdk.enableNodeInteractions(canvas, { builtInTooltip: false, editable: { dragAxis: 'xy', addOnClick: true, addSeries: 1 } });
+        sdk.render();
+        const [x1] = pointPx(sdk, 7);
+        const [x0, y0] = pointPx(sdk, 0);
+        const [x2] = pointPx(sdk, 1);
+        const [, y7] = pointPx(sdk, 5);
+        scriptPointer(ctx, [[x2, y7]]); // (2, 7) is empty: a new series-1 point
+        scriptPointer(ctx, [[x0, y0], [x0 + 20, y0], [x1, y0]]); // point 0 to the bottom right
       }),
   },
   {

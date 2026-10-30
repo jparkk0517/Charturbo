@@ -21,6 +21,7 @@ mod bar;
 mod bar_style;
 mod boxplot;
 mod brush;
+mod edit;
 mod candle;
 mod chord;
 mod calendar;

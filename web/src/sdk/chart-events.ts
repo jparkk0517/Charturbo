@@ -7,6 +7,7 @@ import type { CharturboSelection } from './chart-brush';
 import type { CharturboDrillEvent } from './chart-hierarchy';
 import type { CharturboTreeToggleEvent } from './chart-tree';
 import type { CharturboParallelBrushEvent } from './chart-parallel';
+import type { CharturboPointAddEvent, CharturboPointDragEvent } from './chart-edit';
 
 /** Visible chart range in data units (line x: series `x` or sample index; y: scatter only). */
 export interface CharturboRange {
@@ -54,6 +55,12 @@ export interface CharturboEventMap {
   treeToggle: CharturboTreeToggleEvent;
   /** Parallel coordinates brush changed (axis drag / click, Shift + keys, Delete, Escape, `setParallelBrush`) */
   parallelBrush: CharturboParallelBrushEvent;
+  /** `editable` line / scatter point moved (each pointer move or Shift / Alt + arrow step) */
+  pointDrag: CharturboPointDragEvent;
+  /** Point drag released, cancelled (Escape: `cancelled`, value restored) or keyboard step done */
+  pointDragEnd: CharturboPointDragEvent;
+  /** `editable.addOnClick`: a click on an empty part of the plot added a point */
+  pointAdd: CharturboPointAddEvent;
 }
 
 export type CharturboEventName = keyof CharturboEventMap;
