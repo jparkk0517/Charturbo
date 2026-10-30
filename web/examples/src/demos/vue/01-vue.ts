@@ -19,7 +19,8 @@ const Dashboard = defineComponent({
     const theme = shallowRef(chartTheme());
     onUnmounted(subscribeTheme(() => { theme.value = chartTheme(); }));
     const chart = ref<CharturboChartInstance | null>(null);
-    const options = { title: 'Revenue (Vue)', mode: 'stacked' as const };
+    // decal: pattern fills per series (kept by the theme switch and the SVG export)
+    const options = { title: 'Revenue (Vue)', mode: 'stacked' as const, decal: true };
     return () => [
       h('div', { class: 'toolbar' }, [
         h('button', { onClick: () => (data.value = randomData()) }, 'New data'),

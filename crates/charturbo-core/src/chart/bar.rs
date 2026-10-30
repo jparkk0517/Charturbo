@@ -514,6 +514,15 @@ impl BarChart {
         }
     }
 
+    /// Global ids of the segment bars `build_bars` emits last, in order (decal.rs); none for
+    /// pictorial / 3D bars.
+    pub(crate) fn decal_ids(&self) -> Vec<usize> {
+        if self.layout.view != ChartViewMode::Flat || self.pictorial.is_some() {
+            return Vec::new();
+        }
+        self.shown_segs().iter().enumerate().filter_map(|(g, s)| s.map(|_| g)).collect()
+    }
+
     /// World rect `[x0, y0, x1, y1]` of a segment and its rounded-end code for the bar shader
     /// (1 / -1 = top / bottom, 2 / -2 = right / left).
     pub(crate) fn bar_rect(&self, seg: &BarSeg) -> ([f32; 4], f32) {

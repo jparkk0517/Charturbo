@@ -302,8 +302,10 @@ impl AreaChart {
 
     /// Appends the fill triangles of every visible series for `window` (same picks as strokes;
     /// stacked bands use the union of their top and bottom series' picks).
-    pub(crate) fn build_fills(&self, window: &LodWindow, out: &mut Vec<ChartFillRaw>) {
+    /// `runs` = each series' vertices (decal.rs).
+    pub(crate) fn build_fills(&self, window: &LodWindow, out: &mut Vec<ChartFillRaw>, runs: &mut Vec<super::decal::DecalRun>) {
         out.clear();
+        runs.clear();
         let l = &self.line;
         let stacks = self.mode.stacks();
         let mut order = self.stream_stack();
@@ -371,6 +373,7 @@ impl AreaChart {
                 c
             };
             let color = fill(l.series[s].color);
+            let at = out.len();
             match l.world_pieces(s) {
                 // Piecewise colors: the fill is clipped into the slabs between piece bounds
                 Some(wp) => {
@@ -380,6 +383,7 @@ impl AreaChart {
                 }
                 None => band_triangles(&edges.x, &edges.y, &edges.y2, l.z[s], color, out),
             }
+            super::decal::push_run(runs, at, out.len(), s as u32);
         }
     }
 

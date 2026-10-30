@@ -13,7 +13,7 @@
 //! the plot are culled and the rest are strided down to the mark budget (`truncated` is set).
 
 use super::*;
-use crate::renderer::{point_shape, point_slot, ChartAnnotationLayer, ChartDashSegmentRaw, ChartPointStyleRaw};
+use crate::renderer::{point_shape, point_slot, ChartAnnotationLayer, ChartDashSegmentRaw, ChartDecalRaw, ChartPointStyleRaw};
 use std::fmt::Write;
 
 /// Default mark budget of `export_svg` (about 10-20 MB of markup).
@@ -236,9 +236,21 @@ impl Svg<'_> {
             if !self.budget.take() {
                 break;
             }
+            let Some(d) = self.bar_path(b) else {
+                continue;
+            };
+            let _ = write!(self.out, "<path d=\"{d}\"");
+            paint(&mut self.out, "fill", b.color);
+            self.out.push_str("/>");
+        }
+    }
+
+    /// Outline (`d`) of a bar in CSS px; `None` when it is off screen or trimmed away.
+    fn bar_path(&self, b: &ChartBarRaw) -> Option<String> {
+        {
             let z = b.z_radius[0];
             let (Some(p0), Some(p1)) = (self.css(b.rect[0], b.rect[1], z), self.css(b.rect[2], b.rect[3], z)) else {
-                continue;
+                return None;
             };
             let (l, r) = (p0.0.min(p1.0), p0.0.max(p1.0));
             let (t, btm) = (p0.1.min(p1.1), p0.1.max(p1.1));
@@ -251,7 +263,7 @@ impl Svg<'_> {
             let trim = gap.clamp(0.0, len * 0.5);
             let (w, h) = (thick - 2.0 * side, len - trim);
             if w <= 0.0 || h <= 0.0 {
-                continue;
+                return None;
             }
             let rad = b.z_radius[1].max(0.0).min(w * 0.5).min(h);
             // CSS point of local (u, v)
@@ -290,10 +302,57 @@ impl Svg<'_> {
                 pt(&mut d, 'L', 0.0, h);
             }
             d.push('Z');
-            let _ = write!(self.out, "<path d=\"{d}\"");
-            paint(&mut self.out, "fill", b.color);
-            self.out.push_str("/>");
+            Some(d)
         }
+    }
+
+    /// Decal overlays of the bars (`decals[i]` of `bars[i]`) filled with their patterns.
+    fn bar_decals(&mut self, bars: &[ChartBarRaw], decals: &[ChartDecalRaw], patterns: &mut SvgPatterns) {
+        let mut body = String::new();
+        for (b, d) in bars.iter().zip(decals) {
+            if decal::symbol_of(d) == 0 || !self.budget.take() {
+                continue;
+            }
+            let Some(path) = self.bar_path(b) else {
+                continue;
+            };
+            let n = patterns.of(d, decal::decal_paint(d, b.color));
+            let _ = write!(body, "<path d=\"{path}\" fill=\"url(#{}-decal-{n})\"/>", patterns.id);
+        }
+        patterns.flush(&mut self.out, "bar-decals", &body);
+    }
+
+    /// Decal overlays of the fill triangles: runs of one pattern become one path. `fills` are
+    /// the staged (unresolved) vertices; the decal color follows the emphasis like the GPU's.
+    fn fill_decals(&mut self, fills: &[ChartFillRaw], decals: &[ChartDecalRaw], style: &ChartFillStyleRaw, patterns: &mut SvgPatterns) {
+        let mut body = String::new();
+        let mut d = String::new();
+        let mut current: Option<usize> = None;
+        let flush = |body: &mut String, d: &mut String, n: Option<usize>, id: &str| {
+            if let (Some(n), false) = (n, d.is_empty()) {
+                let _ = write!(body, "<path d=\"{d}\" fill=\"url(#{id}-decal-{n})\"/>");
+            }
+            d.clear();
+        };
+        for (t, dc) in fills.as_chunks::<3>().0.iter().zip(decals.as_chunks::<3>().0) {
+            let dc = &dc[0];
+            if decal::symbol_of(dc) == 0 || !self.budget.take() {
+                continue;
+            }
+            let p: Vec<(f32, f32)> = t.iter().filter_map(|v| self.css(v.position[0], v.position[1], v.position[2])).collect();
+            if p.len() != 3 {
+                continue;
+            }
+            let color = style.resolve(&ChartFillRaw { position: t[0].position, color: decal::decal_paint(dc, t[0].color) });
+            let n = patterns.of(dc, color);
+            if current != Some(n) {
+                flush(&mut body, &mut d, current, &patterns.id);
+                current = Some(n);
+            }
+            let _ = write!(d, "M{} {}L{} {}L{} {}Z", num(p[0].0), num(p[0].1), num(p[1].0), num(p[1].1), num(p[2].0), num(p[2].1));
+        }
+        flush(&mut body, &mut d, current, &patterns.id);
+        patterns.flush(&mut self.out, "fill-decals", &body);
     }
 
     /// Marker of `shape` (0 circle, 1 square, 2 diamond, 3 triangle) with fill radius `r` and a
@@ -410,6 +469,77 @@ impl Svg<'_> {
     }
 }
 
+/// Decal `<pattern>`s of one export: one per distinct (decal, paint), `{id}-decal-{n}`.
+struct SvgPatterns {
+    id: String,
+    list: Vec<(ChartDecalRaw, [f32; 4])>,
+    /// Patterns already written to a `<defs>`
+    written: usize,
+}
+
+impl SvgPatterns {
+    /// Index of the pattern of decal `d` painted `color`.
+    fn of(&mut self, d: &ChartDecalRaw, color: [f32; 4]) -> usize {
+        let key = (ChartDecalRaw { color: [0.0; 4], ..*d }, color);
+        self.list.iter().position(|k| *k == key).unwrap_or_else(|| {
+            self.list.push(key);
+            self.list.len() - 1
+        })
+    }
+
+    /// Writes the new patterns' `<defs>` and `body` as layer `name` (nothing when empty).
+    fn flush(&mut self, out: &mut String, name: &str, body: &str) {
+        if body.is_empty() {
+            return;
+        }
+        let _ = write!(out, "<g data-layer=\"{name}\"><defs>");
+        for (n, (d, color)) in self.list.iter().enumerate().skip(self.written) {
+            svg_pattern(out, &format!("{}-decal-{n}", self.id), d, *color);
+        }
+        self.written = self.list.len();
+        let _ = write!(out, "</defs>{body}</g>");
+    }
+}
+
+/// `<pattern>` of a decal: the symbol centered in a `spacing` square tile in canvas CSS px
+/// (user space, anchored at the canvas origin like the GPU's screen-space tiling), rotated
+/// about the origin. Mirrors `decal_coverage` in the decal shader.
+fn svg_pattern(out: &mut String, id: &str, d: &ChartDecalRaw, color: [f32; 4]) {
+    let [_, size, s, rot] = d.pattern;
+    let (c, r) = (0.5 * s, 0.5 * size);
+    let _ = write!(out, "<pattern id=\"{id}\" patternUnits=\"userSpaceOnUse\" width=\"{0}\" height=\"{0}\"", num(s));
+    if rot != 0.0 {
+        let _ = write!(out, " patternTransform=\"rotate({})\"", num(rot.to_degrees()));
+    }
+    out.push('>');
+    let poly = |out: &mut String, pts: &[(f32, f32)]| {
+        out.push_str("<path d=\"");
+        for (i, (x, y)) in pts.iter().enumerate() {
+            let _ = write!(out, "{}{} {}", if i == 0 { 'M' } else { 'L' }, num(c + x), num(c + y));
+        }
+        out.push_str("Z\"");
+    };
+    match decal::symbol_of(d) {
+        1 => {
+            let _ = write!(out, "<rect x=\"{0}\" y=\"{0}\" width=\"{1}\" height=\"{1}\"", num(c - r), num(2.0 * r));
+        }
+        2 => {
+            let _ = write!(out, "<circle cx=\"{0}\" cy=\"{0}\" r=\"{1}\"", num(c), num(r));
+        }
+        3 => poly(out, &[(0.0, -r), (0.866_025_4 * r, 0.5 * r), (-0.866_025_4 * r, 0.5 * r)]),
+        4 => poly(out, &[(0.0, -r), (r, 0.0), (0.0, r), (-r, 0.0)]),
+        5 => {
+            let _ = write!(out, "<rect x=\"0\" y=\"{}\" width=\"{}\" height=\"{}\"", num(c - r), num(s), num(2.0 * r));
+        }
+        _ => {
+            let t = decal::cross_half_thickness(r);
+            poly(out, &[(-t, -r), (t, -r), (t, -t), (r, -t), (r, t), (t, t), (t, r), (-t, r), (-t, t), (-r, t), (-r, -t), (-t, -t)]);
+        }
+    }
+    paint(out, "fill", color);
+    out.push_str("/></pattern>");
+}
+
 impl ChartState {
     /// How this chart exports to SVG.
     #[allow(unreachable_patterns)]
@@ -484,9 +614,13 @@ impl ChartState {
         }
         let open = w.out.len();
         w.group("bars", |w| w.bars(&self.bars));
+        // Decals (pattern fills) over the bars / fills, as the decal passes draw them
+        let mut patterns = SvgPatterns { id: id.clone(), list: Vec::new(), written: 0 };
+        w.bar_decals(&self.bars, decal::aligned(self.decals.bars(), self.bars.len()), &mut patterns);
         // Hover / legend emphasis of tagged fills is applied by the GPU: resolve it the same way
         let fills = self.fill_style.resolved(&self.fills);
         w.group("fills", |w| w.fills(&fills));
+        w.fill_decals(&self.fills, decal::aligned(self.decals.fills(), self.fills.len()), &self.fill_style, &mut patterns);
         if matches!(self.kind, ChartKind::Parallel(_)) {
             // Row flags are applied by the GPU: resolve them (inactive rows beneath active ones)
             let lines = self.parallel_svg_segments();

@@ -81,6 +81,38 @@ const csv = sdk.exportChartCSV();      // RFC 4180 CSV, 행 구분은 CRLF
 - 키보드 포커스 링은 현재 글자색의 2 px `:focus-visible` 외곽선입니다.
 - 접근성 레이어 자체는 트랜지션을 쓰지 않습니다. 차트 [애니메이션](./animation)은 옵트인이고 `prefers-reduced-motion: reduce`에서는 꺼집니다.
 
+## 패턴 채우기 (decal)
+
+색맹 독자나 흑백 인쇄에서는 색만으로 시리즈를 구분하기 어렵습니다. `decal`(ECharts `aria.decal` / `itemStyle.decal`)은 막대(그룹형 / 누적형 / 백분율, 2D), 파이 / 도넛, 영역, 트리맵, 선버스트, 퍼널 차트의 마크 위에 작은 기호 패턴을 그립니다:
+
+```ts
+// 시리즈마다(단일 시리즈 막대는 항목 category마다) 자동 패턴이 하나씩 붙습니다
+sdk.renderGroupedBarChart(data, { mode: 'stacked', decal: true });
+
+// 차트 수준 옵션은 자동 패턴 위에 적용되고, 시리즈 / 항목 옵션이 이를 덮어씁니다
+sdk.renderGroupedBarChart(
+  { categories, series: [{ name: 'A', values: a }, { name: 'B', values: b, decal: { symbol: 'cross', color: '#facc15' } }, { name: 'C', values: c, decal: false }] },
+  { decal: { opacity: 0.6 } }
+);
+
+// 파이 / 퍼널: 입력 인덱스별 조각 / 단계 덮어쓰기, 트리맵 / 선버스트: 노드의 `decal`
+sdk.renderPieChart({ labels, values }, { decal: true, decals: [undefined, { symbol: 'circle' }] });
+```
+
+| 옵션 | 기본값 | |
+|---|---|---|
+| `symbol` | 자동 | `'rect'`, `'circle'`, `'triangle'`, `'diamond'`, `'line'`(줄무늬), `'cross'`, 또는 `'none'` |
+| `symbolSize` | 자동(2–7) | 기호 크기(CSS px), 0 < size ≤ 512 (`'line'`은 줄무늬 두께) |
+| `spacing` | 자동(8–10) | 타일 크기(CSS px, 기호 중심 사이 거리), 1–1024 |
+| `rotation` | 자동 | 도 단위, 화면에서 시계 방향 |
+| `color` | `'auto'` | `'auto'`: 밝은 마크에는 검정, 어두운 마크에는 흰색. 또는 임의의 색 |
+| `opacity` | 0.45 | 0–1, 색의 알파와 마크의 알파를 곱합니다 |
+
+- 자동 패턴은 서로 다른 기호 / 각도 조합 8가지를 시리즈 순서대로 순환합니다(파이: 조각, 퍼널: 단계, 트리맵 / 선버스트: 최상위 그룹).
+- 패턴은 GPU에서 두 번째 패스로 그립니다(텍스처 없음). WebGPU와 WebGL2에서 똑같이 보입니다. 범례 견본에도 패턴이 보이고, SVG 내보내기는 같은 `<pattern>` 정의를 쓰며, 테마를 바꿔도 패턴이 유지됩니다(자동 색은 새 마크 색을 따릅니다). `decal`이 없으면 추가로 그리는 것이 없습니다.
+- 패턴은 **화면 공간에 고정**됩니다: 타일이 캔버스 왼쪽 위에서 시작하므로 마크가 움직이거나 확대되거나 애니메이션될 때도 패턴은 제자리에 있습니다(CSS `background-attachment: fixed`와 같음).
+- 그리지 않는 곳: 3D 차트, 픽토리얼 막대, 접힌 파이 "기타" 조각, 트리맵 부모 헤더, 선버스트 중심. 겹치는 영역(`mode: 'overlap'`)은 모든 채우기 뒤에 모든 패턴을 그리므로, 겹친 부분에서 아래 시리즈의 패턴이 위 시리즈 위로 보일 수 있습니다.
+
 ## 차트별 동작
 
 - **산점도**: 요약에 시리즈별 점 수와 x / y 범위가 들어갑니다. 표는 점마다 한 행(x, y, 시리즈)이고 데이터 순서를 따릅니다.

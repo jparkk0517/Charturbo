@@ -88,6 +88,17 @@ pub struct ChartBarRaw {
     pub color: [f32; 4],
 }
 
+/// Decal (pattern fill) of one bar instance or one fill vertex (32 bytes), drawn over the mark
+/// by its own pass (chart/decal.rs). Symbol 0 = none.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable, Default)]
+pub struct ChartDecalRaw {
+    /// `[symbol, size_css_px, spacing_css_px, rotation_rad]`
+    pub pattern: [f32; 4],
+    /// RGB + opacity; `r < 0` = auto contrast (black / white from the mark color)
+    pub color: [f32; 4],
+}
+
 /// Series slots in `ChartPointStyleRaw::series_alpha`; scatter charts with more series fall
 /// back to re-packing points on legend changes.
 pub const MAX_POINT_SERIES: usize = 256;
@@ -198,8 +209,12 @@ pub struct ChartLayers<'a> {
     /// Grid / baseline strokes drawn beneath bars and series
     pub underlay: Option<&'a [ChartSegmentRaw]>,
     pub bars: Option<&'a [ChartBarRaw]>,
+    /// Decals of the bars, one per uploaded bar (uploaded with `bars`; empty = none)
+    pub bar_decals: Option<&'a [ChartDecalRaw]>,
     /// Filled areas (triangle list) drawn beneath the series strokes
     pub fills: Option<&'a [ChartFillRaw]>,
+    /// Decals of the fills, one per uploaded fill vertex (uploaded with `fills`; empty = none)
+    pub fill_decals: Option<&'a [ChartDecalRaw]>,
     /// Scientific 3D isolines: hairline vertex pairs (line list), depth-tested without writes
     pub contours_3d: Option<&'a [ChartFillRaw]>,
     /// Re-written vertex ranges of the uploaded fills (ignored when `fills` is set)
@@ -578,6 +593,9 @@ pub struct MockRenderBackend {
     pub chart_overlay_count: usize,
     pub chart_marker_count: usize,
     pub chart_fill_count: usize,
+    /// Decals of the last bar / fill decal uploads
+    pub chart_bar_decal_count: usize,
+    pub chart_fill_decal_count: usize,
     /// Vertices re-written by fill patches since creation, and the last fill emphasis uniform
     pub chart_fill_patched: usize,
     pub chart_fill_style: Option<ChartFillStyleRaw>,
@@ -704,6 +722,13 @@ impl RenderBackend for MockRenderBackend {
         if let Some(l) = &layers.series_style {
             self.chart_series_style = (l.dashed.len(), l.markers.len());
             uploaded = true;
+        }
+        // Decals ride with their marks, as in the wgpu backend
+        if layers.bars.is_some() {
+            self.chart_bar_decal_count = layers.bar_decals.map_or(0, <[_]>::len);
+        }
+        if layers.fills.is_some() {
+            self.chart_fill_decal_count = layers.fill_decals.map_or(0, <[_]>::len);
         }
         if let Some(v) = layers.fills {
             self.chart_fill_count = v.len();

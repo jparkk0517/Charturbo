@@ -453,6 +453,7 @@ impl TreemapChart {
         if relayout || force || self.built != Some(screen) {
             out.fills.clear();
             out.edges.clear();
+            out.decal_runs.clear();
             // Base colors tagged with the legend group: emphasis fades on the GPU
             for c in &self.cells {
                 let base = self.colors[c.node as usize];
@@ -461,6 +462,9 @@ impl TreemapChart {
                 push_rect(&screen, c.rect, color, out.fills);
                 let tag = self.emphasis_tag(c.node as usize);
                 out.fills[at..].iter_mut().for_each(|f| f.position[3] = tag);
+                if c.kind != CellKind::Header {
+                    super::decal::push_run(out.decal_runs, at, out.fills.len(), c.node);
+                }
             }
             self.built = Some(screen);
             self.outlined = None;

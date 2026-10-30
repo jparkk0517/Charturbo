@@ -7,6 +7,7 @@
  */
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartValueFormat } from './chart-format';
+import type { ChartDecalInput, DecalOverride } from './chart-decal';
 import type { A11yChartModel } from './chart-a11y';
 import type { ChartPaddingOptions, ChartTooltipContext, NodeMetadata, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import {
@@ -43,6 +44,13 @@ export interface FunnelChartOptions {
   color?: ColorInput;
   /** Per-stage colors (e.g. an ordinal ramp); missing entries use `color` */
   colors?: (ColorInput | null | undefined)[];
+  /**
+   * Pattern fills over the marks (accessibility, ECharts `aria.decal`): `true` gives each stage
+   * its own automatic pattern; options apply over the automatic patterns (default off).
+   */
+  decal?: ChartDecalInput;
+  /** Per-stage decal over `decal` (`false`: none) */
+  decals?: DecalOverride[];
   /** Narrowest stage as a fraction of the widest (default 0.02) */
   minWidth?: number;
   /** Conversion shown in the labels (default `'first'`) */

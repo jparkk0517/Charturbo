@@ -18,6 +18,7 @@ mod lib_graph2d;
 mod lib_timezone;
 mod lib_barstyle;
 mod lib_pictorial;
+mod lib_decal;
 mod lib_linestyle;
 mod lib_scientific3d;
 mod lib_combo;

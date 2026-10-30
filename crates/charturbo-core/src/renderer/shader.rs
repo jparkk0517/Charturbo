@@ -985,9 +985,224 @@ fn vs_parallel(@builtin(vertex_index) vi: u32, inst: SegmentInstance) -> Segment
 }
 "#;
 
+/// Decal pass over the bars (chart/decal.rs): the bar instance plus its decal, cut like
+/// `fs_bar` and tiled with the decal symbol in screen space.
+pub fn chart_bar_decal_wgsl() -> String {
+    format!("{CHART_PRELUDE_WGSL}{CHART_DECAL_COMMON_WGSL}{CHART_BAR_DECAL_BODY_WGSL}")
+}
+
+/// Decal pass over the fill triangles: the fill vertex plus its decal; the decal color follows
+/// the fill emphasis uniform like `fs_fill`.
+pub fn chart_fill_decal_wgsl() -> String {
+    format!("{CHART_PRELUDE_WGSL}{CHART_FILL_BODY_WGSL}{CHART_DECAL_COMMON_WGSL}{CHART_FILL_DECAL_BODY_WGSL}")
+}
+
+const CHART_DECAL_COMMON_WGSL: &str = r#"
+// Decal paint over a mark of color `base`: `dc.r < 0` = auto contrast (black on light marks,
+// white on dark ones); alpha = opacity * the mark's alpha (chart/decal.rs `decal_paint`)
+fn decal_paint(base: vec4<f32>, dc: vec4<f32>) -> vec4<f32> {
+    var rgb = dc.rgb;
+    if (dc.r < 0.0) {
+        let lum = dot(base.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+        rgb = select(vec3<f32>(1.0), vec3<f32>(0.0), lum > 0.5);
+    }
+    return vec4<f32>(rgb, dc.a * base.a);
+}
+
+fn decal_symbol(pat: vec4<f32>) -> u32 {
+    return u32(max(pat.x, 0.0) + 0.5);
+}
+
+// Coverage of the decal symbol at framebuffer pixel `px`: the symbol is centered in square
+// cells of `spacing` CSS px tiled from the canvas top-left, rotated by `rotation` about it
+// (pattern [symbol, size, spacing, rotation]; mirrored by chart/svg.rs `svg_pattern`)
+fn decal_coverage(px: vec2<f32>, pat: vec4<f32>) -> f32 {
+    let symbol = decal_symbol(pat);
+    if (symbol == 0u) {
+        return 0.0;
+    }
+    let pr = camera.viewport.z;
+    let cell = max(pat.z * pr, 1.0);
+    let cs = cos(pat.w);
+    let sn = sin(pat.w);
+    let q = vec2<f32>(cs * px.x + sn * px.y, cs * px.y - sn * px.x);
+    let l = (fract(q / cell) - vec2<f32>(0.5)) * cell;
+    let a = abs(l);
+    let r = 0.5 * pat.y * pr;
+    var d = 0.0;
+    switch symbol {
+        case 1u: {
+            d = max(a.x, a.y) - r;
+        }
+        case 2u: {
+            d = length(l) - r;
+        }
+        case 3u: {
+            d = max(a.x * 0.8660254 - l.y * 0.5, l.y) - 0.5 * r;
+        }
+        case 4u: {
+            d = (a.x + a.y - r) * 0.70710678;
+        }
+        case 5u: {
+            d = a.y - r;
+        }
+        default: {
+            let t = max(0.5 * pr, 0.25 * r);
+            d = min(max(a.x - r, a.y - t), max(a.y - r, a.x - t));
+        }
+    }
+    return clamp(0.5 - d, 0.0, 1.0);
+}
+"#;
+
+const CHART_BAR_DECAL_BODY_WGSL: &str = r#"
+struct BarDecalInstance {
+    @location(0) rect: vec4<f32>,
+    @location(1) z_radius: vec4<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) pattern: vec4<f32>,
+    @location(4) decal_color: vec4<f32>,
+};
+
+struct BarDecalOut {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) local_px: vec2<f32>,
+    @location(1) dims: vec4<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) trim: vec2<f32>,
+    @location(4) pattern: vec4<f32>,
+};
+
+// Same quad, gap trim and corner radius as `vs_bar`
+@vertex
+fn vs_bar_decal(@builtin(vertex_index) vi: u32, inst: BarDecalInstance) -> BarDecalOut {
+    var out: BarDecalOut;
+    out.pattern = inst.pattern;
+    if (decal_symbol(inst.pattern) == 0u) {
+        // Undecorated bar: degenerate triangles, no fragments
+        out.clip_position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0),
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0),
+    );
+    let corner = corners[vi];
+    let z = inst.z_radius.x;
+    let p00 = clip_to_px(to_clip(vec3<f32>(inst.rect.x, inst.rect.y, z)));
+    let p11 = clip_to_px(to_clip(vec3<f32>(inst.rect.z, inst.rect.w, z)));
+    var size = abs(p11 - p00);
+    let world = vec3<f32>(mix(inst.rect.x, inst.rect.z, corner.x), mix(inst.rect.y, inst.rect.w, corner.y), z);
+    out.clip_position = camera.view_proj * vec4<f32>(world, 1.0);
+    out.local_px = corner * size;
+    if (abs(inst.z_radius.z) > 1.5) {
+        size = size.yx;
+        out.local_px = out.local_px.yx;
+    }
+    let gap = inst.z_radius.w * camera.viewport.z;
+    let side = clamp(-gap * 0.5, 0.0, size.x * 0.25);
+    let end = clamp(gap, 0.0, size.y * 0.5);
+    let inner = vec2<f32>(size.x - 2.0 * side, size.y - end);
+    let radius = min(inst.z_radius.y * camera.viewport.z, min(inner.x * 0.5, inner.y));
+    out.dims = vec4<f32>(inner, radius, inst.z_radius.z);
+    out.color = decal_paint(inst.color, inst.decal_color);
+    out.trim = vec2<f32>(side, end);
+    return out;
+}
+
+// `fs_bar`'s coverage times the symbol's
+@fragment
+fn fs_bar_decal(in: BarDecalOut) -> @location(0) vec4<f32> {
+    let w = in.dims.x;
+    let h = in.dims.y;
+    let r = in.dims.z;
+    var p = in.local_px - vec2<f32>(in.trim.x, 0.0);
+    if (in.dims.w < 0.0) {
+        p.y = h + in.trim.y - p.y;
+    }
+    if (p.x < 0.0 || p.x > w || p.y > h) {
+        discard;
+    }
+    var coverage = 1.0;
+    if (r > 0.5 && p.y > h - r && (p.x < r || p.x > w - r)) {
+        let c = vec2<f32>(clamp(p.x, r, w - r), h - r);
+        coverage = clamp(r + 0.5 - length(p - c), 0.0, 1.0);
+    }
+    let a = in.color.a * coverage * decal_coverage(in.clip_position.xy, in.pattern);
+    if (a <= 0.0) {
+        discard;
+    }
+    return vec4<f32>(in.color.rgb, a);
+}
+"#;
+
+const CHART_FILL_DECAL_BODY_WGSL: &str = r#"
+struct FillDecalVertex {
+    @location(0) position: vec4<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) pattern: vec4<f32>,
+    @location(3) decal_color: vec4<f32>,
+};
+
+struct FillDecalOut {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) pattern: vec4<f32>,
+};
+
+@vertex
+fn vs_fill_decal(v: FillDecalVertex) -> FillDecalOut {
+    var out: FillDecalOut;
+    out.pattern = v.pattern;
+    if (decal_symbol(v.pattern) == 0u) {
+        out.clip_position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    out.clip_position = camera.view_proj * vec4<f32>(v.position.xyz, 1.0);
+    out.color = fill_color(decal_paint(v.color, v.decal_color), v.position.w);
+    return out;
+}
+
+@fragment
+fn fs_fill_decal(in: FillDecalOut) -> @location(0) vec4<f32> {
+    let a = in.color.a * decal_coverage(in.clip_position.xy, in.pattern);
+    if (a <= 0.0) {
+        discard;
+    }
+    return vec4<f32>(in.color.rgb, a);
+}
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decal_shaders_translate_to_webgl2_glsl() {
+        // Symbol switch, fract tiling and the fill emphasis uniform must survive GLSL ES 3.00
+        use naga::back::glsl;
+        for (src, vs, fs) in [
+            (chart_bar_decal_wgsl(), "vs_bar_decal", "fs_bar_decal"),
+            (chart_fill_decal_wgsl(), "vs_fill_decal", "fs_fill_decal"),
+        ] {
+            let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+            let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
+                .validate(&module)
+                .unwrap();
+            let options = glsl::Options { version: glsl::Version::Embedded { version: 300, is_webgl: true }, ..Default::default() };
+            for (stage, entry) in [(naga::ShaderStage::Vertex, vs), (naga::ShaderStage::Fragment, fs)] {
+                let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+                let mut out = String::new();
+                glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
+                    .and_then(|mut w| w.write())
+                    .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+                assert!(out.contains("#version 300 es"));
+                if stage == naga::ShaderStage::Fragment {
+                    assert!(out.contains("gl_FragCoord"), "{entry}: tiles in screen space");
+                }
+            }
+        }
+    }
 
     #[test]
     fn shader_sources_define_expected_entry_points() {
