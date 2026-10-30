@@ -29,6 +29,7 @@ mod lib_stats;
 mod lib_texture;
 mod lib_shading;
 mod lib_shadows;
+mod lib_point_lights;
 mod lib_post;
 mod lib_antialias;
 mod lib_camera;

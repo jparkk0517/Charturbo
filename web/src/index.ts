@@ -174,6 +174,12 @@ export {
   type ScenePostProcessingState,
   type ScenePostBackend,
 } from './sdk/scene-post';
+export {
+  MAX_POINT_LIGHTS,
+  type ScenePointLight,
+  type ScenePointLightDescriptor,
+  type ScenePointLightsBackend,
+} from './sdk/scene-lights';
 export { type CharturboAntialias, type CharturboAntialiasSamples, type AntialiasBackend } from './sdk/antialias';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';

@@ -209,6 +209,31 @@ sdk.setHelpers({ showGrid: true, gridSize: 160, gridDivisions: 16, showAxes: tru
 | `showAxes` | `boolean` | `false` |
 | `axesLength` | `number` | `60` |
 
+### 점광원 {#point-lights}
+
+`addPointLight`는 `setLighting` 점광원 외에 색이 있는 점광원을 추가하고 id를 돌려줍니다. 장면에는 최대 8개(`MAX_POINT_LIGHTS`, `setLighting` 점광원은 세지 않음)까지 둘 수 있고, 9번째 `addPointLight`는 예외를 던집니다.
+
+```ts
+const red = sdk.addPointLight({ position: [-30, 12, 0], color: [1, 0.15, 0.1], intensity: 1.5, range: 60 });
+sdk.setPointLight(red, { position: [-20, 14, 5] }); // 생략한 필드는 현재 값 유지
+sdk.removePointLight(red); // 모르는 id면 false
+sdk.getPointLights(); // [{ id, position, color, intensity, range }, ...] 추가한 순서
+```
+
+- `color`는 sRGB입니다(기본 흰색). 각 광원은 `saturate(1 - (d / range)⁴)²` 창으로 `range`(기본 `100` 월드 단위)에서 부드럽게 0이 되어 그 너머에는 닿지 않습니다.
+- 클래식 셰이딩은 `setLighting` 점광원 감쇠 `1 / (1 + 0.0035 d + 0.00008 d²)`에 `intensity`와 창을 곱하므로, 범위 안에서 `intensity: 1`은 `pointIntensity: 1`과 같습니다.
+- PBR 셰이딩은 물리 기반 역제곱 감쇠 `intensity / (d² + 1)`에 창을 곱합니다(Karis 2013). `intensity`는 광도이므로 30 단위 떨어진 표면을 세기 1인 방향광만큼 밝히려면 약 `900`이 필요합니다. 셰이딩 모델을 바꾸면 세기도 다시 정해야 합니다.
+- 이 광원들은 그림자를 드리우지 않습니다. `setShadows({ point })`는 `setLighting` 점광원만 따릅니다.
+- `setLighting`처럼 장면 설정입니다. `clearScene()`은 유지하고, `exportScene()`은 `pointLights`에 저장하며, `loadScene`은 현재 광원을 그것으로 바꿉니다(`pointLights`가 없는 디스크립터는 현재 광원 유지). id는 재사용하지 않습니다.
+- 두 셰이딩 모델 모두 모든 광원이 모든 메시 프래그먼트를 비춥니다(컬링 없음). 유니폼 버퍼 하나에 담겨 WebGPU와 WebGL2에서 모두 동작하며, 광원이 없으면 셰이더가 루프를 건너뛰어 이전과 똑같이 그립니다.
+
+| 점광원 옵션 | 타입 | 기본값 |
+| --- | --- | --- |
+| `position` | `[x, y, z]` | 필수 |
+| `color` | `[r, g, b]` (0..1, sRGB) | `[1, 1, 1]` |
+| `intensity` | `number` (0..1e6) | `1` |
+| `range` | `number` (0.01..1e6) | `100` |
+
 ## 물리 기반 셰이딩
 
 장면 메시는 기본적으로 기존 Blinn-Phong(classic) 모습으로 그려집니다. `setShading({ model: 'pbr' })`로 선택형 물리 기반 셰이딩으로 바꿀 수 있습니다(차트 · 과학 3D · 3D 그래프는 바뀌지 않습니다).
@@ -324,7 +349,7 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 어두워지지 �
 
 ### 점광원 그림자 {#point-light-shadows}
 
-`setShadows({ point: { enabled: true } })`는 `setLighting` 점광원(`pointPosition`)의 전방향 그림자를 켭니다. 기본값은 꺼짐이며 방향광 설정과 독립적이라 둘 중 하나만 또는 둘 다 켤 수 있습니다:
+`setShadows({ point: { enabled: true } })`는 `setLighting` 점광원(`pointPosition`)의 전방향 그림자를 켭니다([`addPointLight`](#point-lights) 광원은 그림자 없음). 기본값은 꺼짐이며 방향광 설정과 독립적이라 둘 중 하나만 또는 둘 다 켤 수 있습니다:
 
 ```ts
 sdk.setLighting({ pointPosition: [0, 26, 0], pointIntensity: 1.6 });
@@ -433,7 +458,7 @@ sdk.enableNodeInteractions(canvas, {
 
 ## 저장과 불러오기
 
-`exportScene()`은 직렬화할 수 있는 `SceneDescriptor`(트랜스폼·재질·물리를 포함한 객체, 조명, 셰이딩, 보조 표시, 강체 물리, 그래프 표시 여부)를 반환합니다. `loadScene(descriptor)`는 장면을 비우고 설정을 적용한 뒤 객체를 다시 만들고, 새 ID 목록을 반환합니다.
+`exportScene()`은 직렬화할 수 있는 `SceneDescriptor`(트랜스폼·재질·물리를 포함한 객체, 조명, [점광원](#point-lights), 셰이딩, 보조 표시, 강체 물리, 그래프 표시 여부)를 반환합니다. `loadScene(descriptor)`는 장면을 비우고 설정을 적용한 뒤 객체를 다시 만들고, 새 ID 목록을 반환합니다.
 
 텍스처는 `clearScene()` / `loadScene()`으로 지워지지 않습니다. `exportScene()`은 객체가 쓰는 텍스처를 `textures`(`{ id, src, width, height }`, 픽셀 데이터 없음)에 나열하고 객체에는 `map` ID를 남깁니다. `loadScene`은 동기 함수라서 아직 살아 있는 텍스처의 `map` ID는 유지하고, 알 수 없는 ID는 `console.warn`과 함께 버립니다. 다른 세션에서 저장한 장면을 복원하려면 `await sdk.loadSceneWithTextures(descriptor)`를 호출하세요. `src`가 있는 텍스처를 다시 불러오고(같은 `src`의 살아 있는 텍스처는 재사용), 객체의 `map` ID를 새 ID로 바꾼 뒤 `loadScene`을 호출합니다. `src`가 없는 텍스처(`createDataTexture`, 캔버스, `ImageData`)는 복원할 수 없어 맵이 버려집니다.
 

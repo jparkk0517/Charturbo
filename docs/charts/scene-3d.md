@@ -209,6 +209,31 @@ sdk.setHelpers({ showGrid: true, gridSize: 160, gridDivisions: 16, showAxes: tru
 | `showAxes` | `boolean` | `false` |
 | `axesLength` | `number` | `60` |
 
+### Point lights {#point-lights}
+
+`addPointLight` adds a coloured point light beside the `setLighting` one and returns its id. A scene holds up to 8 (`MAX_POINT_LIGHTS`; the `setLighting` point light is not counted); a 9th `addPointLight` throws.
+
+```ts
+const red = sdk.addPointLight({ position: [-30, 12, 0], color: [1, 0.15, 0.1], intensity: 1.5, range: 60 });
+sdk.setPointLight(red, { position: [-20, 14, 5] }); // omitted fields keep their value
+sdk.removePointLight(red); // false for unknown ids
+sdk.getPointLights(); // [{ id, position, color, intensity, range }, ...] in insertion order
+```
+
+- `color` is sRGB (default white). Each light fades out smoothly to zero at `range` (default `100` world units) with the window `saturate(1 - (d / range)⁴)²`, so lights do not reach past it.
+- Classic shading multiplies the `setLighting` point falloff `1 / (1 + 0.0035 d + 0.00008 d²)` by `intensity` and the window, so `intensity: 1` matches `pointIntensity: 1` inside the range.
+- PBR shading uses the physically based inverse-square falloff `intensity / (d² + 1)` times the window (Karis 2013), so `intensity` is a luminous intensity: a light 30 units from a surface needs about `900` to light it like a directional light of intensity 1. Switching models therefore needs different intensities.
+- These lights cast no shadows: `setShadows({ point })` follows the `setLighting` point light only.
+- They are scene settings like `setLighting`: `clearScene()` keeps them; `exportScene()` stores them in `pointLights` and `loadScene` replaces the current lights with them (descriptors without `pointLights` keep the current ones). Ids are not reused.
+- Every light shades every mesh fragment in both models (no culling), in one uniform buffer that works on WebGPU and WebGL2. With no lights the shaders skip the loop and render exactly as before.
+
+| Point light option | Type | Default |
+| --- | --- | --- |
+| `position` | `[x, y, z]` | required |
+| `color` | `[r, g, b]` (0..1, sRGB) | `[1, 1, 1]` |
+| `intensity` | `number` (0..1e6) | `1` |
+| `range` | `number` (0.01..1e6) | `100` |
+
 ## Physically based shading
 
 Scene meshes use the classic Blinn-Phong look by default. `setShading({ model: 'pbr' })` switches them to opt-in physically based shading (charts, scientific 3D and the 3D graph never change):
@@ -324,7 +349,7 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // never darkened
 
 ### Point-light shadows {#point-light-shadows}
 
-`setShadows({ point: { enabled: true } })` adds omnidirectional shadows of the `setLighting` point light (`pointPosition`). It is off by default and independent of the directional settings, so either kind or both can be on:
+`setShadows({ point: { enabled: true } })` adds omnidirectional shadows of the `setLighting` point light (`pointPosition`); [`addPointLight`](#point-lights) lights cast none. It is off by default and independent of the directional settings, so either kind or both can be on:
 
 ```ts
 sdk.setLighting({ pointPosition: [0, 26, 0], pointIntensity: 1.6 });
@@ -433,7 +458,7 @@ sdk.enableNodeInteractions(canvas, {
 
 ## Save and load
 
-`exportScene()` returns a serializable `SceneDescriptor` (objects with transforms, materials and physics, plus lighting, shading, helpers, rigid physics and graph visibility). `loadScene(descriptor)` clears the scene, applies the settings and recreates the objects, returning their new IDs.
+`exportScene()` returns a serializable `SceneDescriptor` (objects with transforms, materials and physics, plus lighting, [point lights](#point-lights), shading, helpers, rigid physics and graph visibility). `loadScene(descriptor)` clears the scene, applies the settings and recreates the objects, returning their new IDs.
 
 Textures are not cleared by `clearScene()` / `loadScene()`. `exportScene()` lists the textures its objects use in `textures` (`{ id, src, width, height }`, no pixel data) and keeps the `map` IDs on the objects. `loadScene` is synchronous: it keeps `map` IDs of textures that are still alive and drops unknown ones with a `console.warn`. To restore a scene saved in another session, call `await sdk.loadSceneWithTextures(descriptor)`: it reloads the textures that have a `src` (reusing a live texture with the same `src`), remaps the object `map` IDs and then calls `loadScene`. Textures without a `src` (`createDataTexture`, canvases, `ImageData`) cannot be restored and their maps are dropped.
 

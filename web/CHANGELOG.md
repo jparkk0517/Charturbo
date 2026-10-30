@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 다중 점광원
+
+- `addPointLight({ position, color?, intensity?, range? })` → id / `setPointLight(id, partial)` / `removePointLight(id)` / `getPointLights()`: `setLighting` 점광원과 별도로 색이 있는 점광원을 최대 8개(`MAX_POINT_LIGHTS`) 추가합니다. 9번째 추가 · 모르는 id · 잘못된 값은 메서드 이름으로 시작하는 영어 오류를 던집니다. 각 광원은 `saturate(1 - (d / range)⁴)²` 창으로 `range`(기본 100)에서 부드럽게 0이 됩니다. classic은 기존 점광원 감쇠 × `intensity` × 창(`intensity: 1` = `pointIntensity: 1`), PBR은 역제곱 감쇠 `intensity / (d² + 1)` × 창(Karis 2013, `intensity`는 광도)이고 `color`는 sRGB입니다.
+- 장면 조명 유니폼이 256 → 528 B로 늘어 개수(vec4) + 광원 8 × (위치 · 범위, 색 · 세기) vec4 쌍을 담습니다(WebGL2 16 KiB 한도 이내, 스토리지 버퍼 없음). classic · PBR · 그림자 리시버 · HDR 후처리 · MSAA의 모든 메시 셰이더 변형이 같은 루프를 돌며, 광원이 없으면 0회 반복이라 기존 렌더 결과가 그대로입니다. `setLighting` 점광원(`pointPosition` / `pointIntensity`)과 `setShadows({ point })` 그림자는 그대로이며, 추가 점광원은 그림자를 드리우지 않습니다.
+- `setLighting`처럼 장면 설정이라 `clearScene()`은 유지합니다. `exportScene()`이 `pointLights`를 저장하고 `loadScene`이 현재 광원을 바꿉니다(`pointLights` 없는 장면은 현재 광원 유지). wasm `set_scene_point_lights` / `get_scene_point_lights` 추가.
+- 예제 `scene/11-point-lights`, fixture `scene-point-lights` · `scene-point-lights-pbr`, 문서 `charts/scene-3d`의 「점광원」 절.
+
 ### 추가 — 후처리 (블룸 · 자동 노출)
 
 - `setPostProcessing({ bloom: { enabled, intensity, threshold, knee, radius }, autoExposure: { enabled, minEv, maxEv, speedUp, speedDown, compensation, adaptation } })` / `getPostProcessing()`(`supported` · `active` 포함): PBR 장면 메시에 선택형 HDR 후처리를 켭니다(기본값 꺼짐). 효과가 켜지면 메시를 톤 매핑 없이 `Rgba16Float` HDR 타깃(MSAA면 멀티샘플 타깃에서 resolve)에 그리고, 전체 화면 합성 패스가 노출 · 블룸 · 톤 매핑 · sRGB 인코딩을 한 번에 적용합니다. 2D 차트 · 노드 · 에지 · 헬퍼는 합성 위에 그대로 그려집니다.

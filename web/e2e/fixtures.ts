@@ -1915,6 +1915,20 @@ export const FIXTURES: Fixture[] = [
     render: (ctx) => single(ctx, (sdk) => pointShadowScene(sdk, true)),
   },
   {
+    // Extra point lights (classic): red / green / blue lights over a white floor, spheres and a
+    // pillar mix to cyan / magenta / yellow where they overlap; a short-range amber light near
+    // the front edge shows the smooth range cut-off. The setLighting lights are nearly off.
+    name: 'scene-point-lights',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => pointLightsScene(sdk, false)),
+  },
+  {
+    // Same layout with PBR shading: inverse-square falloff (intensities in luminous units)
+    name: 'scene-point-lights-pbr',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => pointLightsScene(sdk, true)),
+  },
+  {
     // MSAA x4 (`antialias` param: 1 renders the aliased reference): the scene-shadows-pbr layout
     // plus thin tilted rods and a slanted plank whose edges stair-step without anti-aliasing
     name: 'scene-msaa',
@@ -2138,6 +2152,33 @@ function bloomScene(sdk: Charturbo): void {
   sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 0.6, environment: { map: env, intensity: 0.35, rotation: 0.3 } });
   sdk.setPostProcessing({ bloom: { enabled: true, intensity: 0.8, threshold: 1, knee: 0.5, radius: 0.7 } });
   sdk.setCameraPose([0, 30, 100], [0, 14, 0]);
+}
+
+/** Layout of the `scene-point-lights` fixtures. */
+function pointLightsScene(sdk: Charturbo, pbr: boolean): void {
+  sdk.setGraphVisible(false);
+  sdk.setRigidPhysics(false);
+  sdk.addPlane({ position: [0, -1, 0], scale: [170, 2, 120], color: [0.85, 0.85, 0.87, 1], roughness: 0.85 });
+  const white: [number, number, number, number] = [0.95, 0.95, 0.95, 1];
+  for (const [x, z] of [[-32, -6], [0, -22], [32, -6], [-14, 18], [14, 18]]) {
+    sdk.addSphere({ position: [x, 7, z], scale: [14, 14, 14], color: white, roughness: 0.35 });
+  }
+  sdk.addCylinder({ position: [0, 10, -2], scale: [8, 20, 8], color: white, roughness: 0.5 });
+  const lights: { position: [number, number, number]; color: [number, number, number]; range: number; strength: number }[] = [
+    { position: [-24, 14, 4], color: [1, 0.1, 0.08], range: 70, strength: 1 },
+    { position: [0, 14, -12], color: [0.1, 1, 0.15], range: 70, strength: 1 },
+    { position: [24, 14, 4], color: [0.12, 0.25, 1], range: 70, strength: 1 },
+    { position: [0, 4, 38], color: [1, 0.7, 0.2], range: 18, strength: 0.5 },
+  ];
+  for (const l of lights) {
+    sdk.addPointLight({ position: l.position, color: l.color, range: l.range, intensity: (pbr ? 450 : 1.8) * l.strength });
+    sdk.addSphere({ position: l.position, scale: [2, 2, 2], color: [...l.color, 1], emissive: 1, castShadow: false });
+  }
+  sdk.setLighting({ ambientIntensity: 0.05, directionalIntensity: 0.06, pointIntensity: 0 });
+  if (pbr) {
+    sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 1, environment: { intensity: 0.12 } });
+  }
+  sdk.setCameraPose([0, 62, 92], [0, 4, 0]);
 }
 
 /** Layout of the `scene-point-shadows` fixtures. */

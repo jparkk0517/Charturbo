@@ -393,8 +393,11 @@ pub struct PointShadowFrame {
     pub uniform: PointShadowUniformRaw,
 }
 
-/// 16-byte aligned scene lighting uniform buffer (256 bytes). The classic mesh shader reads the
-/// first 48 bytes only; the trailing fields drive the PBR shader (`scene::ShadingConfig`).
+/// Extra point lights (`addPointLight`) the light uniform carries beside the `setLighting` one.
+pub const MAX_POINT_LIGHTS: usize = 8;
+
+/// 16-byte aligned scene lighting uniform buffer (528 bytes). `shading` .. `env_sh` drive the
+/// PBR shader only (`scene::ShadingConfig`); both shading models read the extra point lights.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct SceneLightUniformRaw {
@@ -412,6 +415,10 @@ pub struct SceneLightUniformRaw {
     pub env_params: [f32; 4],
     /// HDR env maps: diffuse irradiance / PI as 9 premultiplied SH terms (rgb, backend)
     pub env_sh: [[f32; 4]; 9],
+    /// x = number of extra point lights in use (0..=`MAX_POINT_LIGHTS`); y, z, w unused
+    pub point_lights_count: [f32; 4],
+    /// Extra point light i: `[2 i]` = (world position, range), `[2 i + 1]` = (sRGB color, intensity)
+    pub point_lights: [[f32; 4]; 2 * MAX_POINT_LIGHTS],
 }
 
 impl SceneLightUniformRaw {
@@ -432,6 +439,8 @@ impl Default for SceneLightUniformRaw {
             env_ground: [0.0; 4],
             env_params: [0.0, 1.0, 0.0, 0.0],
             env_sh: [[0.0; 4]; 9],
+            point_lights_count: [0.0; 4],
+            point_lights: [[0.0; 4]; 2 * MAX_POINT_LIGHTS],
         }
     }
 }
@@ -1080,7 +1089,7 @@ mod tests {
         assert_eq!(size_of::<EdgeVertexRaw>(), 32);
         assert_eq!(size_of::<MeshVertexRaw>(), 32);
         assert_eq!(size_of::<MeshInstanceRaw>(), 192);
-        assert_eq!(size_of::<SceneLightUniformRaw>(), 256);
+        assert_eq!(size_of::<SceneLightUniformRaw>(), 528);
         assert_eq!(size_of::<ShadowUniformRaw>(), 96);
     }
 

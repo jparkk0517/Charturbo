@@ -141,6 +141,12 @@ struct SceneLightUniform {
     eye_pos_ambient: vec4<f32>,
     dir_light_dir_intensity: vec4<f32>,
     point_light_pos_intensity: vec4<f32>,
+    // PBR shading / environment fields (see the PBR struct), unused by classic shading
+    pbr_fields: array<vec4<f32>, 13>,
+    // x = number of extra point lights (0..8)
+    point_lights_count: vec4<f32>,
+    // extra point light i: [2 i] = (world position, range), [2 i + 1] = (sRGB color, intensity)
+    point_lights: array<vec4<f32>, 16>,
 };
 
 @group(0) @binding(0)
@@ -243,18 +249,43 @@ fn fs_mesh(in: MeshVertexOutput) -> @location(0) vec4<f32> {
 
     // Subtle Fresnel rim
     let fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.14;
-    let final_rgb = ambient + dir_contrib + pt_contrib + base_rgb * emissive + vec3<f32>(fresnel);
+    var final_rgb = ambient + dir_contrib + pt_contrib + base_rgb * emissive + vec3<f32>(fresnel);
+
+    // Extra point lights (`addPointLight`): the falloff above inside a smooth range window
+    // (Karis 2013), tinted by the light color. Added after the sum above, so with no lights
+    // (zero iterations) the result is exactly the single-light one
+    let extra_count = min(u32(light.point_lights_count.x), 8u);
+    for (var i = 0u; i < extra_count; i++) {
+        let pl_pos_range = light.point_lights[2u * i];
+        let pl_color = light.point_lights[2u * i + 1u];
+        let pl_vec = pl_pos_range.xyz - in.world_pos;
+        let pl_dist = length(pl_vec);
+        let pl_l = pl_vec / max(pl_dist, 0.001);
+        let pl_ratio2 = (pl_dist * pl_dist) / (pl_pos_range.w * pl_pos_range.w);
+        let pl_window = clamp(1.0 - pl_ratio2 * pl_ratio2, 0.0, 1.0);
+        let pl_att = pl_window * pl_window / (1.0 + 0.0035 * pl_dist + 0.00008 * pl_dist * pl_dist);
+        let pl_ndotl = max(dot(N, pl_l), 0.0);
+        let pl_h = normalize(pl_l + V);
+        let pl_spec = pow(max(dot(N, pl_h), 0.0), shininess) * spec_strength;
+        final_rgb += (base_rgb * pl_ndotl + spec_tint * pl_spec) * pl_color.rgb * (pl_color.w * pl_att);
+    }
 
     return vec4<f32>(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), alpha);
 }
 "#;
 
-/// Light uniform as declared by the classic `MESH_LIT_WGSL` (first 48 bytes of
-/// `SceneLightUniformRaw`); `mesh_pbr_wgsl` swaps it for the full struct.
+/// Light uniform as declared by the classic `MESH_LIT_WGSL` (`SceneLightUniformRaw` with the
+/// PBR fields as padding); `mesh_pbr_wgsl` swaps it for the struct naming them.
 const MESH_LIGHT_STRUCT_CLASSIC: &str = "struct SceneLightUniform {
     eye_pos_ambient: vec4<f32>,
     dir_light_dir_intensity: vec4<f32>,
     point_light_pos_intensity: vec4<f32>,
+    // PBR shading / environment fields (see the PBR struct), unused by classic shading
+    pbr_fields: array<vec4<f32>, 13>,
+    // x = number of extra point lights (0..8)
+    point_lights_count: vec4<f32>,
+    // extra point light i: [2 i] = (world position, range), [2 i + 1] = (sRGB color, intensity)
+    point_lights: array<vec4<f32>, 16>,
 };";
 
 const MESH_LIGHT_STRUCT_PBR: &str = "struct SceneLightUniform {
@@ -271,6 +302,10 @@ const MESH_LIGHT_STRUCT_PBR: &str = "struct SceneLightUniform {
     env_params: vec4<f32>,
     // HDR maps: diffuse irradiance / PI as 9 premultiplied SH terms (rgb)
     env_sh: array<vec4<f32>, 9>,
+    // x = number of extra point lights (0..8)
+    point_lights_count: vec4<f32>,
+    // extra point light i: [2 i] = (world position, range), [2 i + 1] = (sRGB color, intensity)
+    point_lights: array<vec4<f32>, 16>,
 };";
 
 /// Text edits turning the classic module into the PBR one (besides the light struct): the
@@ -488,6 +523,23 @@ fn fs_mesh_pbr(in: MeshVertexOutput) -> @location(0) vec4<f32> {
     let attenuation = 1.0 / (1.0 + 0.0035 * dist + 0.00008 * dist * dist);
     color += punctual(n, v, point_vec / max(dist, 0.001), n_dot_v, f0, diffuse_color, roughness)
         * (light.point_light_pos_intensity.w * attenuation);
+
+    // Extra point lights (`addPointLight`): inverse-square falloff inside a smooth range window
+    // (Karis 2013, `saturate(1 - (d / r)^4)^2 / (d^2 + 1)`), linear light color; no lights =
+    // zero iterations
+    let extra_count = min(u32(light.point_lights_count.x), 8u);
+    for (var i = 0u; i < extra_count; i++) {
+        let pl_pos_range = light.point_lights[2u * i];
+        let pl_color = light.point_lights[2u * i + 1u];
+        let pl_vec = pl_pos_range.xyz - in.world_pos;
+        let pl_d2 = dot(pl_vec, pl_vec);
+        let pl_ratio2 = pl_d2 / (pl_pos_range.w * pl_pos_range.w);
+        let pl_window = clamp(1.0 - pl_ratio2 * pl_ratio2, 0.0, 1.0);
+        let pl_falloff = pl_window * pl_window / (pl_d2 + 1.0);
+        let pl_l = pl_vec * inverseSqrt(max(pl_d2, 1e-12));
+        color += punctual(n, v, pl_l, n_dot_v, f0, diffuse_color, roughness)
+            * srgb_to_linear3(pl_color.rgb) * (pl_color.w * pl_falloff);
+    }
 
     // Environment: diffuse irradiance from SH (HDR maps), a coarse mip (LDR maps) or the
     // hemisphere; specular from the roughness-selected mip (GGX-prefiltered for HDR maps) along
@@ -2360,12 +2412,15 @@ mod tests {
         assert_eq!(back, MESH_LIT_WGSL);
         assert!(!MESH_LIT_WGSL.contains("pbr_maps") && !MESH_LIT_WGSL.contains("@location(12)"));
         assert!(!MESH_LIT_WGSL.contains("env_map"));
-        // Uniform layout: struct fields match `SceneLightUniformRaw` (7 x vec4 + 9 SH vec4s)
+        // Uniform layout: struct fields match `SceneLightUniformRaw` (8 x vec4 + 9 SH vec4s +
+        // 16 point light vec4s); classic pads the 13 PBR vec4s
         assert!(MESH_LIGHT_STRUCT_PBR.contains("env_sh: array<vec4<f32>, 9>,"));
-        assert_eq!(
-            (MESH_LIGHT_STRUCT_PBR.matches("vec4<f32>").count() + 8) * 16,
-            std::mem::size_of::<super::super::SceneLightUniformRaw>()
-        );
+        assert!(MESH_LIGHT_STRUCT_PBR.contains("point_lights: array<vec4<f32>, 16>,"));
+        let size = std::mem::size_of::<super::super::SceneLightUniformRaw>();
+        assert_eq!((MESH_LIGHT_STRUCT_PBR.matches("vec4<f32>").count() + 8 + 15) * 16, size);
+        assert!(MESH_LIGHT_STRUCT_CLASSIC.contains("pbr_fields: array<vec4<f32>, 13>,"));
+        assert_eq!((MESH_LIGHT_STRUCT_CLASSIC.matches("vec4<f32>").count() + 12 + 15) * 16, size);
+        assert_eq!(2 * super::super::MAX_POINT_LIGHTS, 16);
     }
 
     #[test]
@@ -2509,6 +2564,53 @@ mod tests {
             assert!(out.contains("#version 300 es"));
             if stage == naga::ShaderStage::Vertex {
                 assert!(out.contains("texelFetch"), "row flag fetched per vertex");
+            }
+        }
+    }
+
+    #[test]
+    fn every_mesh_variant_loops_over_the_point_lights_in_webgl2_glsl() {
+        // Classic / PBR x shadow receivers (+ the HDR post variants): the extra point light loop
+        // reads the uniform array with a dynamic index, which GLSL ES 3.00 allows
+        use naga::back::glsl;
+        let mut sources = vec![
+            (MESH_LIT_WGSL.to_string(), "fs_mesh"),
+            (mesh_pbr_wgsl(), "fs_mesh_pbr"),
+            (super::super::post::hdr_mesh_variant(&mesh_pbr_wgsl()), "fs_mesh_pbr"),
+        ];
+        for pbr in [false, true] {
+            for (dir, point) in [(true, false), (false, true), (true, true)] {
+                let src = mesh_shadowed_variant_wgsl(pbr, dir, point);
+                if pbr {
+                    sources.push((super::super::post::hdr_mesh_variant(&src), "fs_mesh_pbr"));
+                }
+                sources.push((src, if pbr { "fs_mesh_pbr" } else { "fs_mesh" }));
+            }
+        }
+        assert_eq!(sources.len(), 12);
+        for (src, fs_entry) in &sources {
+            // PBR modules keep the classic entry point (and its loop) beside their own
+            let loops = if *fs_entry == "fs_mesh" { 1 } else { 2 };
+            assert_eq!(src.matches("light.point_lights[2u * i]").count(), loops, "one loop per entry point");
+            assert!(src.contains("min(u32(light.point_lights_count.x), 8u)"));
+            let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(src)));
+            let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
+                .validate(&module)
+                .unwrap_or_else(|e| panic!("{fs_entry}: {e:?}"));
+            let options = glsl::Options {
+                version: glsl::Version::Embedded { version: 300, is_webgl: true },
+                ..Default::default()
+            };
+            for (stage, entry) in [(naga::ShaderStage::Vertex, "vs_mesh"), (naga::ShaderStage::Fragment, *fs_entry)] {
+                let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+                let mut out = String::new();
+                glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
+                    .and_then(|mut w| w.write())
+                    .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+                assert!(out.contains("#version 300 es"));
+                if stage == naga::ShaderStage::Fragment {
+                    assert!(out.contains("point_lights[16]"), "uniform array in the block: {out}");
+                }
             }
         }
     }

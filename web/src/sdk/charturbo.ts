@@ -26,6 +26,15 @@ import {
   type ScenePostProcessingState,
   type ScenePostSettings,
 } from './scene-post';
+import {
+  MAX_POINT_LIGHTS,
+  clonePointLight,
+  encodePointLights,
+  resolvePointLight,
+  type ScenePointLight,
+  type ScenePointLightDescriptor,
+  type ScenePointLightsBackend,
+} from './scene-lights';
 import { resolveAntialias, sendAntialias, type AntialiasBackend, type CharturboAntialias, type CharturboAntialiasSamples } from './antialias';
 export type { CameraControlOptions } from './camera-controls';
 
@@ -1660,6 +1669,8 @@ export interface SceneDescriptor {
   shadows?: SceneShadowsDescriptor;
   /** Bloom / auto exposure (`setPostProcessing`) */
   postProcessing?: ScenePostProcessingDescriptor;
+  /** Extra point lights (`addPointLight`); when present `loadScene` replaces the current ones */
+  pointLights?: ScenePointLightDescriptor[];
   helpers?: SceneHelpersDescriptor;
   rigidPhysics?: {
     enabled: boolean;
@@ -1672,7 +1683,8 @@ export interface SceneDescriptor {
   >;
 }
 
-export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend, ScenePostBackend, AntialiasBackend {
+export interface WasmCharturboEngineBackend
+  extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend, ScenePostBackend, ScenePointLightsBackend, AntialiasBackend {
   /** SVG of the last frame (chart/svg.rs; header comment + markup) */
   chart_export_svg?(maxMarks: number, id: string): string;
   reload_dataset(seed: number, nodeCount: number, edgeCount: number, clusterCount: number): void;
@@ -3198,6 +3210,9 @@ export class Charturbo {
     pointPosition: [0, 45, 25],
     pointIntensity: 0.65,
   };
+  /** Extra point lights by id, in insertion order (the engine's light order) */
+  private pointLights = new Map<number, ScenePointLight>();
+  private nextPointLightId = 1;
   private shadingState: SceneShadingState = defaultShadingState();
   private shadowsState: SceneShadowsState = defaultShadowsState();
   private postState: ScenePostSettings = defaultPostSettings();
@@ -8031,6 +8046,63 @@ export class Charturbo {
   }
 
   /**
+   * Adds a coloured point light beside the `setLighting` one (at most `MAX_POINT_LIGHTS` = 8;
+   * throws past that) and returns its id. The light fades smoothly to zero at `range`. Classic
+   * shading uses the `setLighting` point falloff scaled by `intensity`; PBR an inverse-square
+   * falloff `intensity / (d² + 1)` (a light 30 units from a surface needs an intensity of ~900
+   * to light it like a directional light of intensity 1). These lights cast no shadows
+   * (`setShadows({ point })` follows the `setLighting` point light) and survive `clearScene`,
+   * like `setLighting`; `exportScene` / `loadScene` carry them. Throws on invalid values.
+   */
+  addPointLight(options: ScenePointLightDescriptor): number {
+    if (this.pointLights.size >= MAX_POINT_LIGHTS) {
+      throw new Error(`addPointLight: at most ${MAX_POINT_LIGHTS} point lights are supported; remove one first`);
+    }
+    const id = this.nextPointLightId;
+    const light = resolvePointLight('addPointLight', id, null, options);
+    this.nextPointLightId++;
+    this.pointLights.set(id, light);
+    this.sendPointLights();
+    return id;
+  }
+
+  /** Updates a point light from `addPointLight`; omitted fields keep their value. Throws on unknown ids or invalid values. */
+  setPointLight(id: number, options: Partial<ScenePointLightDescriptor>): void {
+    const current = this.pointLights.get(id);
+    if (!current) throw new Error(`setPointLight: unknown point light id ${String(id)}`);
+    this.pointLights.set(id, resolvePointLight('setPointLight', id, current, options));
+    this.sendPointLights();
+  }
+
+  /** Removes a point light from `addPointLight`; false when the id is unknown. */
+  removePointLight(id: number): boolean {
+    if (!this.pointLights.delete(id)) return false;
+    this.sendPointLights();
+    return true;
+  }
+
+  /** The extra point lights in the order they were added (copies). */
+  getPointLights(): ScenePointLight[] {
+    return Array.from(this.pointLights.values(), clonePointLight);
+  }
+
+  private sendPointLights(): void {
+    this.backend.set_scene_point_lights?.(encodePointLights(this.pointLights.values()));
+  }
+
+  /** Replaces every extra point light (validated first: nothing changes on a throw). */
+  private replacePointLights(fn: string, list: ScenePointLightDescriptor[]): void {
+    if (!Array.isArray(list)) throw new Error(`${fn}: pointLights must be an array`);
+    if (list.length > MAX_POINT_LIGHTS) {
+      throw new Error(`${fn}: at most ${MAX_POINT_LIGHTS} point lights are supported (got ${list.length})`);
+    }
+    const next = list.map((l, i) => resolvePointLight(`${fn}: pointLights[${i}]`, this.nextPointLightId + i, null, l));
+    this.nextPointLightId += next.length;
+    this.pointLights = new Map(next.map((l) => [l.id, l]));
+    this.sendPointLights();
+  }
+
+  /**
    * Scene mesh shading. `'classic'` (default) keeps the Blinn-Phong look; `'pbr'` switches the
    * meshes to metallic-roughness physically based shading (GGX) in linear space with environment
    * lighting, `exposure` and tone mapping. Colors and textures stay sRGB in both models. The
@@ -8198,6 +8270,9 @@ export class Charturbo {
    * Declaratively loads an entire 3D Scene from a `SceneDescriptor` (clearing existing objects).
    */
   loadScene(descriptor: SceneDescriptor): number[] {
+    if (descriptor.pointLights !== undefined) {
+      this.replacePointLights('loadScene', descriptor.pointLights);
+    }
     this.clearScene();
     if (descriptor.lighting) {
       this.setLighting(descriptor.lighting);
@@ -8326,7 +8401,7 @@ export class Charturbo {
   }
 
   /**
-   * Exports the current 3D Scene (objects, transforms, materials, physics, lighting, helpers) as a
+   * Exports the current 3D Scene (objects, transforms, materials, physics, lighting, point lights, helpers) as a
    * serializable `SceneDescriptor`. Textures the objects use are listed in `textures` (ids, size and
    * `src` for fetched images); pixel data is not exported.
    */
@@ -8392,6 +8467,7 @@ export class Charturbo {
       shading: this.getShading(),
       shadows: this.getShadows(),
       postProcessing: clonePostSettings(this.postState),
+      pointLights: this.getPointLights().map(({ position, color, intensity, range }) => ({ position, color, intensity, range })),
       helpers: this.getHelpers(),
       rigidPhysics: this.getRigidPhysics(),
       graphVisible: this.graphVisibleState,

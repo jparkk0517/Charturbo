@@ -14,8 +14,13 @@ mod pick;
 mod pick_tests;
 mod shading;
 pub use bvh::PickCache;
+mod point_lights;
 mod point_shadows;
 mod post;
+pub use point_lights::{
+    pack_point_lights, unpack_point_lights, PointLight, DEFAULT_POINT_LIGHT_RANGE, MAX_POINT_LIGHT_INTENSITY,
+    MAX_POINT_LIGHT_RANGE, MIN_POINT_LIGHT_RANGE, POINT_LIGHT_STRIDE,
+};
 pub use post::{AutoExposureConfig, BloomConfig, PostProcessConfig};
 mod shadows;
 pub use point_shadows::{
@@ -494,6 +499,8 @@ pub struct SceneWorld {
     objects: Vec<SceneObject>,
     next_id: u32,
     pub lighting: LightingConfig,
+    /// Extra point lights beside `lighting`'s (at most `renderer::MAX_POINT_LIGHTS` are drawn)
+    pub point_lights: Vec<PointLight>,
     /// Mesh shading model (classic Blinn-Phong by default) and PBR environment / tone mapping
     pub shading: ShadingConfig,
     /// Directional-light shadows (off by default)
@@ -539,6 +546,7 @@ impl SceneWorld {
             objects: Vec::new(),
             next_id: 1,
             lighting: LightingConfig::default(),
+            point_lights: Vec::new(),
             shading: ShadingConfig::default(),
             shadows: ShadowConfig::default(),
             point_shadows: PointShadowConfig::default(),
@@ -1181,7 +1189,7 @@ impl SceneWorld {
         world
     }
 
-    /// Lighting + shading uniform for the current camera eye (sent every frame; 96 bytes).
+    /// Lighting + shading uniform for the current camera eye (sent every frame).
     pub fn light_uniform(&self, camera_eye: Vec3) -> SceneLightUniformRaw {
         let dir = self.lighting.dir_light_dir.normalize_or_zero();
         let mut light = SceneLightUniformRaw {
@@ -1201,6 +1209,7 @@ impl SceneWorld {
             ..SceneLightUniformRaw::default()
         };
         self.shading.pack(&mut light);
+        pack_point_lights(&self.point_lights, &mut light);
         light
     }
 

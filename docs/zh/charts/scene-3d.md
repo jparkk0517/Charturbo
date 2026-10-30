@@ -209,6 +209,31 @@ sdk.setHelpers({ showGrid: true, gridSize: 160, gridDivisions: 16, showAxes: tru
 | `showAxes` | `boolean` | `false` |
 | `axesLength` | `number` | `60` |
 
+### 点光源 {#point-lights}
+
+`addPointLight` 在 `setLighting` 点光源之外添加一个彩色点光源并返回其 id。场景最多容纳 8 个（`MAX_POINT_LIGHTS`，不计 `setLighting` 点光源），第 9 次 `addPointLight` 会抛出异常。
+
+```ts
+const red = sdk.addPointLight({ position: [-30, 12, 0], color: [1, 0.15, 0.1], intensity: 1.5, range: 60 });
+sdk.setPointLight(red, { position: [-20, 14, 5] }); // 省略的字段保持当前值
+sdk.removePointLight(red); // 未知 id 返回 false
+sdk.getPointLights(); // [{ id, position, color, intensity, range }, ...] 按添加顺序
+```
+
+- `color` 为 sRGB（默认白色）。每个光源通过窗口 `saturate(1 - (d / range)⁴)²` 在 `range`（默认 `100` 世界单位）处平滑衰减到 0，不会照到更远处。
+- 经典着色把 `setLighting` 点光源衰减 `1 / (1 + 0.0035 d + 0.00008 d²)` 乘以 `intensity` 和窗口，因此在范围内 `intensity: 1` 与 `pointIntensity: 1` 相同。
+- PBR 着色使用基于物理的平方反比衰减 `intensity / (d² + 1)` 乘以窗口（Karis 2013）。`intensity` 是发光强度：要让 30 单位外的表面与强度 1 的方向光一样亮，约需 `900`。切换着色模型时需要重新设定强度。
+- 这些光源不投射阴影：`setShadows({ point })` 只跟随 `setLighting` 点光源。
+- 它们与 `setLighting` 一样属于场景设置：`clearScene()` 保留它们；`exportScene()` 存入 `pointLights`，`loadScene` 用其替换当前光源（没有 `pointLights` 的描述保留当前光源）。id 不会复用。
+- 两种着色模型中每个光源都照亮所有网格片元（不做剔除），数据放在一个 uniform 缓冲区中，WebGPU 与 WebGL2 都支持。没有光源时着色器跳过循环，渲染结果与之前完全相同。
+
+| 点光源选项 | 类型 | 默认值 |
+| --- | --- | --- |
+| `position` | `[x, y, z]` | 必填 |
+| `color` | `[r, g, b]`（0..1，sRGB） | `[1, 1, 1]` |
+| `intensity` | `number`（0..1e6） | `1` |
+| `range` | `number`（0.01..1e6） | `100` |
+
 ## 基于物理的着色
 
 场景网格默认使用经典 Blinn-Phong（classic）外观。`setShading({ model: 'pbr' })` 可切换为可选的基于物理的着色（图表、科学 3D 和 3D 图不受影响）：
@@ -324,7 +349,7 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 不会变暗
 
 ### 点光源阴影 {#point-light-shadows}
 
-`setShadows({ point: { enabled: true } })` 为 `setLighting` 的点光源（`pointPosition`）开启全方向阴影。默认关闭，且与方向光设置相互独立，可以只开其中一种或同时开启：
+`setShadows({ point: { enabled: true } })` 为 `setLighting` 的点光源（`pointPosition`）开启全方向阴影（[`addPointLight`](#point-lights) 光源不投射阴影）。默认关闭，且与方向光设置相互独立，可以只开其中一种或同时开启：
 
 ```ts
 sdk.setLighting({ pointPosition: [0, 26, 0], pointIntensity: 1.6 });
@@ -433,7 +458,7 @@ sdk.enableNodeInteractions(canvas, {
 
 ## 保存与加载
 
-`exportScene()` 返回可序列化的 `SceneDescriptor`（包含变换、材质和物理属性的对象，以及光照、着色、辅助显示、刚体物理和图的可见性）。`loadScene(descriptor)` 清空场景、应用设置并重新创建对象，返回新的 ID 列表。
+`exportScene()` 返回可序列化的 `SceneDescriptor`（包含变换、材质和物理属性的对象，以及光照、[点光源](#point-lights)、着色、辅助显示、刚体物理和图的可见性）。`loadScene(descriptor)` 清空场景、应用设置并重新创建对象，返回新的 ID 列表。
 
 `clearScene()` / `loadScene()` 不会清除纹理。`exportScene()` 会在 `textures` 中列出对象用到的纹理（`{ id, src, width, height }`，不含像素数据），对象上保留 `map` ID。`loadScene` 是同步的：仍然存活的纹理的 `map` ID 会保留，未知 ID 会被丢弃并输出 `console.warn`。要恢复在其他会话中保存的场景，请调用 `await sdk.loadSceneWithTextures(descriptor)`：它会重新加载带 `src` 的纹理（相同 `src` 的存活纹理会被复用），把对象的 `map` ID 重映射为新 ID，然后调用 `loadScene`。没有 `src` 的纹理（`createDataTexture`、画布、`ImageData`）无法恢复，其映射会被丢弃。
 
