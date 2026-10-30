@@ -30,9 +30,11 @@
 
 15. **ECharts 대응 3단계:** 극좌표계 `renderPolarChart`(`chart/polar.rs`, `HierChart::Polar`, 파이 부채꼴 분할 · 계층 호버 / 범례 / 트윈 · 히트맵 colormap 재사용; bar · 누적 · roundCap · line · scatter · heatmap), 다중 y축(`yAxisIndex`, `axes.extraY` 최대 8축, `chart/multi_axis.rs`)과 축 끊김 `breaks`(`chart/axis_break.rs`, `AxisScale.breaks`), 막대 레이스 `realtimeSort` · 선 레이스 `endLabel`(`chart/race.rs`, `chart-race.ts`), 전환 모핑 `animation.transition`(`chart/transition.rs`, 막대 ↔ 파이 · 트리맵 ↔ 선버스트). 각각 툴팁 · 접근성 · CSV/SVG · React/Vue · 3개 언어 문서 · 양 backend baseline.
 
+16. **ECharts 대응 4단계:** 점 편집 `editable`(`chart-edit.ts`, `chart/edit.rs`, `chart/scatter/edit.rs`, `engine_edit_ext.rs`, `lib_edit.rs`; line 드래그 · scatter 클릭 추가 · 키보드), 로딩 표시 `showLoading`(`chart-loading.ts`), 리치 텍스트 라벨(`chart-rich-text.ts`, bar · pie · 계층 · funnel), 워터마크 `setWatermark`(`chart-watermark.ts`), decal 패턴(`chart/decal.rs`, `lib_decal.rs`, `chart-decal.ts`). 각각 접근성 · CSV/SVG · React/Vue · 3개 언어 문서 · 양 backend baseline.
+
 ## 다음 작업
 
-0. ECharts 대응 4단계(점 드래그 · 로딩 표시 · decal · 리치 텍스트 · 워터마크). 3단계 남은 범위(x축 여러 개, 시간 축 끊김, 극좌표 위 캔들스틱 · 박스, 재렌더 극좌표 트윈)는 `docs/ECHARTS-PARITY.md`에 적었다.
+0. ECharts 대응 1~4단계 체크리스트는 끝났다. 각 항목의 "남은 것"(x축 여러 개, 시간 축 끊김, 막대 · 누적 선 편집, 3D decal 등)은 `docs/ECHARTS-PARITY.md`에 적었고, 이 중 우선순위를 골라 진행한다.
 1. 투명 geometry 깊이 정렬/합성 및 대용량 hit-test·streaming 가속을 진행한다. 현재 전체 점/셀 순회, metadata 복사·변경 시리즈 재전송·전체 geometry 재생성 경로다. 축 nice ticks·독립 box 토글·GPU glyph, 카메라 FOV·near/far·up도 남아 있다.
    등고선 라벨·등고선 대용량 가속(현재 전체 셀 × 범위 내 level 순회, 갱신마다 전체 재생성)도 남아 있다.
 2. 관련 SDK·React/Vue·접근성·export·예제 및 실제 WebGPU/WebGL2 회귀를 검증한다.
@@ -75,6 +77,9 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 - 극좌표 `startAngle`은 12시 기준 시계 방향 도(파이 · Chord와 같음, ECharts와 다름)이고 SDK가 mod 360으로 정규화한다. 격자선 · 스포크는 4 CSS px 간격 미만이면 솎는다. 범례 토글만 트윈하고 다시 렌더링은 트윈하지 않는다.
 - 축 끊김 매핑은 `AxisScale.breaks`(`fwd` / `inv`) 한 곳에서 하며 geometry · 호버 · 눈금 · 주석 · 레이스 끝 라벨이 모두 이를 쓴다. log 축 · 오차 막대와 함께 쓰면 렌더 전에 거부하고, 시간 축 · line x축 끊김은 지원하지 않는다. 추가 y축 코드는 WASM에서 16+k.
 - 막대 레이스는 라벨을 키(`MarkKeys` 이름 → u32, 마지막 호출의 이름만 유지)로 트윈한다. 모핑은 마크마다 안쪽 · 바깥쪽 변 24점 폴리곤을 점별 보간하며 마크 2,000개를 넘으면 enter 애니메이션으로 바꾼다. 전환 · 레이스 중 히트 테스트 · 툴팁은 최종 레이아웃을 쓴다.
+- 점 편집은 데이터 업데이트 경로로 갱신한다(장면을 지우지 않음, 줌 · 범례 · 스타일 유지). 드래그 중에는 line y 도메인을 고정하고 놓을 때 다시 계산한다. line x 드래그는 `x` 값이 있을 때만, 이웃을 넘지 않는다. 누르면 점을 잡아 팬 · 브러시 · 박스 줌을 막는다.
+- 로딩 오버레이는 z-index 6, pointer 입력을 막고 `data-charturbo-export=false`로 내보내기에서 빠진다. 워터마크는 라벨 · 툴팁 아래, `export: false`면 화면에만 그린다.
+- decal은 텍스처 없이 두 번째 GPU 패스로 화면 공간에 고정해 그린다. `color: 'auto'`는 마크 밝기로 흑 / 백을 고르고 테마 전환을 따른다.
 - 2D 그래프 force는 동기식으로 안정될 때까지 돌린다(애니메이션 없음). `format`은 `yAxis.format`이 없으면 cartesian y 눈금에도 적용된다.
 - ThemeRiver 내부는 area 엔진(`AreaChart.stream`)이며 y autoscale `'visible'`은 SDK가 `'all'`로 바꾼다. 강 바깥 호버는 결과 없음. `nulls` 옵션은 거부한다.
 - Contours: SDK가 levels를 원본 Y 높이 목록으로 확정한다. 개수 N이면 색상 domain(`yMin/yMax` 또는 유한 높이 범위) 안쪽 `lo + i/(N+1)·(hi-lo)`, i=1..N이고 lo==hi면 `[lo]`이다. 최종 alpha는 `min(1, opacity·colorA·(0.75+0.15·min(width,4)))`이다. `show` 아니면 전송하지 않지만 다른 필드는 항상 엄격 검증한다. 모든 render/update는 levels를 다시 계산한다.
@@ -107,11 +112,13 @@ ChartGPU 필수 13종: line, area, bar, scatter, pie, candlestick, ohlc, heatmap
 
 ## 마지막 검증 결과
 
-3단계(극좌표계 · 다중 축 · 축 끊김 · 레이스 · 전환) 통합 머지 후 기준 (2026-10-30):
+4단계(점 편집 · 로딩 · 리치 텍스트 · 워터마크 · decal) 통합 머지 후 기준 (2026-10-30):
 
-- Rust: 기본 · no-default-features 각각 606 통과 / 2 ignored.
-- TS: 73파일 / 756테스트 통과 (Node 22.23), `tsc --noEmit`, `build:lib`, `examples:build` 성공. 문서 `check`(58페이지 × 3언어) · `build` 성공.
-- `npm run test:visual -- --strict` 전체 348 통과 (87 fixture × WebGPU · WebGL2 × canvas · full). 기존 baseline 변경 없음. chord 2종은 0.04~0.07% 차이로 허용 범위 안이다.
+- Rust: 기본 · no-default-features 각각 629 통과 / 2 ignored.
+- TS: 80파일 / 878테스트 통과 (Node 22.23), `tsc --noEmit`, `build:lib`, `examples:build` 성공. 문서 `check`(61페이지 × 3언어) · `build` 성공.
+- `npm run test:visual -- --strict` 전체 408 통과 (102 fixture × WebGPU · WebGL2 × canvas · full). 기존 baseline 변경 없음.
+
+이전 3단계(극좌표계 · 다중 축 · 축 끊김 · 레이스 · 전환) 결과: Rust 606, TS 73파일 / 756테스트, visual 348 통과.
 
 이전 2B단계(2D 그래프 · 평행 좌표 · Chord · PictorialBar) 결과: Rust 563, TS 69파일 / 615테스트, visual 300 통과.
 
@@ -154,4 +161,4 @@ npm run test:visual -- --strict --filter=scientific3d --param=streaming:true
 
 ## 새 채팅 시작 문구
 
-> `docs/HANDOFF.md`와 `docs/ECHARTS-PARITY.md`를 읽고 Charturbo 개발을 이어가자. ECharts 대응 3단계(극좌표계 · 다중 축 · 축 끊김 · 레이스 · 전환 모핑)까지 구현했으며 다음 작업은 4단계(점 드래그부터)다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.
+> `docs/HANDOFF.md`와 `docs/ECHARTS-PARITY.md`를 읽고 Charturbo 개발을 이어가자. ECharts 대응 1~4단계(점 편집 · 로딩 · 리치 텍스트 · 워터마크 · decal 포함)까지 구현했으며 다음 작업은 `docs/ECHARTS-PARITY.md`의 "남은 것" 중 우선순위가 높은 항목이다. 기존 변경을 보존하고 TDD로 실패 테스트부터 구현해서 SDK·React/Vue·접근성·예제와 양 GPU backend 검증까지 진행해줘.

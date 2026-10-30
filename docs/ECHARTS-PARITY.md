@@ -50,7 +50,7 @@ HANDOFF의 계약을 따른다.
 
 ## 4단계: 인터랙션·기타 (약 1주)
 
-- [ ] 점 드래그, 클릭으로 점 추가
-- [ ] 로딩 표시
-- [ ] 패턴 채우기(decal)
-- [ ] 리치 텍스트 라벨, 워터마크
+- [x] 점 드래그, 클릭으로 점 추가: `enableNodeInteractions(canvas, { editable })`, `setChartEditable` · `getSeriesData`, `pointDrag` · `pointDragEnd` · `pointAdd` 이벤트, Escape 취소, Shift + 화살표 키보드 이동(line · scatter). 남은 것: 막대 · 파이 편집, 누적 · percent · band · 추가 y축 선 편집, 드래그 중 scatter 도메인 확장
+- [x] 로딩 표시: `showLoading` / `hideLoading` / `isLoading`, 스피너 · 마스크 · `aria-busy` · polite 알림, React/Vue `loading` prop. 렌더링으로는 숨기지 않는다
+- [x] 패턴 채우기(decal): `decal: true | DecalOptions`, 심볼 6종, GPU 두 번째 패스(화면 공간 고정), 범례 견본 · SVG `<pattern>`. bar(grouped · stacked · percent) · pie · area · treemap · sunburst · funnel. 남은 것: 3D · pictorial · 파이 "Other" 조각 · 트리맵 헤더, overlap area에서 패턴이 위 시리즈를 비쳐 보임
+- [x] 리치 텍스트 라벨, 워터마크: `{name|text}` 템플릿 + `rich` 스타일(크기 · 굵기 · 색 · 배지), 배치 · 내보내기 반영; `setWatermark` / `getWatermark` 텍스트 · 이미지 타일, `export` 옵션, React/Vue `watermark` prop. 남은 것: 트리맵 헤더는 첫 줄만, 워터마크 내보내기 visual fixture 없음, SVG는 이미지를 URL로 링크
