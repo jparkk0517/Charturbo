@@ -156,7 +156,7 @@ export default async function mount(host: HTMLElement) {
   );
   const box = sdk.addBox({ position: [-62, 9, 10], rotation: [0, 0.6, 0], scale: [16, 16, 16], color: [1, 1, 1, 1], roughness: 0.6, map });
   const house = await sdk.loadGltf(await houseGlb(), { position: [62, 0, 6], rotation: [0, -0.5, 0], scale: 14 });
-  sdk.setLighting({ ambientIntensity: 0.35, directionalDirection: [-0.4, -1, -0.5], directionalIntensity: 1.1, pointPosition: [30, 40, 40], pointIntensity: 0.5 });
+  sdk.setLighting({ ambientIntensity: 0.35, directionalDirection: [0.4, 1, 0.5], directionalIntensity: 1.1, pointPosition: [30, 40, 40], pointIntensity: 0.5 });
   sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 1, environment: { map: sky } });
   sdk.setCameraPose([0, 45, 120], [0, 20, 0]);
 
