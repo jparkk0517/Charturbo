@@ -555,6 +555,10 @@ impl VisualizationEngine {
         self.camera.set_pose(eye, target);
     }
 
+    pub fn set_camera_fov(&mut self, degrees: f32) {
+        self.camera.set_fov_y_degrees(degrees);
+    }
+
     pub fn set_graph_visible(&mut self, visible: bool) {
         self.graph_visible = visible;
     }
