@@ -17,6 +17,7 @@ import { SPARKLINE_MESSAGES } from './messages/sparkline';
 import { TREE_MESSAGES } from './messages/tree';
 import { GRAPH_MESSAGES } from './messages/graph';
 import { PARALLEL_MESSAGES } from './messages/parallel';
+import { POLAR_MESSAGES } from './messages/polar';
 
 /** Languages with built-in messages. */
 export type CharturboLanguage = 'en' | 'ko' | 'zh-CN';
@@ -36,6 +37,7 @@ export interface CharturboMessages {
   tree: (typeof TREE_MESSAGES)['en'];
   graph: (typeof GRAPH_MESSAGES)['en'];
   parallel: (typeof PARALLEL_MESSAGES)['en'];
+  polar: (typeof POLAR_MESSAGES)['en'];
 }
 
 /** Partial messages for `registerMessages`: any subset of groups and keys. */
@@ -53,6 +55,7 @@ const builtIn = (lang: CharturboLanguage): CharturboMessages => ({
   tree: TREE_MESSAGES[lang],
   graph: GRAPH_MESSAGES[lang],
   parallel: PARALLEL_MESSAGES[lang],
+  polar: POLAR_MESSAGES[lang],
 });
 
 const BUILT_IN: Record<CharturboLanguage, CharturboMessages> = {

@@ -100,6 +100,7 @@ const CHARTS: Group[] = [
       ['funnel', t('Funnel', '퍼널', '漏斗图')],
       ['waterfall', t('Waterfall', '워터폴', '瀑布图')],
       ['parallel', t('Parallel Coordinates', '평행 좌표', '平行坐标')],
+      ['polar', t('Polar Coordinates', '극좌표', '极坐标')],
       ['sparkline', t('Sparkline', '스파크라인', '迷你图')],
     ],
   },

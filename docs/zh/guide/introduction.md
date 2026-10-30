@@ -42,7 +42,7 @@ WebGL2 回退模式下的差异：
 | 分组 | 图表 |
 |---|---|
 | 直角坐标系 | [折线图](../charts/line)、[面积图](../charts/area)、[带状图 · 范围图](../charts/band)、[误差棒 · 脉冲图](../charts/errorbar-impulse)、[柱状图](../charts/bar)、[直方图](../charts/histogram)、[散点图 · 气泡图](../charts/scatter)、[K 线图 · OHLC](../charts/candlestick)、[热力图](../charts/heatmap)、[箱线图 · 小提琴图](../charts/box-violin)、[组合图](../charts/combo) |
-| 商业图表 | [饼图 · 环形图](../charts/pie)、[雷达图](../charts/radar)、[仪表盘](../charts/gauge)、[漏斗图](../charts/funnel)、[瀑布图](../charts/waterfall)、[迷你图](../charts/sparkline) |
+| 商业图表 | [饼图 · 环形图](../charts/pie)、[雷达图](../charts/radar)、[仪表盘](../charts/gauge)、[漏斗图](../charts/funnel)、[瀑布图](../charts/waterfall)、[极坐标](../charts/polar)、[迷你图](../charts/sparkline) |
 | 层级与流向 | [矩形树图 · 旭日图](../charts/treemap-sunburst)、[桑基图](../charts/sankey)、[和弦图](../charts/chord) |
 | 3D | [PointCloud3D · Surface3D](../charts/scientific-3d)、[3D 网络图](../charts/graph-3d)、[嵌入向量 · 相似度](../charts/embeddings)、[3D 场景 · 物理](../charts/scene-3d) |
 

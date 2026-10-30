@@ -42,6 +42,7 @@ import type { TreeChartData, TreeChartOptions } from './chart-tree';
 import type { PictorialBarChartData, PictorialBarChartOptions, PictorialBarItem } from './chart-pictorial';
 import type { GraphChartData, GraphChartOptions } from './chart-graph';
 import type { ParallelChartData, ParallelChartOptions } from './chart-parallel';
+import type { PolarChartData, PolarChartOptions } from './chart-polar';
 import type { SparklineData, SparklineOptions } from './chart-sparkline';
 import type { ChartSyncMemberOptions } from './chart-sync';
 import type { CharturboEventMap } from './chart-events';
@@ -88,6 +89,8 @@ export interface CharturboChartSpecMap {
   tree: { data: TreeChartData; options: TreeChartOptions };
   graph: { data: GraphChartData; options: GraphChartOptions };
   parallel: { data: ParallelChartData; options: ParallelChartOptions };
+  /** Bars / lines / scatter / heatmap cells on angle and radius axes */
+  polar: { data: PolarChartData; options: PolarChartOptions };
   /** Many sparklines on a page: pass `createOptions={{ device }}` (shared GPU device) and `interactions={false}` */
   sparkline: { data: SparklineData | Float32Array | number[]; options: SparklineOptions };
 }
@@ -218,6 +221,9 @@ export function renderChartSpec(sdk: Charturbo, spec: ChartSpec): void {
       break;
     case 'chord':
       sdk.renderChordChart(data as ChordChartData, options as ChordChartOptions);
+      break;
+    case 'polar':
+      sdk.renderPolarChart(data as PolarChartData, options as PolarChartOptions);
       break;
     case 'waterfall':
       sdk.renderWaterfallChart(data as WaterfallChartData, options as WaterfallChartOptions);

@@ -77,6 +77,22 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '10만 행 × 8차원', description: '선분 70만 개를 한 번만 업로드하고, 브러시가 바뀌면 행별 플래그만 다시 업로드합니다. 툴바에 생성·브러시·프레임 시간을 표시합니다.' },
     zh: { title: '10 万行 × 8 维', description: '70 万条线段只上传一次；刷选变化时只重新上传每行的标志。工具栏显示构建、刷选和帧时间。' },
   },
+  'business/08-polar-bar': {
+    ko: { title: '극좌표 막대', description: '범주 각도 축 위의 둥근 끝 방사형 막대입니다. 마우스를 올리면 막대 윤곽이 강조되고, 범례로 시리즈를 끄면 반지름 축이 다시 맞춰집니다.' },
+    zh: { title: '极坐标柱状图', description: '类别角度轴上的圆角径向柱。悬停时描出柱的轮廓；在图例中隐藏系列后半径轴会重新适配。' },
+  },
+  'business/09-polar-stacked': {
+    ko: { title: '누적 방사형 막대', description: '범주 반지름 축 위의 링 막대: 값은 각도를 따라 늘어나고, 링마다 세 시리즈가 누적됩니다.' },
+    zh: { title: '堆叠径向柱', description: '类别半径轴上的环形柱：数值沿角度方向延伸，每个环堆叠三个系列。' },
+  },
+  'business/10-polar-line': {
+    ko: { title: '극좌표 선', description: '값 각도(도)와 값 반지름 축: 영역 채우기와 마커가 있는 부드러운 닫힌 곡선, 그리고 산점 시리즈.' },
+    zh: { title: '极坐标折线图', description: '数值角度（度）与数值半径：带面积填充和标记的平滑闭合曲线，以及一个散点系列。' },
+  },
+  'business/11-polar-heatmap': {
+    ko: { title: '극좌표 히트맵', description: '각도 축은 시간대, 반지름 축은 요일: 칸마다 컬러맵 색을 입히고 컬러바를 표시합니다.' },
+    zh: { title: '极坐标热力图', description: '角度轴为一天中的小时，半径轴为星期：每格按色图着色，并显示色条。' },
+  },
   'candlestick/01-ohlc': {
     ko: { title: '거래량이 있는 캔들스틱', description: '2년 치 일별 OHLC입니다. 축소하면 2 px보다 좁은 캔들을 Rust에서 픽셀 열 단위로 집계합니다.' },
     zh: { title: '带成交量的 K 线图', description: '两年的日线 OHLC 数据。缩小时，窄于 2 px 的 K 线会在 Rust 中按像素列聚合。' },

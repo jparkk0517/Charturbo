@@ -1162,6 +1162,86 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    name: 'polar-bar',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPolarChart(
+          {
+            series: [
+              { type: 'bar', name: 'A', data: [5, 8, 3, 6, 9, 4] },
+              { type: 'bar', name: 'B', data: [3, 4, 6, 2, 5, 7], roundCap: true },
+            ],
+          },
+          { title: 'Polar bar', angleAxis: { data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] }, innerRadius: 0.15, legend: false, padding: { top: 40 } }
+        );
+      }),
+  },
+  {
+    name: 'polar-stacked',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPolarChart(
+          {
+            series: [
+              { type: 'bar', name: 'A', data: [40, 28, 35, 22], stack: 's' },
+              { type: 'bar', name: 'B', data: [25, 30, 18, 26], stack: 's' },
+              { type: 'bar', name: 'C', data: [12, 18, 22, 15], stack: 's' },
+            ],
+          },
+          {
+            title: 'Stacked radial bar',
+            radiusAxis: { data: ['N', 'S', 'E', 'W'] },
+            angleAxis: { max: 100 },
+            startAngle: 90,
+            innerRadius: 0.2,
+            legend: false,
+            padding: { top: 40 },
+          }
+        );
+      }),
+  },
+  {
+    name: 'polar-line',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const curve = Array.from({ length: 24 }, (_, k) => [2 + Math.sin((k * 15 * Math.PI) / 45) * 1.2, k * 15]);
+        const dots = Array.from({ length: 12 }, (_, k) => [1 + ((k * 37) % 23) / 6, (k * 53) % 360]);
+        sdk.renderPolarChart(
+          {
+            series: [
+              { type: 'line', name: 'Curve', data: curve, smooth: true, closed: true, area: true, symbolSize: 4 },
+              { type: 'scatter', name: 'Dots', data: dots, symbolSize: 6 },
+            ],
+          },
+          { title: 'Polar line', angleAxis: { min: 0, max: 360, splitNumber: 8 }, radiusAxis: { min: 0, max: 5 }, clockwise: false, legend: false, padding: { top: 40 } }
+        );
+      }),
+  },
+  {
+    name: 'polar-heatmap',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const hours = Array.from({ length: 12 }, (_, h) => `${h * 2}h`);
+        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        const cells = days.flatMap((_, d) => hours.map((_, h) => [d, h, (d * 7 + h * 5) % 13]));
+        sdk.renderPolarChart(
+          { series: [{ type: 'heatmap', name: 'Load', data: cells }] },
+          {
+            title: 'Polar heatmap',
+            angleAxis: { data: hours },
+            radiusAxis: { data: days },
+            innerRadius: 0.2,
+            colorScale: 'viridis',
+            padding: { top: 40 },
+          }
+        );
+      }),
+  },
+  {
     name: 'sparklines',
     theme: 'light',
     render: async (ctx) => {

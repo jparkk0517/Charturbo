@@ -9,6 +9,7 @@ mod lib_theme_river;
 mod lib_heatmap;
 mod lib_calendar;
 mod lib_chord;
+mod lib_polar;
 mod lib_parallel;
 mod lib_sparkline;
 mod lib_pie;

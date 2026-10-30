@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 극좌표계
+
+- `renderPolarChart(data, options)`: 극좌표계 차트(ECharts `polar` + `angleAxis` / `radiusAxis`). 각도 · 반지름 축은 각각 범주 또는 값 축이며 `min` / `max` / `splitNumber` / `labels` / `splitLine` / `name`을 받습니다. `startAngle`(12시 기준 시계 방향 각도, 파이 · 코드와 같음 — ECharts와 기준이 다름), `clockwise`, `innerRadius`, `barCategoryGap` / `barGap`.
+- 시리즈: 방사형 · 링 막대(범주 축이 각도면 바깥으로, 반지름이면 원을 따라; `stack` 누적, `roundCap`), 선(열림 / `closed`, `smooth`, `area`, 마커), 산점, 히트맵(범주 각도 × 범주 반지름 셀, 히트맵 색상 맵 · 컬러바 재사용). 레이아웃 · 눈금 · 격자 · 히트 테스트 · 레이블 위치는 Rust(`chart/polar.rs`)에서 계산하고 파이 부채꼴 분할 · 계층 레이블 / 호버 / 범례 / 트윈 경로를 재사용합니다.
+- 호버 외곽선 · 툴팁(`ctx.polar`), 범례 강조 / 숨김(다시 쌓고 축을 다시 맞춤, 애니메이션이 켜져 있으면 트윈), 접근성 요약 · 표 · 키보드, CSV / 벡터 SVG 내보내기, React / Vue `type="polar"`, 영어 · 한국어 · 중국어 문구. 잘못된 입력은 현재 차트를 바꾸기 전에 예외를 던집니다.
+- 예제 `business/08-polar-bar` · `09-polar-stacked` · `10-polar-line` · `11-polar-heatmap`, fixture `polar-bar` · `polar-stacked` · `polar-line` · `polar-heatmap`, 문서 `charts/polar`. 극좌표 위 캔들스틱 · 박스 플롯 · 효과 산점, 여러 극좌표계, 축 줌은 아직 없습니다.
+
 ### 추가 — 픽토리얼 막대 (pictorialBar)
 
 - `renderPictorialBarChart(data, options)`: 막대를 심볼로 그리는 2D 막대 차트(ECharts `pictorialBar`). 데이터는 `renderBarChart` 항목 배열 또는 `{ categories, series }`이며, 축 · 가로 방향 · 그룹형 / 누적형 / 백분율 · 레이블 · 범례는 막대 차트를 그대로 씁니다. `background` 트랙이 그림자 막대가 됩니다.

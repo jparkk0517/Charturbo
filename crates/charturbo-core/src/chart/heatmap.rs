@@ -791,6 +791,11 @@ impl ChartState {
         if let ChartKind::Parallel(p) = &mut self.kind {
             self.dirty.parallel |= p.set_colormap(map);
         }
+        if let ChartKind::Hierarchy(HierChart::Polar(p)) = &mut self.kind {
+            p.set_colormap(map);
+            self.dirty.fills = true;
+            self.dirty.overlay = true;
+        }
     }
 
     /// Value domain overrides of the heatmap (min / max / diverging center).
@@ -804,6 +809,12 @@ impl ChartState {
         if let ChartKind::Parallel(p) = &mut self.kind {
             self.dirty.parallel |= p.set_domain(domain);
         }
+        if let ChartKind::Hierarchy(HierChart::Polar(p)) = &mut self.kind {
+            if p.set_domain(domain) {
+                self.dirty.fills = true;
+                self.dirty.overlay = true;
+            }
+        }
     }
 
     pub fn heatmap_lut(&self) -> Option<&[[u8; 4]]> {
@@ -811,6 +822,7 @@ impl ChartState {
             ChartKind::Heatmap(h) => Some(h.lut()),
             ChartKind::Calendar(c) => Some(c.lut()),
             ChartKind::Parallel(p) => p.lut(),
+            ChartKind::Hierarchy(HierChart::Polar(p)) => p.lut(),
             _ => None,
         }
     }
@@ -820,6 +832,7 @@ impl ChartState {
             ChartKind::Heatmap(h) => Some(HeatmapColorbar { scale: h.scale(), ticks: h.colorbar_ticks() }),
             ChartKind::Calendar(c) => Some(HeatmapColorbar { scale: c.scale(), ticks: c.colorbar_ticks() }),
             ChartKind::Parallel(p) => p.colorbar(),
+            ChartKind::Hierarchy(HierChart::Polar(p)) => p.colorbar(),
             _ => None,
         }
     }
@@ -830,6 +843,7 @@ impl ChartState {
             ChartKind::Heatmap(h) => Some(h.color_of(value)),
             ChartKind::Calendar(c) => Some(c.color_of(value)),
             ChartKind::Parallel(p) => p.color_of(value),
+            ChartKind::Hierarchy(HierChart::Polar(p)) => p.color_of(value),
             _ => None,
         }
     }
