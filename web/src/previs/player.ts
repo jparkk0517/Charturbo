@@ -3,23 +3,16 @@
  * validates the doc, calls `frame(t)` and then `sdk.render()` (and grabs the canvas for video).
  *
  * FLAT COLOR RECIPE (a node must render as exactly its `color`)
- * Derived from the classic mesh fragment shader `fs_mesh`
- * (crates/charturbo-core/src/renderer/shader.rs):
- *   final = clamp(base*ambient_tint*ambient_w            // ambient hemisphere
- *                + dir_contrib * dir_intensity            // directional
- *                + pt_contrib * point_intensity * atten   // point
- *                + base * emissive                        // emissive
- *                + fresnel, 0, 1)                         // fresnel = 0.14 * (1 - N.V)^3, all channels
- * The surface is non-sRGB ("gamma space"), so colors are written as stored, with no encode step.
- * Setting ambientIntensity 0, directionalIntensity 0, pointIntensity 0 (lighting) and emissive 1
- * (material) leaves `final = base + fresnel`; metallic 0 / roughness 1 only keep the unused
- * specular terms inert. Shadows, helpers (grid/axes), the graph and rigid physics are off and the
- * shading model is `classic`.
- * RESIDUAL ERROR: the fresnel rim is hard-coded in the classic shader and cannot be switched off,
- * so every channel is lifted by 0.14*(1-N.V)^3: 0 face-on, ~0.0035 at 45 deg, ~0.018 at 60 deg,
- * ~0.057 at 75 deg between normal and view vector, 0.14 at grazing (silhouette edges); clamped to 1.
- * Alpha is exact. (Alternative that would be exact: shading 'pbr' with toneMapping 'none',
- * exposure 1, black environment, same lights/emissive; not used here, unverified.)
+ * Shading model `pbr` (`fs_mesh_pbr`, crates/charturbo-core/src/renderer/shader.rs) with
+ * toneMapping 'none', exposure 1 and environment intensity 0, ambient / directional / point
+ * intensity 0 and material emissive 1 (metallic 0, roughness 1) leaves
+ *   out = linear_to_srgb(srgb_to_linear(base) * emissive) = base,
+ * which is exact at every viewing angle (the sRGB round trip is lossless).
+ * Shadows, helpers (grid/axes), the graph and rigid physics are off. Alpha is exact.
+ * MEASURED (previews rendered in headless Chrome, WebGL2 and WebGPU, web/previs/examples/flat-swatches.json):
+ * error <= 0.5/255 on face-on swatches and also on faces tilted 40, 61 and 77 degrees.
+ * The `classic` model was rejected: its hard-coded fresnel rim 0.14*(1-N.V)^3 lifts every channel
+ * (measured 0.5/255 at 40 deg, 5/255 at 61 deg, 16/255 at 77 deg).
  *
  * SIZE-DECOUPLED HIERARCHY
  * The engine multiplies a parent's scale into its children's offsets (world = parentWorld * local),
@@ -95,7 +88,7 @@ export function createPrevisPlayer(sdk: Charturbo, doc: PrevisDoc): PrevisPlayer
   sdk.setRigidPhysics(false);
   sdk.setHelpers({ showGrid: false, showAxes: false });
   sdk.setShadows({ enabled: false });
-  sdk.setShading({ model: 'classic' });
+  sdk.setShading({ model: 'pbr', toneMapping: 'none', exposure: 1, environment: { intensity: 0 } });
   sdk.setLighting({ ambientIntensity: 0, directionalIntensity: 0, pointIntensity: 0 });
   sdk.setTheme({ ...prevTheme, surface: [doc.background[0], doc.background[1], doc.background[2], 1] });
 

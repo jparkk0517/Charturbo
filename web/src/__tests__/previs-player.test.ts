@@ -95,7 +95,12 @@ describe('createPrevisPlayer setup', () => {
     expect(m.named('setRigidPhysics')[0][1]).toBe(false);
     expect(m.named('setHelpers')[0][1]).toEqual({ showGrid: false, showAxes: false });
     expect(m.named('setShadows')[0][1]).toEqual({ enabled: false });
-    expect(m.named('setShading')[0][1]).toEqual({ model: 'classic' });
+    expect(m.named('setShading')[0][1]).toEqual({
+      model: 'pbr',
+      toneMapping: 'none',
+      exposure: 1,
+      environment: { intensity: 0 },
+    });
     expect(m.named('setLighting')[0][1]).toEqual({
       ambientIntensity: 0,
       directionalIntensity: 0,
