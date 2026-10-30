@@ -244,6 +244,14 @@ export {
   type ParallelSeries,
 } from './sdk/chart-parallel';
 export {
+  type ChartEditAxis,
+  type ChartEditOptions,
+  type ChartPointValue,
+  type CharturboPointAddEvent,
+  type CharturboPointDragEvent,
+  type ResolvedChartEdit,
+} from './sdk/chart-edit';
+export {
   type ChartPolarTooltip,
   type PolarAxisOptions,
   type PolarChartData,

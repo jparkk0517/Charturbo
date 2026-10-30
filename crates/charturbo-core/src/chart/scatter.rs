@@ -9,6 +9,7 @@ use super::*;
 use crate::renderer::{ChartPointRaw, ChartPointStyleRaw, MAX_POINT_SERIES, POINT_SHAPE_STRIDE};
 
 mod trend;
+mod edit;
 pub use trend::ScatterTrendline;
 
 /// Point fill when neither per-point nor series colors are given.

@@ -1056,3 +1056,92 @@ describe('chart-a11y heatmaps', () => {
     expect(sdk.getChartDataTable()?.rows[2]).toEqual(['C', 20, 21, 22, 23]);
   });
 });
+
+describe('chart-a11y point editing keys', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('dataChanged drops the cached scatter order after an in-place edit / append', () => {
+    const meta = scatterMeta();
+    const state = { canvas: null, overlay: null, meta, presentation: scatterPres, theme: CHARTURBO_THEMES.dark, backend: {}, details: () => null, render: () => {} } as ChartA11yHostState;
+    const a11y = new ChartA11y(() => state);
+    const before = a11y.model()!;
+    expect([before.series[1].count, before.pointId(0, 0)]).toEqual([2, 5]); // fills the cache
+    meta.x[0] = 0.1; // in place (edited point): now first in series A's x order
+    meta.x = new Float32Array([...meta.x, 3]);
+    meta.y = new Float32Array([...meta.y, 30]);
+    meta.series = new Uint16Array([...meta.series, 1]);
+    a11y.dataChanged();
+    const after = a11y.model()!;
+    expect(after.series[1].count).toBe(3);
+    expect(after.pointId(0, 0)).toBe(0);
+    expect([after.pointId(1, 0), after.pointId(1, 1), after.pointId(1, 2)]).toEqual([1, 6, 3]);
+  });
+
+  it('Shift / Alt + arrows edit the focused point through the host and announce it', () => {
+    const els: { textContent: string }[] = [];
+    vi.stubGlobal('document', {
+      createElement: () => {
+        const e = { id: '', className: '', textContent: '', style: {}, setAttribute: () => {}, remove: () => {} };
+        els.push(e);
+        return e;
+      },
+      getElementById: () => null,
+      head: { appendChild: () => {} },
+    });
+    const listeners: Record<string, (e: unknown) => void> = {};
+    const canvas = {
+      addEventListener: (t: string, fn: (e: unknown) => void) => (listeners[t] = fn),
+      removeEventListener: (t: string) => delete listeners[t],
+      insertAdjacentElement: () => {},
+      classList: { add: () => {}, remove: () => {} },
+      getAttribute: () => null,
+      setAttribute: () => {},
+      removeAttribute: () => {},
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 100 }),
+    } as unknown as HTMLCanvasElement;
+    const meta = lineMeta({ names: ['A'], colors: [[1, 0, 0, 1]], values: [[10, 50, 30]], offsets: [0], visible: [true] });
+    const edits: [number, number, string, boolean][] = [];
+    let allow = true;
+    const state: ChartA11yHostState = {
+      canvas,
+      overlay: null,
+      meta,
+      presentation: linePresentation(),
+      theme: CHARTURBO_THEMES.dark,
+      backend: { project_node_to_ndc: () => new Float32Array([2, 0, 0]), chart_clear_hover: () => {} },
+      details: () => null,
+      render: () => {},
+      editPoint: (series, index, key, fine) => {
+        edits.push([series, index, key, fine]);
+        if (!allow) return null;
+        const v = meta.values[series] as number[];
+        v[index] += key === 'ArrowUp' ? (fine ? 1 : 10) : fine ? -1 : -10;
+        return { x: index, y: v[index] };
+      },
+    };
+    const a11y = new ChartA11y(() => state);
+    a11y.refresh();
+    const live = () => els[1]?.textContent ?? '';
+    const key = (k: string, mods: Record<string, boolean> = {}) => {
+      let prevented = false;
+      listeners.keydown({ key: k, ...mods, preventDefault: () => (prevented = true) });
+      return prevented;
+    };
+    key('ArrowRight');
+    key('ArrowRight'); // index 1 (50)
+    expect(key('ArrowUp', { shiftKey: true })).toBe(true);
+    expect(edits).toEqual([[0, 1, 'ArrowUp', false]]);
+    expect(meta.values[0]).toEqual([10, 60, 30]);
+    expect(live()).toMatch(/^Moved: T\+1, A 60/);
+    expect(key('ArrowDown', { altKey: true })).toBe(true);
+    expect(edits.at(-1)).toEqual([0, 1, 'ArrowDown', true]);
+    expect(meta.values[0]).toEqual([10, 59, 30]);
+    // Focus stays on the edited point
+    key('ArrowRight');
+    expect(live()).toMatch(/^T\+2, A 30/);
+    // Editing refused: Alt + arrows do nothing (as before)
+    allow = false;
+    expect(key('ArrowUp', { altKey: true })).toBe(false);
+    a11y.dispose();
+  });
+});

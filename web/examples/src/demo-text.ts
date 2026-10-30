@@ -269,6 +269,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '끊긴 Y축', description: '두 개의 `breaks`가 빈 값 구간을 지그재그 표시가 있는 작은 간격으로 접습니다. 눈금은 접힌 구간을 건너뛰고, 호버·확대·내보내기도 같은 매핑을 사용합니다.' },
     zh: { title: '断裂的 Y 轴', description: '两个 `breaks` 将空的数值区间折叠为带锯齿标记的小间隙。刻度跳过折叠区间；悬停、缩放和导出使用同一映射。' },
   },
+  'line/16-draggable': {
+    ko: { title: '드래그로 편집하는 선 포인트', description: '`editable`을 켜면 포인트를 위아래로 드래그해(0–100으로 제한) 데이터를 그 자리에서 편집합니다. Escape는 취소합니다. 차트에 포커스를 두고 Shift + 화살표(Alt는 미세 이동)로 포커스된 포인트를 옮길 수 있습니다.' },
+    zh: { title: '可拖动的折线数据点', description: '启用 `editable` 后，上下拖动数据点（限制在 0–100）即可就地编辑数据；Escape 取消。聚焦图表后按 Shift + 方向键（Alt 为微调）移动当前聚焦的数据点。' },
+  },
   'pie/01-pie': {
     ko: { title: '바깥 레이블이 있는 파이', description: '정렬, 작은 조각을 "기타" 하나로 묶기, 각도, 지시선 배치를 Rust에서 계산합니다. 호버하면 조각이 튀어나옵니다.' },
     zh: { title: '带外部标签的饼图', description: '排序、将小扇区合并为"其他"、角度和引导线布局均在 Rust 中计算。悬停时扇区会向外拉出。' },
@@ -320,6 +324,10 @@ const DEMO_TEXT: Record<string, Entry> = {
   'scatter/06-trendline': {
     ko: { title: '회귀 추세선', description: 'trendline은 시리즈마다 최소제곱으로 회귀하고(ECharts ecStat 선형 / 지수 / 로그 / 다항식) 보이는 x 범위에 그립니다. 범례에 수식과 R²가 표시되고, 줌·팬하면 곡선을 다시 그립니다.' },
     zh: { title: '回归趋势线', description: 'trendline 按最小二乘法逐系列拟合（ECharts ecStat 线性 / 指数 / 对数 / 多项式），并在可见 x 范围内绘制；图例显示方程和 R²。缩放和平移时重新绘制曲线。' },
+  },
+  'scatter/07-click-to-add': {
+    ko: { title: '클릭으로 산점도 포인트 추가', description: '`editable.addOnClick`을 켜면 플롯의 빈 곳을 클릭해 선택한 시리즈에 포인트를 추가합니다. 포인트를 드래그하면 x와 y로 옮깁니다. 줌 범위와 범례 상태는 유지됩니다.' },
+    zh: { title: '点击添加散点', description: '启用 `editable.addOnClick` 后，点击绘图区的空白处会向所选系列添加数据点；拖动任意数据点可在 x 和 y 方向移动。缩放窗口和图例状态保持不变。' },
   },
   'scene/01-rigid-bodies': {
     ko: { title: '레이캐스트 선택이 가능한 강체 낙하', description: '물체는 회전 없이 출발하지만, 중심에서 벗어난 충돌로 회전하고 마찰로 구가 구릅니다. 상자는 방향이 있는 접촉 매니폴드를, 원기둥은 상자 모양 충돌체를 사용합니다. 클릭해 선택합니다. 드래그는 궤도 회전, Shift + 드래그는 이동, 휠은 확대/축소입니다.' },

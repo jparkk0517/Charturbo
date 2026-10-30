@@ -158,6 +158,8 @@ const en = {
   totalPoint: (value: string) => `Total ${value}.`,
   /** `xName` / `yName`: axis titles, else `x` / `y` */
   scatterPoint: (name: string, xName: string, x: string, yName: string, y: string) => `${name}: ${xName} ${x}, ${yName} ${y}.`,
+  /** Live text after a keyboard point edit (`point` = the point announcement) */
+  pointEdited: (point: string) => `Moved: ${point}`,
 
   /** Pie table / CSV column of the slice name */
   sliceHeader: 'Slice',
@@ -294,6 +296,7 @@ const ko: A11yMessages = {
   seriesPoint: (x, name, value) => `${x}, ${name} ${value}.`,
   totalPoint: (value) => `합계 ${value}.`,
   scatterPoint: (name, xName, x, yName, y) => `${name}: ${xName} ${x}, ${yName} ${y}.`,
+  pointEdited: (point) => `이동함: ${point}`,
 
   sliceHeader: '조각',
   percentHeader: '비율',
@@ -413,6 +416,7 @@ const zh: A11yMessages = {
   seriesPoint: (x, name, value) => `${x}，${name} ${value}。`,
   totalPoint: (value) => `合计 ${value}。`,
   scatterPoint: (name, xName, x, yName, y) => `${name}：${xName} ${x}，${yName} ${y}。`,
+  pointEdited: (point) => `已移动：${point}`,
 
   sliceHeader: '扇区',
   percentHeader: '占比',

@@ -12,6 +12,14 @@
 - `exportScene()`은 객체가 쓰는 텍스처를 `textures`에 담고, `loadScene`은 살아 있는 ID를 유지하며 모르는 ID는 경고 후 맵을 버립니다. 새로 추가된 `loadSceneWithTextures(descriptor)`는 `src`가 있는 텍스처를 다시 불러와 ID를 바꿔 매핑합니다. `clearScene()`은 텍스처를 지우지 않습니다. 엔진이 텍스처를 지원하지 않으면 텍스처 API가 `... engine has no texture support`를 던집니다.
 - 예제 `scene/03-textures`, 문서 `charts/scene-3d`의 「텍스처」 절.
 
+### 추가 — 포인트 드래그 · 클릭으로 추가
+
+- `enableNodeInteractions`의 `editable`(`true` 또는 `{ drag, dragAxis, min, max, xMin, xMax, addOnClick, addSeries, series, hitRadius }`): 2D 선 · 산점도에서 포인트를 드래그해 값을 바꾸고(ECharts draggable point), 플롯 빈 곳을 클릭 / 탭해 포인트를 추가합니다. 포인트를 누르면 팬 · 브러시 · 박스 줌 대신 드래그가 되고, `dragAxis`(`'y'` · `'x'` · `'xy'`, 기본 선 `'y'` · 산점도 `'xy'`)와 보이는 범위 · `min` / `max`로 값을 제한합니다. 선의 x 드래그는 이웃을 넘지 않고, 클릭으로 추가한 점은 x 순서로 끼워 넣습니다.
+- 갱신은 데이터 경로로 합니다(선: `setSeriesData`, 산점도: Rust `set_chart_scatter_point` / `append_chart_scatter_point`로 제자리 이동 · 추가). 장면을 지우지 않으므로 줌 · 범례 · 스타일 상태가 유지됩니다. Escape는 드래그를 취소하고 값을 되돌립니다. 터치 · 펜은 Pointer Events로 동작합니다.
+- 이벤트 `pointDrag` · `pointDragEnd`(`cancelled`) · `pointAdd`, React `onPointDrag` · `onPointDragEnd` · `onPointAdd`, Vue `@point-drag` · `@point-drag-end` · `@point-add`. `getSeriesData(series)`가 편집된 데이터를 돌려주고, `setChartEditable` / `getChartEditable`로 옵션을 바꿉니다(잘못된 옵션은 상태를 바꾸기 전에 예외).
+- 키보드: 포커스된 포인트를 Shift + 화살표(보이는 범위의 1/50), Alt + 화살표(1/500)로 옮기고 라이브 영역에서 알립니다(영어 · 한국어 · 중국어).
+- 예제 `line/16-draggable` · `scatter/07-click-to-add`, fixture `edit-drag-line` · `edit-add-scatter`(스크립트 드래그 · 클릭), 문서 `guide/editing`. 막대 · 누적 / 밴드 / 희소 선 · 추가 y축 시리즈 편집은 아직 없습니다.
+
 ### 추가 — 극좌표계
 
 - `renderPolarChart(data, options)`: 극좌표계 차트(ECharts `polar` + `angleAxis` / `radiusAxis`). 각도 · 반지름 축은 각각 범주 또는 값 축이며 `min` / `max` / `splitNumber` / `labels` / `splitLine` / `name`을 받습니다. `startAngle`(12시 기준 시계 방향 각도, 파이 · 코드와 같음 — ECharts와 기준이 다름), `clockwise`, `innerRadius`, `barCategoryGap` / `barGap`.

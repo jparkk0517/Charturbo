@@ -28,6 +28,7 @@ mod lib_stats;
 mod lib_texture;
 mod lib_camera;
 mod lib_scatter;
+mod lib_edit;
 mod lib_pieces;
 pub mod physics;
 pub mod renderer;

@@ -138,6 +138,16 @@ import {
 } from './chart-brush';
 export type { BrushMode, BrushStyleOptions, CharturboSelection, CharturboSelectionRange } from './chart-brush';
 import {
+  createPointEditor,
+  lineEditTarget,
+  resolveChartEdit,
+  scatterEditTarget,
+  type ChartEditOptions,
+  type PointEditTarget,
+  type ResolvedChartEdit,
+} from './chart-edit';
+export type { ChartEditAxis, ChartEditOptions, ChartPointValue, CharturboPointAddEvent, CharturboPointDragEvent } from './chart-edit';
+import {
   AXIS_CODES,
   decodeScale,
   encodeScale,
@@ -1297,6 +1307,12 @@ export interface NodeInteractionOptions {
   /** Brush rectangle look (see `setChartBrush`) */
   brushStyle?: BrushStyleOptions;
   /**
+   * Point editing on 2D line / scatter charts: drag a point (`pointDrag`, `pointDragEnd`; Escape
+   * cancels), click an empty part of the plot to add one (`addOnClick`, `pointAdd`), Shift / Alt
+   * + arrows on the keyboard-focused point. Same as `setChartEditable` (default: unchanged, i.e. off)
+   */
+  editable?: ChartEditOptions | boolean;
+  /**
    * Axes the wheel zooms on navigable 2D charts: `'x'` (default), `'y'`, or `'xy'`; Shift + wheel
    * always zooms y. A y zoom pins the line y domain (autoscale pauses) until double-click / reset.
    */
@@ -1917,6 +1933,12 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   chart_time_domain?(): Float64Array;
   /** Visible `[xMin, xMax, yMin, yMax]` in data units (line y = the y domain; empty without one) */
   chart_range?(): Float64Array;
+  /** `[x, y, xLo, xHi, yLo, yHi]` under NDC on y axis `axis` (visible data range); empty outside 2D charts */
+  chart_ndc_to_data?(ndcX: number, ndcY: number, axis: number): Float64Array;
+  /** Moves a scatter point in place (domains / zoom / legend kept) */
+  set_chart_scatter_point?(index: number, x: number, y: number): boolean;
+  /** Appends a scatter point to a series id; its index or -1 */
+  append_chart_scatter_point?(x: number, y: number, series: number): number;
   chart_set_x_range?(lo: number, hi: number): boolean;
   chart_set_y_range?(lo: number, hi: number): boolean;
   /** Cursor sync: hover at a data x (same layout as `chart_hover_at_ndc`) */
@@ -2915,6 +2937,21 @@ export class Charturbo {
   /** Brush selection mode of chart drags (`false` = drag navigates) */
   private chartBrushMode: BrushMode | false = false;
   private chartBrushStyle: BrushStyleOptions | undefined;
+  /** Point editing (`setChartEditable`; `null` = off) */
+  private chartEdit: ResolvedChartEdit | null = null;
+  private readonly pointEdit = createPointEditor({
+    options: () => this.chartEdit,
+    target: () => this.pointEditTarget(),
+    backend: () => this.backend,
+    rect: () => this.canvas?.getBoundingClientRect() ?? null,
+    emitDrag: (e) => this.events.emit('pointDrag', e),
+    emitDragEnd: (e) => this.events.emit('pointDragEnd', e),
+    emitAdd: (e) => this.events.emit('pointAdd', e),
+    changed: () => {
+      this.a11y.dataChanged();
+      this.scheduleA11yRefresh();
+    },
+  });
   /** Range selector of the active 2D line / area chart (`null` = none) */
   private chartNavigator: { height: number } | null = null;
   private chartPadding: Required<ChartPaddingOptions> = { top: 16, right: 16, bottom: 32, left: 56 };
@@ -2973,6 +3010,7 @@ export class Charturbo {
     details: (id: number) => this.getNodeDetails(id),
     render: () => this.render(),
     chartTooltip: (hit: Float64Array) => this.a11yChartTooltip(hit),
+    editPoint: (series: number, index: number, key: string, fine: boolean) => this.pointEdit.key(series, index, key, fine),
     label: this.sparkline ? this.sparklineAriaLabel() : null,
   }));
 
@@ -4232,6 +4270,8 @@ export class Charturbo {
     canvas: HTMLCanvasElement,
     options?: NodeInteractionOptions
   ): () => void {
+    // Validated before anything is attached (invalid options throw without side effects)
+    const editOptions = options?.editable !== undefined ? resolveChartEdit(options.editable) : undefined;
     this.canvas ??= canvas;
     const showTooltip = options?.builtInTooltip ?? true;
     const chartNavigation = options?.chartNavigation ?? true;
@@ -4364,6 +4404,12 @@ export class Charturbo {
     const prevBrushMode = options?.brush !== undefined ? this.chartBrushMode : undefined;
     if (options?.brush !== undefined) this.setChartBrush(options.brush, options.brushStyle);
     else if (options?.brushStyle) this.chartBrushStyle = options.brushStyle;
+    /** Editing options before this binding set them (restored on detach) */
+    const prevEdit = editOptions !== undefined ? this.chartEdit : undefined;
+    if (editOptions !== undefined) {
+      this.pointEdit.cancel();
+      this.chartEdit = editOptions;
+    }
     /** Brush drag start in NDC (null = the drag is not a brush) */
     let brushFrom: [number, number] | null = null;
     /** The brush drag passed the click threshold and drew a rectangle */
@@ -4454,6 +4500,8 @@ export class Charturbo {
     });
     const resetParallelBrush = () => parallelBrush.cancel();
     this.hoverResetHooks.add(resetParallelBrush);
+    const resetPointEdit = () => this.pointEdit.reset();
+    this.hoverResetHooks.add(resetPointEdit);
 
     /** Mouse orbit / pan / wheel zoom of graph / 3D views (camera-controls.ts) */
     const cameraOptions = resolveCameraControls(options?.cameraControls);
@@ -4825,6 +4873,15 @@ export class Charturbo {
         nav.pointerMove(e);
         return;
       }
+      // Point drag (chart-edit.ts) owns its pointer
+      if (this.pointEdit.pointerMove(e)) {
+        if (this.pointEdit.dragging()) {
+          hideTooltip();
+          canvas.style.cursor = 'grabbing';
+        }
+        if (autoRender) this.render();
+        return;
+      }
       if (parallelBrush.pointerMove(e)) return;
       if (gestures?.pointerMove(e)) return;
       // Ignored extra finger (3rd touch) must not reach the mouse drag path
@@ -4945,6 +5002,19 @@ export class Charturbo {
         downPos = null;
         return;
       }
+      // A press on an editable point starts a drag (mouse, touch and pen): no pan / brush / gesture
+      if (this.pointEdit.pointerDown(e)) {
+        gestures?.stopFling();
+        panLastX = null;
+        brushFrom = null;
+        downPos = null;
+        try {
+          canvas.setPointerCapture?.(e.pointerId);
+        } catch {
+          // Synthetic / already released pointers cannot be captured
+        }
+        return;
+      }
       if (gestures?.pointerDown(e)) return;
       gestures?.stopFling();
       panRecorded = false;
@@ -4975,6 +5045,18 @@ export class Charturbo {
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      const edited = this.pointEdit.pointerUp(e);
+      if (edited) {
+        if (edited === 'click') {
+          // The press never moved: a click / tap on the point (touch shows the tooltip like a tap)
+          if (e.pointerType !== 'mouse') hoverAt(e, true);
+          clickAt(e);
+        } else {
+          canvas.style.cursor = 'pointer';
+          if (autoRender) this.render();
+        }
+        return;
+      }
       // A camera drag (past its slop) is never a click, wherever it is released
       const orbited = camera.dragging();
       camera.pointerUp();
@@ -5019,6 +5101,12 @@ export class Charturbo {
     /** Click semantics shared by mouse clicks and touch taps. */
     const clickAt = (e: PointerEvent) => {
       if (this.chartMode) {
+        // Click to add (chart-edit.ts): an empty part of the plot gets a new point
+        if (this.pointEdit.click(e)) {
+          hideTooltip();
+          if (autoRender) this.render();
+          return;
+        }
         // A click clears the brush selection (like Plotly / ECharts)
         if (brushing()) this.clearChartSelection();
         const ctx = resolveChartHover(e);
@@ -5103,6 +5191,8 @@ export class Charturbo {
     };
 
     const onLostCapture = (e: PointerEvent) => {
+      // A point drag whose release never arrives commits where it is
+      this.pointEdit.commit();
       camera.pointerUp();
       nav.pointerUp(e);
       parallelBrush.cancel();
@@ -5110,6 +5200,7 @@ export class Charturbo {
       zoom.cancel();
     };
     const onPointerCancel = (e: PointerEvent) => {
+      if (this.pointEdit.cancel() && autoRender) this.render();
       camera.pointerUp();
       zoom.cancel();
       parallelBrush.cancel();
@@ -5211,6 +5302,11 @@ export class Charturbo {
       // Ctrl / Cmd + Z undoes a zoom, Ctrl / Cmd + Shift + Z / Ctrl + Y redoes it
       if (this.chartMode && navigating() && zoom.keyDown(e)) return;
       if (e.key !== 'Escape' || !this.chartMode) return;
+      // A live point drag is cancelled first (the value is restored)
+      if (this.pointEdit.cancel()) {
+        if (autoRender) this.render();
+        return;
+      }
       // A live box zoom is cancelled first
       if (zoom.cancel()) return;
       if (clickPinned) releasePinnedHover();
@@ -5247,6 +5343,10 @@ export class Charturbo {
       if (detached) return;
       detached = true;
       if (prevBrushMode !== undefined) this.chartBrushMode = prevBrushMode;
+      if (prevEdit !== undefined) {
+        this.pointEdit.cancel();
+        this.chartEdit = prevEdit;
+      }
       if (gestures) {
         this.hoverResetHooks.delete(stopFling);
         gestures.reset();
@@ -5275,6 +5375,7 @@ export class Charturbo {
       this.chartDataHooks.delete(resetHoverEvent);
       this.hoverResetHooks.delete(resetNav);
       this.hoverResetHooks.delete(resetParallelBrush);
+      this.hoverResetHooks.delete(resetPointEdit);
       nav.reset();
       this.themeHooks.delete(restyleTooltip);
       this.legendHooks.delete(renderAfterLegend);
@@ -6238,6 +6339,81 @@ export class Charturbo {
 
   getChartBrush(): BrushMode | false {
     return this.chartBrushMode;
+  }
+
+  /**
+   * Point editing of 2D line / scatter charts (`true` = defaults, `false` = off; see
+   * `ChartEditOptions`). Options are validated first: invalid ones throw and keep the current
+   * state. Pointer edits need an `enableNodeInteractions` binding; keyboard edits work on the
+   * focused point (Shift + arrows: 1/50 of the visible span, Alt + arrows: 1/500). Stacked /
+   * percent areas, bands, sparse charts, ThemeRiver and extra y axes are not editable.
+   */
+  setChartEditable(options: ChartEditOptions | boolean): void {
+    const resolved = resolveChartEdit(options);
+    this.pointEdit.cancel();
+    this.chartEdit = resolved;
+  }
+
+  /** Current point editing options (`null` = off). */
+  getChartEditable(): ResolvedChartEdit | null {
+    return this.chartEdit;
+  }
+
+  /**
+   * Current data of one series (after edits): line series `index` as x (x values, or sample
+   * indices) and y; scatter series id `index` as the x / y of its points with their point
+   * `index` in the input arrays. `null` without a line / scatter chart or for an unknown series.
+   */
+  getSeriesData(series = 0): { x: number[]; y: number[]; index?: number[] } | null {
+    const meta = this.syncedChartMeta();
+    if (meta?.kind === 'line') {
+      const values = meta.values[series];
+      if (!values) return null;
+      const xs = meta.xs?.[series];
+      return { x: Array.from(values, (_, i) => (xs ? xs[i] : i)), y: Array.from(values, Number) };
+    }
+    if (meta?.kind === 'scatter') {
+      const out = { x: [] as number[], y: [] as number[], index: [] as number[] };
+      const n = Math.min(meta.x.length, meta.y.length);
+      for (let i = 0; i < n; i++) {
+        if ((meta.series?.[i] ?? 0) !== series) continue;
+        out.x.push(meta.x[i]);
+        out.y.push(meta.y[i]);
+        out.index.push(i);
+      }
+      return out.index.length || series < Math.max(1, meta.names.length) ? out : null;
+    }
+    return null;
+  }
+
+  /** Edit target of the active chart (chart-edit.ts), or null when it is not editable. */
+  private pointEditTarget(): PointEditTarget | null {
+    const meta = this.chartMeta;
+    if (!this.backend.chart_ndc_to_data) return null;
+    if (meta?.kind === 'scatter') return scatterEditTarget(meta, this.backend);
+    if (meta?.kind !== 'line') return null;
+    const b = this.backend;
+    return lineEditTarget(meta, {
+      read: (s) => {
+        const m = this.syncedChartMeta() as LineChartMeta;
+        return { values: m.values[s] ?? [], xs: m.xs?.[s] ?? null };
+      },
+      write: (s, values, xs) => {
+        this.setSeriesData(s, values, xs ?? undefined);
+        // Animated updates would trail the pointer: jump to the end
+        b.chart_finish_animation?.();
+      },
+      freezeY: () => {
+        const d = b.chart_y_domain?.();
+        if (d && d.length >= 2) b.set_chart_y_domain?.(d[0], d[1], Y_AUTOSCALE_CODES.none, true);
+        const d2 = b.chart_y2_domain?.();
+        if (d2 && d2.length >= 2) b.set_chart_y2_domain?.(d2[0], d2[1], Y_AUTOSCALE_CODES.none, true);
+      },
+      restoreY: () => {
+        this.setYDomain({});
+        if (b.chart_y2_domain?.()?.length) this.setY2Domain({});
+      },
+    });
   }
 
   /** Committed brush selection of the active chart (re-queried after data / legend changes), or `null`. */

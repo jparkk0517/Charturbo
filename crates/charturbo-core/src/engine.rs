@@ -30,6 +30,9 @@ mod parallel_ext;
 // Base-color textures of scene meshes (registry in the render backend, maps in the scene)
 #[path = "engine_texture_ext.rs"]
 mod texture_ext;
+/// Point editing passthroughs (drag / click to add).
+#[path = "engine_edit_ext.rs"]
+mod edit_ext;
 
 #[cfg(test)]
 #[path = "engine_sleep_tests.rs"]
