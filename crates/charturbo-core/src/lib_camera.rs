@@ -13,4 +13,9 @@ impl WasmCharturboEngine {
         let t = c.target();
         vec![t.x, t.y, t.z, c.distance(), c.yaw(), c.pitch(), c.fov_y(), c.aspect(), c.orthographic_size().unwrap_or(0.)]
     }
+
+    /// Vertical field of view in degrees (clamped to 10..120; non-finite ignored).
+    pub fn set_camera_fov(&mut self, degrees: f32) {
+        self.inner.set_camera_fov(degrees);
+    }
 }

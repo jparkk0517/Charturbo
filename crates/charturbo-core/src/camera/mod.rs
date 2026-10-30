@@ -60,6 +60,13 @@ impl OrbitCamera {
         self.fov_y_radians
     }
 
+    /// Sets the vertical field of view in degrees, clamped to 10..=120; non-finite values are ignored.
+    pub fn set_fov_y_degrees(&mut self, degrees: f32) {
+        if degrees.is_finite() {
+            self.fov_y_radians = degrees.clamp(10.0, 120.0).to_radians();
+        }
+    }
+
     #[inline]
     pub fn set_distance(&mut self, distance: f32) {
         self.distance = distance.clamp(5.0, 5000.0);
@@ -322,6 +329,35 @@ mod tests {
         assert!(cam.project_to_ndc(Vec3::new(0., 20., 0.)).is_some());
         cam.set_orthographic(None);
         assert_ne!(cam.project_to_ndc(Vec3::new(40., 20., 0.)).unwrap().x, cam.project_to_ndc(Vec3::new(40., 20., 100.)).unwrap().x);
+    }
+
+    #[test]
+    fn fov_setter_clamps_and_ignores_non_finite() {
+        let mut cam = OrbitCamera::new(100.0, 1.0);
+        cam.set_fov_y_degrees(60.0);
+        assert!((cam.fov_y() - 60f32.to_radians()).abs() < 1e-6);
+        cam.set_fov_y_degrees(1.0);
+        assert!((cam.fov_y() - 10f32.to_radians()).abs() < 1e-6);
+        cam.set_fov_y_degrees(500.0);
+        assert!((cam.fov_y() - 120f32.to_radians()).abs() < 1e-6);
+        cam.set_fov_y_degrees(75.0);
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            cam.set_fov_y_degrees(bad);
+            assert!((cam.fov_y() - 75f32.to_radians()).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn fov_change_alters_projection() {
+        let mut cam = OrbitCamera::new(300., 1.);
+        cam.set_pose(Vec3::new(0., 0., 300.), Vec3::ZERO);
+        let p = Vec3::new(0., 40., 0.);
+        let before = cam.project_to_ndc(p).unwrap().y;
+        cam.set_fov_y_degrees(90.0);
+        let after = cam.project_to_ndc(p).unwrap().y;
+        // Wider FOV shrinks the projected offset by tan(22.5deg)/tan(45deg)
+        assert!(after < before * 0.5);
+        assert!((after / before - 22.5f32.to_radians().tan() / 45f32.to_radians().tan()).abs() < 1e-3);
     }
 
     #[test]
