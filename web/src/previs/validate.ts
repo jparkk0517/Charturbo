@@ -190,6 +190,11 @@ export function validateDoc(
     }
     if (n.role !== undefined && (typeof n.role !== 'string' || !roleIds.has(n.role))) {
       add(`${p}.role`, `role "${String(n.role)}" is not defined in roles; add it to roles or fix the id`);
+    } else if (typeof n.role === 'string' && Array.isArray(n.color) && n.color.length === 3 && n.color.every(isNum)) {
+      const rc = roleColors.find((r) => r.id === n.role);
+      if (rc && colorDistance(rc.color, n.color as Rgb) > 1) {
+        add(`${p}.color`, `node color differs from role "${n.role}" color; the handoff prompt maps the role color, so set the node color to ${JSON.stringify(rc.color)}`);
+      }
     }
     if (n.visible !== undefined && typeof n.visible !== 'boolean') add(`${p}.visible`, 'visible must be true or false');
     if (n.tracks !== undefined) {
@@ -272,12 +277,16 @@ export function validateDoc(
       else add(`${p}.camera.target`, 'target needs either "track" (look-at keyframes) or "follow" (node id)');
       if (c.fov !== undefined) {
         track(c.fov, `${p}.camera.fov`, (v, pp) => {
-          if (isNum(v) && v > 0 && v < 180) return true;
-          add(pp, `fov must be a finite number of degrees in (0, 180); got ${JSON.stringify(v)}`);
+          if (isNum(v) && v >= 10 && v <= 120) return true;
+          add(pp, `fov must be a finite number of degrees in [10, 120] (engine clamp); got ${JSON.stringify(v)}`);
           return false;
         });
       }
     });
+  }
+
+  if (issues.length === 0 && isNum(d.fps) && Math.round(totalEnd(d.shots as unknown[]) * d.fps) < 1) {
+    add('shots', 'total duration is shorter than one frame; lengthen the last shot or raise fps');
   }
 
   if (issues.length > 0) return { ok: false, issues };

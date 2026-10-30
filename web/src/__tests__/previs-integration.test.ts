@@ -70,3 +70,21 @@ describe('previs pipeline integration', () => {
     expect(h.uploadOrder[0]).toMatch(/previs/i);
   });
 });
+
+describe('validator guards (review fixes)', () => {
+  const issuesOf = (mutate: (d: PrevisDoc) => void) => {
+    const d = JSON.parse(JSON.stringify(buildDoc())) as PrevisDoc;
+    mutate(d);
+    const r = validateDoc(d);
+    return r.ok ? [] : r.issues;
+  };
+  it('rejects fov outside the engine clamp', () => {
+    expect(issuesOf((d) => { d.shots[1].camera.fov = [{ t: 2, v: 150 }]; }).length).toBeGreaterThan(0);
+  });
+  it('rejects a doc shorter than one frame', () => {
+    expect(issuesOf((d) => { d.shots = [{ ...d.shots[0], start: 0, end: 0.01 }]; }).length).toBeGreaterThan(0);
+  });
+  it('rejects a node color that differs from its role color', () => {
+    expect(issuesOf((d) => { d.nodes.find((n) => n.id === 'rival.upper')!.color = [1, 0, 0]; }).some((i) => i.path.endsWith('.color'))).toBe(true);
+  });
+});
