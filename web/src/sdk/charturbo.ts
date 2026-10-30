@@ -1480,6 +1480,51 @@ export interface SceneLightingDescriptor {
   pointIntensity?: number;
 }
 
+/** sRGB color without alpha, components in [0, 1]. */
+export type RgbTuple = [number, number, number];
+
+/** Mesh shading model: `'classic'` Blinn-Phong (default) or physically based `'pbr'`. */
+export type SceneShadingModel = 'classic' | 'pbr';
+
+/** PBR tone mapping operator applied after `exposure` (classic shading ignores it). */
+export type SceneToneMapping = 'none' | 'aces' | 'reinhard';
+
+/** PBR environment light: a sky / ground hemisphere, or an equirectangular map. */
+export interface SceneEnvironmentDescriptor {
+  /** Sky color (sRGB) lighting from +y (default: [0.6, 0.66, 0.76]) */
+  sky?: RgbTuple;
+  /** Ground color (sRGB) lighting from -y (default: [0.24, 0.22, 0.2]) */
+  ground?: RgbTuple;
+  /** Environment radiance scale, 0..16 (default: 1) */
+  intensity?: number;
+  /**
+   * Equirectangular LDR (sRGB) texture id from `loadTexture` / `createDataTexture`, 2:1 with mipmaps
+   * (blurry reflections of rough surfaces read lower mips); u = 0.5 faces -z, the top row is
+   * straight up. `null` (or 0) uses the sky / ground hemisphere, as do unknown or disposed ids.
+   */
+  map?: number | null;
+}
+
+/** Scene mesh shading (`setShading`). Chart 3D marks are not affected. */
+export interface SceneShadingDescriptor {
+  /** `'classic'` (default) or `'pbr'` */
+  model?: SceneShadingModel;
+  /** PBR only (default: `'aces'`) */
+  toneMapping?: SceneToneMapping;
+  /** PBR only: linear multiplier before tone mapping, 0..16 (default: 1) */
+  exposure?: number;
+  /** PBR only: ambient / reflection environment (partial updates merge) */
+  environment?: SceneEnvironmentDescriptor;
+}
+
+/** Resolved shading settings (`getShading`). */
+export interface SceneShadingState {
+  model: SceneShadingModel;
+  toneMapping: SceneToneMapping;
+  exposure: number;
+  environment: { sky: RgbTuple; ground: RgbTuple; intensity: number; map: number | null };
+}
+
 export interface SceneHelpersDescriptor {
   showGrid?: boolean;
   gridSize?: number;
@@ -1532,6 +1577,8 @@ export interface SceneDescriptor {
   /** Textures the objects' `map` ids refer to (`exportScene`; `loadSceneWithTextures` reloads those with a `src`) */
   textures?: SceneTextureDescriptor[];
   lighting?: SceneLightingDescriptor;
+  /** Mesh shading model, tone mapping and environment (`environment.map` is a `textures` id) */
+  shading?: SceneShadingDescriptor;
   helpers?: SceneHelpersDescriptor;
   rigidPhysics?: {
     enabled: boolean;
@@ -1739,6 +1786,19 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     pointY: number,
     pointZ: number,
     pointIntensity: number
+  ): void;
+  set_scene_shading?(
+    model: number,
+    toneMapping: number,
+    exposure: number,
+    skyR: number,
+    skyG: number,
+    skyB: number,
+    groundR: number,
+    groundG: number,
+    groundB: number,
+    envIntensity: number,
+    envMap: number
   ): void;
   set_scene_helpers?(
     showGrid: boolean,
@@ -2456,6 +2516,66 @@ function textureError(fn: string, cause: unknown): Error {
   return err;
 }
 
+/** `set_scene_shading` tone mapping codes. */
+const TONE_MAPPING_CODES: Record<SceneToneMapping, number> = { none: 0, aces: 1, reinhard: 2 };
+/** Engine clamps of `exposure` / `environment.intensity`. */
+const MAX_SHADING_SCALE = 16;
+
+function defaultShadingState(): SceneShadingState {
+  return {
+    model: 'classic',
+    toneMapping: 'aces',
+    exposure: 1,
+    environment: { sky: [0.6, 0.66, 0.76], ground: [0.24, 0.22, 0.2], intensity: 1, map: null },
+  };
+}
+
+function cloneShading(s: SceneShadingState): SceneShadingState {
+  const e = s.environment;
+  return { ...s, environment: { sky: [...e.sky], ground: [...e.ground], intensity: e.intensity, map: e.map } };
+}
+
+/** Merges `options` over `current`, validating every given field (throws `fn: ...`). */
+function resolveShading(fn: string, current: SceneShadingState, options: SceneShadingDescriptor): SceneShadingState {
+  if (typeof options !== 'object' || options === null) throw new Error(`${fn}: options must be an object`);
+  const next = cloneShading(current);
+  const { model, toneMapping, exposure, environment } = options;
+  if (model !== undefined) {
+    if (model !== 'classic' && model !== 'pbr') throw new Error(`${fn}: model must be 'classic' or 'pbr'`);
+    next.model = model;
+  }
+  if (toneMapping !== undefined) {
+    if (typeof toneMapping !== 'string' || !Object.hasOwn(TONE_MAPPING_CODES, toneMapping)) throw new Error(`${fn}: toneMapping must be 'none', 'aces' or 'reinhard'`);
+    next.toneMapping = toneMapping;
+  }
+  const scale = (name: string, v: number) => {
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_SHADING_SCALE) {
+      throw new Error(`${fn}: ${name} must be a number in [0, ${MAX_SHADING_SCALE}]`);
+    }
+    return v;
+  };
+  if (exposure !== undefined) next.exposure = scale('exposure', exposure);
+  if (environment !== undefined) {
+    if (typeof environment !== 'object' || environment === null) throw new Error(`${fn}: environment must be an object`);
+    const env = next.environment;
+    const rgb = (name: string, c: RgbTuple): RgbTuple => {
+      if (!Array.isArray(c) || c.length !== 3 || !c.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 1)) {
+        throw new Error(`${fn}: environment.${name} must be [r, g, b] with components in [0, 1]`);
+      }
+      return [c[0], c[1], c[2]];
+    };
+    if (environment.sky !== undefined) env.sky = rgb('sky', environment.sky);
+    if (environment.ground !== undefined) env.ground = rgb('ground', environment.ground);
+    if (environment.intensity !== undefined) env.intensity = scale('environment.intensity', environment.intensity);
+    if (environment.map !== undefined) {
+      const map = environment.map;
+      if (map !== null && (!Number.isInteger(map) || map < 0)) throw new Error(`${fn}: environment.map must be a texture id or null`);
+      env.map = map === 0 ? null : map;
+    }
+  }
+  return next;
+}
+
 /** `set_chart_y_domain` autoscale codes. */
 const Y_AUTOSCALE_CODES: Record<NonNullable<LineYDomainOptions['autoscale']>, number> = { all: 0, visible: 1, none: 2 };
 
@@ -2923,6 +3043,7 @@ export class Charturbo {
     pointPosition: [0, 45, 25],
     pointIntensity: 0.65,
   };
+  private shadingState: SceneShadingState = defaultShadingState();
   private helpersState: Required<SceneHelpersDescriptor> = {
     showGrid: false,
     gridSize: 200,
@@ -5583,6 +5704,11 @@ export class Charturbo {
     if (!this.backend.dispose_texture) throw new Error('disposeTexture: engine has no texture support (dispose_texture)');
     const ok = this.backend.dispose_texture(textureId);
     this.textureRecords.delete(textureId);
+    if (this.shadingState.environment.map === textureId) {
+      // The engine already fell back to the hemisphere; keep the state in sync
+      this.shadingState.environment.map = null;
+      this.sendShading();
+    }
     for (const rec of this.objectRecords.values()) {
       if (rec.map !== textureId) continue;
       rec.map = null;
@@ -7563,6 +7689,41 @@ export class Charturbo {
     return { ...this.lightingState };
   }
 
+  /**
+   * Scene mesh shading. `'classic'` (default) keeps the Blinn-Phong look; `'pbr'` switches the
+   * meshes to metallic-roughness physically based shading (GGX) in linear space with environment
+   * lighting, `exposure` and tone mapping. Colors and textures stay sRGB in both models. The
+   * directional / point lights of `setLighting` apply to both; `ambientIntensity` is classic only
+   * (PBR ambient comes from `environment`). Omitted fields keep their current value; throws on
+   * invalid values.
+   */
+  setShading(options: SceneShadingDescriptor): void {
+    this.shadingState = resolveShading('setShading', this.shadingState, options);
+    this.sendShading();
+  }
+
+  getShading(): SceneShadingState {
+    return cloneShading(this.shadingState);
+  }
+
+  private sendShading(): void {
+    const s = this.shadingState;
+    const e = s.environment;
+    this.backend.set_scene_shading?.(
+      s.model === 'pbr' ? 1 : 0,
+      TONE_MAPPING_CODES[s.toneMapping],
+      s.exposure,
+      e.sky[0],
+      e.sky[1],
+      e.sky[2],
+      e.ground[0],
+      e.ground[1],
+      e.ground[2],
+      e.intensity,
+      e.map ?? 0
+    );
+  }
+
   setHelpers(helpers: SceneHelpersDescriptor): void {
     this.helpersState = {
       ...this.helpersState,
@@ -7629,6 +7790,15 @@ export class Charturbo {
     if (descriptor.lighting) {
       this.setLighting(descriptor.lighting);
     }
+    if (descriptor.shading) {
+      let shading = descriptor.shading;
+      const envMap = shading.environment?.map;
+      if (envMap && !this.textureRecords.has(envMap)) {
+        console.warn(`loadScene: unknown environment texture id ${envMap}; the hemisphere environment is used (loadSceneWithTextures reloads textures that have a src)`);
+        shading = { ...shading, environment: { ...shading.environment, map: null } };
+      }
+      this.setShading(shading);
+    }
     if (descriptor.helpers) {
       this.setHelpers(descriptor.helpers);
     }
@@ -7692,7 +7862,13 @@ export class Charturbo {
       if (mapped === undefined) return item;
       return mapped === null ? { ...item, map: null, alphaTest: 0 } : { ...item, map: mapped };
     });
-    return this.loadScene({ ...descriptor, objects });
+    let shading = descriptor.shading;
+    const envMap = shading?.environment?.map;
+    const envMapped = envMap ? idMap.get(envMap) : undefined;
+    if (shading && envMapped !== undefined) {
+      shading = { ...shading, environment: { ...shading.environment, map: envMapped } };
+    }
+    return this.loadScene({ ...descriptor, objects, ...(shading ? { shading } : {}) });
   }
 
   private exportObjectMap(rec: SceneObjectRecord) {
@@ -7758,7 +7934,9 @@ export class Charturbo {
 
     // Only textures the objects reference travel with the scene
     const textures: SceneTextureDescriptor[] = [];
-    for (const id of new Set(this.getObjects().map((rec) => rec.map))) {
+    const used = new Set(this.getObjects().map((rec) => rec.map));
+    used.add(this.shadingState.environment.map);
+    for (const id of used) {
       const t = id === null ? undefined : this.textureRecords.get(id);
       if (t) textures.push({ id: t.id, src: t.src, width: t.width, height: t.height });
     }
@@ -7766,6 +7944,7 @@ export class Charturbo {
     return {
       ...(textures.length ? { textures } : {}),
       lighting: this.getLighting(),
+      shading: this.getShading(),
       helpers: this.getHelpers(),
       rigidPhysics: this.getRigidPhysics(),
       graphVisible: this.graphVisibleState,

@@ -164,7 +164,9 @@ pub(crate) struct TextureRegistry {
     ledger: TextureLedger<GpuTexture>,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    _white: wgpu::Texture,
+    /// PBR environment maps: u wraps (longitude), v clamps at the poles
+    env_sampler: wgpu::Sampler,
+    white: wgpu::Texture,
     white_bind_group: wgpu::BindGroup,
     blit: Option<MipBlit>,
 }
@@ -192,6 +194,16 @@ impl TextureRegistry {
             anisotropy_clamp: 8,
             ..Default::default()
         });
+        let env_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("env-map-sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let white = Self::create_gpu_texture(device, "mesh-texture-white", 1, 1, 1);
         Self::write_rgba8(queue, &white, 1, 1, &[255, 255, 255, 255]);
         let white_bind_group = Self::create_bind_group(device, &layout, &sampler, &white);
@@ -199,7 +211,8 @@ impl TextureRegistry {
             ledger: TextureLedger::new(max_edge, TEXTURE_BUDGET_BYTES),
             layout,
             sampler,
-            _white: white,
+            env_sampler,
+            white,
             white_bind_group,
             blit: None,
         }
@@ -222,6 +235,18 @@ impl TextureRegistry {
         self.ledger
             .get(id)
             .map_or(&self.white_bind_group, |e| &e.value.bind_group)
+    }
+
+    /// Mip levels of a live texture (0 for unknown / disposed ids and 0).
+    pub fn levels(&self, id: u32) -> u32 {
+        self.ledger.get(id).map_or(0, |e| e.levels)
+    }
+
+    /// Environment-map bind group of `id` (same layout as the base-color group, env sampler);
+    /// unknown / disposed ids get the white texture (the shader then uses the hemisphere).
+    pub fn env_bind_group(&self, device: &wgpu::Device, id: u32) -> wgpu::BindGroup {
+        let texture = self.ledger.get(id).map_or(&self.white, |e| &e.value.texture);
+        Self::create_bind_group(device, &self.layout, &self.env_sampler, texture)
     }
 
     /// Creates a texture from tightly packed RGBA8 texels (top row first).

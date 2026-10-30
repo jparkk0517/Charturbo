@@ -248,6 +248,170 @@ fn fs_mesh(in: MeshVertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Light uniform as declared by the classic `MESH_LIT_WGSL` (first 48 bytes of
+/// `SceneLightUniformRaw`); `mesh_pbr_wgsl` swaps it for the full struct.
+const MESH_LIGHT_STRUCT_CLASSIC: &str = "struct SceneLightUniform {
+    eye_pos_ambient: vec4<f32>,
+    dir_light_dir_intensity: vec4<f32>,
+    point_light_pos_intensity: vec4<f32>,
+};";
+
+const MESH_LIGHT_STRUCT_PBR: &str = "struct SceneLightUniform {
+    eye_pos_ambient: vec4<f32>,
+    dir_light_dir_intensity: vec4<f32>,
+    point_light_pos_intensity: vec4<f32>,
+    // (model, tone mapping 0 none / 1 aces / 2 reinhard, exposure, env intensity)
+    shading: vec4<f32>,
+    // linear sky rgb, w = env map mip count (0 = no map: hemisphere)
+    env_sky: vec4<f32>,
+    // linear ground rgb, w = 1: encode the output to sRGB (non-sRGB surface)
+    env_ground: vec4<f32>,
+};";
+
+/// Physically based mesh shading: the classic module (same vertex stage, bindings and instance
+/// layout; its text stays untouched so classic output is unchanged) with the full light
+/// uniform, the environment map in group 2 and the `fs_mesh_pbr` entry point.
+pub fn mesh_pbr_wgsl() -> String {
+    assert!(MESH_LIT_WGSL.contains(MESH_LIGHT_STRUCT_CLASSIC), "classic light struct changed");
+    format!(
+        "{}{MESH_PBR_BODY_WGSL}",
+        MESH_LIT_WGSL.replacen(MESH_LIGHT_STRUCT_CLASSIC, MESH_LIGHT_STRUCT_PBR, 1)
+    )
+}
+
+const MESH_PBR_BODY_WGSL: &str = r#"
+// Equirectangular LDR (sRGB) environment, mipmapped; 1 x 1 white when unset (env_sky.w = 0)
+@group(2) @binding(0)
+var env_map: texture_2d<f32>;
+
+@group(2) @binding(1)
+var env_sampler: sampler;
+
+const PI: f32 = 3.141592653589793;
+
+// Exact piecewise sRGB transfer functions (inputs >= 0)
+fn srgb_to_linear3(c: vec3<f32>) -> vec3<f32> {
+    let hi = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(hi, c / 12.92, c <= vec3<f32>(0.04045));
+}
+
+fn linear_to_srgb3(c: vec3<f32>) -> vec3<f32> {
+    let hi = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+    return select(hi, c * 12.92, c <= vec3<f32>(0.0031308));
+}
+
+// Direction -> equirect uv: u = 0.5 looks toward -z, v = 0 is straight up (top image row)
+fn equirect_uv(d: vec3<f32>) -> vec2<f32> {
+    let pole = abs(d.x) + abs(d.z) < 1e-6;
+    let u = atan2(d.x, select(-d.z, 1.0, pole)) * (0.5 / PI) + 0.5;
+    let v = acos(clamp(d.y, -1.0, 1.0)) / PI;
+    return vec2<f32>(u, v);
+}
+
+fn hemisphere(d: vec3<f32>) -> vec3<f32> {
+    return mix(light.env_ground.rgb, light.env_sky.rgb, 0.5 + 0.5 * d.y) * light.shading.w;
+}
+
+// Environment radiance along `d` at mip `lod` (hemisphere colour without a map)
+fn env_radiance(d: vec3<f32>, lod: f32) -> vec3<f32> {
+    if (light.env_sky.w >= 1.0) {
+        let t = textureSampleLevel(env_map, env_sampler, equirect_uv(d), lod).rgb;
+        return srgb_to_linear3(t) * light.shading.w;
+    }
+    return hemisphere(d);
+}
+
+// Split-sum environment BRDF, analytic fit (Karis, "Physically Based Shading on Mobile")
+fn env_brdf_approx(f0: vec3<f32>, n_dot_v: f32, roughness: f32) -> vec3<f32> {
+    let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
+    let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
+    let r = roughness * c0 + c1;
+    let a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;
+    let ab = vec2<f32>(-1.04, 1.04) * a004 + r.zw;
+    return f0 * ab.x + vec3<f32>(ab.y);
+}
+
+// One punctual light: GGX NDF, height-correlated Smith visibility, Schlick Fresnel and
+// Lambert diffuse * (1 - F). Scaled by PI so intensity 1 lights a white Lambert surface
+// facing it to 1 (the classic shader's convention).
+fn punctual(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, n_dot_v: f32, f0: vec3<f32>, diffuse_color: vec3<f32>, roughness: f32) -> vec3<f32> {
+    let n_dot_l = dot(n, l);
+    if (!(n_dot_l > 0.0)) {
+        return vec3<f32>(0.0);
+    }
+    let hv = v + l;
+    let h = hv * inverseSqrt(max(dot(hv, hv), 1e-12));
+    let n_dot_h = clamp(dot(n, h), 0.0, 1.0);
+    let v_dot_h = clamp(dot(v, h), 0.0, 1.0);
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let dd = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    let ndf = a2 / (PI * dd * dd);
+    let gv = n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0 - a2) + a2);
+    let gl = n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0 - a2) + a2);
+    let vis = 0.5 / max(gv + gl, 1e-6);
+    let f = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - v_dot_h, 5.0);
+    let diffuse = (vec3<f32>(1.0) - f) * diffuse_color * (1.0 / PI);
+    return (diffuse + f * (ndf * vis)) * (n_dot_l * PI);
+}
+
+fn tone_map(c: vec3<f32>, mode: f32) -> vec3<f32> {
+    if (mode > 1.5) {
+        return c / (vec3<f32>(1.0) + c);
+    }
+    if (mode > 0.5) {
+        // ACES filmic fit (Narkowicz 2015)
+        return (c * (2.51 * c + vec3<f32>(0.03))) / (c * (2.43 * c + vec3<f32>(0.59)) + vec3<f32>(0.14));
+    }
+    return c;
+}
+
+@fragment
+fn fs_mesh_pbr(in: MeshVertexOutput) -> @location(0) vec4<f32> {
+    // Sampled first (uniform control flow) so the alpha-test discard can follow
+    let tex = textureSample(base_map, base_sampler, in.uv);
+    let alpha = clamp(in.color.a, 0.0, 1.0) * tex.a;
+    if (alpha < in.mat_params.w) {
+        discard;
+    }
+    let n = normalize(in.world_normal);
+    let v = normalize(light.eye_pos_ambient.xyz - in.world_pos);
+    let metallic = clamp(in.mat_params.x, 0.0, 1.0);
+    let roughness = clamp(in.mat_params.y, 0.045, 1.0);
+    let base = srgb_to_linear3(clamp(in.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0))) * srgb_to_linear3(tex.rgb);
+    let emissive = max(0.0, in.mat_params.z);
+    let f0 = mix(vec3<f32>(0.04), base, metallic);
+    let diffuse_color = base * (1.0 - metallic);
+    let n_dot_v = max(dot(n, v), 1e-4);
+
+    // Directional light
+    var color = punctual(n, v, normalize(light.dir_light_dir_intensity.xyz), n_dot_v, f0, diffuse_color, roughness)
+        * light.dir_light_dir_intensity.w;
+
+    // Point light: the classic distance attenuation (no range cut-off)
+    let point_vec = light.point_light_pos_intensity.xyz - in.world_pos;
+    let dist = length(point_vec);
+    let attenuation = 1.0 / (1.0 + 0.0035 * dist + 0.00008 * dist * dist);
+    color += punctual(n, v, point_vec / max(dist, 0.001), n_dot_v, f0, diffuse_color, roughness)
+        * (light.point_light_pos_intensity.w * attenuation);
+
+    // Environment: diffuse irradiance from a coarse mip (or the hemisphere), specular from the
+    // roughness-selected mip along the dominant reflection direction
+    let mips = light.env_sky.w;
+    let r = reflect(-v, n);
+    let spec_dir = normalize(mix(r, n, roughness * roughness));
+    let spec_env = env_radiance(spec_dir, roughness * max(mips - 1.0, 0.0));
+    let diffuse_env = env_radiance(n, max(mips - 3.0, (mips - 1.0) * 0.5));
+    color += diffuse_color * diffuse_env + spec_env * env_brdf_approx(f0, n_dot_v, roughness);
+
+    color += base * emissive;
+
+    let mapped = clamp(tone_map(color * light.shading.z, light.shading.y), vec3<f32>(0.0), vec3<f32>(1.0));
+    let out_rgb = select(mapped, linear_to_srgb3(mapped), light.env_ground.w > 0.5);
+    return vec4<f32>(out_rgb, alpha);
+}
+"#;
+
 /// WGSL mipmap generation: a fullscreen triangle that linearly samples the previous mip level
 /// (bound as its own single-level view) into the next one.
 pub const MIPMAP_BLIT_WGSL: &str = r#"
@@ -1281,6 +1445,7 @@ mod tests {
             ("node", NODE_BILLBOARD_WGSL.to_string()),
             ("edge", EDGE_LINE_WGSL.to_string()),
             ("mesh", MESH_LIT_WGSL.to_string()),
+            ("mesh-pbr", mesh_pbr_wgsl()),
             ("mipmap-blit", MIPMAP_BLIT_WGSL.to_string()),
             ("chart-line", chart_line_wgsl()),
             ("chart-marker", chart_marker_wgsl()),
@@ -1360,6 +1525,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn pbr_mesh_shader_translates_to_webgl2_glsl() {
+        // Env map sampled with an explicit lod (non-uniform control flow is fine), tone mapping
+        // and sRGB encode must survive GLSL ES 3.00; the classic entry point stays env-free
+        use naga::back::glsl;
+        let src = mesh_pbr_wgsl();
+        let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+        let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
+            .validate(&module)
+            .unwrap();
+        let options = glsl::Options { version: glsl::Version::Embedded { version: 300, is_webgl: true }, ..Default::default() };
+        let write = |stage, entry: &str| {
+            let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+            let mut out = String::new();
+            glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
+                .and_then(|mut w| w.write())
+                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            out
+        };
+        assert!(write(naga::ShaderStage::Vertex, "vs_mesh").contains("#version 300 es"));
+        let fs = write(naga::ShaderStage::Fragment, "fs_mesh_pbr");
+        assert!(fs.contains("textureLod("), "env map sampled at an explicit mip");
+        assert!(fs.contains("discard"), "alpha test");
+        assert!(fs.contains("_group_2_binding_0_fs"), "env map bound in group 2: {fs}");
+        let classic = write(naga::ShaderStage::Fragment, "fs_mesh");
+        assert!(!classic.contains("_group_2_"), "classic fragment stage has no env binding");
+    }
+
+    #[test]
+    fn classic_mesh_shader_text_is_untouched_by_pbr() {
+        // The PBR module only swaps the light struct and appends its own entry point
+        let pbr = mesh_pbr_wgsl();
+        assert!(pbr.contains(MESH_LIGHT_STRUCT_PBR) && !pbr.contains(MESH_LIGHT_STRUCT_CLASSIC));
+        assert!(pbr.ends_with(MESH_PBR_BODY_WGSL));
+        assert_eq!(
+            pbr.trim_end_matches(MESH_PBR_BODY_WGSL).replacen(MESH_LIGHT_STRUCT_PBR, MESH_LIGHT_STRUCT_CLASSIC, 1),
+            MESH_LIT_WGSL
+        );
+        assert!(!MESH_LIT_WGSL.contains("env_map"));
+        // Uniform layout: struct fields match `SceneLightUniformRaw` (6 x vec4)
+        assert_eq!(MESH_LIGHT_STRUCT_PBR.matches("vec4<f32>").count() * 16, std::mem::size_of::<super::super::SceneLightUniformRaw>());
     }
 
     #[test]

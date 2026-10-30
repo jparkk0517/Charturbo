@@ -365,6 +365,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: 'glTF 모델 · loadGltf', description: '메모리에서 GLB 파일(바이너리 청크, 내장 PNG 텍스처, 노드 계층, 지붕의 KHR_texture_transform 타일링)로 만든 로우폴리 오두막과 나무를 loadGltf로 위치 · 회전 · 크기를 달리해 세 번 불러옵니다. disposeGltf는 모델을 텍스처와 함께 제거합니다. 버튼으로 모델을 다시 불러오거나 턴테이블을 멈출 수 있습니다.' },
     zh: { title: 'glTF 模型 · loadGltf', description: '在内存中构建为 GLB 文件（二进制块、内嵌 PNG 纹理、节点层级、屋顶的 KHR_texture_transform 平铺）的低多边形小屋和树，通过 loadGltf 以不同的位置 / 旋转 / 缩放加载三次。disposeGltf 会连同纹理一起移除模型；可用按钮重新加载模型或停止转台。' },
   },
+  'scene/05-pbr': {
+    ko: { title: '물리 기반 셰이딩 · setShading', description: '선택형 PBR입니다. 거친 표면에서 매끈한 표면(왼쪽 → 오른쪽), 유전체에서 금속(아래 → 위)으로 바뀌는 구와 텍스처 상자, 작은 glTF 집을 방향광 · 점광원과 createDataTexture로 만든 등장방형 하늘 텍스처가 비춥니다. 매끈한 금속은 하늘을 비추고 거친 금속은 흐리게 반사합니다. 기존 Blinn-Phong(classic) 모습으로 되돌리거나 톤 매핑 방식과 노출을 바꿀 수 있습니다.' },
+    zh: { title: '基于物理的着色 · setShading', description: '可选的 PBR：从粗糙到光滑（左 → 右）、从电介质到金属（下 → 上）的球体、一个带纹理的盒体和一座小 glTF 房屋，由方向光、点光源以及用 createDataTexture 生成的等距柱状天空纹理照亮。光滑金属映出天空，粗糙金属则模糊反射。可切换回经典 Blinn-Phong（classic）外观，选择色调映射方式并调整曝光。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

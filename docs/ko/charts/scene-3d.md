@@ -207,6 +207,37 @@ sdk.setHelpers({ showGrid: true, gridSize: 160, gridDivisions: 16, showAxes: tru
 | `showAxes` | `boolean` | `false` |
 | `axesLength` | `number` | `60` |
 
+## 물리 기반 셰이딩
+
+장면 메시는 기본적으로 기존 Blinn-Phong(classic) 모습으로 그려집니다. `setShading({ model: 'pbr' })`로 선택형 물리 기반 셰이딩으로 바꿀 수 있습니다(차트 · 과학 3D · 3D 그래프는 바뀌지 않습니다).
+
+```ts
+const sky = await sdk.loadTexture('/env/sky-equirect.jpg'); // 2:1 등장방형, 밉맵 포함
+sdk.setShading({
+  model: 'pbr',
+  toneMapping: 'aces',
+  exposure: 1.2,
+  environment: { map: sky, intensity: 1 },
+});
+sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35, 1], metallic: 1, roughness: 0.2 });
+```
+
+- 금속성-거칠기 모델: GGX 분포, 높이 상관 Smith 가시성, `F0 = mix(0.04, color, metallic)`인 Schlick 프레넬, Lambert 확산 항을 씁니다. `roughness`는 최소 0.045로 제한됩니다. `setLighting`의 방향광 · 점광원과 `emissive`는 그대로 적용되며, `ambientIntensity`는 classic 전용입니다(PBR의 주변광은 환경에서 옵니다).
+- 색은 다른 곳과 마찬가지로 sRGB입니다. 셰이더가 색과 텍스처를 선형으로 디코딩해 선형 공간에서 조명하고, `exposure`를 곱한 뒤 톤 매핑(`'aces'` · `'reinhard'` · `'none'`)하여 다시 sRGB로 인코딩합니다.
+- 환경: `map`이 없으면 하늘 / 땅 반구(`sky` · `ground`, 0..1 범위 sRGB `[r, g, b]`)가 장면을 비춥니다. `map`(`loadTexture` / `createDataTexture`의 등장방형 텍스처 ID, 맨 윗줄 = 위, 가운데 열이 −z 방향)이 있으면 정반사는 거칠기에 따라 커지는 밉 레벨을, 확산광은 흐린 밉을 샘플링하며, 사전 필터링 맵 대신 해석적 split-sum 근사를 씁니다. 기본값 `mipmaps: true`를 유지하세요. 모르거나 해제된 ID는 반구로 대체되고, `disposeTexture`는 이 참조를 지웁니다.
+- `setShading`은 현재 설정에 병합되며 잘못된 값이면 `setShading: ...`을 던집니다. `getShading()`은 사본을 반환합니다. `exportScene()`은 설정을 `shading`에(환경 텍스처는 `textures`에) 저장하고, `loadScene`이 이를 복원하며 `loadSceneWithTextures`는 환경 텍스처 ID를 다시 매핑합니다.
+- PBR 파이프라인은 처음 쓸 때 컴파일됩니다. WebGPU와 WebGL2를 모두 지원합니다.
+
+| 셰이딩 옵션 | 타입 | 기본값 |
+| --- | --- | --- |
+| `model` | `'classic' \| 'pbr'` | `'classic'` |
+| `toneMapping` | `'aces' \| 'reinhard' \| 'none'` | `'aces'` |
+| `exposure` | `number` (0..16) | `1` |
+| `environment.sky` | `[r, g, b]` | `[0.6, 0.66, 0.76]` |
+| `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
+| `environment.intensity` | `number` (0..16) | `1` |
+| `environment.map` | `number \| null` | `null` |
+
 ## 강체 물리
 
 `setRigidPhysics(enabled, gravity?)`는 시뮬레이션을 켜거나 끕니다. 기본은 켜져 있고 중력은 `[0, -40, 0]`입니다. `getRigidPhysics()`는 `{ enabled, gravity }`를 반환합니다.
@@ -238,7 +269,7 @@ sdk.enableNodeInteractions(canvas, {
 
 ## 저장과 불러오기
 
-`exportScene()`은 직렬화할 수 있는 `SceneDescriptor`(트랜스폼·재질·물리를 포함한 객체, 조명, 보조 표시, 강체 물리, 그래프 표시 여부)를 반환합니다. `loadScene(descriptor)`는 장면을 비우고 설정을 적용한 뒤 객체를 다시 만들고, 새 ID 목록을 반환합니다.
+`exportScene()`은 직렬화할 수 있는 `SceneDescriptor`(트랜스폼·재질·물리를 포함한 객체, 조명, 셰이딩, 보조 표시, 강체 물리, 그래프 표시 여부)를 반환합니다. `loadScene(descriptor)`는 장면을 비우고 설정을 적용한 뒤 객체를 다시 만들고, 새 ID 목록을 반환합니다.
 
 텍스처는 `clearScene()` / `loadScene()`으로 지워지지 않습니다. `exportScene()`은 객체가 쓰는 텍스처를 `textures`(`{ id, src, width, height }`, 픽셀 데이터 없음)에 나열하고 객체에는 `map` ID를 남깁니다. `loadScene`은 동기 함수라서 아직 살아 있는 텍스처의 `map` ID는 유지하고, 알 수 없는 ID는 `console.warn`과 함께 버립니다. 다른 세션에서 저장한 장면을 복원하려면 `await sdk.loadSceneWithTextures(descriptor)`를 호출하세요. `src`가 있는 텍스처를 다시 불러오고(같은 `src`의 살아 있는 텍스처는 재사용), 객체의 `map` ID를 새 ID로 바꾼 뒤 `loadScene`을 호출합니다. `src`가 없는 텍스처(`createDataTexture`, 캔버스, `ImageData`)는 복원할 수 없어 맵이 버려집니다.
 

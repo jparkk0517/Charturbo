@@ -333,13 +333,27 @@ pub struct MeshDraw {
     pub texture: u32,
 }
 
-/// 16-byte aligned scene lighting uniform buffer (48 bytes).
+/// 16-byte aligned scene lighting uniform buffer (96 bytes). The classic mesh shader reads the
+/// first 48 bytes only; the trailing fields drive the PBR shader (`scene::ShadingConfig`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct SceneLightUniformRaw {
     pub eye_pos_ambient: [f32; 4],
     pub dir_light_dir_intensity: [f32; 4],
     pub point_light_pos_intensity: [f32; 4],
+    /// (model: 0 classic / 1 pbr, tone mapping: 0 none / 1 aces / 2 reinhard, exposure, env intensity)
+    pub shading: [f32; 4],
+    /// Linear sky radiance rgb, w = env map mip count (0 = no map; set by the render backend)
+    pub env_sky: [f32; 4],
+    /// Linear ground radiance rgb, w = 1 when the shader must sRGB-encode its output (backend)
+    pub env_ground: [f32; 4],
+}
+
+impl SceneLightUniformRaw {
+    /// The PBR mesh pipelines are selected (`shading.x`).
+    pub fn is_pbr(&self) -> bool {
+        self.shading[0] > 0.5
+    }
 }
 
 impl Default for SceneLightUniformRaw {
@@ -348,6 +362,9 @@ impl Default for SceneLightUniformRaw {
             eye_pos_ambient: [0.0, 80.0, 180.0, 0.32],
             dir_light_dir_intensity: [0.45, 0.85, 0.55, 0.95],
             point_light_pos_intensity: [0.0, 45.0, 25.0, 0.65],
+            shading: [0.0, 1.0, 1.0, 1.0],
+            env_sky: [0.0; 4],
+            env_ground: [0.0; 4],
         }
     }
 }
@@ -563,6 +580,9 @@ pub trait RenderBackend {
     fn sync_helper_lines(&mut self, _lines: &[EdgeVertexRaw]) {}
     /// Scene lighting (changes with the camera eye, so it is sent every frame).
     fn sync_lighting(&mut self, _light: &SceneLightUniformRaw) {}
+    /// PBR equirectangular environment texture (0 = none; unknown / disposed ids fall back to
+    /// the hemisphere environment). Sent every frame before `sync_lighting`.
+    fn sync_environment_map(&mut self, _texture_id: u32) {}
     /// Uploads changed chart layers (see `ChartLayers`); unchanged layers are passed as `None`.
     fn sync_chart(&mut self, _layers: &ChartLayers<'_>) {}
     /// Background color the frame is cleared to.
@@ -677,6 +697,9 @@ pub struct MockRenderBackend {
     pub textures: texture::TextureLedger<()>,
     pub texture_creates: Vec<(u32, u32, bool)>,
     pub texture_disposes: Vec<u32>,
+    /// Last `sync_lighting` uniform / `sync_environment_map` id
+    pub last_light: Option<SceneLightUniformRaw>,
+    pub environment_map: u32,
 }
 
 impl RenderBackend for MockRenderBackend {
@@ -728,6 +751,14 @@ impl RenderBackend for MockRenderBackend {
 
     fn sync_helper_lines(&mut self, lines: &[EdgeVertexRaw]) {
         self.synced_helper_line_count = lines.len();
+    }
+
+    fn sync_lighting(&mut self, light: &SceneLightUniformRaw) {
+        self.last_light = Some(*light);
+    }
+
+    fn sync_environment_map(&mut self, texture_id: u32) {
+        self.environment_map = texture_id;
     }
 
     fn max_texture_size(&self) -> u32 {
@@ -899,7 +930,7 @@ mod tests {
         assert_eq!(size_of::<EdgeVertexRaw>(), 32);
         assert_eq!(size_of::<MeshVertexRaw>(), 32);
         assert_eq!(size_of::<MeshInstanceRaw>(), 160);
-        assert_eq!(size_of::<SceneLightUniformRaw>(), 48);
+        assert_eq!(size_of::<SceneLightUniformRaw>(), 96);
     }
 
     #[test]

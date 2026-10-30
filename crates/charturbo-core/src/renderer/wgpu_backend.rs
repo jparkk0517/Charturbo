@@ -2,7 +2,7 @@
 
 use crate::renderer::shader::{
     chart_bar_wgsl, chart_fill_wgsl, chart_line_wgsl, chart_marker_wgsl, chart_point_wgsl,
-    EDGE_LINE_WGSL, MESH_LIT_WGSL, NODE_BILLBOARD_WGSL, edge_line_resident_wgsl, node_billboard_resident_wgsl,
+    EDGE_LINE_WGSL, MESH_LIT_WGSL, NODE_BILLBOARD_WGSL, edge_line_resident_wgsl, mesh_pbr_wgsl, node_billboard_resident_wgsl,
 };
 use crate::renderer::{
     CameraUniformRaw, ChartAnnotationLayer, ChartBarRaw, ChartFillRaw, ChartFillStyleRaw, ChartLayers, ChartMarkerRaw, ChartPointRaw,
@@ -21,6 +21,7 @@ use crate::renderer::gpu_context::GpuContext;
 use crate::renderer::texture::TextureRegistry;
 use crate::renderer::{chart_layer_bytes, RenderStats};
 use bytemuck::Pod;
+use std::cell::OnceCell;
 use std::mem::size_of;
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
@@ -121,6 +122,12 @@ pub struct WgpuRenderBackend {
 
     mesh_pipeline: wgpu::RenderPipeline,
     mesh_translucent_pipeline: wgpu::RenderPipeline,
+    /// PBR mesh pipelines (built on the first PBR frame, shared by the context's engines)
+    mesh_pbr: Rc<LazyMeshPbr>,
+    /// Last light uniform selected the PBR pipelines
+    pbr: bool,
+    /// PBR environment map bind group (group 2): texture id it was built for + its mip count
+    env: EnvBinding,
     node_pipeline: wgpu::RenderPipeline,
     node_translucent_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
@@ -192,6 +199,66 @@ pub struct WgpuRenderBackend {
     /// Built on the first resident draw (WebGPU only: vertex-stage storage buffers)
     resident_pipelines: Option<ResidentGraphPipelines>,
     camera_bgl: wgpu::BindGroupLayout,
+}
+
+/// Environment map bind group of the PBR mesh pipelines (group 2).
+struct EnvBinding {
+    /// Texture id requested (0 = none)
+    id: u32,
+    /// Mip levels of the bound texture (0 = white fallback: the shader uses the hemisphere)
+    levels: u32,
+    bind_group: wgpu::BindGroup,
+}
+
+/// Opaque / translucent PBR mesh pipelines (`fs_mesh_pbr`, layout: mesh uniforms, base-color
+/// texture, environment map). Compiled lazily so classic-only pages never pay for them.
+struct MeshPbrPipelines {
+    opaque: wgpu::RenderPipeline,
+    translucent: wgpu::RenderPipeline,
+}
+
+/// What `MeshPbrPipelines` are built from, plus the once-built pipelines.
+pub(crate) struct LazyMeshPbr {
+    format: wgpu::TextureFormat,
+    mesh_bgl: wgpu::BindGroupLayout,
+    texture_bgl: wgpu::BindGroupLayout,
+    pipelines: OnceCell<MeshPbrPipelines>,
+}
+
+impl LazyMeshPbr {
+    fn get(&self, device: &wgpu::Device) -> &MeshPbrPipelines {
+        self.pipelines.get_or_init(|| {
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("mesh-pbr-shader"),
+                source: wgpu::ShaderSource::Wgsl(mesh_pbr_wgsl().into()),
+            });
+            // The environment map group has the base-color group's layout (texture + sampler)
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("mesh-pbr-pipeline-layout"),
+                bind_group_layouts: &[&self.mesh_bgl, &self.texture_bgl, &self.texture_bgl],
+                push_constant_ranges: &[],
+            });
+            let buffers = [
+                layout_of::<MeshVertexRaw>(wgpu::VertexStepMode::Vertex, &ATTRS_2),
+                layout_of::<MeshInstanceRaw>(wgpu::VertexStepMode::Instance, &MESH_INSTANCE_ATTRS),
+            ];
+            let spec = |label, depth_write| PipelineSpec {
+                label,
+                layout: &layout,
+                shader: &shader,
+                vs: "vs_mesh",
+                fs: "fs_mesh_pbr",
+                buffers: &buffers,
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                depth_write,
+                depth_compare: DEPTH_TEST,
+            };
+            MeshPbrPipelines {
+                opaque: create_pipeline(device, self.format, spec("mesh-pbr-opaque", true)),
+                translucent: create_pipeline(device, self.format, spec("mesh-pbr-translucent", false)),
+            }
+        })
+    }
 }
 
 /// GPU buffers of one annotation layer (see `ChartAnnotationLayer`).
@@ -416,6 +483,7 @@ pub struct GpuPipelines {
     parallel_bgl: wgpu::BindGroupLayout,
     mesh_pipeline: wgpu::RenderPipeline,
     mesh_translucent_pipeline: wgpu::RenderPipeline,
+    mesh_pbr: Rc<LazyMeshPbr>,
     node_pipeline: wgpu::RenderPipeline,
     node_translucent_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
@@ -706,6 +774,7 @@ impl WgpuRenderBackend {
         let heatmap = HeatmapGpu::new(&device, pipes.heatmap_bgl.clone(), &camera_buffer);
         let parallel = ParallelGpu::new(&device, pipes.parallel_bgl.clone(), &camera_buffer);
         let textures = TextureRegistry::new(&device, &queue, pipes.mesh_texture_bgl.clone());
+        let env = EnvBinding { id: 0, levels: 0, bind_group: textures.env_bind_group(&device, 0) };
 
         let vb = wgpu::BufferUsages::VERTEX;
         let arr = |label, usage| GpuArray::new(&device, label, usage, initial_array_bytes(label, compact));
@@ -753,6 +822,9 @@ impl WgpuRenderBackend {
             fill_bind_group,
             mesh_pipeline: p.mesh_pipeline,
             mesh_translucent_pipeline: p.mesh_translucent_pipeline,
+            mesh_pbr: p.mesh_pbr,
+            pbr: false,
+            env,
             node_pipeline: p.node_pipeline,
             node_translucent_pipeline: p.node_translucent_pipeline,
             edge_pipeline: p.edge_pipeline,
@@ -1214,6 +1286,13 @@ impl GpuPipelines {
             },
         );
 
+        let mesh_pbr = Rc::new(LazyMeshPbr {
+            format,
+            mesh_bgl: mesh_bind_group_layout.clone(),
+            texture_bgl: mesh_texture_bgl.clone(),
+            pipelines: OnceCell::new(),
+        });
+
         Self {
             camera_bgl: camera_bind_group_layout,
             mesh_bgl: mesh_bind_group_layout,
@@ -1222,6 +1301,7 @@ impl GpuPipelines {
             parallel_bgl,
             mesh_pipeline,
             mesh_translucent_pipeline,
+            mesh_pbr,
             node_pipeline,
             node_translucent_pipeline,
             edge_pipeline,
@@ -1256,11 +1336,18 @@ impl WgpuRenderBackend {
                 continue;
             }
             if !bound {
-                rpass.set_pipeline(if translucent {
-                    &self.mesh_translucent_pipeline
-                } else {
-                    &self.mesh_pipeline
-                });
+                // `sync_lighting` built the PBR pipelines when it selected them
+                match self.mesh_pbr.pipelines.get().filter(|_| self.pbr) {
+                    Some(p) => {
+                        rpass.set_pipeline(if translucent { &p.translucent } else { &p.opaque });
+                        rpass.set_bind_group(2, &self.env.bind_group, &[]);
+                    }
+                    None => rpass.set_pipeline(if translucent {
+                        &self.mesh_translucent_pipeline
+                    } else {
+                        &self.mesh_pipeline
+                    }),
+                }
                 rpass.set_bind_group(0, &self.mesh_bind_group, &[]);
                 rpass.set_vertex_buffer(0, self.mesh_vertices.slice());
                 rpass.set_index_buffer(self.mesh_indices.slice(), wgpu::IndexFormat::Uint32);
@@ -1383,6 +1470,16 @@ impl WgpuRenderBackend {
     }
 }
 
+impl WgpuRenderBackend {
+    fn rebind_environment(&mut self, texture_id: u32) {
+        self.env = EnvBinding {
+            id: texture_id,
+            levels: self.textures.levels(texture_id),
+            bind_group: self.textures.env_bind_group(&self.device, texture_id),
+        };
+    }
+}
+
 impl RenderBackend for WgpuRenderBackend {
     fn supports_gpu_physics(&self) -> bool {
         self.device.limits().max_compute_workgroups_per_dimension > 0
@@ -1402,7 +1499,12 @@ impl RenderBackend for WgpuRenderBackend {
     }
 
     fn dispose_texture(&mut self, texture_id: u32) -> bool {
-        self.textures.dispose(texture_id)
+        let disposed = self.textures.dispose(texture_id);
+        if disposed && texture_id == self.env.id {
+            // The bind group must not outlive its (destroyed) texture: white fallback
+            self.rebind_environment(texture_id);
+        }
+        disposed
     }
 
     fn texture_count(&self) -> u32 {
@@ -1468,8 +1570,23 @@ impl RenderBackend for WgpuRenderBackend {
     }
 
     fn sync_lighting(&mut self, light: &SceneLightUniformRaw) {
+        let mut light = *light;
+        // Backend-owned fields: env map mip count, and sRGB encoding unless the surface does it
+        light.env_sky[3] = self.env.levels as f32;
+        light.env_ground[3] = if self.config.format.is_srgb() { 0.0 } else { 1.0 };
+        self.pbr = light.is_pbr();
+        if self.pbr {
+            self.mesh_pbr.get(&self.device);
+        }
         self.queue
-            .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(light));
+            .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&light));
+    }
+
+    fn sync_environment_map(&mut self, texture_id: u32) {
+        // Rebuilt when the id changes or its texture appears / goes away
+        if texture_id != self.env.id || self.textures.levels(texture_id) != self.env.levels {
+            self.rebind_environment(texture_id);
+        }
     }
 
     fn set_clear_color(&mut self, rgba: [f32; 4]) {

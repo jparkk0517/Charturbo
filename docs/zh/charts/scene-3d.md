@@ -207,6 +207,37 @@ sdk.setHelpers({ showGrid: true, gridSize: 160, gridDivisions: 16, showAxes: tru
 | `showAxes` | `boolean` | `false` |
 | `axesLength` | `number` | `60` |
 
+## 基于物理的着色
+
+场景网格默认使用经典 Blinn-Phong（classic）外观。`setShading({ model: 'pbr' })` 可切换为可选的基于物理的着色（图表、科学 3D 和 3D 图不受影响）：
+
+```ts
+const sky = await sdk.loadTexture('/env/sky-equirect.jpg'); // 2:1 等距柱状投影，带 mipmap
+sdk.setShading({
+  model: 'pbr',
+  toneMapping: 'aces',
+  exposure: 1.2,
+  environment: { map: sky, intensity: 1 },
+});
+sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35, 1], metallic: 1, roughness: 0.2 });
+```
+
+- 金属度-粗糙度模型：GGX 分布、高度相关 Smith 可见性、`F0 = mix(0.04, color, metallic)` 的 Schlick 菲涅耳以及 Lambert 漫反射项。`roughness` 最小限制为 0.045。`setLighting` 的方向光、点光源和 `emissive` 照常生效；`ambientIntensity` 仅用于 classic（PBR 的环境光来自环境）。
+- 颜色与其他地方一样使用 sRGB。着色器将颜色和纹理解码为线性值，在线性空间中计算光照，乘以 `exposure`，进行色调映射（`'aces'`、`'reinhard'` 或 `'none'`），再编码回 sRGB。
+- 环境：没有 `map` 时由天空 / 地面半球（`sky`、`ground`，0..1 的 sRGB `[r, g, b]`）照亮场景。有 `map`（来自 `loadTexture` / `createDataTexture` 的等距柱状纹理 ID，首行 = 上方，中间列朝向 −z）时，镜面反射按粗糙度采样逐渐增大的 mip 级别，漫反射使用模糊的 mip，并以解析的 split-sum 近似代替预过滤贴图。请保持默认的 `mipmaps: true`。未知或已释放的 ID 回退到半球；`disposeTexture` 会清除该引用。
+- `setShading` 合并到当前设置，值无效时抛出 `setShading: ...`；`getShading()` 返回副本。`exportScene()` 将设置保存在 `shading` 中（环境纹理保存在 `textures` 中），`loadScene` 会恢复设置，`loadSceneWithTextures` 会重新映射环境纹理 ID。
+- PBR 管线在首次使用时编译。同时支持 WebGPU 和 WebGL2。
+
+| 着色选项 | 类型 | 默认值 |
+| --- | --- | --- |
+| `model` | `'classic' \| 'pbr'` | `'classic'` |
+| `toneMapping` | `'aces' \| 'reinhard' \| 'none'` | `'aces'` |
+| `exposure` | `number` (0..16) | `1` |
+| `environment.sky` | `[r, g, b]` | `[0.6, 0.66, 0.76]` |
+| `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
+| `environment.intensity` | `number` (0..16) | `1` |
+| `environment.map` | `number \| null` | `null` |
+
 ## 刚体物理
 
 `setRigidPhysics(enabled, gravity?)` 开启或关闭仿真；默认开启，重力为 `[0, -40, 0]`。`getRigidPhysics()` 返回 `{ enabled, gravity }`。
@@ -238,7 +269,7 @@ sdk.enableNodeInteractions(canvas, {
 
 ## 保存与加载
 
-`exportScene()` 返回可序列化的 `SceneDescriptor`（包含变换、材质和物理属性的对象，以及光照、辅助显示、刚体物理和图的可见性）。`loadScene(descriptor)` 清空场景、应用设置并重新创建对象，返回新的 ID 列表。
+`exportScene()` 返回可序列化的 `SceneDescriptor`（包含变换、材质和物理属性的对象，以及光照、着色、辅助显示、刚体物理和图的可见性）。`loadScene(descriptor)` 清空场景、应用设置并重新创建对象，返回新的 ID 列表。
 
 `clearScene()` / `loadScene()` 不会清除纹理。`exportScene()` 会在 `textures` 中列出对象用到的纹理（`{ id, src, width, height }`，不含像素数据），对象上保留 `map` ID。`loadScene` 是同步的：仍然存活的纹理的 `map` ID 会保留，未知 ID 会被丢弃并输出 `console.warn`。要恢复在其他会话中保存的场景，请调用 `await sdk.loadSceneWithTextures(descriptor)`：它会重新加载带 `src` 的纹理（相同 `src` 的存活纹理会被复用），把对象的 `map` ID 重映射为新 ID，然后调用 `loadScene`。没有 `src` 的纹理（`createDataTexture`、画布、`ImageData`）无法恢复，其映射会被丢弃。
 

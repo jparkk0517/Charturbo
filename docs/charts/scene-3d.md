@@ -207,6 +207,37 @@ sdk.setHelpers({ showGrid: true, gridSize: 160, gridDivisions: 16, showAxes: tru
 | `showAxes` | `boolean` | `false` |
 | `axesLength` | `number` | `60` |
 
+## Physically based shading
+
+Scene meshes use the classic Blinn-Phong look by default. `setShading({ model: 'pbr' })` switches them to opt-in physically based shading (charts, scientific 3D and the 3D graph never change):
+
+```ts
+const sky = await sdk.loadTexture('/env/sky-equirect.jpg'); // 2:1 equirectangular, mipmapped
+sdk.setShading({
+  model: 'pbr',
+  toneMapping: 'aces',
+  exposure: 1.2,
+  environment: { map: sky, intensity: 1 },
+});
+sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35, 1], metallic: 1, roughness: 0.2 });
+```
+
+- Metallic-roughness model: GGX distribution, height-correlated Smith visibility, Schlick Fresnel with `F0 = mix(0.04, color, metallic)` and a Lambert diffuse term. `roughness` is clamped to at least 0.045. The directional and point lights from `setLighting` and `emissive` apply as before; `ambientIntensity` is classic only (PBR ambient light comes from the environment).
+- Colors stay sRGB like everywhere else. The shader decodes them (and textures) to linear, lights in linear space, multiplies by `exposure`, tone maps (`'aces'`, `'reinhard'` or `'none'`) and encodes back to sRGB.
+- Environment: without `map` a sky / ground hemisphere (`sky`, `ground`, sRGB `[r, g, b]` in 0..1) lights the scene. With `map` (an equirectangular texture id from `loadTexture` / `createDataTexture`, top row = up, the center column faces −z) specular reflections sample a mip level that grows with roughness and diffuse light uses a blurry mip, with an analytic split-sum approximation instead of prefiltered maps. Keep the default `mipmaps: true`. An unknown or disposed id falls back to the hemisphere; `disposeTexture` clears it.
+- `setShading` merges into the current settings and throws `setShading: ...` for invalid values; `getShading()` returns a copy. `exportScene()` stores the settings in `shading` (and the environment texture in `textures`), `loadScene` restores them and `loadSceneWithTextures` remaps the environment texture id.
+- The PBR pipelines are compiled on first use. Both WebGPU and WebGL2 are supported.
+
+| Shading option | Type | Default |
+| --- | --- | --- |
+| `model` | `'classic' \| 'pbr'` | `'classic'` |
+| `toneMapping` | `'aces' \| 'reinhard' \| 'none'` | `'aces'` |
+| `exposure` | `number` (0..16) | `1` |
+| `environment.sky` | `[r, g, b]` | `[0.6, 0.66, 0.76]` |
+| `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
+| `environment.intensity` | `number` (0..16) | `1` |
+| `environment.map` | `number \| null` | `null` |
+
 ## Rigid-body physics
 
 `setRigidPhysics(enabled, gravity?)` turns the simulation on or off; it is on by default with gravity `[0, -40, 0]`. `getRigidPhysics()` returns `{ enabled, gravity }`.
@@ -238,7 +269,7 @@ sdk.enableNodeInteractions(canvas, {
 
 ## Save and load
 
-`exportScene()` returns a serializable `SceneDescriptor` (objects with transforms, materials and physics, plus lighting, helpers, rigid physics and graph visibility). `loadScene(descriptor)` clears the scene, applies the settings and recreates the objects, returning their new IDs.
+`exportScene()` returns a serializable `SceneDescriptor` (objects with transforms, materials and physics, plus lighting, shading, helpers, rigid physics and graph visibility). `loadScene(descriptor)` clears the scene, applies the settings and recreates the objects, returning their new IDs.
 
 Textures are not cleared by `clearScene()` / `loadScene()`. `exportScene()` lists the textures its objects use in `textures` (`{ id, src, width, height }`, no pixel data) and keeps the `map` IDs on the objects. `loadScene` is synchronous: it keeps `map` IDs of textures that are still alive and drops unknown ones with a `console.warn`. To restore a scene saved in another session, call `await sdk.loadSceneWithTextures(descriptor)`: it reloads the textures that have a `src` (reusing a live texture with the same `src`), remaps the object `map` IDs and then calls `loadScene`. Textures without a `src` (`createDataTexture`, canvases, `ImageData`) cannot be restored and their maps are dropped.
 

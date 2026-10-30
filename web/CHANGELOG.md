@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 물리 기반 셰이딩(PBR)
+
+- `setShading({ model, toneMapping, exposure, environment: { sky, ground, intensity, map } })` / `getShading()`: 3D 장면 메시에 선택형 PBR을 켭니다(기본값 `model: 'classic'`은 기존 Blinn-Phong 그대로이며 차트 · 과학 3D · 3D 그래프는 바뀌지 않습니다). GGX · 높이 상관 Smith · Schlick 프레넬(`F0 = mix(0.04, color, metallic)`) · Lambert 확산, 선형 공간 조명 후 노출 · 톤 매핑(`'aces'` 기본 · `'reinhard'` · `'none'`) · sRGB 인코딩을 셰이더에서 합니다. 환경광은 하늘 / 땅 반구 또는 등장방형 텍스처(`map`, 거칠기에 따른 밉 레벨, 해석적 split-sum 근사)이며, 모르거나 해제된 텍스처 ID는 반구로 대체됩니다. `ambientIntensity`는 classic 전용입니다.
+- PBR 파이프라인은 별도로 처음 쓸 때 컴파일되어 classic 셰이더는 바이트 단위로 그대로입니다. WebGPU · WebGL2 모두 지원. `exportScene` / `loadScene`이 `shading`을 저장 · 복원하고 `loadSceneWithTextures`가 환경 텍스처 ID를 다시 매핑합니다. wasm `set_scene_shading` / `get_scene_shading` 추가.
+- 예제 `scene/05-pbr`, fixture `scene-pbr`, 문서 `charts/scene-3d`의 「물리 기반 셰이딩」 절.
+
 ### 추가 — glTF 모델
 
 - `loadGltf(source, { position, rotation, scale, scene, baseUrl, signal })`: glTF 2.0 모델(`.gltf` / `.glb`, URL 문자열 · `URL` · `ArrayBuffer` · `Uint8Array` · `Blob`)을 사용자 정의 메시 객체로 불러와 `{ objects, textures, nodes, bounds }`를 반환합니다. `disposeGltf(result)`는 만든 객체와 텍스처를 모두 제거합니다. TS 전용(`sdk/scene-gltf.ts`)이며 엔진은 바뀌지 않았습니다.

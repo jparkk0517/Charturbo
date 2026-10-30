@@ -1809,7 +1809,74 @@ export const FIXTURES: Fixture[] = [
       return { backend: detectBackend(canvas) };
     },
   },
+  {
+    // Opt-in PBR: spheres with roughness 0..1 (columns) x metallic 0, 0.5, 1 (rows, bottom up)
+    // under a procedural equirect sky (mipmapped), a textured box, ACES. Metals mirror the sky
+    // and sun, rough ones blur it; no NaN black.
+    name: 'scene-pbr',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.setGraphVisible(false);
+        sdk.setRigidPhysics(false);
+        const env = sdk.createDataTexture(128, 64, pbrSkyEquirect(128, 64));
+        const size = 64;
+        const checker = new Uint8Array(size * size * 4);
+        for (let i = 0; i < size * size; i++) {
+          const on = (Math.floor((i % size) / 8) + Math.floor(i / size / 8)) % 2 === 0;
+          checker.set(on ? [230, 230, 230, 255] : [200, 60, 40, 255], i * 4);
+        }
+        const map = sdk.createDataTexture(size, size, checker);
+        sdk.addPlane({ position: [0, -1, 0], scale: [200, 2, 120], color: [0.35, 0.36, 0.38, 1], roughness: 0.8 });
+        const roughness = [0.05, 0.25, 0.5, 0.75, 1];
+        const metallic = [0, 0.5, 1];
+        metallic.forEach((m, row) =>
+          roughness.forEach((r, col) =>
+            sdk.addSphere({ position: [-36 + col * 18 + 10, 8 + row * 17, 0], scale: [15, 15, 15], color: [0.95, 0.7, 0.3, 1], roughness: r, metallic: m })
+          )
+        );
+        sdk.addBox({ position: [-56, 9, 4], rotation: [0, 0.6, 0], scale: [16, 16, 16], color: [1, 1, 1, 1], roughness: 0.6, map });
+        sdk.setLighting({
+          ambientIntensity: 0.3,
+          directionalDirection: [-0.4, -1, -0.5],
+          directionalIntensity: 1.2,
+          pointPosition: [30, 40, 40],
+          pointIntensity: 0.4,
+        });
+        sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 1, environment: { map: env, intensity: 1 } });
+        sdk.setCameraPose([0, 36, 105], [0, 24, 0]);
+      }),
+  },
 ];
+
+/**
+ * Equirectangular sRGB sky for `scene-pbr` (top row = up, u = 0.5 faces -z): blue zenith to a
+ * pale horizon, a warm sun disc, a brown ground with a horizon band, and dark vertical stripes
+ * so mirror reflections are readable.
+ */
+function pbrSkyEquirect(w: number, h: number): Uint8Array {
+  const out = new Uint8Array(w * h * 4);
+  const mix = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
+  for (let y = 0; y < h; y++) {
+    const v = (y + 0.5) / h; // 0 = up, 1 = down
+    for (let x = 0; x < w; x++) {
+      const u = (x + 0.5) / w;
+      let c: number[];
+      if (v < 0.5) {
+        c = mix([60, 110, 200], [215, 225, 235], Math.pow(v / 0.5, 1.5));
+        const du = Math.min(Math.abs(u - 0.62), 1 - Math.abs(u - 0.62));
+        const dv = v - 0.3;
+        if (du * du * 4 + dv * dv < 0.0025) c = [255, 240, 200];
+      } else {
+        c = mix([150, 130, 100], [70, 55, 45], Math.min(1, (v - 0.5) / 0.3));
+        if (v < 0.53) c = [235, 225, 210];
+      }
+      if (Math.floor(u * 16) % 4 === 0 && v > 0.35 && v < 0.5) c = c.map((ch) => ch * 0.45);
+      out.set([c[0], c[1], c[2], 255].map(Math.round), (y * w + x) * 4);
+    }
+  }
+  return out;
+}
 
 /**
  * A low-poly house as GLB bytes: textured walls (PNG drawn with integer rects, so pixel exact),

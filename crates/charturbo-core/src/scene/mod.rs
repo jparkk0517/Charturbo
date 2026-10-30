@@ -8,6 +8,8 @@ mod collision;
 #[cfg(test)]
 mod collision_tests;
 mod dynamics;
+mod shading;
+pub use shading::{srgb_to_linear, ShadingConfig, ShadingModel, ToneMapping, MAX_ENV_INTENSITY, MAX_EXPOSURE};
 
 /// Primitive 3D shape types supported natively by the scene engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -426,6 +428,8 @@ pub struct SceneWorld {
     objects: Vec<SceneObject>,
     next_id: u32,
     pub lighting: LightingConfig,
+    /// Mesh shading model (classic Blinn-Phong by default) and PBR environment / tone mapping
+    pub shading: ShadingConfig,
     pub helpers: SceneHelpersConfig,
     pub gravity: Vec3,
     pub rigid_physics_enabled: bool,
@@ -461,6 +465,7 @@ impl SceneWorld {
             objects: Vec::new(),
             next_id: 1,
             lighting: LightingConfig::default(),
+            shading: ShadingConfig::default(),
             helpers: SceneHelpersConfig::default(),
             gravity: Vec3::new(0.0, -40.0, 0.0),
             rigid_physics_enabled: true,
@@ -729,10 +734,14 @@ impl SceneWorld {
 
     /// Resets every map that points at `texture_id` (after the texture was disposed) to the
     /// white default texture with no alpha test (a translucent object must not be cut away by
-    /// a test meant for the texture). Returns how many objects changed.
+    /// a test meant for the texture). Returns how many objects changed. An environment map
+    /// pointing at it is cleared too (the PBR environment falls back to the hemisphere).
     pub fn clear_texture_refs(&mut self, texture_id: u32) -> usize {
         if texture_id == 0 {
             return 0;
+        }
+        if self.shading.env_map == texture_id {
+            self.shading.env_map = 0;
         }
         let mut changed = 0;
         for obj in &mut self.objects {
@@ -1059,10 +1068,10 @@ impl SceneWorld {
         world
     }
 
-    /// Lighting uniform for the current camera eye (sent every frame; it is 48 bytes).
+    /// Lighting + shading uniform for the current camera eye (sent every frame; 96 bytes).
     pub fn light_uniform(&self, camera_eye: Vec3) -> SceneLightUniformRaw {
         let dir = self.lighting.dir_light_dir.normalize_or_zero();
-        SceneLightUniformRaw {
+        let mut light = SceneLightUniformRaw {
             eye_pos_ambient: [
                 camera_eye.x,
                 camera_eye.y,
@@ -1076,7 +1085,10 @@ impl SceneWorld {
                 self.lighting.point_light_pos.z,
                 self.lighting.point_light_intensity,
             ],
-        }
+            ..SceneLightUniformRaw::default()
+        };
+        self.shading.pack(&mut light);
+        light
     }
 
     /// Packs object instances + draw list (opaque draws batched per geometry, then translucent
@@ -1935,5 +1947,19 @@ mod tests {
         let rev = scene.revision();
         scene.step_physics(0.016);
         assert_ne!(scene.revision(), rev);
+    }
+
+    #[test]
+    fn disposing_the_environment_texture_clears_the_env_map() {
+        let mut scene = SceneWorld::new();
+        scene.shading = ShadingConfig { model: ShadingModel::Pbr, env_map: 4, ..ShadingConfig::default() };
+        assert_eq!(scene.clear_texture_refs(3), 0);
+        assert_eq!(scene.shading.env_map, 4, "other textures keep it");
+        scene.clear_texture_refs(4);
+        assert_eq!(scene.shading.env_map, 0);
+        assert_eq!(scene.shading.model, ShadingModel::Pbr);
+        let light = scene.light_uniform(Vec3::ZERO);
+        assert_eq!(light.shading[0], 1.0, "pbr packed into the light uniform");
+        assert_eq!(scene.lighting.ambient_intensity, light.eye_pos_ambient[3]);
     }
 }

@@ -490,6 +490,7 @@ impl VisualizationEngine {
             self.renderer.sync_helper_lines(packed.helper_lines);
             self.scene_pack_key = Some(scene_key);
         }
+        self.renderer.sync_environment_map(self.scene.shading.env_map);
         self.renderer.sync_lighting(&self.scene.light_uniform(eye));
 
         if let Some(chart) = self.chart.as_mut() {
@@ -567,6 +568,15 @@ impl VisualizationEngine {
 
     pub fn scene_mut(&mut self) -> &mut SceneWorld {
         &mut self.scene
+    }
+
+    /// Mesh shading model + PBR tone mapping / environment (fields are clamped).
+    pub fn set_shading(&mut self, shading: crate::scene::ShadingConfig) {
+        self.scene.shading = shading.sanitized();
+    }
+
+    pub fn shading(&self) -> crate::scene::ShadingConfig {
+        self.scene.shading
     }
 
     pub fn pick_object_at_ndc(&mut self, ndc_x: f32, ndc_y: f32) -> Option<u32> {
@@ -1604,6 +1614,14 @@ mod tests {
             self.0.borrow_mut().dispose_texture(texture_id)
         }
 
+        fn sync_lighting(&mut self, light: &crate::renderer::SceneLightUniformRaw) {
+            self.0.borrow_mut().sync_lighting(light);
+        }
+
+        fn sync_environment_map(&mut self, texture_id: u32) {
+            self.0.borrow_mut().sync_environment_map(texture_id);
+        }
+
         fn texture_count(&self) -> u32 {
             self.0.borrow().texture_count()
         }
@@ -1983,6 +2001,38 @@ mod tests {
         let st = state.borrow();
         assert_eq!(st.texture_creates, vec![(2, 2, true), (1, 1, false), (1, 1, false)]);
         assert_eq!(st.texture_disposes, vec![a]);
+    }
+
+    #[test]
+    fn shading_reaches_the_backend_and_env_map_is_cleared_on_dispose() {
+        use crate::scene::{ShadingConfig, ShadingModel, ToneMapping};
+        let (mut engine, state) = mock_engine(GraphDataset::default_empty());
+        engine.sync_and_render();
+        assert!(!state.borrow().last_light.unwrap().is_pbr(), "classic by default");
+        assert_eq!(state.borrow().environment_map, 0);
+
+        let env = engine.create_texture_rgba8(4, 2, &[128; 32], true).unwrap();
+        engine.set_shading(ShadingConfig {
+            model: ShadingModel::Pbr,
+            tone_mapping: ToneMapping::Reinhard,
+            exposure: 100.0,
+            env_map: env,
+            ..ShadingConfig::default()
+        });
+        assert_eq!(engine.shading().exposure, crate::scene::MAX_EXPOSURE, "clamped");
+        engine.sync_and_render();
+        {
+            let st = state.borrow();
+            let light = st.last_light.unwrap();
+            assert!(light.is_pbr());
+            assert_eq!(light.shading[1], 2.0);
+            assert_eq!(st.environment_map, env);
+        }
+        assert!(engine.dispose_texture(env));
+        assert_eq!(engine.shading().env_map, 0);
+        engine.sync_and_render();
+        assert_eq!(state.borrow().environment_map, 0, "disposed env map is no longer sent");
+        assert!(state.borrow().last_light.unwrap().is_pbr(), "model survives the dispose");
     }
 
     #[test]
