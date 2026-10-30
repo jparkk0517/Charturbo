@@ -134,6 +134,10 @@ pub struct WgpuRenderBackend {
     shadow: Rc<shadow::LazyShadow>,
     /// This engine's shadow map while shadows are on (`sync_shadows`)
     shadow_map: Option<shadow::ShadowMap>,
+    /// This engine's point-light cube map while point shadows are on (`sync_point_shadows`)
+    point_shadow_map: Option<shadow::PointShadowMap>,
+    /// Receiver group sampling both maps (built by `sync_shadows` while both are on)
+    shadow_both_bind_group: Option<wgpu::BindGroup>,
     /// Last light uniform selected the PBR pipelines
     pbr: bool,
     /// PBR environment map bind group (group 2): texture id it was built for + its mip count
@@ -924,6 +928,8 @@ impl WgpuRenderBackend {
             mesh_pbr: p.mesh_pbr,
             shadow: p.shadow,
             shadow_map: None,
+            point_shadow_map: None,
+            shadow_both_bind_group: None,
             pbr: false,
             env,
             node_pipeline: p.node_pipeline,
@@ -1770,10 +1776,13 @@ impl RenderBackend for WgpuRenderBackend {
 
     fn sync_shadows(&mut self, shadows: Option<&crate::renderer::ShadowFrame>) {
         self.apply_shadows(shadows);
-        if self.shadow_map.is_some() {
-            // After `sync_lighting`: build the receivers of the selected shading model
-            self.shadow.receiving(&self.device, self.pbr, self.samples);
-        }
+        // After `sync_lighting` and `sync_point_shadows`: build the receivers of the selected
+        // shading model and map combination
+        self.prepare_shadow_receivers();
+    }
+
+    fn sync_point_shadows(&mut self, shadows: Option<&crate::renderer::PointShadowFrame>) {
+        self.apply_point_shadows(shadows);
     }
 
     fn sync_environment_map(&mut self, texture_id: u32) {
@@ -2086,6 +2095,7 @@ impl RenderBackend for WgpuRenderBackend {
             + self.textures.bytes()
             + self.gpu_physics.as_ref().map_or(0, |g| g.bytes())
             + self.shadow_map.as_ref().map_or(0, |m| m.bytes())
+            + self.point_shadow_map.as_ref().map_or(0, |m| m.bytes())
             + self.msaa.as_ref().map_or(0, |m| m.bytes);
         RenderStats {
             gpu_bytes,

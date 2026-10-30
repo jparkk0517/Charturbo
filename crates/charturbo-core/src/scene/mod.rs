@@ -14,7 +14,12 @@ mod pick;
 mod pick_tests;
 mod shading;
 pub use bvh::PickCache;
+mod point_shadows;
 mod shadows;
+pub use point_shadows::{
+    cube_face_axes, cube_face_lookup, depth_coefficients, face_view_proj, snap_point_map_size, PointShadowConfig,
+    POINT_SHADOW_MAP_MAX, POINT_SHADOW_MAP_MIN,
+};
 pub use shadows::{fit_light, snap_map_size, LightFit, ShadowBounds, ShadowConfig, MAX_SHADOW_BIAS, MAX_SHADOW_SOFTNESS};
 pub use shading::{srgb_to_linear, ShadingConfig, ShadingModel, ToneMapping, MAX_ENV_INTENSITY, MAX_EXPOSURE};
 
@@ -491,6 +496,8 @@ pub struct SceneWorld {
     pub shading: ShadingConfig,
     /// Directional-light shadows (off by default)
     pub shadows: ShadowConfig,
+    /// Point-light shadows (off by default; independent of `shadows`)
+    pub point_shadows: PointShadowConfig,
     pub helpers: SceneHelpersConfig,
     pub gravity: Vec3,
     pub rigid_physics_enabled: bool,
@@ -530,6 +537,7 @@ impl SceneWorld {
             lighting: LightingConfig::default(),
             shading: ShadingConfig::default(),
             shadows: ShadowConfig::default(),
+            point_shadows: PointShadowConfig::default(),
             helpers: SceneHelpersConfig::default(),
             gravity: Vec3::new(0.0, -40.0, 0.0),
             rigid_physics_enabled: true,
@@ -1195,6 +1203,12 @@ impl SceneWorld {
     /// caster / receiver sphere of the last `pack_render_data`.
     pub fn shadow_frame(&self) -> Option<crate::renderer::ShadowFrame> {
         self.shadows.frame(self.lighting.dir_light_dir, self.shadow_bounds)
+    }
+
+    /// This frame's point-light shadow cameras (`None` while point shadows are off). The
+    /// automatic far plane reaches the caster / receiver sphere of the last `pack_render_data`.
+    pub fn point_shadow_frame(&self) -> Option<crate::renderer::PointShadowFrame> {
+        self.point_shadows.frame(self.lighting.point_light_pos, self.shadow_bounds)
     }
 
     /// Caster / receiver bounding sphere of the last pack.

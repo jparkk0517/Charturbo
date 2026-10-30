@@ -381,6 +381,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: 'HDR 환경 맵 · loadEnvironmentHdr', description: '브라우저에서 RGBE 바이트로 만든 Radiance .hdr 하늘(파란 그라데이션, 따뜻한 지평선, 흰색보다 80배 밝은 태양)을 loadEnvironmentHdr로 불러옵니다. 불러올 때 GPU에서 한 번 사전 필터링하므로 매끈한 구에는 선명한 태양이, 거친 구에는 부드러운 빛 번짐이 비칩니다. 위쪽은 금 금속, 아래쪽은 칠한 플라스틱이며 왼쪽에서 오른쪽으로 갈수록 거칠어집니다. 회전 슬라이더로 하늘을 돌리고 노출과 톤 매핑을 바꾸거나, 같은 하늘을 8비트 텍스처로 바꿔 태양이 흰색으로 잘리고 거친 반사가 흐려지는 것과 비교해 보세요.' },
     zh: { title: 'HDR 环境贴图 · loadEnvironmentHdr', description: '在浏览器中以 RGBE 字节写出 Radiance .hdr 天空（蓝色渐变、暖色地平线、比白色亮 80 倍的太阳），并用 loadEnvironmentHdr 加载，加载时在 GPU 上预过滤一次：光滑的球映出清晰的太阳，粗糙的球呈现柔和的光晕。上排为金色金属，下排为涂漆塑料，粗糙度从左到右递增。用旋转滑块转动天空，调整曝光和色调映射，或换成同一天空的 8 位纹理进行比较：太阳被截断为白色，粗糙反射变暗。' },
   },
+  'scene/09-point-shadows': {
+    ko: { title: '점광원 그림자 · setShadows({ point })', description: '점광원의 전방향 그림자입니다. 빛나는 전구가 상자 · 기둥 · 구 · 원기둥 고리 위를 떠다니고, 그림자가 사방으로 밖을 향해 흔들립니다(매 프레임 전구 위치에서 큐브 맵 면 6개를 렌더링). 전구는 그림자를 드리우지 않고(castShadow: false), 빨간 상자는 그림자를 받지 않으며(receiveShadow: false), 공중에 뜬 알파 테스트 체크무늬 패널은 구멍 뚫린 그림자를 만듭니다. 점광원 그림자를 켜고 끄거나 가장자리를 부드럽게 하고(PCF 반경) 큐브 면 크기를 바꿀 수 있습니다.' },
+    zh: { title: '点光源阴影 · setShadows({ point })', description: '点光源的全方向阴影：发光的灯泡在一圈盒体、柱子、球体和圆柱上方漂移，它们的阴影向四周摆动（每帧从灯泡位置渲染立方体贴图的 6 个面）。灯泡不投射阴影（castShadow: false），红色盒体不接收阴影（receiveShadow: false），悬浮的 alpha 测试棋盘面板投下带孔的阴影。可开关点光源阴影、柔化边缘（PCF 半径）并更改立方体面尺寸。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

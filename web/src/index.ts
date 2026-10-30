@@ -156,6 +156,9 @@ export {
 export {
   type SceneShadowMapSize,
   type SceneShadowBounds,
+  type ScenePointShadowMapSize,
+  type ScenePointShadowsDescriptor,
+  type ScenePointShadowsState,
   type SceneShadowsDescriptor,
   type SceneShadowsState,
   type ObjectShadowDescriptor,

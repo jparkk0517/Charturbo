@@ -1899,6 +1899,22 @@ export const FIXTURES: Fixture[] = [
     render: (ctx) => single(ctx, (sdk) => shadowScene(sdk, true)),
   },
   {
+    // Point-light shadows (classic, directional light off): a lamp above the middle of the
+    // floor casts the box / sphere / cylinder / pillar shadows outward on every side (cube seams
+    // between them); the plank's checker cutout casts a holed shadow, the small box in the big
+    // box's shadow opts out of receiving, the lamp bulb and the floating sphere opt out of casting
+    name: 'scene-point-shadows',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => pointShadowScene(sdk, false)),
+  },
+  {
+    // Same layout with PBR shading, an environment map and a directional sun with its own
+    // shadows: both shadow maps in one receiver group
+    name: 'scene-point-shadows-pbr',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => pointShadowScene(sdk, true)),
+  },
+  {
     // MSAA x4 (`antialias` param: 1 renders the aliased reference): the scene-shadows-pbr layout
     // plus thin tilted rods and a slanted plank whose edges stair-step without anti-aliasing
     name: 'scene-msaa',
@@ -2067,6 +2083,43 @@ function shadowScene(sdk: Charturbo, pbr: boolean): void {
   }
   sdk.setShadows({ enabled: true });
   sdk.setCameraPose([0, 60, 110], [0, 8, 0]);
+}
+
+/** Layout of the `scene-point-shadows` fixtures. */
+function pointShadowScene(sdk: Charturbo, pbr: boolean): void {
+  sdk.setGraphVisible(false);
+  sdk.setRigidPhysics(false);
+  const size = 64;
+  const cell = 8;
+  const holes = new Uint8Array(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    const on = (Math.floor((i % size) / cell) + Math.floor(i / size / cell)) % 2 === 0;
+    holes.set(on ? [240, 220, 120, 255] : [0, 0, 0, 0], i * 4);
+  }
+  const cutout = sdk.createDataTexture(size, size, holes);
+  const lamp: [number, number, number] = [0, 26, 0];
+  sdk.addPlane({ position: [0, -1, 0], scale: [170, 2, 120], color: [0.62, 0.62, 0.64, 1], roughness: 0.9 });
+  sdk.addBox({ position: [-28, 8, 4], rotation: [0, 0.5, 0], scale: [14, 16, 14], color: [0.25, 0.6, 1, 1], roughness: 0.5 });
+  sdk.addBox({ position: [-50, 3, 10], scale: [6, 6, 6], color: [1, 0.45, 0.45, 1], roughness: 0.5, receiveShadow: false });
+  sdk.addSphere({ position: [26, 8, -6], scale: [16, 16, 16], color: [0.85, 0.55, 0.25, 1], roughness: 0.3, metallic: pbr ? 0.4 : 0 });
+  sdk.addCylinder({ position: [4, 7, 26], scale: [10, 14, 10], color: [0.4, 0.85, 0.5, 1], roughness: 0.6 });
+  sdk.addBox({ position: [-6, 14, -32], scale: [5, 30, 5], color: [0.9, 0.85, 0.75, 1], roughness: 0.6 });
+  sdk.addBox({ position: [14, 15, 12], rotation: [0, 0.3, 0], scale: [12, 0.6, 12], color: [1, 1, 1, 1], roughness: 0.7, map: cutout });
+  sdk.addSphere({ position: [-16, 22, -14], scale: [5, 5, 5], color: [0.9, 0.9, 0.95, 1], roughness: 0.4, castShadow: false });
+  sdk.addSphere({ position: lamp, scale: [2.5, 2.5, 2.5], color: [1, 0.95, 0.7, 1], emissive: 1, castShadow: false, receiveShadow: false });
+  sdk.setLighting({
+    ambientIntensity: 0.12,
+    directionalDirection: [0.8, 1, 0.25],
+    directionalIntensity: pbr ? 0.35 : 0,
+    pointPosition: lamp,
+    pointIntensity: 1.6,
+  });
+  if (pbr) {
+    const env = sdk.createDataTexture(128, 64, pbrSkyEquirect(128, 64));
+    sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 1, environment: { map: env, intensity: 0.35 } });
+  }
+  sdk.setShadows({ enabled: pbr, point: { enabled: true, mapSize: 1024 } });
+  sdk.setCameraPose([0, 75, 100], [0, 4, 0]);
 }
 
 /**

@@ -492,6 +492,7 @@ impl VisualizationEngine {
         }
         self.renderer.sync_environment_map(self.scene.shading.env_map);
         self.renderer.sync_lighting(&self.scene.light_uniform(eye));
+        self.renderer.sync_point_shadows(self.scene.point_shadow_frame().as_ref());
         self.renderer.sync_shadows(self.scene.shadow_frame().as_ref());
 
         if let Some(chart) = self.chart.as_mut() {
@@ -591,6 +592,15 @@ impl VisualizationEngine {
 
     pub fn shadows(&self) -> crate::scene::ShadowConfig {
         self.scene.shadows
+    }
+
+    /// Point-light shadows (fields are clamped; the face edge also to the device limit).
+    pub fn set_point_shadows(&mut self, shadows: crate::scene::PointShadowConfig) {
+        self.scene.point_shadows = shadows.clamped_to_device(self.renderer.max_texture_size());
+    }
+
+    pub fn point_shadows(&self) -> crate::scene::PointShadowConfig {
+        self.scene.point_shadows
     }
 
     /// Main-pass MSAA: 4 = x4, anything else = off; devices without x4 support for the surface
@@ -1665,6 +1675,10 @@ mod tests {
             self.0.borrow_mut().sync_shadows(shadows);
         }
 
+        fn sync_point_shadows(&mut self, shadows: Option<&crate::renderer::PointShadowFrame>) {
+            self.0.borrow_mut().sync_point_shadows(shadows);
+        }
+
         fn set_sample_count(&mut self, samples: u32) -> u32 {
             self.0.borrow_mut().set_sample_count(samples)
         }
@@ -2145,6 +2159,57 @@ mod tests {
         engine.sync_and_render();
         assert_eq!(state.borrow().last_shadows, None, "disabled again");
         let _ = floor;
+    }
+
+    #[test]
+    fn point_shadows_are_independent_of_directional_shadows() {
+        use crate::scene::{BodyType, PointShadowConfig, PrimitiveKind, ShadowConfig};
+        let (mut engine, state) = mock_engine(GraphDataset::default_empty());
+        engine.scene_mut().add_primitive(
+            PrimitiveKind::Box,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::ONE,
+            [1.0, 0.2, 0.2, 1.0],
+            BodyType::Static,
+        );
+        engine.sync_and_render();
+        assert_eq!(state.borrow().last_point_shadows, None, "off by default");
+
+        engine.set_point_shadows(PointShadowConfig {
+            enabled: true,
+            map_size: 4096,
+            ..PointShadowConfig::default()
+        });
+        assert!(engine.point_shadows().map_size <= crate::scene::POINT_SHADOW_MAP_MAX);
+        engine.sync_and_render();
+        {
+            let st = state.borrow();
+            let f = st.last_point_shadows.expect("enabled");
+            assert_eq!(st.last_shadows, None, "directional shadows stay off");
+            assert_eq!(f.map_size, engine.point_shadows().map_size);
+            let light = engine.scene().lighting.point_light_pos;
+            assert_eq!(f.uniform.light_near[..3], light.to_array());
+            assert_eq!(Some(f), engine.scene().point_shadow_frame());
+        }
+
+        engine.set_shadows(ShadowConfig {
+            enabled: true,
+            ..ShadowConfig::default()
+        });
+        engine.sync_and_render();
+        {
+            let st = state.borrow();
+            assert!(
+                st.last_shadows.is_some() && st.last_point_shadows.is_some(),
+                "both on"
+            );
+        }
+
+        engine.set_point_shadows(PointShadowConfig::default());
+        engine.sync_and_render();
+        let st = state.borrow();
+        assert!(st.last_shadows.is_some());
+        assert_eq!(st.last_point_shadows, None, "disabled again");
     }
 
     #[test]

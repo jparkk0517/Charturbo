@@ -13,6 +13,7 @@ function shadowBackend(opts: { deviceMax?: number; withShadows?: boolean } = {})
   };
   let nextObject = 1;
   let engine: number[] = [0, 2048, 0.5, 1, 1.5, 1, 1, 0, 0, 0, 0];
+  let enginePoint: number[] = [0, 512, 1, 1, 1, 1, 0.5, 0];
   const backend: Record<string, unknown> = {
     add_primitive: () => nextObject++,
     add_custom_mesh: () => nextObject++,
@@ -42,6 +43,11 @@ function shadowBackend(opts: { deviceMax?: number; withShadows?: boolean } = {})
       engine = [args[0] ? 1 : 0, size, ...args.slice(2, 6), args[6] ? 1 : 0, ...args.slice(7)];
     };
     backend.get_scene_shadows = () => engine;
+    backend.set_scene_point_shadows = (...args: number[]) => {
+      log('set_scene_point_shadows', args);
+      enginePoint = [args[0] ? 1 : 0, Math.min(args[1], deviceMax), ...args.slice(2)];
+    };
+    backend.get_scene_point_shadows = () => enginePoint;
     backend.set_object_shadow_flags = (...args: unknown[]) => {
       log('set_object_shadow_flags', args);
       return true;
@@ -59,6 +65,7 @@ const DEFAULTS: SceneShadowsState = {
   softness: 1.5,
   darkness: 1,
   bounds: 'auto',
+  point: { enabled: false, mapSize: 512, bias: 1, normalBias: 1, softness: 1, darkness: 1, near: 0.5, far: 'auto' },
 };
 
 describe('setShadows', () => {
@@ -84,6 +91,7 @@ describe('setShadows', () => {
     });
     sdk.setShadows({ bounds: 'auto' });
     expect(sdk.getShadows().bounds).toBe('auto');
+    expect(calls.set_scene_point_shadows, 'point settings untouched').toBeUndefined();
   });
 
   it('reports the device-clamped map size', () => {
@@ -124,6 +132,72 @@ describe('setShadows', () => {
     expect(sdk.getShadows()).toEqual({ ...DEFAULTS, enabled: true, mapSize: 512 });
     const id = sdk.addBox({ castShadow: false });
     expect(sdk.setObjectMaterial(id, { receiveShadow: false })).toBe(true);
+  });
+});
+
+describe('setShadows({ point })', () => {
+  it('is independent of the directional settings', () => {
+    const { sdk, calls } = shadowBackend();
+    sdk.setShadows({ point: { enabled: true } });
+    expect(calls.set_scene_point_shadows.at(-1)).toEqual([true, 512, 1, 1, 1, 1, 0.5, 0]);
+    expect(sdk.getShadows()).toEqual({ ...DEFAULTS, point: { ...DEFAULTS.point, enabled: true } });
+    sdk.setShadows({ enabled: true, softness: 2 });
+    expect(sdk.getShadows().point.enabled).toBe(true);
+    expect(calls.set_scene_point_shadows).toHaveLength(1);
+  });
+
+  it('merges partial updates and encodes the engine call', () => {
+    const { sdk, calls } = shadowBackend();
+    sdk.setShadows({ point: { enabled: true, mapSize: 1024, bias: 2, normalBias: 0.5, softness: 0, darkness: 0.7, near: 1, far: 30 } });
+    expect(calls.set_scene_point_shadows.at(-1)).toEqual([true, 1024, 2, 0.5, 0, 0.7, 1, 30]);
+    sdk.setShadows({ point: { mapSize: 256 } });
+    expect(sdk.getShadows().point).toEqual({ enabled: true, mapSize: 256, bias: 2, normalBias: 0.5, softness: 0, darkness: 0.7, near: 1, far: 30 });
+    sdk.setShadows({ point: { far: 'auto' } });
+    expect(calls.set_scene_point_shadows.at(-1)).toEqual([true, 256, 2, 0.5, 0, 0.7, 1, 0]);
+    expect(sdk.getShadows().point.far).toBe('auto');
+  });
+
+  it('reports the device-clamped face edge and returns copies', () => {
+    const { sdk } = shadowBackend({ deviceMax: 512 });
+    sdk.setShadows({ point: { enabled: true, mapSize: 1024 } });
+    const s = sdk.getShadows();
+    expect(s.point.mapSize).toBe(512);
+    s.point.near = 9;
+    expect(sdk.getShadows().point.near).toBe(0.5);
+  });
+
+  it.each([
+    [{ point: 1 }, /setShadows: point must be an object/],
+    [{ point: { enabled: 'yes' } }, /setShadows: point.enabled/],
+    [{ point: { mapSize: 2048 } }, /setShadows: point.mapSize/],
+    [{ point: { bias: 17 } }, /setShadows: point.bias/],
+    [{ point: { normalBias: -1 } }, /setShadows: point.normalBias/],
+    [{ point: { softness: 9 } }, /setShadows: point.softness/],
+    [{ point: { darkness: 2 } }, /setShadows: point.darkness/],
+    [{ point: { near: 0 } }, /setShadows: point.near/],
+    [{ point: { far: -1 } }, /setShadows: point.far/],
+    [{ point: { far: 'far' } }, /setShadows: point.far/],
+    [{ point: { far: 0.8 } }, /setShadows: point.far must be at least 2 \* point.near/],
+    [{ enabled: true, point: { near: Number.NaN } }, /setShadows: point.near/],
+  ])('rejects %j without changing state', (bad, msg) => {
+    const { sdk, calls } = shadowBackend();
+    expect(() => sdk.setShadows(bad as never)).toThrow(msg);
+    expect(sdk.getShadows()).toEqual(DEFAULTS);
+    expect(calls.set_scene_point_shadows).toBeUndefined();
+    expect(calls.set_scene_shadows).toBeUndefined();
+  });
+
+  it('rejects a near plane that passes the set far plane', () => {
+    const { sdk } = shadowBackend();
+    sdk.setShadows({ point: { far: 10 } });
+    expect(() => sdk.setShadows({ point: { near: 6 } })).toThrow(/point.far must be at least/);
+    expect(sdk.getShadows().point.near).toBe(0.5);
+  });
+
+  it('is a no-op on engines without the point shadow methods', () => {
+    const { sdk } = shadowBackend({ withShadows: false });
+    expect(() => sdk.setShadows({ point: { enabled: true, mapSize: 256 } })).not.toThrow();
+    expect(sdk.getShadows().point).toEqual({ ...DEFAULTS.point, enabled: true, mapSize: 256 });
   });
 });
 
@@ -181,17 +255,25 @@ describe('shadows in exportScene / loadScene', () => {
     const { sdk, calls } = shadowBackend();
     sdk.addBox({ castShadow: false });
     sdk.addSphere({ receiveShadow: false });
-    sdk.setShadows({ enabled: true, mapSize: 1024, softness: 2, bounds: { center: [0, 1, 0], radius: 8 } });
+    sdk.setShadows({
+      enabled: true,
+      mapSize: 1024,
+      softness: 2,
+      bounds: { center: [0, 1, 0], radius: 8 },
+      point: { enabled: true, mapSize: 256, near: 0.25, far: 40 },
+    });
     const scene = JSON.parse(JSON.stringify(sdk.exportScene()));
     expect(scene.shadows).toEqual(sdk.getShadows());
+    expect(scene.shadows.point).toEqual({ ...DEFAULTS.point, enabled: true, mapSize: 256, near: 0.25, far: 40 });
     expect(scene.objects.map((o: { castShadow: boolean; receiveShadow: boolean }) => [o.castShadow, o.receiveShadow])).toEqual([
       [false, true],
       [true, false],
     ]);
 
-    sdk.setShadows({ enabled: false, mapSize: 4096, bounds: 'auto' });
+    sdk.setShadows({ enabled: false, mapSize: 4096, bounds: 'auto', point: { enabled: false, far: 'auto' } });
     const ids = sdk.loadScene(scene);
     expect(sdk.getShadows()).toEqual(scene.shadows);
+    expect(calls.set_scene_point_shadows.at(-1)).toEqual([true, 256, 1, 1, 1, 1, 0.25, 40]);
     expect(calls.set_object_shadow_flags.slice(-2)).toEqual([
       [ids[0], false, true],
       [ids[1], true, false],
@@ -200,9 +282,18 @@ describe('shadows in exportScene / loadScene', () => {
 
   it('loadScene without shadows keeps the current settings', () => {
     const { sdk } = shadowBackend();
-    sdk.setShadows({ enabled: true, darkness: 0.5 });
+    sdk.setShadows({ enabled: true, darkness: 0.5, point: { enabled: true } });
     const before = sdk.getShadows();
     sdk.loadScene({ objects: [] });
     expect(sdk.getShadows()).toEqual(before);
+  });
+
+  it('loads scenes saved before point shadows', () => {
+    const { sdk, calls } = shadowBackend();
+    sdk.setShadows({ point: { enabled: true } });
+    const legacy = { enabled: true, mapSize: 1024, bias: 0.5, normalBias: 1, softness: 1.5, darkness: 1, bounds: 'auto' };
+    sdk.loadScene({ objects: [], shadows: legacy as never });
+    expect(sdk.getShadows()).toEqual({ ...DEFAULTS, enabled: true, mapSize: 1024, point: { ...DEFAULTS.point, enabled: true } });
+    expect(calls.set_scene_point_shadows).toHaveLength(1);
   });
 });

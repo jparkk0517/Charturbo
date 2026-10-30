@@ -320,6 +320,34 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 不会变暗
 | `softness` | `number`（0..8 纹素） | `1.5` |
 | `darkness` | `number`（0..1） | `1` |
 | `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
+| `point` | `ScenePointShadowsDescriptor` | 关闭，见[点光源阴影](#point-light-shadows) |
+
+### 点光源阴影 {#point-light-shadows}
+
+`setShadows({ point: { enabled: true } })` 为 `setLighting` 的点光源（`pointPosition`）开启全方向阴影。默认关闭，且与方向光设置相互独立，可以只开其中一种或同时开启：
+
+```ts
+sdk.setLighting({ pointPosition: [0, 26, 0], pointIntensity: 1.6 });
+sdk.setShadows({ point: { enabled: true, mapSize: 512, softness: 1 } });
+sdk.addSphere({ position: [0, 26, 0], scale: [2, 2, 2], emissive: 1, castShadow: false }); // 灯泡
+```
+
+- 在主通道之前，从光源位置出发的 6 个仅深度通道（每个 90° 立方体面一个）把 `castShadow` 的不透明对象绘制到 `Depth32Float` 立方体贴图中。每个面存储 `near` 与 `far` 之间的反向 Z 透视深度；接收面为自身位置重新计算相同的深度并由硬件比较，因此立方体的各面和接缝都能无缝过滤。
+- 在 classic 和 PBR 模型中，阴影都只按 `darkness` 削弱点光源。边缘使用 3 × 3 网格的双线性比较采样过滤，范围为接收面距离处的 `softness` 个纹素（`softness: 0` = 单次硬件过滤采样）。`bias`（随表面倾斜增大）和 `normalBias` 以接收面距离处的纹素为单位。
+- 距离光源比 `near`（世界单位，默认 `0.5`）更近的投射对象（例如灯泡）会被忽略；`far: 'auto'`（默认）覆盖所有投射和接收阴影对象的远端，传入数字则固定（至少为 `2 * near`）。
+- 立方体贴图在开启时分配（`6 × mapSize² × 4` 字节：256 为 1.5 MiB，512 为 6 MiB，1024 为 24 MiB，计入 `getRenderStats().gpuBytes`），`mapSize` 改变时重建，关闭时释放。关闭时没有额外通道，着色器也不变。开启后每帧要把投射对象绘制 6 次，建议使用 `mapSize: 512` 并控制投射对象数量。同时支持 WebGPU 和 WebGL2。
+- `getShadows().point` 返回 `mapSize` 已按设备上限截断的设置；`exportScene()` / `loadScene` 与 `shadows` 的其余部分一起保存和恢复它（未保存 `point` 的场景保留当前点光源设置）。
+
+| 点光源阴影选项 | 类型 | 默认值 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `mapSize` | `256 \| 512 \| 1024` | `512` |
+| `bias` | `number`（0..16 纹素） | `1` |
+| `normalBias` | `number`（0..16 纹素） | `1` |
+| `softness` | `number`（0..8 纹素） | `1` |
+| `darkness` | `number`（0..1） | `1` |
+| `near` | `number`（0.01..1e6） | `0.5` |
+| `far` | `number \| 'auto'` | `'auto'` |
 
 ## 抗锯齿 {#anti-aliasing}
 

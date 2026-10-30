@@ -320,6 +320,34 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 어두워지지 �
 | `softness` | `number` (0..8 텍셀) | `1.5` |
 | `darkness` | `number` (0..1) | `1` |
 | `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
+| `point` | `ScenePointShadowsDescriptor` | 꺼짐, [점광원 그림자](#point-light-shadows) 참고 |
+
+### 점광원 그림자 {#point-light-shadows}
+
+`setShadows({ point: { enabled: true } })`는 `setLighting` 점광원(`pointPosition`)의 전방향 그림자를 켭니다. 기본값은 꺼짐이며 방향광 설정과 독립적이라 둘 중 하나만 또는 둘 다 켤 수 있습니다:
+
+```ts
+sdk.setLighting({ pointPosition: [0, 26, 0], pointIntensity: 1.6 });
+sdk.setShadows({ point: { enabled: true, mapSize: 512, softness: 1 } });
+sdk.addSphere({ position: [0, 26, 0], scale: [2, 2, 2], emissive: 1, castShadow: false }); // 전구
+```
+
+- 메인 패스 전에 광원 위치에서 깊이 전용 패스 6개(90° 큐브 면마다 하나)가 `castShadow`인 불투명 객체를 `Depth32Float` 큐브 맵에 그립니다. 각 면은 `near`와 `far` 사이의 역 Z 원근 깊이를 저장하고, 받는 면은 자기 위치의 같은 깊이를 다시 계산해 하드웨어로 비교하므로 큐브의 면과 이음새가 틈 없이 필터링됩니다.
+- 그림자는 classic과 PBR 모델 모두에서 점광원만 `darkness`만큼 줄입니다. 가장자리는 받는 면 거리 기준 `softness` 텍셀 범위의 3 × 3 격자 이중선형 비교 샘플로 필터링됩니다(`softness: 0` = 하드웨어 필터링 샘플 하나). `bias`(표면 기울기에 따라 커짐)와 `normalBias`는 받는 면 거리 기준 텍셀 단위입니다.
+- `near`(월드 단위, 기본 `0.5`)보다 광원에 가까운 캐스터(예: 전구)는 무시됩니다. `far: 'auto'`(기본값)는 그림자를 드리우거나 받는 모든 객체의 먼 쪽까지 닿고, 숫자를 주면 고정됩니다(`2 * near` 이상).
+- 큐브 맵은 켤 때 할당되고(`6 × mapSize² × 4` 바이트: 256은 1.5 MiB, 512는 6 MiB, 1024는 24 MiB, `getRenderStats().gpuBytes`에 포함) `mapSize`가 바뀌면 다시 만들며 끄면 해제됩니다. 꺼져 있으면 추가 패스가 없고 셰이더도 그대로입니다. 켜면 프레임마다 캐스터를 6번 그리므로 `mapSize: 512`를 권장하며 캐스터 수를 적당히 유지하세요. WebGPU와 WebGL2를 모두 지원합니다.
+- `getShadows().point`는 `mapSize`가 장치 한도로 제한된 설정을 반환합니다. `exportScene()` / `loadScene`이 나머지 `shadows`와 함께 저장 · 복원합니다(`point` 없이 저장된 장면은 현재 점광원 설정을 유지).
+
+| 점광원 그림자 옵션 | 타입 | 기본값 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `mapSize` | `256 \| 512 \| 1024` | `512` |
+| `bias` | `number` (0..16 텍셀) | `1` |
+| `normalBias` | `number` (0..16 텍셀) | `1` |
+| `softness` | `number` (0..8 텍셀) | `1` |
+| `darkness` | `number` (0..1) | `1` |
+| `near` | `number` (0.01..1e6) | `0.5` |
+| `far` | `number \| 'auto'` | `'auto'` |
 
 ## 안티에일리어싱 {#anti-aliasing}
 

@@ -320,6 +320,34 @@ sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // never darkened
 | `softness` | `number` (0..8 texels) | `1.5` |
 | `darkness` | `number` (0..1) | `1` |
 | `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
+| `point` | `ScenePointShadowsDescriptor` | off, see [Point-light shadows](#point-light-shadows) |
+
+### Point-light shadows {#point-light-shadows}
+
+`setShadows({ point: { enabled: true } })` adds omnidirectional shadows of the `setLighting` point light (`pointPosition`). It is off by default and independent of the directional settings, so either kind or both can be on:
+
+```ts
+sdk.setLighting({ pointPosition: [0, 26, 0], pointIntensity: 1.6 });
+sdk.setShadows({ point: { enabled: true, mapSize: 512, softness: 1 } });
+sdk.addSphere({ position: [0, 26, 0], scale: [2, 2, 2], emissive: 1, castShadow: false }); // lamp bulb
+```
+
+- Six depth-only passes (one per 90° cube face, from the light position) render the opaque `castShadow` objects into a `Depth32Float` cube map before the main pass. Each face stores reversed-Z perspective depth between `near` and `far`; the receivers recompute the same depth for their own position and compare it in hardware, so the cube's faces and seams are filtered without gaps.
+- The shadow attenuates only the point light, scaled by `darkness`, in both the classic and PBR models. Edges are filtered with a 3 × 3 grid of bilinear comparison taps spanning `softness` texels at the receiver's distance (`softness: 0` = one hardware-filtered tap). `bias` (grows with the surface slope) and `normalBias` are in texels at the receiver's distance.
+- `near` (world units, default `0.5`) skips casters closer to the light, such as a lamp bulb; `far: 'auto'` (default) reaches the far side of every caster and receiver, a number fixes it (at least `2 * near`).
+- The cube map is allocated on enable (`6 × mapSize² × 4` bytes: 1.5 MiB at 256, 6 MiB at 512, 24 MiB at 1024, counted in `getRenderStats().gpuBytes`), recreated when `mapSize` changes and released on disable. While off there are no extra passes and the shaders are unchanged. With point shadows on, every frame draws the casters six times, so prefer `mapSize: 512` and keep the caster count modest. WebGPU and WebGL2 are both supported.
+- `getShadows().point` returns the settings with `mapSize` clamped to the device; `exportScene()` / `loadScene` store and restore them with the rest of `shadows` (scenes saved without `point` keep the current point settings).
+
+| Point shadow option | Type | Default |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `mapSize` | `256 \| 512 \| 1024` | `512` |
+| `bias` | `number` (0..16 texels) | `1` |
+| `normalBias` | `number` (0..16 texels) | `1` |
+| `softness` | `number` (0..8 texels) | `1` |
+| `darkness` | `number` (0..1) | `1` |
+| `near` | `number` (0.01..1e6) | `0.5` |
+| `far` | `number \| 'auto'` | `'auto'` |
 
 ## Anti-aliasing
 

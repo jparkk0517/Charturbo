@@ -209,8 +209,9 @@ impl WgpuRenderBackend {
         if self.pbr {
             self.mesh_pbr.get(&self.device, samples);
         }
-        if self.shadow_map.is_some() {
-            self.shadow.receiving(&self.device, self.pbr, samples);
+        if let Some(variant) = self.shadow_variant() {
+            self.shadow
+                .receiving(&self.device, self.pbr, samples, variant);
         }
         samples
     }

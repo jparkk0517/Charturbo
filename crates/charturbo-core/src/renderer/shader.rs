@@ -522,12 +522,20 @@ fn fs_mesh_pbr(in: MeshVertexOutput) -> @location(0) vec4<f32> {
 /// classic, 3 for PBR). The receive opt-out rides in the instance's spare `normal_0.w`.
 /// Derived by text replacement so the shadow-free modules stay byte-identical.
 pub fn mesh_shadowed_wgsl(pbr: bool) -> String {
+    mesh_shadowed_variant_wgsl(pbr, true, false)
+}
+
+/// `mesh_shadowed_wgsl` with directional (`dir`, bindings 0..2 of the shadow group) and / or
+/// point-light (`point`, bindings 3..5: a comparison-sampled depth cube map) shadows. With
+/// `point = false` the text is exactly the directional-only module.
+pub fn mesh_shadowed_variant_wgsl(pbr: bool, dir: bool, point: bool) -> String {
+    assert!(dir || point, "a shadowed variant receives at least one light's shadows");
     let base = if pbr {
         mesh_pbr_wgsl()
     } else {
         MESH_LIT_WGSL.to_string()
     };
-    let edits: [(&str, &str); 3] = [
+    let mut edits: Vec<(&str, &str)> = vec![
         (
             "    @location(4) uv: vec2<f32>,\n};",
             "    @location(4) uv: vec2<f32>,\n    @location(5) receive_shadow: f32,\n};",
@@ -541,12 +549,28 @@ pub fn mesh_shadowed_wgsl(pbr: bool) -> String {
             "    let dir_intensity = light.dir_light_dir_intensity.w * shadow_visibility(in.world_pos, N, L_dir, in.receive_shadow);",
         ),
     ];
+    if !dir {
+        edits.pop();
+    }
+    if point {
+        edits.push((
+            "    let pt_contrib = (base_rgb * ndotl_pt + spec_tint * spec_pt) * light.point_light_pos_intensity.w * attenuation;",
+            "    let pt_contrib = (base_rgb * ndotl_pt + spec_tint * spec_pt) * light.point_light_pos_intensity.w * attenuation\n        * point_shadow_visibility(in.world_pos, N, in.receive_shadow);",
+        ));
+    }
     let mut text = base;
     for (from, to) in edits {
         assert_eq!(text.matches(from).count(), 1, "mesh shader changed: {from}");
         text = text.replacen(from, to, 1);
     }
-    if pbr {
+    if pbr && point {
+        let from = "        * (light.point_light_pos_intensity.w * attenuation);";
+        // Geometric normal for the offset, as for the directional light
+        let to = "        * (light.point_light_pos_intensity.w * attenuation * point_shadow_visibility(in.world_pos, ng, in.receive_shadow));";
+        assert_eq!(text.matches(from).count(), 1, "pbr shader changed");
+        text = text.replacen(from, to, 1);
+    }
+    if pbr && dir {
         let from = "    var color = punctual(n, v, normalize(light.dir_light_dir_intensity.xyz), n_dot_v, f0, diffuse_color, roughness)\n        * light.dir_light_dir_intensity.w;";
         // The normal offset follows the geometric normal (a normal map must not move it)
         let to = "    let l_dir = normalize(light.dir_light_dir_intensity.xyz);\n    var color = punctual(n, v, l_dir, n_dot_v, f0, diffuse_color, roughness)\n        * (light.dir_light_dir_intensity.w * shadow_visibility(in.world_pos, ng, l_dir, in.receive_shadow));";
@@ -554,11 +578,90 @@ pub fn mesh_shadowed_wgsl(pbr: bool) -> String {
         text = text.replacen(from, to, 1);
     }
     let group = if pbr { "@group(3)" } else { "@group(2)" };
-    format!(
-        "{text}{SHADOW_UNIFORM_STRUCT_WGSL}{}",
-        MESH_SHADOW_RECEIVE_WGSL.replace("@group(G)", group)
-    )
+    if dir {
+        text = format!(
+            "{text}{SHADOW_UNIFORM_STRUCT_WGSL}{}",
+            MESH_SHADOW_RECEIVE_WGSL.replace("@group(G)", group)
+        );
+    }
+    if point {
+        text.push_str(&MESH_POINT_SHADOW_RECEIVE_WGSL.replace("@group(G)", group));
+    }
+    text
 }
+
+/// Point-light shadow receivers (`PointShadowUniformRaw` + the depth cube map, bindings 3..5
+/// of the shadow group).
+const MESH_POINT_SHADOW_RECEIVE_WGSL: &str = r#"
+struct PointShadowUniform {
+    // light position (world), near plane
+    light_near: vec4<f32>,
+    // (depth bias, normal offset, pcf radius: texels at the receiver's distance; darkness)
+    params: vec4<f32>,
+    // (1 / face size, face size, a, b): depth = a / z + b of the major-axis distance z
+    map: vec4<f32>,
+    // (far plane, max slope factor, 0, 0)
+    range: vec4<f32>,
+};
+
+@group(G) @binding(3)
+var<uniform> point_shadow: PointShadowUniform;
+
+@group(G) @binding(4)
+var point_shadow_map: texture_depth_cube;
+
+@group(G) @binding(5)
+var point_shadow_sampler: sampler_comparison;
+
+// One bilinear comparison tap along `q` (light -> receiver). The cube face is the one the GPU
+// picks for `q`, so the reference is that face's reversed-Z depth of the major-axis distance,
+// moved `bias` toward the light; clamped so receivers past far still darken behind casters.
+fn point_shadow_tap(q: vec3<f32>, bias: f32) -> f32 {
+    let a = abs(q);
+    let z = max(max(a.x, a.y), a.z) - bias;
+    let ref_depth = clamp(point_shadow.map.z / max(z, 1e-6) + point_shadow.map.w, 0.0, 1.0);
+    return textureSampleCompareLevel(point_shadow_map, point_shadow_sampler, q, ref_depth);
+}
+
+// Point-light visibility in [1 - darkness, 1]: 3 x 3 bilinear PCF taps spread over `params.z`
+// texels in the plane facing the light (each tap picks its own face, so cube seams filter).
+fn point_shadow_visibility(world_pos: vec3<f32>, n: vec3<f32>, receive: f32) -> f32 {
+    if (receive < 0.5) {
+        return 1.0;
+    }
+    let to_p = world_pos - point_shadow.light_near.xyz;
+    let dist = length(to_p);
+    if (dist < 1e-4) {
+        return 1.0;
+    }
+    let cos_t = clamp(dot(n, -to_p / dist), 0.0, 1.0);
+    let sin_t = sqrt(1.0 - cos_t * cos_t);
+    let a = abs(to_p);
+    // World size of one texel at the receiver's depth (a 90 degree face spans 2 z)
+    let texel = 2.0 * max(max(a.x, a.y), a.z) * point_shadow.map.x;
+    let radius = point_shadow.params.z;
+    // The normal offset grows as the surface turns away from the light and clears the kernel
+    let q = to_p + n * (point_shadow.params.y * texel * max(radius, 1.0) * sin_t);
+    let tan_t = min(sin_t / max(cos_t, 1e-3), point_shadow.range.y);
+    let bias = point_shadow.params.x * texel * (1.0 + tan_t);
+    var lit = 0.0;
+    if (radius < 0.01) {
+        lit = point_shadow_tap(q, bias);
+    } else {
+        let d = normalize(q);
+        let up = select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), abs(d.y) > 0.9);
+        let t = normalize(cross(up, d)) * (radius * texel);
+        let b = cross(d, t);
+        for (var j = -1; j <= 1; j++) {
+            for (var i = -1; i <= 1; i++) {
+                lit += point_shadow_tap(q + t * f32(i) + b * f32(j), bias);
+            }
+        }
+        lit *= 1.0 / 9.0;
+    }
+    return 1.0 - point_shadow.params.w * (1.0 - lit);
+}
+"#;
 
 /// Light-space uniform shared by the depth pass and the receivers (`ShadowUniformRaw`).
 const SHADOW_UNIFORM_STRUCT_WGSL: &str = r#"
@@ -1851,6 +1954,10 @@ mod tests {
             ("mesh-shadowed", mesh_shadowed_wgsl(false)),
             ("mesh-pbr-shadowed", mesh_shadowed_wgsl(true)),
             ("mesh-shadow-depth", mesh_shadow_depth_wgsl()),
+            ("mesh-point-shadowed", mesh_shadowed_variant_wgsl(false, false, true)),
+            ("mesh-both-shadowed", mesh_shadowed_variant_wgsl(false, true, true)),
+            ("mesh-pbr-point-shadowed", mesh_shadowed_variant_wgsl(true, false, true)),
+            ("mesh-pbr-both-shadowed", mesh_shadowed_variant_wgsl(true, true, true)),
             ("mipmap-blit", MIPMAP_BLIT_WGSL.to_string()),
             ("env-prefilter", ENV_PREFILTER_WGSL.to_string()),
             ("chart-line", chart_line_wgsl()),
@@ -2169,6 +2276,53 @@ mod tests {
         write(&depth, naga::ShaderStage::Vertex, "vs_shadow");
         let fs = write(&depth, naga::ShaderStage::Fragment, "fs_shadow");
         assert!(fs.contains("discard"), "alpha-tested casters cut holes");
+
+        // Point-light variants: a comparison-sampled depth cube at level 0 (GLSL ES 3.00 has no
+        // textureLod for samplerCubeShadow: naga emits textureGrad with zero gradients)
+        for (pbr, fs_entry, group) in [(false, "fs_mesh", 2), (true, "fs_mesh_pbr", 3)] {
+            for dir in [false, true] {
+                let src = mesh_shadowed_variant_wgsl(pbr, dir, true);
+                assert!(!src.contains("@group(4)") && !src.contains("@group(G)"));
+                write(&src, naga::ShaderStage::Vertex, "vs_mesh");
+                let fs = write(&src, naga::ShaderStage::Fragment, fs_entry);
+                assert!(fs.contains("samplerCubeShadow"), "cube comparison sampler: {fs}");
+                assert!(fs.contains("textureGrad("), "level-0 cube compare: {fs}");
+                assert!(fs.contains(&format!("_group_{group}_binding_4_fs")), "cube map in group {group}");
+                assert_eq!(fs.contains("sampler2DShadow"), dir, "directional map only with dir");
+                // Texture units per fragment stage stay far below WebGL2's 16
+                let samplers = fs.matches("uniform highp sampler").count();
+                let expected = if pbr { 7 } else { 2 } + usize::from(dir);
+                assert_eq!(samplers, expected, "texture units: {fs}");
+                assert!(samplers <= 16);
+            }
+        }
+    }
+
+    #[test]
+    fn point_shadow_variants_extend_the_directional_text() {
+        for pbr in [false, true] {
+            // Directional-only stays byte-identical
+            assert_eq!(mesh_shadowed_variant_wgsl(pbr, true, false), mesh_shadowed_wgsl(pbr));
+            let point = mesh_shadowed_variant_wgsl(pbr, false, true);
+            assert!(!point.contains("fn shadow_visibility") && !point.contains("texture_depth_2d"));
+            // fs_mesh (both modules) + fs_mesh_pbr
+            let calls = if pbr { 2 } else { 1 };
+            assert_eq!(point.matches("point_shadow_visibility(in.world_pos").count(), calls);
+            let both = mesh_shadowed_variant_wgsl(pbr, true, true);
+            assert_eq!(both.matches("point_shadow_visibility(in.world_pos").count(), calls);
+            assert_eq!(both.matches("shadow_visibility(in.world_pos, N, L_dir").count(), 1);
+        }
+        // Uniform layout matches `PointShadowUniformRaw` (4 x vec4)
+        assert_eq!(
+            MESH_POINT_SHADOW_RECEIVE_WGSL
+                .split("};")
+                .next()
+                .unwrap()
+                .matches("vec4<f32>,")
+                .count()
+                * 16,
+            std::mem::size_of::<super::super::PointShadowUniformRaw>()
+        );
     }
 
     #[test]

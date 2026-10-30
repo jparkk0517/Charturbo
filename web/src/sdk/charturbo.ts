@@ -8040,10 +8040,15 @@ export class Charturbo {
    * opt out with `castShadow` / `receiveShadow`; translucent objects do not cast and alpha-tested
    * textures cut holes into their shadows. `mapSize` is clamped to the device limit (see
    * `getShadows`). Omitted fields keep their current value; throws on invalid values.
+   *
+   * `point` (off by default, independent of the directional fields) adds omnidirectional
+   * shadows of the `setLighting` point light: six 90° depth passes from `pointPosition` into a
+   * cube map every frame (casters only), sampled with PCF. The shadow darkens the point light
+   * only. Costs nothing while off.
    */
   setShadows(options: SceneShadowsDescriptor): void {
     const next = resolveShadows('setShadows', this.shadowsState, options);
-    this.shadowsState = sendShadows(this.backend, next);
+    this.shadowsState = sendShadows(this.backend, next, options.point !== undefined);
   }
 
   getShadows(): SceneShadowsState {

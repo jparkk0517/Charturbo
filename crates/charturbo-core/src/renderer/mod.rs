@@ -366,6 +366,31 @@ pub struct ShadowFrame {
     pub uniform: ShadowUniformRaw,
 }
 
+/// Point-light shadow uniform of the receivers (64 bytes).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable, Default)]
+pub struct PointShadowUniformRaw {
+    /// Light position (world), near plane
+    pub light_near: [f32; 4],
+    /// (depth bias, normal offset, PCF radius: all in texels at the receiver's distance;
+    /// darkness 0..1)
+    pub params: [f32; 4],
+    /// (1 / face size, face size, depth scale a, depth offset b): depth = a / z + b of the
+    /// major-axis distance z (reversed-Z: 1 at near, 0 at far)
+    pub map: [f32; 4],
+    /// (far plane, max slope factor of the depth bias, 0, 0)
+    pub range: [f32; 4],
+}
+
+/// One frame of enabled point-light shadows: the cube face edge (texels), the six face
+/// cameras of the depth passes (`light_view_proj` only) and the receiver uniform.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointShadowFrame {
+    pub map_size: u32,
+    pub faces: [ShadowUniformRaw; 6],
+    pub uniform: PointShadowUniformRaw,
+}
+
 /// 16-byte aligned scene lighting uniform buffer (256 bytes). The classic mesh shader reads the
 /// first 48 bytes only; the trailing fields drive the PBR shader (`scene::ShadingConfig`).
 #[repr(C)]
@@ -626,6 +651,10 @@ pub trait RenderBackend {
     /// Directional-light shadows for this frame (`None` = off: no shadow pass, the shadow map
     /// is released). Sent every frame after `sync_lighting`.
     fn sync_shadows(&mut self, _shadows: Option<&ShadowFrame>) {}
+    /// Point-light shadows for this frame (`None` = off: no cube passes, the cube map is
+    /// released). Sent every frame right before `sync_shadows`, which builds the receivers of
+    /// the enabled combination.
+    fn sync_point_shadows(&mut self, _shadows: Option<&PointShadowFrame>) {}
     /// Uploads changed chart layers (see `ChartLayers`); unchanged layers are passed as `None`.
     fn sync_chart(&mut self, _layers: &ChartLayers<'_>) {}
     /// Background color the frame is cleared to.
@@ -766,6 +795,8 @@ pub struct MockRenderBackend {
     pub environment_map: u32,
     /// Last `sync_shadows` frame (`None` = off)
     pub last_shadows: Option<ShadowFrame>,
+    /// Last `sync_point_shadows` frame (`None` = off)
+    pub last_point_shadows: Option<PointShadowFrame>,
     /// Fake device support for MSAA x4 and the applied sample count (0 = never set: 1)
     pub msaa_x4: bool,
     pub samples: u32,
@@ -832,6 +863,10 @@ impl RenderBackend for MockRenderBackend {
 
     fn sync_shadows(&mut self, shadows: Option<&ShadowFrame>) {
         self.last_shadows = shadows.copied();
+    }
+
+    fn sync_point_shadows(&mut self, shadows: Option<&PointShadowFrame>) {
+        self.last_point_shadows = shadows.copied();
     }
 
     fn set_sample_count(&mut self, samples: u32) -> u32 {

@@ -1,7 +1,7 @@
-//! WASM binding of the directional-light shadow settings and the per-object cast / receive
-//! flags, kept apart from `lib.rs`.
+//! WASM binding of the directional- and point-light shadow settings and the per-object cast /
+//! receive flags, kept apart from `lib.rs`.
 
-use crate::scene::{ShadowBounds, ShadowConfig};
+use crate::scene::{PointShadowConfig, ShadowBounds, ShadowConfig};
 use crate::WasmCharturboEngine;
 use glam::Vec3;
 use wasm_bindgen::prelude::*;
@@ -65,6 +65,50 @@ impl WasmCharturboEngine {
             c.y,
             c.z,
             r,
+        ]
+    }
+
+    /// Point-light (cube map) shadows, independent of `set_scene_shadows`. Bias / normal bias /
+    /// softness are in texels at the receiver's distance, darkness in [0, 1], near / far in
+    /// world units (`far <= 0` = automatic: the far side of the casters and receivers). The
+    /// face edge is snapped to 256 / 512 / 1024.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_scene_point_shadows(
+        &mut self,
+        enabled: bool,
+        map_size: u32,
+        bias: f32,
+        normal_bias: f32,
+        softness: f32,
+        darkness: f32,
+        near: f32,
+        far: f32,
+    ) {
+        self.inner.set_point_shadows(PointShadowConfig {
+            enabled,
+            map_size,
+            bias,
+            normal_bias,
+            softness,
+            darkness,
+            near,
+            far: (far > 0.0).then_some(far),
+        });
+    }
+
+    /// `[enabled, map_size, bias, normal_bias, softness, darkness, near, far]` (enabled as
+    /// 0 / 1; far 0 = automatic).
+    pub fn get_scene_point_shadows(&self) -> Vec<f32> {
+        let s = self.inner.point_shadows();
+        vec![
+            if s.enabled { 1.0 } else { 0.0 },
+            s.map_size as f32,
+            s.bias,
+            s.normal_bias,
+            s.softness,
+            s.darkness,
+            s.near,
+            s.far.unwrap_or(0.0),
         ]
     }
 

@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 점광원 그림자
+
+- `setShadows({ point: { enabled, mapSize, bias, normalBias, softness, darkness, near, far } })` / `getShadows().point`: `setLighting` 점광원(`pointPosition`)의 전방향 그림자를 켭니다(기본값 꺼짐, 방향광 그림자와 독립). 메인 패스 전 광원 위치에서 90° 큐브 면마다 깊이 전용 패스 6개(`Depth32Float` 큐브 맵, `near`–`far` 역 Z 원근 깊이, `castShadow`인 불투명 객체만)를 그리고, 받는 면은 하드웨어 비교 3 × 3 이중선형 PCF(`softness` 텍셀)로 큐브 이음새까지 틈 없이 필터링합니다. `bias`(기울기 비례) · `normalBias`는 받는 면 거리 기준 텍셀 단위, `far: 'auto'`는 캐스터 · 리시버 범위에 맞춥니다. 그림자는 classic · PBR 모두에서 점광원만 줄입니다.
+- 꺼져 있으면 추가 패스가 없고 기존 셰이더 · 파이프라인 · 렌더 결과가 그대로입니다. 켜면 기존 그림자 바인드 그룹(classic 2 · PBR 3)에 바인딩 3–5가 추가되며 방향광 · 점광원 · 둘 다 조합마다 리시버 파이프라인을 처음 쓸 때 만듭니다. `mapSize`(256 / 512 / 1024)는 장치 한도로 제한되고, 맵(1.5 / 6 / 24 MiB)은 켤 때 만들고 끌 때 해제해 `gpuBytes`에 집계됩니다. WebGPU · WebGL2 모두 지원. `exportScene` / `loadScene`이 `shadows.point`를 저장 · 복원합니다(`point` 없는 장면은 현재 설정 유지). wasm `set_scene_point_shadows` / `get_scene_point_shadows` 추가.
+- 예제 `scene/09-point-shadows`, fixture `scene-point-shadows` · `scene-point-shadows-pbr`, 문서 `charts/scene-3d`의 「점광원 그림자」 절.
+
 ### 추가 — HDR 환경 맵
 
 - `loadEnvironmentHdr(source, { signal })`(Radiance `.hdr`: RGBE, 평면 · 새 형식 RLE, `-Y` / `+Y`; URL · `Blob` · `ArrayBuffer` · 타입 배열) / `createEnvironmentFromFloat(width, height, rgb)`(선형 RGB float): PBR `environment.map`에 쓸 HDR 환경 맵을 만듭니다(최대 4096x2048, 오류는 메서드 이름으로 시작). 너비 1024 이하로 줄여 `Rgba16Float`로 저장하고 생성 시 GPU에서 한 번 사전 필터링합니다: 밉 `i`는 거칠기 `i / (n - 1)`의 GGX 중요도 샘플링(텍셀당 128개, 필터링 중요도 샘플링), 확산광은 SH9 복사조도. 1보다 큰 값이 노출 · 톤 매핑까지 유지됩니다. half float 렌더 타깃이 없는 WebGL2는 CPU 박스 밉으로 대체합니다.
