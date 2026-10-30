@@ -94,6 +94,10 @@ A node renders as exactly its `color`. The player uses shading model `pbr` with 
 
 - The engine clamps object scale to >= 0.05 units: a mesh thinner than `0.05 / worldScale` m per axis is drawn at 0.05 units.
 - The camera cannot come closer than 5 units to its target (0.5 m at `worldScale` 10).
+- Close-ups: an eye closer than 0.5 m to its target is pushed back to 0.5 m, so the framing differs from the doc. Use a narrower `fov` instead of moving closer.
+- Top-down: the camera pitch is capped near 82° (`dir.y` clamped to ±0.99), so a straight-down eye is tilted and offset. Keep shots below that angle.
+- `fov` outside 10..120 is rejected by `validateDoc` (the engine clamps to that range).
+- `jump()` without `base` moves the root to the origin; always pass `base` (the node's rest position).
 - No camera roll.
 - `fov` is vertical. In portrait output (height > width) the horizontal view is narrow; raise `fov` or move the camera back, and verify with `--still`.
 - No per-object visibility API: hiding = alpha 0.
