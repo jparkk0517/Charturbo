@@ -5,10 +5,11 @@
  * resolve_world_matrix), mirrored by `worldPosition`:
  * - local = T(position) * R * S(scale); R = glam Quat::from_euler(YXZ, ry, rx, rz) = Ry * Rx * Rz
  *   (a column vector is rotated by Rz first, then Rx, then Ry).
- * - world = parentWorld * local over the whole chain, so a parent's scale DOES scale the child's
- *   offset, and the parent's rotation rotates it (non-uniform scale + rotation may shear; same here).
+ * - The engine composes world = parentWorld * local over the whole chain, scale included. The previs
+ *   doc deliberately does NOT: a node's `size` only sizes its own shape and never scales children or
+ *   their offsets (invisible joint pivots have tiny sizes). So the world transform here is parent
+ *   translation + rotation composition only; the player realises this with scale-1 pivot objects.
  * - The engine caps the chain at MAX_HIERARCHY_DEPTH and then treats the node as a root; we do too.
- * `size` plays the role of scale (the player maps a unit shape to `size`).
  */
 import type {
   Easing,
@@ -133,7 +134,7 @@ function rotateYXZ(v: Vec3, rot: Vec3): Vec3 {
   return [x, y, z];
 }
 
-/** World position of node `id` given local node states (parent chain composed like the engine). */
+/** World position of node `id` given local node states (parent translation + rotation composed; sizes ignored, see header). */
 export function worldPosition(doc: PrevisDoc, nodes: Record<string, NodeState>, id: string): Vec3 {
   const byId = new Map<string, PrevisNode>();
   for (const n of doc.nodes) byId.set(n.id, n);
@@ -147,8 +148,7 @@ export function worldPosition(doc: PrevisDoc, nodes: Record<string, NodeState>, 
     const parent = byId.get(cur.parent);
     const ps = parent ? nodes[parent.id] : undefined;
     if (!parent || !ps) break;
-    const scaled: Vec3 = [p[0] * ps.size[0], p[1] * ps.size[1], p[2] * ps.size[2]];
-    const r = rotateYXZ(scaled, ps.rotation);
+    const r = rotateYXZ(p, ps.rotation);
     p = [r[0] + ps.position[0], r[1] + ps.position[1], r[2] + ps.position[2]];
     cur = parent;
     depth++;

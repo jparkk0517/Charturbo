@@ -252,7 +252,7 @@ describe('evaluateFrame', () => {
 });
 
 describe('worldPosition (engine convention)', () => {
-  it('parent scale scales child offset, then parent rotates and translates', () => {
+  it('parent size does not affect the child; parent rotation rotates and parent translates', () => {
     const dd = doc(
       [
         node('p', { position: [1, 0, 0], size: [2, 3, 4], rotation: [0, 0, Math.PI / 2] }),
@@ -261,8 +261,8 @@ describe('worldPosition (engine convention)', () => {
       [shot('s', 0, 1)],
     );
     const f = evaluateFrame(dd, 0);
-    // scaled (2,3,4); Rz(90): (x,y)->(-y,x) => (-3,2,4); + (1,0,0)
-    close(worldPosition(dd, f.nodes, 'c'), [-2, 2, 4]);
+    // size ignored; Rz(90): (x,y)->(-y,x) => (-1,1,1); + (1,0,0)
+    close(worldPosition(dd, f.nodes, 'c'), [0, 1, 1]);
     close(worldPosition(dd, f.nodes, 'p'), [1, 0, 0]);
   });
 

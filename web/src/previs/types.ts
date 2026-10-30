@@ -34,7 +34,10 @@ export interface PrevisNode {
   /** Unique, stable, `[a-z0-9_.-]+`. Tracks, `parent`, `follow` and `role` refer to it. */
   id: string;
   shape: PrevisShape;
-  /** Id of another node; transforms are local to the parent (position, rotation, size). */
+  /**
+   * Id of another node; position and rotation are local to the parent. The parent's `size` does
+   * NOT scale this node or its offset (see `size`).
+   */
   parent?: string;
   /** Id of an entry in `PrevisDoc.roles`; the handoff prompt maps its color to what it stands for. */
   role?: string;
@@ -43,7 +46,10 @@ export interface PrevisNode {
   /** Rest transform, used where no track exists. */
   position: Vec3;
   rotation: Vec3;
-  /** Full extents in meters (a unit shape scaled to `size`). */
+  /**
+   * Full extents in meters of THIS node's own shape (a unit shape scaled to `size`). It never
+   * scales children or their offsets: world transform = parent translation + rotation only.
+   */
   size: Vec3;
   /** Initial visibility, default true. */
   visible?: boolean;
