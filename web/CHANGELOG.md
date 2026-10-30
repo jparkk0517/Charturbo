@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 방향광 그림자
+
+- `setShadows({ enabled, mapSize, bias, normalBias, softness, darkness, bounds })` / `getShadows()`: 3D 장면 메시에 방향광 섀도 매핑을 켭니다(기본값 꺼짐, 꺼져 있으면 기존 셰이더 · 파이프라인 · 렌더 결과가 그대로이며 차트 · 과학 3D는 영향 없음). 메인 패스 전 깊이 전용 패스(`Depth32Float`, 역 Z), 캐스터 · 리시버에 맞추고 텍셀 단위로 고정한 직교 광원 카메라(`bounds: 'auto'`) 또는 고정 구, 기울기 비례 bias + 법선 오프셋, 하드웨어 비교 4 × 4 PCF(`softness` 텍셀). 그림자는 classic · PBR 모두에서 방향광만 줄입니다.
+- 객체별 `castShadow` / `receiveShadow`(기본 `true`, 기본 도형 · 사용자 메시 · glTF, `setObjectMaterial`로 변경). 반투명 객체는 그림자를 드리우지 않고 알파 테스트 텍스처는 그림자에 구멍을 냅니다. `mapSize`(512 / 1024 / 2048 / 4096)는 장치 한도로 제한되며 맵은 켤 때 만들고 끌 때 해제해 `gpuBytes`에 집계됩니다. WebGPU · WebGL2 모두 지원. `exportScene` / `loadScene`이 `shadows`와 객체 플래그를 저장 · 복원합니다. wasm `set_scene_shadows` / `get_scene_shadows` / `set_object_shadow_flags` / `get_object_shadow_flags` 추가.
+- 예제 `scene/06-shadows`, fixture `scene-shadows` · `scene-shadows-pbr`, 문서 `charts/scene-3d`의 「그림자」 절.
+
 ### 추가 — 물리 기반 셰이딩(PBR)
 
 - `setShading({ model, toneMapping, exposure, environment: { sky, ground, intensity, map } })` / `getShading()`: 3D 장면 메시에 선택형 PBR을 켭니다(기본값 `model: 'classic'`은 기존 Blinn-Phong 그대로이며 차트 · 과학 3D · 3D 그래프는 바뀌지 않습니다). GGX · 높이 상관 Smith · Schlick 프레넬(`F0 = mix(0.04, color, metallic)`) · Lambert 확산, 선형 공간 조명 후 노출 · 톤 매핑(`'aces'` 기본 · `'reinhard'` · `'none'`) · sRGB 인코딩을 셰이더에서 합니다. 환경광은 하늘 / 땅 반구 또는 등장방형 텍스처(`map`, 거칠기에 따른 밉 레벨, 해석적 split-sum 근사)이며, 모르거나 해제된 텍스처 ID는 반구로 대체됩니다. `ambientIntensity`는 classic 전용입니다.

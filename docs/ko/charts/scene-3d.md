@@ -67,6 +67,7 @@ tick();
 | `restitution` | `number` | `0.55` | 반발 계수 |
 | `parentId` | `number \| null` | `null` | 계층 트랜스폼의 부모 객체 |
 | `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | 텍스처 매핑, [텍스처](#텍스처) 참고 |
+| `castShadow` / `receiveShadow` | `boolean` | `true` | 그림자 참여 여부, [그림자](#그림자) 참고 |
 
 ### 사용자 메시 (`CustomMeshObjectDescriptor`)
 
@@ -92,6 +93,7 @@ const torus = sdk.addCustomMesh({
 | `metallic` / `roughness` | `number` | `0.35` / `0.3` | 재질 |
 | `mass` / `restitution` | `number` | `2.0` / `0.6` | 물리 |
 | `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | 텍스처 매핑, [텍스처](#텍스처) 참고 |
+| `castShadow` / `receiveShadow` | `boolean` | `true` | 그림자 참여 여부, [그림자](#그림자) 참고 |
 
 나머지 필드(`name` 기본 `'MESH_<id>'`, `position`, `rotation`, `emissive`, `bodyType`, `velocity`, `angularVelocity`, `parentId`)는 기본 도형과 같습니다. `Charturbo.createTorusMesh(majorRadius = 8, minorRadius = 2.6, radialSegments = 18, tubularSegments = 32)`는 테스트용 메시를 만듭니다.
 
@@ -237,6 +239,34 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+
+## 그림자
+
+`setShadows({ enabled: true })`는 `setLighting` 방향광의 섀도 매핑을 켭니다(기본값은 꺼짐이며, 차트 · 과학 3D · 3D 그래프는 그림자를 드리우거나 받지 않습니다):
+
+```ts
+sdk.setLighting({ directionalDirection: [0.6, 1, 0.3] }); // 광원 쪽을 향하는 방향
+sdk.setShadows({ enabled: true, mapSize: 2048, softness: 1.5 });
+sdk.addSphere({ position: [0, 30, 0], castShadow: false }); // 그림자 없음
+sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 어두워지지 않음
+```
+
+- 메인 패스 전에 방향광 시점의 깊이 전용 패스가 `castShadow`인 보이는 불투명 객체를 `Depth32Float` 맵에 그립니다. 광원의 직교 카메라는 그림자를 드리우거나 받는 객체 전체(`bounds: 'auto'`, 카메라가 움직여도 그림자가 떨리지 않도록 텍셀 단위로 맞춤) 또는 고정 구 `bounds: { center, radius }`에 맞춰집니다. 자동 맞춤 장면이 크면 맵이 넓은 영역에 퍼지므로, 큰 장면에서는 관심 영역에 고정 경계를 쓰세요.
+- 그림자는 classic과 PBR 모델 모두에서 방향광만 `darkness`만큼 줄입니다(주변광 · 점광원 · 발광 · PBR 환경광은 그대로).
+- 가장자리는 `softness` 텍셀 범위의 4 × 4 격자에서 하드웨어 비교 PCF로 필터링됩니다(`softness: 0` = 단일 샘플의 선명한 그림자). `bias`(상수, 표면 기울기에 따라 커짐)와 `normalBias`(받는 면을 법선 방향으로 미는 양)는 섀도 맵 텍셀 단위입니다. 그림자 여드름(acne)이 보이면 올리고, 그림자가 물체에서 떨어져 보이면 낮추세요.
+- 반투명 객체(`color` 알파 1 미만)는 그림자를 드리우지 않고, 알파 테스트 텍스처(`alphaTest`)는 그림자에도 같은 구멍을 냅니다. `castShadow` / `receiveShadow`는 기본 도형 · 사용자 메시 · glTF 객체에서 기본값 `true`이며 나중에 `setObjectMaterial`로 바꿀 수 있습니다.
+- `setShadows`는 현재 설정에 병합되며 잘못된 값이면 `setShadows: ...`을 던집니다. `getShadows()`는 사본을 반환하며 `mapSize`는 장치의 텍스처 한도로 제한된 값입니다. `exportScene()`은 설정을 `shadows`에, 객체별 플래그를 각 객체에 저장하고 `loadScene`이 이를 복원합니다.
+- 맵은 그림자를 켤 때 할당되고(2048² = 16 MiB, `getRenderStats().gpuBytes`에 포함) `mapSize`가 바뀌면 다시 만들며 끄면 해제됩니다. 프레임마다 그림자를 드리우는 객체에 대한 깊이 패스 하나가 추가됩니다. WebGPU와 WebGL2를 모두 지원합니다.
+
+| 그림자 옵션 | 타입 | 기본값 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `mapSize` | `512 \| 1024 \| 2048 \| 4096` | `2048` |
+| `bias` | `number` (0..16 텍셀) | `0.5` |
+| `normalBias` | `number` (0..16 텍셀) | `1` |
+| `softness` | `number` (0..8 텍셀) | `1.5` |
+| `darkness` | `number` (0..1) | `1` |
+| `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
 
 ## 강체 물리
 

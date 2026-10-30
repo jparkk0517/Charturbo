@@ -492,6 +492,7 @@ impl VisualizationEngine {
         }
         self.renderer.sync_environment_map(self.scene.shading.env_map);
         self.renderer.sync_lighting(&self.scene.light_uniform(eye));
+        self.renderer.sync_shadows(self.scene.shadow_frame().as_ref());
 
         if let Some(chart) = self.chart.as_mut() {
             // A new chart starts its enter / update animation (no-op once armed)
@@ -577,6 +578,25 @@ impl VisualizationEngine {
 
     pub fn shading(&self) -> crate::scene::ShadingConfig {
         self.scene.shading
+    }
+
+    /// Directional-light shadows (fields are clamped; the map edge also to the device limit).
+    pub fn set_shadows(&mut self, shadows: crate::scene::ShadowConfig) {
+        self.scene.shadows = shadows.clamped_to_device(self.renderer.max_texture_size());
+    }
+
+    pub fn shadows(&self) -> crate::scene::ShadowConfig {
+        self.scene.shadows
+    }
+
+    /// Whether an object casts / receives shadows.
+    pub fn set_object_shadow_flags(&mut self, object_id: u32, cast: bool, receive: bool) -> bool {
+        self.scene.set_object_shadow_flags(object_id, cast, receive)
+    }
+
+    /// `(cast, receive)`, or `None` when the object does not exist.
+    pub fn object_shadow_flags(&self, object_id: u32) -> Option<(bool, bool)> {
+        self.scene.find_object(object_id).map(|o| (o.cast_shadow, o.receive_shadow))
     }
 
     pub fn pick_object_at_ndc(&mut self, ndc_x: f32, ndc_y: f32) -> Option<u32> {
@@ -1622,6 +1642,10 @@ mod tests {
             self.0.borrow_mut().sync_environment_map(texture_id);
         }
 
+        fn sync_shadows(&mut self, shadows: Option<&crate::renderer::ShadowFrame>) {
+            self.0.borrow_mut().sync_shadows(shadows);
+        }
+
         fn texture_count(&self) -> u32 {
             self.0.borrow().texture_count()
         }
@@ -2001,6 +2025,69 @@ mod tests {
         let st = state.borrow();
         assert_eq!(st.texture_creates, vec![(2, 2, true), (1, 1, false), (1, 1, false)]);
         assert_eq!(st.texture_disposes, vec![a]);
+    }
+
+    #[test]
+    fn shadows_are_off_by_default_and_reach_the_backend_when_enabled() {
+        use crate::scene::{BodyType, PrimitiveKind, ShadowBounds, ShadowConfig};
+        let (mut engine, state) = mock_engine(GraphDataset::default_empty());
+        let floor = engine.scene_mut().add_primitive(
+            PrimitiveKind::Plane,
+            Vec3::ZERO,
+            Vec3::new(20.0, 1.0, 20.0),
+            [0.8, 0.8, 0.8, 1.0],
+            BodyType::Static,
+        );
+        let cube = engine.scene_mut().add_primitive(
+            PrimitiveKind::Box,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::ONE,
+            [1.0, 0.2, 0.2, 1.0],
+            BodyType::Static,
+        );
+        engine.sync_and_render();
+        assert_eq!(state.borrow().last_shadows, None, "off by default");
+        assert_eq!(engine.object_shadow_flags(cube), Some((true, true)));
+        let off_instances = state.borrow().synced_instance_count;
+
+        engine.set_shadows(ShadowConfig {
+            enabled: true,
+            map_size: 4096,
+            softness: 50.0,
+            ..ShadowConfig::default()
+        });
+        assert_eq!(engine.shadows().softness, crate::scene::MAX_SHADOW_SOFTNESS);
+        engine.sync_and_render();
+        {
+            let st = state.borrow();
+            let f = st.last_shadows.expect("enabled");
+            // The mock ledger's texture limit clamps the map edge
+            let max = st.textures.max_edge();
+            assert_eq!(f.map_size, if max >= 512 { 4096.min(crate::scene::snap_map_size(max)) } else { 4096 });
+            assert_eq!(st.synced_instance_count, off_instances);
+            assert!(st.synced_draws.iter().all(|d| d.shadow_instances == d.instance_count));
+        }
+
+        assert!(engine.set_object_shadow_flags(cube, false, true));
+        assert_eq!(engine.object_shadow_flags(cube), Some((false, true)));
+        assert!(!engine.set_object_shadow_flags(999, true, true));
+        engine.sync_and_render();
+        let casters: u32 = state.borrow().synced_draws.iter().map(|d| d.shadow_instances).sum();
+        assert_eq!(casters, 1, "only the floor casts");
+
+        engine.set_shadows(ShadowConfig {
+            enabled: true,
+            bounds: ShadowBounds::Sphere { center: Vec3::ZERO, radius: 5.0 },
+            ..ShadowConfig::default()
+        });
+        engine.sync_and_render();
+        let expected = engine.scene().shadows.frame(engine.scene().lighting.dir_light_dir, None);
+        assert_eq!(state.borrow().last_shadows, expected, "user bounds ignore the scene");
+
+        engine.set_shadows(ShadowConfig::default());
+        engine.sync_and_render();
+        assert_eq!(state.borrow().last_shadows, None, "disabled again");
+        let _ = floor;
     }
 
     #[test]

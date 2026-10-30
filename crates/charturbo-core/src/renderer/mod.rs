@@ -331,6 +331,28 @@ pub struct MeshDraw {
     pub translucent: bool,
     /// Base-color texture id (0 = built-in white)
     pub texture: u32,
+    /// Leading instances of this draw that cast shadows (casters sort first; 0 when translucent)
+    pub shadow_instances: u32,
+}
+
+/// Directional-light shadow uniform (96 bytes), shared by the depth pass and the receivers.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable, Default)]
+pub struct ShadowUniformRaw {
+    /// World -> light clip space (orthographic, reversed-Z: depth 1 nearest the light)
+    pub light_view_proj: [[f32; 4]; 4],
+    /// (constant depth bias in depth units, normal offset in world units, PCF radius in
+    /// texels, darkness 0..1)
+    pub params: [f32; 4],
+    /// (1 / map size, map size, max slope factor of the depth bias, 0)
+    pub map: [f32; 4],
+}
+
+/// One frame of enabled shadows: the depth map edge (texels) and its uniform.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShadowFrame {
+    pub map_size: u32,
+    pub uniform: ShadowUniformRaw,
 }
 
 /// 16-byte aligned scene lighting uniform buffer (96 bytes). The classic mesh shader reads the
@@ -583,6 +605,9 @@ pub trait RenderBackend {
     /// PBR equirectangular environment texture (0 = none; unknown / disposed ids fall back to
     /// the hemisphere environment). Sent every frame before `sync_lighting`.
     fn sync_environment_map(&mut self, _texture_id: u32) {}
+    /// Directional-light shadows for this frame (`None` = off: no shadow pass, the shadow map
+    /// is released). Sent every frame after `sync_lighting`.
+    fn sync_shadows(&mut self, _shadows: Option<&ShadowFrame>) {}
     /// Uploads changed chart layers (see `ChartLayers`); unchanged layers are passed as `None`.
     fn sync_chart(&mut self, _layers: &ChartLayers<'_>) {}
     /// Background color the frame is cleared to.
@@ -700,6 +725,8 @@ pub struct MockRenderBackend {
     /// Last `sync_lighting` uniform / `sync_environment_map` id
     pub last_light: Option<SceneLightUniformRaw>,
     pub environment_map: u32,
+    /// Last `sync_shadows` frame (`None` = off)
+    pub last_shadows: Option<ShadowFrame>,
 }
 
 impl RenderBackend for MockRenderBackend {
@@ -759,6 +786,10 @@ impl RenderBackend for MockRenderBackend {
 
     fn sync_environment_map(&mut self, texture_id: u32) {
         self.environment_map = texture_id;
+    }
+
+    fn sync_shadows(&mut self, shadows: Option<&ShadowFrame>) {
+        self.last_shadows = shadows.copied();
     }
 
     fn max_texture_size(&self) -> u32 {
@@ -931,6 +962,7 @@ mod tests {
         assert_eq!(size_of::<MeshVertexRaw>(), 32);
         assert_eq!(size_of::<MeshInstanceRaw>(), 160);
         assert_eq!(size_of::<SceneLightUniformRaw>(), 96);
+        assert_eq!(size_of::<ShadowUniformRaw>(), 96);
     }
 
     #[test]

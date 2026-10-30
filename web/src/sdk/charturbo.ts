@@ -4,6 +4,17 @@ export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, S
 import { createTouchGestures, isGesturePointer, type TouchInteractionOptions } from './chart-gestures';
 import { createCameraControls, resolveCameraControls, type CameraControlOptions } from './camera-controls';
 import { loadGltfModel, disposeGltfModel, type GltfSource, type GltfLoadOptions, type GltfLoadResult } from './scene-gltf';
+import {
+  cloneShadows,
+  defaultShadowsState,
+  resolveShadowFlags,
+  resolveShadows,
+  sendShadows,
+  type ObjectShadowDescriptor,
+  type SceneShadowsBackend,
+  type SceneShadowsDescriptor,
+  type SceneShadowsState,
+} from './scene-shadows';
 export type { CameraControlOptions } from './camera-controls';
 
 export type { TouchInteractionOptions } from './chart-gestures';
@@ -1414,7 +1425,7 @@ export interface ObjectMapDescriptor {
   alphaTest?: number;
 }
 
-export interface ObjectMaterialDescriptor extends ObjectMapDescriptor {
+export interface ObjectMaterialDescriptor extends ObjectMapDescriptor, ObjectShadowDescriptor {
   color?: RgbaTuple;
   metallic?: number;
   roughness?: number;
@@ -1430,7 +1441,7 @@ export interface ObjectPhysicsDescriptor {
   restitution?: number;
 }
 
-export interface PrimitiveObjectDescriptor extends ObjectMapDescriptor {
+export interface PrimitiveObjectDescriptor extends ObjectMapDescriptor, ObjectShadowDescriptor {
   name?: string;
   shape: PrimitiveShape;
   position?: Vec3Tuple;
@@ -1449,7 +1460,7 @@ export interface PrimitiveObjectDescriptor extends ObjectMapDescriptor {
   parentId?: number | null;
 }
 
-export interface CustomMeshObjectDescriptor extends ObjectMapDescriptor {
+export interface CustomMeshObjectDescriptor extends ObjectMapDescriptor, ObjectShadowDescriptor {
   name?: string;
   positions: Float32Array | number[];
   normals?: Float32Array | number[];
@@ -1563,6 +1574,10 @@ export interface SceneObjectRecord {
   mapOffset: Vec2Tuple;
   /** Effective alpha cutoff (0.5 by default with a map, else 0) */
   alphaTest: number;
+  /** Drawn into the shadow map (translucent objects never cast) */
+  castShadow: boolean;
+  /** Darkened by other objects' shadows */
+  receiveShadow: boolean;
 }
 
 /** A texture an exported scene references (`exportScene`); `src` is null for data / canvas textures. */
@@ -1579,6 +1594,8 @@ export interface SceneDescriptor {
   lighting?: SceneLightingDescriptor;
   /** Mesh shading model, tone mapping and environment (`environment.map` is a `textures` id) */
   shading?: SceneShadingDescriptor;
+  /** Directional-light shadows (`setShadows`) */
+  shadows?: SceneShadowsDescriptor;
   helpers?: SceneHelpersDescriptor;
   rigidPhysics?: {
     enabled: boolean;
@@ -1591,7 +1608,7 @@ export interface SceneDescriptor {
   >;
 }
 
-export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBackend, RenderStatsBackend {
+export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend {
   /** SVG of the last frame (chart/svg.rs; header comment + markup) */
   chart_export_svg?(maxMarks: number, id: string): string;
   reload_dataset(seed: number, nodeCount: number, edgeCount: number, clusterCount: number): void;
@@ -3044,6 +3061,7 @@ export class Charturbo {
     pointIntensity: 0.65,
   };
   private shadingState: SceneShadingState = defaultShadingState();
+  private shadowsState: SceneShadowsState = defaultShadowsState();
   private helpersState: Required<SceneHelpersDescriptor> = {
     showGrid: false,
     gridSize: 200,
@@ -5725,6 +5743,9 @@ export class Charturbo {
   }
 
   addPrimitive(desc: PrimitiveObjectDescriptor): number {
+    const FN = 'addPrimitive';
+    // Validated before the engine object exists so a bad flag leaves nothing behind
+    const shadowFlags = resolveShadowFlags(FN, { castShadow: true, receiveShadow: true }, desc);
     const pos: Vec3Tuple = desc.position ? [...desc.position] : [0, 0, 0];
     const rot: Vec3Tuple = desc.rotation ? [...desc.rotation] : [0, 0, 0];
     const scale: Vec3Tuple = desc.scale ? [...desc.scale] : [10, 10, 10];
@@ -5766,6 +5787,7 @@ export class Charturbo {
       restitution: desc.restitution ?? 0.55,
       parentId: desc.parentId ?? null,
       ...resolveObjectMap(desc),
+      ...shadowFlags,
     };
 
     this.objectRecords.set(id, record);
@@ -5795,6 +5817,8 @@ export class Charturbo {
   }
 
   addCustomMesh(desc: CustomMeshObjectDescriptor): number {
+    const FN = 'addCustomMesh';
+    const shadowFlags = resolveShadowFlags(FN, { castShadow: true, receiveShadow: true }, desc);
     const posArr =
       desc.positions instanceof Float32Array ? desc.positions : new Float32Array(desc.positions);
     const normArr = desc.normals
@@ -5859,6 +5883,7 @@ export class Charturbo {
       restitution: desc.restitution ?? 0.6,
       parentId: desc.parentId ?? null,
       ...resolveObjectMap(desc),
+      ...shadowFlags,
     };
 
     this.objectRecords.set(id, record);
@@ -5890,6 +5915,7 @@ export class Charturbo {
       record.emissive
     );
     if (hasObjectMap(record)) this.sendObjectMap(record);
+    if (!record.castShadow || !record.receiveShadow) this.sendShadowFlags(record);
     this.backend.set_object_physics?.(
       record.id,
       encodeBodyType(record.bodyType),
@@ -5965,6 +5991,9 @@ export class Charturbo {
   setObjectMaterial(objectId: number, mat: ObjectMaterialDescriptor): boolean {
     const rec = this.objectRecords.get(objectId);
     if (!rec) return false;
+    // Validated before any field changes so a bad flag leaves the record untouched
+    const shadowChanged = mat.castShadow !== undefined || mat.receiveShadow !== undefined;
+    const shadowFlags = shadowChanged ? resolveShadowFlags('setObjectMaterial', rec, mat) : null;
     if (mat.color) rec.color = [...mat.color];
     if (mat.metallic !== undefined) rec.metallic = mat.metallic;
     if (mat.roughness !== undefined) rec.roughness = mat.roughness;
@@ -5983,6 +6012,7 @@ export class Charturbo {
     if (mat.mapRepeat) rec.mapRepeat = [mat.mapRepeat[0], mat.mapRepeat[1]];
     if (mat.mapOffset) rec.mapOffset = [mat.mapOffset[0], mat.mapOffset[1]];
     if (mat.alphaTest !== undefined) rec.alphaTest = mat.alphaTest;
+    if (shadowFlags) Object.assign(rec, shadowFlags);
 
     const ok =
       this.backend.set_object_material?.(
@@ -5995,7 +6025,13 @@ export class Charturbo {
         rec.roughness,
         rec.emissive
       ) ?? true;
-    return mapChanged ? this.sendObjectMap(rec) && ok : ok;
+    const shadowOk = shadowChanged ? this.sendShadowFlags(rec) : true;
+    return (mapChanged ? this.sendObjectMap(rec) && ok : ok) && shadowOk;
+  }
+
+  /** Pushes a record's cast / receive shadow flags to the engine. */
+  private sendShadowFlags(rec: SceneObjectRecord): boolean {
+    return this.backend.set_object_shadow_flags?.(rec.id, rec.castShadow, rec.receiveShadow) ?? true;
   }
 
   /** Pushes a record's texture, UV transform and alpha cutoff to the engine. */
@@ -7706,6 +7742,23 @@ export class Charturbo {
     return cloneShading(this.shadingState);
   }
 
+  /**
+   * Directional-light shadow mapping for the scene meshes (off by default; chart 3D marks never
+   * cast or receive). The `setLighting` directional light casts; the shadow darkens that light
+   * only (ambient, point light and environment are unchanged) in both shading models. Objects
+   * opt out with `castShadow` / `receiveShadow`; translucent objects do not cast and alpha-tested
+   * textures cut holes into their shadows. `mapSize` is clamped to the device limit (see
+   * `getShadows`). Omitted fields keep their current value; throws on invalid values.
+   */
+  setShadows(options: SceneShadowsDescriptor): void {
+    const next = resolveShadows('setShadows', this.shadowsState, options);
+    this.shadowsState = sendShadows(this.backend, next);
+  }
+
+  getShadows(): SceneShadowsState {
+    return cloneShadows(this.shadowsState);
+  }
+
   private sendShading(): void {
     const s = this.shadingState;
     const e = s.environment;
@@ -7799,6 +7852,9 @@ export class Charturbo {
       }
       this.setShading(shading);
     }
+    if (descriptor.shadows) {
+      this.setShadows(descriptor.shadows);
+    }
     if (descriptor.helpers) {
       this.setHelpers(descriptor.helpers);
     }
@@ -7877,6 +7933,8 @@ export class Charturbo {
       mapRepeat: [...rec.mapRepeat] as Vec2Tuple,
       mapOffset: [...rec.mapOffset] as Vec2Tuple,
       alphaTest: rec.alphaTest,
+      castShadow: rec.castShadow,
+      receiveShadow: rec.receiveShadow,
     };
   }
 
@@ -7945,6 +8003,7 @@ export class Charturbo {
       ...(textures.length ? { textures } : {}),
       lighting: this.getLighting(),
       shading: this.getShading(),
+      shadows: this.getShadows(),
       helpers: this.getHelpers(),
       rigidPhysics: this.getRigidPhysics(),
       graphVisible: this.graphVisibleState,

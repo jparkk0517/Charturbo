@@ -67,6 +67,7 @@ Primitives are unit shapes, so `scale` is the object's size in world units.
 | `restitution` | `number` | `0.55` | Bounciness |
 | `parentId` | `number \| null` | `null` | Parent object for hierarchical transforms |
 | `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | Texture mapping, see [Textures](#textures) |
+| `castShadow` / `receiveShadow` | `boolean` | `true` | Shadow participation, see [Shadows](#shadows) |
 
 ### Custom meshes (`CustomMeshObjectDescriptor`)
 
@@ -92,6 +93,7 @@ const torus = sdk.addCustomMesh({
 | `metallic` / `roughness` | `number` | `0.35` / `0.3` | Material |
 | `mass` / `restitution` | `number` | `2.0` / `0.6` | Physics |
 | `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | Texture mapping, see [Textures](#textures) |
+| `castShadow` / `receiveShadow` | `boolean` | `true` | Shadow participation, see [Shadows](#shadows) |
 
 The other fields (`name` default `'MESH_<id>'`, `position`, `rotation`, `emissive`, `bodyType`, `velocity`, `angularVelocity`, `parentId`) work as for primitives. `Charturbo.createTorusMesh(majorRadius = 8, minorRadius = 2.6, radialSegments = 18, tubularSegments = 32)` generates a test mesh.
 
@@ -237,6 +239,34 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+
+## Shadows
+
+`setShadows({ enabled: true })` turns on shadow mapping from the `setLighting` directional light (off by default; charts, scientific 3D and the 3D graph never cast or receive):
+
+```ts
+sdk.setLighting({ directionalDirection: [0.6, 1, 0.3] }); // points toward the light
+sdk.setShadows({ enabled: true, mapSize: 2048, softness: 1.5 });
+sdk.addSphere({ position: [0, 30, 0], castShadow: false }); // no shadow
+sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // never darkened
+```
+
+- One depth-only pass from the directional light renders every visible opaque object with `castShadow` into a `Depth32Float` map before the main pass; the light's orthographic camera fits the casters and receivers (`bounds: 'auto'`, snapped to whole texels so the shadows do not shimmer when the camera moves) or a fixed sphere `bounds: { center, radius }`. A large auto-fit scene spreads the map over a larger area, so use fixed bounds around the interesting part of a big scene.
+- Shadows attenuate only the directional light (ambient, point light, emissive and the PBR environment stay), in both the classic and PBR models, scaled by `darkness`.
+- Edges are filtered with hardware-compared PCF over a 4 × 4 grid spanning `softness` texels (`softness: 0` = one hard tap). `bias` (constant, grows with the surface slope) and `normalBias` (receiver offset along its normal) are in shadow-map texels; raise them if you see shadow acne, lower them if shadows detach from their casters.
+- Translucent objects (`color` alpha below 1) do not cast; alpha-tested textures (`alphaTest`) cut matching holes into the shadow. `castShadow` / `receiveShadow` default to `true` on primitives, custom meshes and glTF objects and can be changed later with `setObjectMaterial`.
+- `setShadows` merges into the current settings and throws `setShadows: ...` for invalid values; `getShadows()` returns a copy with `mapSize` clamped to the device's texture limit. `exportScene()` stores the settings in `shadows` and the per-object flags, and `loadScene` restores them.
+- The map is allocated when shadows are enabled (2048² = 16 MiB, counted in `getRenderStats().gpuBytes`), recreated when `mapSize` changes and released on disable. Shadows cost one extra depth pass over the casting objects per frame. Both WebGPU and WebGL2 are supported.
+
+| Shadow option | Type | Default |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `mapSize` | `512 \| 1024 \| 2048 \| 4096` | `2048` |
+| `bias` | `number` (0..16 texels) | `0.5` |
+| `normalBias` | `number` (0..16 texels) | `1` |
+| `softness` | `number` (0..8 texels) | `1.5` |
+| `darkness` | `number` (0..1) | `1` |
+| `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
 
 ## Rigid-body physics
 

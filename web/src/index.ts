@@ -150,6 +150,14 @@ export {
   GLTF_MAX_VERTICES,
   GLTF_MAX_INDICES,
 } from './sdk/scene-gltf';
+export {
+  type SceneShadowMapSize,
+  type SceneShadowBounds,
+  type SceneShadowsDescriptor,
+  type SceneShadowsState,
+  type ObjectShadowDescriptor,
+  type SceneShadowsBackend,
+} from './sdk/scene-shadows';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';
