@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — glTF 모델
+
+- `loadGltf(source, { position, rotation, scale, scene, baseUrl, signal })`: glTF 2.0 모델(`.gltf` / `.glb`, URL 문자열 · `URL` · `ArrayBuffer` · `Uint8Array` · `Blob`)을 사용자 정의 메시 객체로 불러와 `{ objects, textures, nodes, bounds }`를 반환합니다. `disposeGltf(result)`는 만든 객체와 텍스처를 모두 제거합니다. TS 전용(`sdk/scene-gltf.ts`)이며 엔진은 바뀌지 않았습니다.
+- 외부 · `data:` URI 버퍼와 이미지, 모든 접근자 타입(인터리브 · 정규화 · 희소 · 버퍼 뷰 없음), 삼각형 스트립 · 팬 변환(점 · 선은 경고 후 건너뜀). 노드 계층은 꼭짓점에 구워 넣고(법선은 역전치, 거울상은 감기 순서 반전), 법선이 없으면 부드러운 법선을 계산합니다. `scale`은 꼭짓점에, `position` / `rotation`은 객체 변환에 적용됩니다.
+- 재질: 기본색(선형 → 감마), 금속성 · 거칠기, 발광(최대 성분 스칼라), `MASK` / `BLEND`, `KHR_texture_transform`(offset · scale), 공유 이미지는 한 번만 디코딩. `KHR_mesh_quantization` · `KHR_materials_emissive_strength` 지원. 샘플러, 기타 텍스처, 스킨 · 모프 · 애니메이션 · 카메라는 무시하고(대부분 경고), 지원하지 않는 필수 확장은 `loadGltf: extension X is required but not supported`를 던집니다. 한 번에 꼭짓점 `GLTF_MAX_VERTICES` · 인덱스 `GLTF_MAX_INDICES`까지. 실패나 중단(`AbortError`) 시 만든 객체와 텍스처를 정리합니다.
+- 예제 `scene/04-gltf`, fixture `scene-gltf`, 문서 `charts/scene-3d`의 「glTF 모델」 절.
+
 ### 추가 — 3D 텍스처
 
 - 3D 장면 객체에 텍스처를 입힙니다. `loadTexture(source, { mipmaps, signal })`(URL 문자열 · `URL` · `Blob` · `ImageBitmap` · 이미지 · 캔버스 · `OffscreenCanvas` · `ImageData`; 스트레이트 알파로 디코딩하고 `maxTextureSize`보다 크면 비율을 유지해 축소, `signal`로 중단하면 `AbortError`, 오염된 이미지는 `loadTexture: cross-origin image`), `createDataTexture(width, height, rgba)`, `disposeTexture(id)`, `getTextures()`, `maxTextureSize`.

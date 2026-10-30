@@ -135,6 +135,37 @@ sdk.disposeTexture(wood);
 - **오류.** 오염된 이미지(CORS 없는 교차 출처)는 `loadTexture: cross-origin image`로, 중단된 `signal`은 `AbortError`로 거부되며, 텍스처 지원 없이 빌드된 엔진은 `... engine has no texture support`를 던집니다.
 - GPU 장치 손실은 복구하지 않습니다. 페이지를 다시 불러오거나 SDK와 텍스처를 다시 만드세요. 선택, 물리, SVG 내보내기, 차트는 텍스처의 영향을 받지 않습니다.
 
+### glTF 모델
+
+```ts
+const house = await sdk.loadGltf('/models/house.glb', { rotation: [0, Math.PI / 4, 0], scale: 10 });
+console.log(house.objects, house.bounds);   // 객체 ID, 월드 공간 경계
+sdk.disposeGltf(house);                      // 객체와 텍스처 제거
+```
+
+| 메서드 | 반환 | 설명 |
+| --- | --- | --- |
+| `loadGltf(source, options?)` | `Promise<GltfLoadResult>` | glTF 2.0 모델(`.gltf` 또는 `.glb`)을 불러옵니다. `source`는 URL 문자열, `URL`, `ArrayBuffer`, `Uint8Array`, `Blob` |
+| `disposeGltf(result)` | | 불러오면서 만든 객체와 텍스처를 모두 제거합니다 |
+
+| 옵션 | 타입 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `position` | `[x, y, z]` | `[0, 0, 0]` | 만든 메시 전체의 객체 위치. 모델 원점이 이 위치에 놓입니다 |
+| `rotation` | `[rx, ry, rz]` | `[0, 0, 0]` | 객체 회전(라디안 오일러 각, 기본 도형과 같음) |
+| `scale` | `number \| [x, y, z]` | `1` | 꼭짓점에 구워 넣습니다(glTF 단위는 미터) |
+| `scene` | `number` | 파일의 `scene`, 없으면 `0` | 장면 인덱스 |
+| `baseUrl` | `string` | 소스 URL, 없으면 페이지 URL | 상대 버퍼 · 이미지 URI의 기준 |
+| `signal` | `AbortSignal` | | 가져오기와 디코딩을 중단합니다. 프로미스는 `AbortError`로 거부됩니다 |
+
+결과는 `{ objects, textures, nodes, bounds }`입니다. `nodes`는 장면의 노드를 깊이 우선 순서의 `{ index, name, objectIds }`로 나열하고, `bounds`는 월드 공간의 `{ min, max }`입니다. 메시 프리미티브 하나가 사용자 메시 객체 하나가 되며, 이름은 노드(또는 메시) 이름이고 메시에 프리미티브가 여럿이면 `#<n>`이 붙습니다.
+
+- **지원.** 외부 또는 `data:` 버퍼 · 이미지를 쓰는 `.gltf`, 바이너리 청크가 있는 `.glb`. 인터리브(`byteStride`), 정규화, 희소(sparse), 버퍼 뷰 없는 접근자를 포함한 모든 접근자 타입. 삼각형, 삼각형 스트립 · 팬(점과 선은 경고 후 건너뜀). 노드 계층(TRS 또는 `matrix`)은 꼭짓점에 구워 넣으며, 법선은 역전치 행렬로 변환하고 거울상 노드는 감기 순서를 뒤집습니다. 법선이 없으면 부드러운 법선을 계산합니다. 확장 `KHR_texture_transform`, `KHR_mesh_quantization`, `KHR_materials_emissive_strength`.
+- **재질.** `baseColorFactor`는 선형에서 렌더러의 감마 공간으로 변환합니다. `baseColorTexture`는 `map`이 되고(`TEXCOORD_0`만, `KHR_texture_transform`의 offset과 scale은 `mapOffset` / `mapRepeat`), `metallicFactor`와 `roughnessFactor`는 glTF처럼 기본 1입니다. 엔진의 발광은 기본색에 곱하는 스칼라이므로 `emissive`는 `emissiveFactor`의 가장 큰 성분(× 발광 강도)입니다. `alphaMode: 'MASK'`는 `alphaTest`를 `alphaCutoff`(기본 0.5)로, `'BLEND'`는 색상 알파를 유지하고, `'OPAQUE'`는 색상 알파를 1로 고정합니다. 여러 재질이 쓰는 이미지는 한 번만 디코딩합니다.
+- **무시.** 샘플러(텍스처는 항상 반복 · 선형 필터링). 경고와 함께 무시: 법선 · 차폐 · 금속성-거칠기 · 발광 텍스처, 텍스처 변환 회전, `TEXCOORD_1` 이상의 기본색 텍스처, 스킨(바인드 포즈로 그림), 모프 타깃, 애니메이션, 카메라, 그 밖의 확장. `extensionsRequired`에 지원하지 않는 확장이 있으면 `loadGltf: extension X is required but not supported`로 거부합니다.
+- **한도.** 한 번에 불러오는 모델은 꼭짓점 `GLTF_MAX_VERTICES`(8,388,608)개, 인덱스 `GLTF_MAX_INDICES`(67,108,864)개까지입니다. 모든 객체가 지오메트리 버퍼 하나를 공유하므로 큰 모델 여러 개는 GPU 버퍼 한도를 넘을 수 있습니다. 텍스처는 위의 텍스처 한도를 따릅니다.
+- **오류.** 오류 메시지는 `loadGltf:`로 시작합니다. 중단을 포함해 실패하면 그때까지 만든 객체와 텍스처를 제거합니다.
+- 한 모델의 객체는 모두 모델 원점을 피벗으로 쓰므로, `result.objects`의 각 객체에 같은 `position` / `rotation`으로 `setObjectTransform`을 적용하면 모델 전체가 움직입니다.
+
 ### 객체 편집
 
 | 메서드 | 반환 | 설명 |

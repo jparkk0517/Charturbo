@@ -3,6 +3,7 @@ import { encodePointCloud3D, encodeSurface3D, prepareCloudAppend, prepareSurface
 export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, Surface3DGridData, Surface3DSeries, Surface3DUpdate, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions, Scientific3DAxisOptions, Scientific3DCameraOptions } from './chart-scientific3d';
 import { createTouchGestures, isGesturePointer, type TouchInteractionOptions } from './chart-gestures';
 import { createCameraControls, resolveCameraControls, type CameraControlOptions } from './camera-controls';
+import { loadGltfModel, disposeGltfModel, type GltfSource, type GltfLoadOptions, type GltfLoadResult } from './scene-gltf';
 export type { CameraControlOptions } from './camera-controls';
 
 export type { TouchInteractionOptions } from './chart-gestures';
@@ -5926,6 +5927,25 @@ export class Charturbo {
   removeObject(objectId: number): boolean {
     this.objectRecords.delete(objectId);
     return this.backend.remove_object?.(objectId) ?? true;
+  }
+
+  /**
+   * Loads a glTF 2.0 model (`.gltf` with external or `data:` buffers / images, or `.glb`) as custom
+   * meshes, one object per triangle primitive with the node hierarchy baked into the vertices.
+   * `position` / `rotation` become the objects' transform, `scale` is baked in. Base color factor
+   * and texture, metallic / roughness factors, emissive and alpha modes map onto the scene material;
+   * unsupported features are skipped with one `console.warn` per kind. Rejects with an `AbortError`
+   * when `signal` fires and with `loadGltf: ...` errors otherwise; objects and textures created
+   * before a failure are removed. Free the model with `disposeGltf(result)`.
+   */
+  async loadGltf(source: GltfSource, options: GltfLoadOptions = {}): Promise<GltfLoadResult> {
+    if (this.disposed) throw new Error('loadGltf: Charturbo is disposed');
+    return loadGltfModel(this, source, options);
+  }
+
+  /** Removes the objects and textures a `loadGltf` call created. */
+  disposeGltf(result: GltfLoadResult): void {
+    disposeGltfModel(this, result);
   }
 
   // ---------------------------------------------------------------------------

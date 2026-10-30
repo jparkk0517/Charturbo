@@ -1782,7 +1782,170 @@ export const FIXTURES: Fixture[] = [
         for (const el of ctx.card.querySelectorAll<HTMLElement>('.charturbo-sdk-loading-spinner')) el.style.animation = 'none';
       }),
   },
+  {
+    // In-memory GLB (bufferView PNG texture, node hierarchy, generated normals, mirrored node):
+    // the brick texture's blue window sits top-left of every wall and the door at the bottom
+    name: 'scene-gltf',
+    theme: 'dark',
+    render: async (ctx) => {
+      const canvas = makeCanvas(ctx.card, FIXTURE_WIDTH, FIXTURE_HEIGHT);
+      const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
+      sdk.setTheme(ctx.theme);
+      sdk.setGraphVisible(false);
+      sdk.setRigidPhysics(false);
+      const glb = await houseGlb();
+      sdk.addPlane({ position: [0, -1, 0], scale: [160, 2, 110], color: [0.3, 0.42, 0.3, 1], roughness: 0.95 });
+      await sdk.loadGltf(glb, { position: [-28, 0, 0], rotation: [0, 0.5, 0], scale: 16 });
+      await sdk.loadGltf(glb, { position: [32, 0, -6], rotation: [0, -0.7, 0], scale: [12, 16, 12] });
+      sdk.setLighting({
+        ambientIntensity: 0.35,
+        directionalDirection: [-0.4, -1, -0.3],
+        directionalIntensity: 0.9,
+        pointPosition: [30, 40, 40],
+        pointIntensity: 0.6,
+      });
+      sdk.setCameraPose([0, 45, 105], [0, 14, 0]);
+      sdk.render();
+      return { backend: detectBackend(canvas) };
+    },
+  },
 ];
+
+/**
+ * A low-poly house as GLB bytes: textured walls (PNG drawn with integer rects, so pixel exact),
+ * a roof without normals and a mirrored chimney, under a rotated root node.
+ */
+async function houseGlb(): Promise<ArrayBuffer> {
+  const tex = document.createElement('canvas');
+  tex.width = tex.height = 64;
+  const g = tex.getContext('2d')!;
+  g.fillStyle = '#d8c7a3';
+  g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#a4553a';
+  for (let row = 0; row < 16; row++) for (let col = -1; col < 8; col++) g.fillRect(col * 8 + (row % 2) * 4 + 1, row * 4 + 1, 6, 2);
+  g.fillStyle = '#3a6ea5';
+  g.fillRect(8, 10, 16, 14);
+  g.fillStyle = '#5a3a22';
+  g.fillRect(38, 34, 14, 30);
+  const png = await new Promise<Blob>((resolve, reject) => tex.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'));
+
+  const views: { byteOffset: number; byteLength: number; buffer: 0 }[] = [];
+  const accessors: Record<string, unknown>[] = [];
+  const parts: Uint8Array[] = [];
+  let length = 0;
+  const view = (bytes: Uint8Array) => {
+    const pad = (4 - (length % 4)) % 4;
+    if (pad) parts.push(new Uint8Array(pad));
+    length += pad;
+    views.push({ buffer: 0, byteOffset: length, byteLength: bytes.byteLength });
+    parts.push(bytes);
+    length += bytes.byteLength;
+    return views.length - 1;
+  };
+  const accessor = (data: Float32Array | Uint16Array, type: string) => {
+    const size = { SCALAR: 1, VEC2: 2, VEC3: 3 }[type]!;
+    accessors.push({ bufferView: view(new Uint8Array(data.buffer)), componentType: data instanceof Uint16Array ? 5123 : 5126, count: data.length / size, type });
+    return accessors.length - 1;
+  };
+  /** Quads from top-left corner, right and down edges (v = 0 at the top). */
+  const shape = (quads: number[][][], tris: number[][][], withNormals: boolean) => {
+    const pos: number[] = [];
+    const nrm: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
+    for (const [tl, r, d] of quads) {
+      const n = [d[1] * r[2] - d[2] * r[1], d[2] * r[0] - d[0] * r[2], d[0] * r[1] - d[1] * r[0]];
+      const len = Math.hypot(n[0], n[1], n[2]);
+      const b = pos.length / 3;
+      for (const [u, v] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        pos.push(tl[0] + u * r[0] + v * d[0], tl[1] + u * r[1] + v * d[1], tl[2] + u * r[2] + v * d[2]);
+        nrm.push(n[0] / len, n[1] / len, n[2] / len);
+        uv.push(u, v);
+      }
+      idx.push(b, b + 2, b + 3, b, b + 3, b + 1);
+    }
+    for (const tri of tris) {
+      const b = pos.length / 3;
+      for (const p of tri) pos.push(...p);
+      idx.push(b, b + 1, b + 2);
+    }
+    const attributes: Record<string, number> = { POSITION: accessor(new Float32Array(pos), 'VEC3') };
+    if (withNormals) {
+      attributes.NORMAL = accessor(new Float32Array(nrm), 'VEC3');
+      attributes.TEXCOORD_0 = accessor(new Float32Array(uv), 'VEC2');
+    }
+    return { attributes, indices: accessor(new Uint16Array(idx), 'SCALAR') };
+  };
+  const box = (hx: number, hy: number, hz: number) => [
+    [[-hx, hy, hz], [2 * hx, 0, 0], [0, -2 * hy, 0]],
+    [[hx, hy, -hz], [-2 * hx, 0, 0], [0, -2 * hy, 0]],
+    [[hx, hy, hz], [0, 0, -2 * hz], [0, -2 * hy, 0]],
+    [[-hx, hy, -hz], [0, 0, 2 * hz], [0, -2 * hy, 0]],
+    [[-hx, hy, -hz], [2 * hx, 0, 0], [0, 0, 2 * hz]],
+  ];
+  const walls = shape(box(1, 0.75, 0.9), [], true);
+  const [rx, rh, rz] = [1.15, 0.8, 1.05];
+  const roof = shape(
+    [
+      [[-rx, rh, 0], [2 * rx, 0, 0], [0, -rh, rz]],
+      [[rx, rh, 0], [-2 * rx, 0, 0], [0, -rh, -rz]],
+    ],
+    [
+      [[rx * 0.87, rh, 0], [rx * 0.87, 0, rz], [rx * 0.87, 0, -rz]],
+      [[-rx * 0.87, rh, 0], [-rx * 0.87, 0, -rz], [-rx * 0.87, 0, rz]],
+    ],
+    false
+  );
+  const chimney = shape(box(0.12, 0.3, 0.12), [], true);
+  const imageView = view(new Uint8Array(await png.arrayBuffer()));
+  const s = Math.sin(0.15);
+  const json = {
+    asset: { version: '2.0', generator: 'charturbo e2e fixture' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: 'house', rotation: [0, s, 0, Math.cos(0.15)], children: [1, 2, 3], translation: [0, 0.75, 0] },
+      { name: 'walls', mesh: 0 },
+      { name: 'roof', mesh: 1, translation: [0, 0.75, 0] },
+      { name: 'chimney', mesh: 2, translation: [-0.55, 1.35, -0.3], scale: [-1, 1, 1] },
+    ],
+    meshes: [
+      { primitives: [{ ...walls, material: 0 }] },
+      { primitives: [{ ...roof, material: 1 }] },
+      { primitives: [{ ...chimney, material: 2 }] },
+    ],
+    materials: [
+      { pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 0.85 } },
+      { pbrMetallicRoughness: { baseColorFactor: [0.45, 0.06, 0.04, 1], metallicFactor: 0, roughnessFactor: 0.7 } },
+      { pbrMetallicRoughness: { baseColorFactor: [0.1, 0.1, 0.12, 1], metallicFactor: 0, roughnessFactor: 0.9 } },
+    ],
+    textures: [{ source: 0 }],
+    images: [{ bufferView: imageView, mimeType: 'image/png' }],
+    accessors,
+    bufferViews: views,
+    buffers: [{ byteLength: length }],
+  };
+  const text = new TextEncoder().encode(JSON.stringify(json));
+  const jsonLen = Math.ceil(text.byteLength / 4) * 4;
+  const binLen = Math.ceil(length / 4) * 4;
+  const out = new Uint8Array(12 + 8 + jsonLen + 8 + binLen);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, 0x46546c67, true);
+  dv.setUint32(4, 2, true);
+  dv.setUint32(8, out.byteLength, true);
+  dv.setUint32(12, jsonLen, true);
+  dv.setUint32(16, 0x4e4f534a, true);
+  out.fill(0x20, 20, 20 + jsonLen);
+  out.set(text, 20);
+  dv.setUint32(20 + jsonLen, binLen, true);
+  dv.setUint32(24 + jsonLen, 0x004e4942, true);
+  let o = 28 + jsonLen;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.byteLength;
+  }
+  return out.buffer;
+}
 
 function scatterData(): { x: Float32Array; y: Float32Array; clusters: Uint16Array } {
   const rand = mulberry32(81);

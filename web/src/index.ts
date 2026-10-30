@@ -136,6 +136,14 @@ export {
   type Vec2Tuple,
   type WasmCharturboEngineBackend,
 } from './sdk/charturbo';
+export {
+  type GltfSource,
+  type GltfLoadOptions,
+  type GltfLoadResult,
+  type GltfNodeResult,
+  GLTF_MAX_VERTICES,
+  GLTF_MAX_INDICES,
+} from './sdk/scene-gltf';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';

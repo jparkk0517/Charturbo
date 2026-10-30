@@ -135,6 +135,37 @@ The mapping fields work on `addBox` / `addSphere` / `addCylinder` / `addPlane` /
 - **Errors.** Tainted images (cross-origin without CORS) reject with `loadTexture: cross-origin image`, an aborted `signal` rejects with an `AbortError`, and an engine built without texture support throws `... engine has no texture support`.
 - A lost GPU device is not recovered: reload the page or recreate the SDK and its textures. Picking, physics, the SVG export and charts are unaffected by textures.
 
+### glTF models
+
+```ts
+const house = await sdk.loadGltf('/models/house.glb', { rotation: [0, Math.PI / 4, 0], scale: 10 });
+console.log(house.objects, house.bounds);   // object IDs, world-space bounds
+sdk.disposeGltf(house);                      // removes its objects and textures
+```
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `loadGltf(source, options?)` | `Promise<GltfLoadResult>` | Load a glTF 2.0 model (`.gltf` or `.glb`). `source` is a URL string, `URL`, `ArrayBuffer`, `Uint8Array` or `Blob` |
+| `disposeGltf(result)` | | Remove every object and texture the load created |
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `position` | `[x, y, z]` | `[0, 0, 0]` | Object position of every created mesh; the model origin lands here |
+| `rotation` | `[rx, ry, rz]` | `[0, 0, 0]` | Object rotation (Euler radians, as for primitives) |
+| `scale` | `number \| [x, y, z]` | `1` | Baked into the vertices (glTF units are meters) |
+| `scene` | `number` | the file's `scene`, else `0` | Scene index |
+| `baseUrl` | `string` | the source URL, else the page URL | Base for relative buffer and image URIs |
+| `signal` | `AbortSignal` | | Aborts fetches and decoding; the promise rejects with an `AbortError` |
+
+The result is `{ objects, textures, nodes, bounds }`: `nodes` lists the scene's nodes depth first as `{ index, name, objectIds }`, and `bounds` is `{ min, max }` in world space. Each mesh primitive becomes one custom mesh object named after its node (or mesh), with `#<n>` appended when the mesh has several primitives.
+
+- **Supported.** `.gltf` with external or `data:` buffers and images, `.glb` with its binary chunk; every accessor type, including interleaved (`byteStride`), normalized, sparse and accessors without a buffer view; triangles, triangle strips and fans (points and lines are skipped with a warning). The node hierarchy (TRS or `matrix`) is baked into the vertices, with normals transformed by the inverse transpose and the winding flipped for mirrored nodes; missing normals are computed smooth. Extensions `KHR_texture_transform`, `KHR_mesh_quantization` and `KHR_materials_emissive_strength`.
+- **Materials.** `baseColorFactor` is converted from linear to the renderer's gamma space; `baseColorTexture` becomes `map` (`TEXCOORD_0` only; `KHR_texture_transform` offset and scale become `mapOffset` / `mapRepeat`); `metallicFactor` and `roughnessFactor` default to 1 as in glTF; `emissive` is the largest `emissiveFactor` component (times the emissive strength), since the engine's emission is a scalar on the base color. `alphaMode: 'MASK'` sets `alphaTest` to `alphaCutoff` (default 0.5), `'BLEND'` keeps the color alpha and `'OPAQUE'` forces color alpha 1. Images used by several materials are decoded once.
+- **Ignored.** Samplers (textures always repeat with linear filtering). With a warning: normal, occlusion, metallic-roughness and emissive textures, texture transform rotation, base color textures on `TEXCOORD_1` or higher, skins (meshes render in their bind pose), morph targets, animations, cameras and other extensions. A model that lists an unsupported extension in `extensionsRequired` is rejected with `loadGltf: extension X is required but not supported`.
+- **Limits.** One load creates at most `GLTF_MAX_VERTICES` (8,388,608) vertices and `GLTF_MAX_INDICES` (67,108,864) indices. All objects share one geometry buffer, so several large models can still exceed the GPU's buffer limit. Textures follow the texture limits above.
+- **Errors.** Error messages start with `loadGltf:`. On any failure, including an abort, the objects and textures created so far are removed.
+- All objects of one model use the model origin as pivot, so applying the same `position` / `rotation` with `setObjectTransform` to each of `result.objects` moves the model as a whole.
+
 ### Editing objects
 
 | Method | Returns | Description |

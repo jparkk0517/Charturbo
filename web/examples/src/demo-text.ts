@@ -361,6 +361,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '텍스처 · UV 매핑 · 알파 컷아웃', description: 'createDataTexture로 만든 체크무늬가 바닥에 타일링되고(mapRepeat), 런타임에 그린 캔버스 텍스처가 상자 · 구 · 사용자 정의 토러스(uvs는 createTorusMesh가 함께 제공)를 감쌉니다. alphaTest를 쓴 컷아웃 벽은 구멍 너머로 배경이 보입니다. 버튼으로 타일링을 바꾸거나 바닥에 색조를 입힐 수 있습니다.' },
     zh: { title: '纹理 · UV 映射 · Alpha 镂空', description: 'createDataTexture 生成的棋盘格平铺在地面上（mapRepeat），运行时绘制的画布纹理包裹盒体、球体和自定义圆环（uvs 由 createTorusMesh 一并提供），使用 alphaTest 的镂空墙可透过孔洞看到背景。可用按钮切换平铺或为地面着色。' },
   },
+  'scene/04-gltf': {
+    ko: { title: 'glTF 모델 · loadGltf', description: '메모리에서 GLB 파일(바이너리 청크, 내장 PNG 텍스처, 노드 계층, 지붕의 KHR_texture_transform 타일링)로 만든 로우폴리 오두막과 나무를 loadGltf로 위치 · 회전 · 크기를 달리해 세 번 불러옵니다. disposeGltf는 모델을 텍스처와 함께 제거합니다. 버튼으로 모델을 다시 불러오거나 턴테이블을 멈출 수 있습니다.' },
+    zh: { title: 'glTF 模型 · loadGltf', description: '在内存中构建为 GLB 文件（二进制块、内嵌 PNG 纹理、节点层级、屋顶的 KHR_texture_transform 平铺）的低多边形小屋和树，通过 loadGltf 以不同的位置 / 旋转 / 缩放加载三次。disposeGltf 会连同纹理一起移除模型；可用按钮重新加载模型或停止转台。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

@@ -135,6 +135,37 @@ sdk.disposeTexture(wood);
 - **错误。** 被污染的图片（无 CORS 的跨源图片）会以 `loadTexture: cross-origin image` 拒绝，被中止的 `signal` 以 `AbortError` 拒绝，不带纹理支持构建的引擎会抛出 `... engine has no texture support`。
 - GPU 设备丢失不会自动恢复：请刷新页面，或重新创建 SDK 和纹理。拾取、物理、SVG 导出和图表不受纹理影响。
 
+### glTF 模型
+
+```ts
+const house = await sdk.loadGltf('/models/house.glb', { rotation: [0, Math.PI / 4, 0], scale: 10 });
+console.log(house.objects, house.bounds);   // 对象 ID、世界空间包围盒
+sdk.disposeGltf(house);                      // 移除其对象和纹理
+```
+
+| 方法 | 返回值 | 说明 |
+| --- | --- | --- |
+| `loadGltf(source, options?)` | `Promise<GltfLoadResult>` | 加载 glTF 2.0 模型（`.gltf` 或 `.glb`）。`source` 为 URL 字符串、`URL`、`ArrayBuffer`、`Uint8Array` 或 `Blob` |
+| `disposeGltf(result)` | | 移除此次加载创建的所有对象和纹理 |
+
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `position` | `[x, y, z]` | `[0, 0, 0]` | 所有创建的网格的对象位置；模型原点落在此处 |
+| `rotation` | `[rx, ry, rz]` | `[0, 0, 0]` | 对象旋转（欧拉角，弧度，与基本几何体相同） |
+| `scale` | `number \| [x, y, z]` | `1` | 烘焙进顶点（glTF 单位为米） |
+| `scene` | `number` | 文件的 `scene`，否则为 `0` | 场景索引 |
+| `baseUrl` | `string` | 源 URL，否则为页面 URL | 相对缓冲区和图片 URI 的基准 |
+| `signal` | `AbortSignal` | | 中止获取和解码；Promise 以 `AbortError` 拒绝 |
+
+结果为 `{ objects, textures, nodes, bounds }`：`nodes` 以深度优先顺序列出场景节点 `{ index, name, objectIds }`，`bounds` 是世界空间的 `{ min, max }`。每个网格图元成为一个自定义网格对象，以其节点（或网格）命名；网格有多个图元时追加 `#<n>`。
+
+- **支持。** 使用外部或 `data:` 缓冲区和图片的 `.gltf`，带二进制块的 `.glb`；所有访问器类型，包括交错（`byteStride`）、归一化、稀疏以及没有缓冲视图的访问器；三角形、三角形带和扇形（点和线会发出警告并跳过）。节点层级（TRS 或 `matrix`）烘焙进顶点，法线用逆转置矩阵变换，镜像节点翻转绕序；缺少法线时计算平滑法线。扩展 `KHR_texture_transform`、`KHR_mesh_quantization` 和 `KHR_materials_emissive_strength`。
+- **材质。** `baseColorFactor` 从线性空间转换到渲染器的伽马空间；`baseColorTexture` 成为 `map`（仅 `TEXCOORD_0`；`KHR_texture_transform` 的 offset 和 scale 成为 `mapOffset` / `mapRepeat`）；`metallicFactor` 和 `roughnessFactor` 与 glTF 一样默认为 1；引擎的自发光是乘在基础色上的标量，因此 `emissive` 取 `emissiveFactor` 的最大分量（乘以自发光强度）。`alphaMode: 'MASK'` 将 `alphaTest` 设为 `alphaCutoff`（默认 0.5），`'BLEND'` 保留颜色 alpha，`'OPAQUE'` 将颜色 alpha 固定为 1。多个材质共用的图片只解码一次。
+- **忽略。** 采样器（纹理始终重复并线性过滤）。以下会发出警告并忽略：法线、遮蔽、金属度-粗糙度和自发光纹理，纹理变换的旋转，`TEXCOORD_1` 及以上的基础色纹理，蒙皮（按绑定姿势渲染），变形目标，动画，相机以及其他扩展。若 `extensionsRequired` 中列出了不支持的扩展，则以 `loadGltf: extension X is required but not supported` 拒绝。
+- **限制。** 单次加载最多创建 `GLTF_MAX_VERTICES`（8,388,608）个顶点和 `GLTF_MAX_INDICES`（67,108,864）个索引。所有对象共用一个几何缓冲区，因此多个大模型仍可能超出 GPU 缓冲区上限。纹理遵循上文的纹理限制。
+- **错误。** 错误信息以 `loadGltf:` 开头。任何失败（包括中止）都会移除已创建的对象和纹理。
+- 同一模型的所有对象都以模型原点为枢轴，因此对 `result.objects` 中的每个对象用相同的 `position` / `rotation` 调用 `setObjectTransform` 即可整体移动模型。
+
 ### 编辑对象
 
 | 方法 | 返回值 | 说明 |
