@@ -68,7 +68,8 @@ fn fs_node(in: VertexOutput) -> @location(0) vec4<f32> {
 "#;
 
 /// GPU-resident layout state (`gpu_layout.rs`) for graph shaders that read positions on the GPU.
-const LAYOUT_STATE_WGSL: &str = "struct LayoutState { position_mass: vec4<f32>, velocity_pinned: vec4<f32> };
+const LAYOUT_STATE_WGSL: &str =
+    "struct LayoutState { position_mass: vec4<f32>, velocity_pinned: vec4<f32> };
 @group(1) @binding(0) var<storage, read> layout_state: array<LayoutState>;
 ";
 
@@ -272,7 +273,10 @@ const MESH_LIGHT_STRUCT_PBR: &str = "struct SceneLightUniform {
 /// layout; its text stays untouched so classic output is unchanged) with the full light
 /// uniform, the environment map in group 2 and the `fs_mesh_pbr` entry point.
 pub fn mesh_pbr_wgsl() -> String {
-    assert!(MESH_LIT_WGSL.contains(MESH_LIGHT_STRUCT_CLASSIC), "classic light struct changed");
+    assert!(
+        MESH_LIT_WGSL.contains(MESH_LIGHT_STRUCT_CLASSIC),
+        "classic light struct changed"
+    );
     format!(
         "{}{MESH_PBR_BODY_WGSL}",
         MESH_LIT_WGSL.replacen(MESH_LIGHT_STRUCT_CLASSIC, MESH_LIGHT_STRUCT_PBR, 1)
@@ -409,6 +413,163 @@ fn fs_mesh_pbr(in: MeshVertexOutput) -> @location(0) vec4<f32> {
     let mapped = clamp(tone_map(color * light.shading.z, light.shading.y), vec3<f32>(0.0), vec3<f32>(1.0));
     let out_rgb = select(mapped, linear_to_srgb3(mapped), light.env_ground.w > 0.5);
     return vec4<f32>(out_rgb, alpha);
+}
+"#;
+
+/// Shadow-receiving mesh shading: the classic (`pbr = false`) or PBR module with the
+/// directional light scaled by a PCF lookup of the shadow map, bound as the next group (2 for
+/// classic, 3 for PBR). The receive opt-out rides in the instance's spare `normal_0.w`.
+/// Derived by text replacement so the shadow-free modules stay byte-identical.
+pub fn mesh_shadowed_wgsl(pbr: bool) -> String {
+    let base = if pbr {
+        mesh_pbr_wgsl()
+    } else {
+        MESH_LIT_WGSL.to_string()
+    };
+    let edits: [(&str, &str); 3] = [
+        (
+            "    @location(4) uv: vec2<f32>,\n};",
+            "    @location(4) uv: vec2<f32>,\n    @location(5) receive_shadow: f32,\n};",
+        ),
+        (
+            "    out.uv = vec2<f32>(v.position.w, v.normal.w) * inst.uv_transform.xy + inst.uv_transform.zw;\n",
+            "    out.uv = vec2<f32>(v.position.w, v.normal.w) * inst.uv_transform.xy + inst.uv_transform.zw;\n    out.receive_shadow = 1.0 - inst.normal_0.w;\n",
+        ),
+        (
+            "    let dir_intensity = light.dir_light_dir_intensity.w;",
+            "    let dir_intensity = light.dir_light_dir_intensity.w * shadow_visibility(in.world_pos, N, L_dir, in.receive_shadow);",
+        ),
+    ];
+    let mut text = base;
+    for (from, to) in edits {
+        assert_eq!(text.matches(from).count(), 1, "mesh shader changed: {from}");
+        text = text.replacen(from, to, 1);
+    }
+    if pbr {
+        let from = "    var color = punctual(n, v, normalize(light.dir_light_dir_intensity.xyz), n_dot_v, f0, diffuse_color, roughness)\n        * light.dir_light_dir_intensity.w;";
+        let to = "    let l_dir = normalize(light.dir_light_dir_intensity.xyz);\n    var color = punctual(n, v, l_dir, n_dot_v, f0, diffuse_color, roughness)\n        * (light.dir_light_dir_intensity.w * shadow_visibility(in.world_pos, n, l_dir, in.receive_shadow));";
+        assert_eq!(text.matches(from).count(), 1, "pbr shader changed");
+        text = text.replacen(from, to, 1);
+    }
+    let group = if pbr { "@group(3)" } else { "@group(2)" };
+    format!(
+        "{text}{SHADOW_UNIFORM_STRUCT_WGSL}{}",
+        MESH_SHADOW_RECEIVE_WGSL.replace("@group(G)", group)
+    )
+}
+
+/// Light-space uniform shared by the depth pass and the receivers (`ShadowUniformRaw`).
+const SHADOW_UNIFORM_STRUCT_WGSL: &str = r#"
+struct ShadowUniform {
+    light_view_proj: mat4x4<f32>,
+    // (depth bias, normal offset (world), pcf radius (texels), darkness)
+    params: vec4<f32>,
+    // (1 / size, size, max slope factor, 0)
+    map: vec4<f32>,
+};
+"#;
+
+const MESH_SHADOW_RECEIVE_WGSL: &str = r#"
+@group(G) @binding(0)
+var<uniform> shadow: ShadowUniform;
+
+@group(G) @binding(1)
+var shadow_map: texture_depth_2d;
+
+@group(G) @binding(2)
+var shadow_sampler: sampler_comparison;
+
+// Directional-light visibility in [1 - darkness, 1]: 4 x 4 bilinear PCF taps spread over
+// `params.z` texels. Reversed-Z map (1 nearest the light): lit where ref >= stored depth.
+fn shadow_visibility(world_pos: vec3<f32>, n: vec3<f32>, l: vec3<f32>, receive: f32) -> f32 {
+    if (receive < 0.5) {
+        return 1.0;
+    }
+    let cos_t = clamp(dot(n, l), 0.0, 1.0);
+    let sin_t = sqrt(1.0 - cos_t * cos_t);
+    // The normal offset grows as the surface turns away from the light
+    let p = shadow.light_view_proj * vec4<f32>(world_pos + n * (shadow.params.y * sin_t), 1.0);
+    let ndc = p.xyz / p.w;
+    let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z < 0.0 || ndc.z > 1.0) {
+        return 1.0;
+    }
+    let tan_t = min(sin_t / max(cos_t, 1e-3), shadow.map.z);
+    let ref_depth = ndc.z + shadow.params.x * (1.0 + tan_t);
+    var lit = 0.0;
+    if (shadow.params.z < 0.01) {
+        lit = textureSampleCompareLevel(shadow_map, shadow_sampler, uv, ref_depth);
+    } else {
+        let spacing = shadow.params.z / 1.5 * shadow.map.x;
+        for (var j = 0; j < 4; j++) {
+            for (var i = 0; i < 4; i++) {
+                let o = (vec2<f32>(f32(i), f32(j)) - vec2<f32>(1.5)) * spacing;
+                lit += textureSampleCompareLevel(shadow_map, shadow_sampler, uv + o, ref_depth);
+            }
+        }
+        lit *= 1.0 / 16.0;
+    }
+    return 1.0 - shadow.params.w * (1.0 - lit);
+}
+"#;
+
+/// Depth-only shadow-map pass: casters in light space (group 0 = `ShadowUniform`), alpha-tested
+/// texels discarded against the base-color map (group 1, the mesh texture layout).
+pub fn mesh_shadow_depth_wgsl() -> String {
+    format!("{SHADOW_UNIFORM_STRUCT_WGSL}{MESH_SHADOW_DEPTH_BODY_WGSL}")
+}
+
+const MESH_SHADOW_DEPTH_BODY_WGSL: &str = r#"
+@group(0) @binding(0)
+var<uniform> shadow: ShadowUniform;
+
+@group(1) @binding(0)
+var base_map: texture_2d<f32>;
+
+@group(1) @binding(1)
+var base_sampler: sampler;
+
+struct MeshVertex {
+    @location(0) position: vec4<f32>,
+    @location(1) normal: vec4<f32>,
+};
+
+struct MeshInstance {
+    @location(2) model_0: vec4<f32>,
+    @location(3) model_1: vec4<f32>,
+    @location(4) model_2: vec4<f32>,
+    @location(5) model_3: vec4<f32>,
+    @location(6) normal_0: vec4<f32>,
+    @location(7) normal_1: vec4<f32>,
+    @location(8) normal_2: vec4<f32>,
+    @location(9) color: vec4<f32>,
+    @location(10) material: vec4<f32>,
+    @location(11) uv_transform: vec4<f32>,
+};
+
+struct ShadowVertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    // (base alpha, alpha_test)
+    @location(1) alpha: vec2<f32>,
+};
+
+@vertex
+fn vs_shadow(v: MeshVertex, inst: MeshInstance) -> ShadowVertexOutput {
+    let model = mat4x4<f32>(inst.model_0, inst.model_1, inst.model_2, inst.model_3);
+    var out: ShadowVertexOutput;
+    out.clip_position = shadow.light_view_proj * (model * vec4<f32>(v.position.xyz, 1.0));
+    out.uv = vec2<f32>(v.position.w, v.normal.w) * inst.uv_transform.xy + inst.uv_transform.zw;
+    out.alpha = vec2<f32>(clamp(inst.color.a, 0.0, 1.0), inst.material.w);
+    return out;
+}
+
+@fragment
+fn fs_shadow(in: ShadowVertexOutput) {
+    let tex = textureSample(base_map, base_sampler, in.uv);
+    if (in.alpha.x * tex.a < in.alpha.y) {
+        discard;
+    }
 }
 "#;
 
@@ -1395,20 +1556,47 @@ mod tests {
             (chart_bar_decal_wgsl(), "vs_bar_decal", "fs_bar_decal"),
             (chart_fill_decal_wgsl(), "vs_fill_decal", "fs_fill_decal"),
         ] {
-            let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
-            let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-                .validate(&module)
-                .unwrap();
-            let options = glsl::Options { version: glsl::Version::Embedded { version: 300, is_webgl: true }, ..Default::default() };
-            for (stage, entry) in [(naga::ShaderStage::Vertex, vs), (naga::ShaderStage::Fragment, fs)] {
-                let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+            let module = naga::front::wgsl::parse_str(&src)
+                .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+            let info = naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .unwrap();
+            let options = glsl::Options {
+                version: glsl::Version::Embedded {
+                    version: 300,
+                    is_webgl: true,
+                },
+                ..Default::default()
+            };
+            for (stage, entry) in [
+                (naga::ShaderStage::Vertex, vs),
+                (naga::ShaderStage::Fragment, fs),
+            ] {
+                let pipeline = glsl::PipelineOptions {
+                    shader_stage: stage,
+                    entry_point: entry.into(),
+                    multiview: None,
+                };
                 let mut out = String::new();
-                glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
-                    .and_then(|mut w| w.write())
-                    .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+                glsl::Writer::new(
+                    &mut out,
+                    &module,
+                    &info,
+                    &options,
+                    &pipeline,
+                    naga::proc::BoundsCheckPolicies::default(),
+                )
+                .and_then(|mut w| w.write())
+                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
                 assert!(out.contains("#version 300 es"));
                 if stage == naga::ShaderStage::Fragment {
-                    assert!(out.contains("gl_FragCoord"), "{entry}: tiles in screen space");
+                    assert!(
+                        out.contains("gl_FragCoord"),
+                        "{entry}: tiles in screen space"
+                    );
                 }
             }
         }
@@ -1435,7 +1623,10 @@ mod tests {
     fn resident_graph_shaders_read_positions_from_the_gpu_layout() {
         for src in [node_billboard_resident_wgsl(), edge_line_resident_wgsl()] {
             assert!(src.contains("var<storage, read> layout_state: array<LayoutState>"));
-            assert!(src.contains("layout_state[u32("), "positions must come from the layout buffer");
+            assert!(
+                src.contains("layout_state[u32("),
+                "positions must come from the layout buffer"
+            );
         }
     }
 
@@ -1446,6 +1637,9 @@ mod tests {
             ("edge", EDGE_LINE_WGSL.to_string()),
             ("mesh", MESH_LIT_WGSL.to_string()),
             ("mesh-pbr", mesh_pbr_wgsl()),
+            ("mesh-shadowed", mesh_shadowed_wgsl(false)),
+            ("mesh-pbr-shadowed", mesh_shadowed_wgsl(true)),
+            ("mesh-shadow-depth", mesh_shadow_depth_wgsl()),
             ("mipmap-blit", MIPMAP_BLIT_WGSL.to_string()),
             ("chart-line", chart_line_wgsl()),
             ("chart-marker", chart_marker_wgsl()),
@@ -1475,19 +1669,39 @@ mod tests {
         use naga::back::glsl;
         let src = chart_point_wgsl();
         let module = naga::front::wgsl::parse_str(&src).unwrap();
-        let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-            .validate(&module)
-            .unwrap();
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .unwrap();
         let options = glsl::Options {
-            version: glsl::Version::Embedded { version: 300, is_webgl: true },
+            version: glsl::Version::Embedded {
+                version: 300,
+                is_webgl: true,
+            },
             ..Default::default()
         };
-        for (stage, entry) in [(naga::ShaderStage::Vertex, "vs_point"), (naga::ShaderStage::Fragment, "fs_point")] {
-            let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+        for (stage, entry) in [
+            (naga::ShaderStage::Vertex, "vs_point"),
+            (naga::ShaderStage::Fragment, "fs_point"),
+        ] {
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: stage,
+                entry_point: entry.into(),
+                multiview: None,
+            };
             let mut out = String::new();
-            glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
-                .and_then(|mut w| w.write())
-                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            glsl::Writer::new(
+                &mut out,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                naga::proc::BoundsCheckPolicies::default(),
+            )
+            .and_then(|mut w| w.write())
+            .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
             assert!(out.contains("#version 300 es"));
         }
     }
@@ -1503,19 +1717,39 @@ mod tests {
         ];
         for (src, [vs, fs]) in shaders {
             let module = naga::front::wgsl::parse_str(src).unwrap();
-            let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-                .validate(&module)
-                .unwrap();
+            let info = naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .unwrap();
             let options = glsl::Options {
-                version: glsl::Version::Embedded { version: 300, is_webgl: true },
+                version: glsl::Version::Embedded {
+                    version: 300,
+                    is_webgl: true,
+                },
                 ..Default::default()
             };
-            for (stage, entry) in [(naga::ShaderStage::Vertex, vs), (naga::ShaderStage::Fragment, fs)] {
-                let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+            for (stage, entry) in [
+                (naga::ShaderStage::Vertex, vs),
+                (naga::ShaderStage::Fragment, fs),
+            ] {
+                let pipeline = glsl::PipelineOptions {
+                    shader_stage: stage,
+                    entry_point: entry.into(),
+                    multiview: None,
+                };
                 let mut out = String::new();
-                glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
-                    .and_then(|mut w| w.write())
-                    .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+                glsl::Writer::new(
+                    &mut out,
+                    &module,
+                    &info,
+                    &options,
+                    &pipeline,
+                    naga::proc::BoundsCheckPolicies::default(),
+                )
+                .and_then(|mut w| w.write())
+                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
                 assert!(out.contains("#version 300 es"));
                 if stage == naga::ShaderStage::Fragment {
                     assert!(out.contains("texture("), "{entry}: filtered texture sample");
@@ -1533,26 +1767,135 @@ mod tests {
         // and sRGB encode must survive GLSL ES 3.00; the classic entry point stays env-free
         use naga::back::glsl;
         let src = mesh_pbr_wgsl();
-        let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
-        let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-            .validate(&module)
-            .unwrap();
-        let options = glsl::Options { version: glsl::Version::Embedded { version: 300, is_webgl: true }, ..Default::default() };
+        let module = naga::front::wgsl::parse_str(&src)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .unwrap();
+        let options = glsl::Options {
+            version: glsl::Version::Embedded {
+                version: 300,
+                is_webgl: true,
+            },
+            ..Default::default()
+        };
         let write = |stage, entry: &str| {
-            let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: stage,
+                entry_point: entry.into(),
+                multiview: None,
+            };
             let mut out = String::new();
-            glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
-                .and_then(|mut w| w.write())
-                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            glsl::Writer::new(
+                &mut out,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                naga::proc::BoundsCheckPolicies::default(),
+            )
+            .and_then(|mut w| w.write())
+            .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
             out
         };
         assert!(write(naga::ShaderStage::Vertex, "vs_mesh").contains("#version 300 es"));
         let fs = write(naga::ShaderStage::Fragment, "fs_mesh_pbr");
-        assert!(fs.contains("textureLod("), "env map sampled at an explicit mip");
+        assert!(
+            fs.contains("textureLod("),
+            "env map sampled at an explicit mip"
+        );
         assert!(fs.contains("discard"), "alpha test");
-        assert!(fs.contains("_group_2_binding_0_fs"), "env map bound in group 2: {fs}");
+        assert!(
+            fs.contains("_group_2_binding_0_fs"),
+            "env map bound in group 2: {fs}"
+        );
         let classic = write(naga::ShaderStage::Fragment, "fs_mesh");
-        assert!(!classic.contains("_group_2_"), "classic fragment stage has no env binding");
+        assert!(
+            !classic.contains("_group_2_"),
+            "classic fragment stage has no env binding"
+        );
+    }
+
+    #[test]
+    fn shadow_shaders_translate_to_webgl2_glsl() {
+        // Comparison sampling at an explicit level (PCF in a loop), the receive flag varying and
+        // the depth pass's alpha-test discard must survive GLSL ES 3.00 within 4 bind groups
+        use naga::back::glsl;
+        let write = |src: &str, stage, entry: &str| {
+            let module = naga::front::wgsl::parse_str(src)
+                .unwrap_or_else(|e| panic!("{}", e.emit_to_string(src)));
+            let info = naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .unwrap();
+            let options = glsl::Options {
+                version: glsl::Version::Embedded {
+                    version: 300,
+                    is_webgl: true,
+                },
+                ..Default::default()
+            };
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: stage,
+                entry_point: entry.into(),
+                multiview: None,
+            };
+            let mut out = String::new();
+            glsl::Writer::new(
+                &mut out,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                naga::proc::BoundsCheckPolicies::default(),
+            )
+            .and_then(|mut w| w.write())
+            .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            assert!(out.contains("#version 300 es"));
+            out
+        };
+        for (pbr, fs_entry, group) in [(false, "fs_mesh", 2), (true, "fs_mesh_pbr", 3)] {
+            let src = mesh_shadowed_wgsl(pbr);
+            assert!(!src.contains("@group(4)") && !src.contains("@group(G)"));
+            let vs = write(&src, naga::ShaderStage::Vertex, "vs_mesh");
+            assert!(
+                vs.contains("receive_shadow") || vs.contains("_vs_location5"),
+                "{vs}"
+            );
+            let fs = write(&src, naga::ShaderStage::Fragment, fs_entry);
+            assert!(fs.contains("sampler2DShadow"), "comparison sampler: {fs}");
+            assert!(
+                fs.contains(&format!("_group_{group}_binding_1_fs")),
+                "shadow map in group {group}"
+            );
+            assert!(fs.contains("discard"), "alpha test kept");
+        }
+        let depth = mesh_shadow_depth_wgsl();
+        write(&depth, naga::ShaderStage::Vertex, "vs_shadow");
+        let fs = write(&depth, naga::ShaderStage::Fragment, "fs_shadow");
+        assert!(fs.contains("discard"), "alpha-tested casters cut holes");
+    }
+
+    #[test]
+    fn shadow_variants_leave_the_unshadowed_shaders_alone() {
+        assert!(!MESH_LIT_WGSL.contains("shadow") && !mesh_pbr_wgsl().contains("shadow"));
+        for pbr in [false, true] {
+            let s = mesh_shadowed_wgsl(pbr);
+            assert_eq!(
+                s.matches("shadow_visibility(in.world_pos").count(),
+                if pbr { 2 } else { 1 }
+            );
+        }
+        // Uniform layout matches `ShadowUniformRaw` (mat4 + 2 x vec4)
+        assert_eq!(
+            64 + SHADOW_UNIFORM_STRUCT_WGSL.matches("vec4<f32>,").count() * 16,
+            std::mem::size_of::<super::super::ShadowUniformRaw>()
+        );
     }
 
     #[test]
@@ -1562,12 +1905,19 @@ mod tests {
         assert!(pbr.contains(MESH_LIGHT_STRUCT_PBR) && !pbr.contains(MESH_LIGHT_STRUCT_CLASSIC));
         assert!(pbr.ends_with(MESH_PBR_BODY_WGSL));
         assert_eq!(
-            pbr.trim_end_matches(MESH_PBR_BODY_WGSL).replacen(MESH_LIGHT_STRUCT_PBR, MESH_LIGHT_STRUCT_CLASSIC, 1),
+            pbr.trim_end_matches(MESH_PBR_BODY_WGSL).replacen(
+                MESH_LIGHT_STRUCT_PBR,
+                MESH_LIGHT_STRUCT_CLASSIC,
+                1
+            ),
             MESH_LIT_WGSL
         );
         assert!(!MESH_LIT_WGSL.contains("env_map"));
         // Uniform layout: struct fields match `SceneLightUniformRaw` (6 x vec4)
-        assert_eq!(MESH_LIGHT_STRUCT_PBR.matches("vec4<f32>").count() * 16, std::mem::size_of::<super::super::SceneLightUniformRaw>());
+        assert_eq!(
+            MESH_LIGHT_STRUCT_PBR.matches("vec4<f32>").count() * 16,
+            std::mem::size_of::<super::super::SceneLightUniformRaw>()
+        );
     }
 
     #[test]
@@ -1576,22 +1926,45 @@ mod tests {
         use naga::back::glsl;
         let src = chart_heatmap_wgsl();
         let module = naga::front::wgsl::parse_str(&src).unwrap();
-        let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-            .validate(&module)
-            .unwrap();
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .unwrap();
         let options = glsl::Options {
-            version: glsl::Version::Embedded { version: 300, is_webgl: true },
+            version: glsl::Version::Embedded {
+                version: 300,
+                is_webgl: true,
+            },
             ..Default::default()
         };
-        for (stage, entry) in [(naga::ShaderStage::Vertex, "vs_heatmap"), (naga::ShaderStage::Fragment, "fs_heatmap")] {
-            let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+        for (stage, entry) in [
+            (naga::ShaderStage::Vertex, "vs_heatmap"),
+            (naga::ShaderStage::Fragment, "fs_heatmap"),
+        ] {
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: stage,
+                entry_point: entry.into(),
+                multiview: None,
+            };
             let mut out = String::new();
-            glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
-                .and_then(|mut w| w.write())
-                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            glsl::Writer::new(
+                &mut out,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                naga::proc::BoundsCheckPolicies::default(),
+            )
+            .and_then(|mut w| w.write())
+            .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
             assert!(out.contains("#version 300 es"));
             if stage == naga::ShaderStage::Fragment {
-                assert!(out.contains("texelFetch"), "nearest texel fetch, no sampler");
+                assert!(
+                    out.contains("texelFetch"),
+                    "nearest texel fetch, no sampler"
+                );
                 assert!(out.contains("floatBitsToUint"));
             }
         }
@@ -1606,19 +1979,39 @@ mod tests {
         ];
         for (src, [vs, fs]) in shaders {
             let module = naga::front::wgsl::parse_str(&src).unwrap();
-            let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-                .validate(&module)
-                .unwrap();
+            let info = naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .unwrap();
             let options = glsl::Options {
-                version: glsl::Version::Embedded { version: 300, is_webgl: true },
+                version: glsl::Version::Embedded {
+                    version: 300,
+                    is_webgl: true,
+                },
                 ..Default::default()
             };
-            for (stage, entry) in [(naga::ShaderStage::Vertex, vs), (naga::ShaderStage::Fragment, fs)] {
-                let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+            for (stage, entry) in [
+                (naga::ShaderStage::Vertex, vs),
+                (naga::ShaderStage::Fragment, fs),
+            ] {
+                let pipeline = glsl::PipelineOptions {
+                    shader_stage: stage,
+                    entry_point: entry.into(),
+                    multiview: None,
+                };
                 let mut out = String::new();
-                glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
-                    .and_then(|mut w| w.write())
-                    .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+                glsl::Writer::new(
+                    &mut out,
+                    &module,
+                    &info,
+                    &options,
+                    &pipeline,
+                    naga::proc::BoundsCheckPolicies::default(),
+                )
+                .and_then(|mut w| w.write())
+                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
                 assert!(out.contains("#version 300 es"));
             }
         }
@@ -1630,20 +2023,41 @@ mod tests {
         use naga::back::glsl;
         let src = chart_parallel_wgsl();
         assert!(src.contains("fn vs_parallel") && src.contains("fn fs_segment"));
-        let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
-        let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-            .validate(&module)
-            .unwrap();
+        let module = naga::front::wgsl::parse_str(&src)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .unwrap();
         let options = glsl::Options {
-            version: glsl::Version::Embedded { version: 300, is_webgl: true },
+            version: glsl::Version::Embedded {
+                version: 300,
+                is_webgl: true,
+            },
             ..Default::default()
         };
-        for (stage, entry) in [(naga::ShaderStage::Vertex, "vs_parallel"), (naga::ShaderStage::Fragment, "fs_segment")] {
-            let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+        for (stage, entry) in [
+            (naga::ShaderStage::Vertex, "vs_parallel"),
+            (naga::ShaderStage::Fragment, "fs_segment"),
+        ] {
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: stage,
+                entry_point: entry.into(),
+                multiview: None,
+            };
             let mut out = String::new();
-            glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
-                .and_then(|mut w| w.write())
-                .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            glsl::Writer::new(
+                &mut out,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                naga::proc::BoundsCheckPolicies::default(),
+            )
+            .and_then(|mut w| w.write())
+            .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
             assert!(out.contains("#version 300 es"));
             if stage == naga::ShaderStage::Vertex {
                 assert!(out.contains("texelFetch"), "row flag fetched per vertex");

@@ -14,6 +14,8 @@ mod pick;
 mod pick_tests;
 mod shading;
 pub use bvh::PickCache;
+mod shadows;
+pub use shadows::{fit_light, snap_map_size, LightFit, ShadowBounds, ShadowConfig, MAX_SHADOW_BIAS, MAX_SHADOW_SOFTNESS};
 pub use shading::{srgb_to_linear, ShadingConfig, ShadingModel, ToneMapping, MAX_ENV_INTENSITY, MAX_EXPOSURE};
 
 /// Primitive 3D shape types supported natively by the scene engine.
@@ -194,6 +196,10 @@ pub struct SceneObject {
     pub visible: bool,
     /// Lazily built triangle BVH for picking custom meshes (empty for primitives)
     pub pick_cache: PickCache,
+    /// Drawn into the shadow map (opaque objects only; default true)
+    pub cast_shadow: bool,
+    /// Darkened by shadows of other objects (default true)
+    pub receive_shadow: bool,
 }
 
 impl SceneObject {
@@ -408,6 +414,8 @@ pub struct SceneWorld {
     pub lighting: LightingConfig,
     /// Mesh shading model (classic Blinn-Phong by default) and PBR environment / tone mapping
     pub shading: ShadingConfig,
+    /// Directional-light shadows (off by default)
+    pub shadows: ShadowConfig,
     pub helpers: SceneHelpersConfig,
     pub gravity: Vec3,
     pub rigid_physics_enabled: bool,
@@ -429,6 +437,8 @@ pub struct SceneWorld {
     /// Bumped when a custom mesh is added / removed; geometry is re-uploaded only then
     geometry_revision: u64,
     packed_geometry_revision: u64,
+    /// Bounding sphere of the visible casters + receivers at the last pack (`None` = none)
+    shadow_bounds: Option<(Vec3, f32)>,
 }
 
 impl Default for SceneWorld {
@@ -444,6 +454,7 @@ impl SceneWorld {
             next_id: 1,
             lighting: LightingConfig::default(),
             shading: ShadingConfig::default(),
+            shadows: ShadowConfig::default(),
             helpers: SceneHelpersConfig::default(),
             gravity: Vec3::new(0.0, -40.0, 0.0),
             rigid_physics_enabled: true,
@@ -462,6 +473,7 @@ impl SceneWorld {
             custom_ranges: Vec::new(),
             geometry_revision: next_scene_revision(),
             packed_geometry_revision: 0,
+            shadow_bounds: None,
         }
     }
 
@@ -517,6 +529,8 @@ impl SceneWorld {
             selected: false,
             visible: true,
             pick_cache: PickCache::default(),
+            cast_shadow: true,
+            receive_shadow: true,
         });
         id
     }
@@ -622,6 +636,8 @@ impl SceneWorld {
             selected: false,
             visible: true,
             pick_cache: PickCache::default(),
+            cast_shadow: true,
+            receive_shadow: true,
         });
         Ok(id)
     }
@@ -688,6 +704,17 @@ impl SceneWorld {
     pub fn set_object_material(&mut self, object_id: u32, material: Material) -> bool {
         if let Some(obj) = self.find_object_mut(object_id) {
             obj.material = material;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Sets whether the object casts / receives directional-light shadows.
+    pub fn set_object_shadow_flags(&mut self, object_id: u32, cast: bool, receive: bool) -> bool {
+        if let Some(obj) = self.find_object_mut(object_id) {
+            obj.cast_shadow = cast;
+            obj.receive_shadow = receive;
             true
         } else {
             false
@@ -1074,6 +1101,41 @@ impl SceneWorld {
         light
     }
 
+    /// This frame's shadow uniform (`None` while shadows are off). `Auto` bounds use the
+    /// caster / receiver sphere of the last `pack_render_data`.
+    pub fn shadow_frame(&self) -> Option<crate::renderer::ShadowFrame> {
+        self.shadows.frame(self.lighting.dir_light_dir, self.shadow_bounds)
+    }
+
+    /// Caster / receiver bounding sphere of the last pack.
+    pub fn shadow_bounds(&self) -> Option<(Vec3, f32)> {
+        self.shadow_bounds
+    }
+
+    /// World AABB union of the visible objects that cast (opaque) or receive shadows, as a
+    /// sphere `(center, radius)`.
+    fn compute_shadow_bounds(&self, world: &[Mat4]) -> Option<(Vec3, f32)> {
+        let mut lo = Vec3::splat(f32::INFINITY);
+        let mut hi = Vec3::splat(f32::NEG_INFINITY);
+        for (obj, m) in self.objects.iter().zip(world) {
+            let casts = obj.cast_shadow && obj.material.color[3] >= 0.999;
+            if !obj.visible || !(casts || obj.receive_shadow) {
+                continue;
+            }
+            let he = obj.base_half_extents();
+            let half = m.x_axis.truncate().abs() * he.x
+                + m.y_axis.truncate().abs() * he.y
+                + m.z_axis.truncate().abs() * he.z;
+            let c = m.w_axis.truncate();
+            if !(c.is_finite() && half.is_finite()) {
+                continue;
+            }
+            lo = lo.min(c - half);
+            hi = hi.max(c + half);
+        }
+        (lo.x <= hi.x).then(|| ((lo + hi) * 0.5, ((hi - lo) * 0.5).length().max(1e-3)))
+    }
+
     /// Packs object instances + draw list (opaque draws batched per geometry, then translucent
     /// draws far-to-near from `camera_eye`) and helper lines. When meshes were added / removed
     /// since the last call, the combined static geometry is returned too.
@@ -1095,8 +1157,12 @@ impl SceneWorld {
         order.clear();
         order.extend((0..self.objects.len()).filter(|&i| self.objects[i].visible));
         let split = partition_in_place(&mut order, |&i| self.objects[i].material.color[3] >= 0.999);
-        // Opaque: group by texture, then geometry, so each (texture, mesh) is one instanced draw
-        order[..split].sort_by_key(|&i| (self.objects[i].map.texture, self.geometry_range(i).0));
+        // Opaque: group by texture, then geometry, so each (texture, mesh) is one instanced draw;
+        // shadow casters lead each draw (stable sort: the all-casting order is unchanged)
+        order[..split].sort_by_key(|&i| {
+            let o = &self.objects[i];
+            (o.map.texture, self.geometry_range(i).0, !o.cast_shadow)
+        });
         // Translucent: far-to-near for correct blending
         order[split..].sort_by(|&a, &b| {
             let da = world[a].w_axis.truncate().distance_squared(camera_eye);
@@ -1108,6 +1174,7 @@ impl SceneWorld {
             let translucent = k >= split;
             let (first_index, index_count) = self.geometry_range(idx);
             let texture = self.objects[idx].map.texture;
+            let casts = u32::from(!translucent && self.objects[idx].cast_shadow);
             let instance = self.instances.len() as u32;
             self.pack_instance(idx, &world[idx]);
             match self.draws.last_mut() {
@@ -1118,6 +1185,7 @@ impl SceneWorld {
                         && d.translucent == translucent =>
                 {
                     d.instance_count += 1;
+                    d.shadow_instances += casts;
                 }
                 _ => self.draws.push(MeshDraw {
                     first_index,
@@ -1126,10 +1194,12 @@ impl SceneWorld {
                     instance_count: 1,
                     translucent,
                     texture,
+                    shadow_instances: casts,
                 }),
             }
         }
 
+        self.shadow_bounds = self.compute_shadow_bounds(&world);
         self.world_scratch = world;
         self.order_scratch = order;
 
@@ -1271,10 +1341,12 @@ impl SceneWorld {
         }
 
         let n = normal_mat.to_cols_array_2d();
+        // normal[0].w = 1 opts out of receiving shadows (0 keeps the default bytes unchanged)
+        let no_receive = if obj.receive_shadow { 0.0 } else { 1.0 };
         self.instances.push(MeshInstanceRaw {
             model: world_mat.to_cols_array_2d(),
             normal: [
-                [n[0][0], n[0][1], n[0][2], 0.0],
+                [n[0][0], n[0][1], n[0][2], no_receive],
                 [n[1][0], n[1][1], n[1][2], 0.0],
                 [n[2][0], n[2][1], n[2][2], 0.0],
             ],

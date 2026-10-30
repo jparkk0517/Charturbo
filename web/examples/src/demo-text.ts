@@ -369,6 +369,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '물리 기반 셰이딩 · setShading', description: '선택형 PBR입니다. 거친 표면에서 매끈한 표면(왼쪽 → 오른쪽), 유전체에서 금속(아래 → 위)으로 바뀌는 구와 텍스처 상자, 작은 glTF 집을 방향광 · 점광원과 createDataTexture로 만든 등장방형 하늘 텍스처가 비춥니다. 매끈한 금속은 하늘을 비추고 거친 금속은 흐리게 반사합니다. 기존 Blinn-Phong(classic) 모습으로 되돌리거나 톤 매핑 방식과 노출을 바꿀 수 있습니다.' },
     zh: { title: '基于物理的着色 · setShading', description: '可选的 PBR：从粗糙到光滑（左 → 右）、从电介质到金属（下 → 上）的球体、一个带纹理的盒体和一座小 glTF 房屋，由方向光、点光源以及用 createDataTexture 生成的等距柱状天空纹理照亮。光滑金属映出天空，粗糙金属则模糊反射。可切换回经典 Blinn-Phong（classic）外观，选择色调映射方式并调整曝光。' },
   },
+  'scene/06-shadows': {
+    ko: { title: '방향광 그림자 · setShadows', description: '방향광의 선택형 섀도 매핑입니다. 상자 · 구 · 원기둥 · 토러스가 바닥 위를 돌고 해가 머리 위를 회전합니다. 빨간 상자는 그림자를 받지 않고(receiveShadow: false), 유리 구는 그림자를 드리우지 않으며(castShadow: false), 공중에 뜬 알파 테스트 체크무늬 패널은 구멍 뚫린 그림자를 만듭니다. 그림자를 켜고 끄거나 가장자리를 부드럽게 하고(PCF 반경) 섀도 맵 크기를 바꿀 수 있습니다.' },
+    zh: { title: '方向光阴影 · setShadows', description: '方向光的可选阴影贴图：盒体、球体、圆柱和圆环在地面上方环绕，太阳在头顶旋转。红色盒体不接收阴影（receiveShadow: false），玻璃球不投射阴影（castShadow: false），悬浮的 alpha 测试棋盘面板投下带孔的阴影。可开关阴影、柔化边缘（PCF 半径）并更改阴影贴图尺寸。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

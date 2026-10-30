@@ -67,6 +67,7 @@ tick();
 | `restitution` | `number` | `0.55` | 弹性系数 |
 | `parentId` | `number \| null` | `null` | 层级变换的父对象 |
 | `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | 纹理映射，见[纹理](#纹理) |
+| `castShadow` / `receiveShadow` | `boolean` | `true` | 是否参与阴影，见[阴影](#阴影) |
 
 ### 自定义网格（`CustomMeshObjectDescriptor`）
 
@@ -92,6 +93,7 @@ const torus = sdk.addCustomMesh({
 | `metallic` / `roughness` | `number` | `0.35` / `0.3` | 材质 |
 | `mass` / `restitution` | `number` | `2.0` / `0.6` | 物理 |
 | `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | 纹理映射，见[纹理](#纹理) |
+| `castShadow` / `receiveShadow` | `boolean` | `true` | 是否参与阴影，见[阴影](#阴影) |
 
 其余字段（`name` 默认 `'MESH_<id>'`、`position`、`rotation`、`emissive`、`bodyType`、`velocity`、`angularVelocity`、`parentId`）与基本几何体相同。`Charturbo.createTorusMesh(majorRadius = 8, minorRadius = 2.6, radialSegments = 18, tubularSegments = 32)` 用于生成测试网格。
 
@@ -237,6 +239,34 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+
+## 阴影
+
+`setShadows({ enabled: true })` 为 `setLighting` 的方向光开启阴影贴图（默认关闭；图表、科学 3D 和 3D 图从不投射或接收阴影）：
+
+```ts
+sdk.setLighting({ directionalDirection: [0.6, 1, 0.3] }); // 指向光源
+sdk.setShadows({ enabled: true, mapSize: 2048, softness: 1.5 });
+sdk.addSphere({ position: [0, 30, 0], castShadow: false }); // 不投射阴影
+sdk.addBox({ position: [20, 5, 0], receiveShadow: false }); // 不会变暗
+```
+
+- 在主通道之前，一个从方向光出发的仅深度通道把所有可见且 `castShadow` 的不透明对象绘制到 `Depth32Float` 贴图中；光源的正交相机适配所有投射和接收阴影的对象（`bounds: 'auto'`，按整纹素对齐，相机移动时阴影不会闪烁），或固定球体 `bounds: { center, radius }`。自动适配的场景越大，贴图覆盖的区域越大，因此大场景请在关注区域周围使用固定边界。
+- 在 classic 和 PBR 模型中，阴影都只按 `darkness` 削弱方向光（环境光、点光源、自发光和 PBR 环境光不变）。
+- 边缘使用硬件比较的 PCF，在跨越 `softness` 个纹素的 4 × 4 网格上过滤（`softness: 0` = 单次采样的硬阴影）。`bias`（常量，随表面倾斜增大）和 `normalBias`（接收面沿法线的偏移）以阴影贴图纹素为单位；出现阴影粉刺（acne）时调大，阴影与物体脱离时调小。
+- 半透明对象（`color` 的 alpha 小于 1）不投射阴影；alpha 测试纹理（`alphaTest`）会在阴影中镂出相同的孔。`castShadow` / `receiveShadow` 在基本几何体、自定义网格和 glTF 对象上默认为 `true`，之后可用 `setObjectMaterial` 修改。
+- `setShadows` 合并到当前设置，值无效时抛出 `setShadows: ...`；`getShadows()` 返回副本，其中 `mapSize` 已按设备纹理上限截断。`exportScene()` 将设置保存在 `shadows` 中并保存每个对象的标志，`loadScene` 会恢复它们。
+- 贴图在开启阴影时分配（2048² = 16 MiB，计入 `getRenderStats().gpuBytes`），`mapSize` 改变时重建，关闭时释放。每帧额外增加一个针对投射阴影对象的深度通道。同时支持 WebGPU 和 WebGL2。
+
+| 阴影选项 | 类型 | 默认值 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `mapSize` | `512 \| 1024 \| 2048 \| 4096` | `2048` |
+| `bias` | `number`（0..16 纹素） | `0.5` |
+| `normalBias` | `number`（0..16 纹素） | `1` |
+| `softness` | `number`（0..8 纹素） | `1.5` |
+| `darkness` | `number`（0..1） | `1` |
+| `bounds` | `'auto' \| { center: [x, y, z]; radius }` | `'auto'` |
 
 ## 刚体物理
 

@@ -1847,7 +1847,55 @@ export const FIXTURES: Fixture[] = [
         sdk.setCameraPose([0, 36, 105], [0, 24, 0]);
       }),
   },
+  {
+    // Directional shadows (classic): box / sphere / cylinder shadows fall left on the plane; the
+    // small box inside the big box's shadow opts out of receiving (stays lit), the floating
+    // sphere opts out of casting (no shadow), the floating checker cutout casts a holed shadow
+    name: 'scene-shadows',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => shadowScene(sdk, false)),
+  },
+  {
+    // Same layout with PBR shading and an environment map: shadows remove only the sun
+    name: 'scene-shadows-pbr',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => shadowScene(sdk, true)),
+  },
 ];
+
+/** Layout of the `scene-shadows` fixtures. */
+function shadowScene(sdk: Charturbo, pbr: boolean): void {
+  sdk.setGraphVisible(false);
+  sdk.setRigidPhysics(false);
+  const size = 64;
+  const cell = 8;
+  const holes = new Uint8Array(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    const on = (Math.floor((i % size) / cell) + Math.floor(i / size / cell)) % 2 === 0;
+    holes.set(on ? [240, 220, 120, 255] : [0, 0, 0, 0], i * 4);
+  }
+  const cutout = sdk.createDataTexture(size, size, holes);
+  sdk.addPlane({ position: [0, -1, 0], scale: [160, 2, 110], color: [0.6, 0.62, 0.66, 1], roughness: 0.9 });
+  sdk.addBox({ position: [-30, 9, -5], rotation: [0, 0.6, 0], scale: [18, 18, 18], color: [0.25, 0.6, 1, 1], roughness: 0.5 });
+  sdk.addBox({ position: [-52, 4, -5], scale: [8, 8, 8], color: [1, 0.45, 0.45, 1], roughness: 0.5, receiveShadow: false });
+  sdk.addSphere({ position: [5, 10, 5], scale: [20, 20, 20], color: [0.85, 0.55, 0.25, 1], roughness: 0.3, metallic: pbr ? 0.4 : 0 });
+  sdk.addCylinder({ position: [40, 10, -10], scale: [14, 20, 14], color: [0.4, 0.85, 0.5, 1], roughness: 0.6 });
+  sdk.addSphere({ position: [-10, 30, 25], scale: [8, 8, 8], color: [0.9, 0.9, 0.95, 1], roughness: 0.4, castShadow: false });
+  sdk.addBox({ position: [55, 22, 28], scale: [28, 0.6, 28], color: [1, 1, 1, 1], roughness: 0.7, map: cutout });
+  sdk.setLighting({
+    ambientIntensity: 0.3,
+    directionalDirection: [0.8, 1, 0.25],
+    directionalIntensity: pbr ? 1.2 : 0.9,
+    pointPosition: [30, 40, 40],
+    pointIntensity: pbr ? 0.3 : 0.4,
+  });
+  if (pbr) {
+    const env = sdk.createDataTexture(128, 64, pbrSkyEquirect(128, 64));
+    sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 1, environment: { map: env, intensity: 1 } });
+  }
+  sdk.setShadows({ enabled: true });
+  sdk.setCameraPose([0, 60, 110], [0, 8, 0]);
+}
 
 /**
  * Equirectangular sRGB sky for `scene-pbr` (top row = up, u = 0.5 faces -z): blue zenith to a

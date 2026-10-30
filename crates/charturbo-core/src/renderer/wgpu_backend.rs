@@ -26,6 +26,9 @@ use std::mem::size_of;
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
 
+#[path = "wgpu_shadow.rs"]
+mod shadow;
+
 /// Float depth for reversed-Z (supported by WebGPU and WebGL2).
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// Reversed-Z depth test: nearer fragments have larger depth.
@@ -124,6 +127,10 @@ pub struct WgpuRenderBackend {
     mesh_translucent_pipeline: wgpu::RenderPipeline,
     /// PBR mesh pipelines (built on the first PBR frame, shared by the context's engines)
     mesh_pbr: Rc<LazyMeshPbr>,
+    /// Shadow depth pass + receiving mesh pipelines (built on the first shadowed frame)
+    shadow: Rc<shadow::LazyShadow>,
+    /// This engine's shadow map while shadows are on (`sync_shadows`)
+    shadow_map: Option<shadow::ShadowMap>,
     /// Last light uniform selected the PBR pipelines
     pbr: bool,
     /// PBR environment map bind group (group 2): texture id it was built for + its mip count
@@ -484,6 +491,7 @@ pub struct GpuPipelines {
     mesh_pipeline: wgpu::RenderPipeline,
     mesh_translucent_pipeline: wgpu::RenderPipeline,
     mesh_pbr: Rc<LazyMeshPbr>,
+    shadow: Rc<shadow::LazyShadow>,
     node_pipeline: wgpu::RenderPipeline,
     node_translucent_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
@@ -823,6 +831,8 @@ impl WgpuRenderBackend {
             mesh_pipeline: p.mesh_pipeline,
             mesh_translucent_pipeline: p.mesh_translucent_pipeline,
             mesh_pbr: p.mesh_pbr,
+            shadow: p.shadow,
+            shadow_map: None,
             pbr: false,
             env,
             node_pipeline: p.node_pipeline,
@@ -1292,6 +1302,12 @@ impl GpuPipelines {
             texture_bgl: mesh_texture_bgl.clone(),
             pipelines: OnceCell::new(),
         });
+        let shadow = Rc::new(shadow::LazyShadow {
+            format,
+            mesh_bgl: mesh_bind_group_layout.clone(),
+            texture_bgl: mesh_texture_bgl.clone(),
+            pipelines: OnceCell::new(),
+        });
 
         Self {
             camera_bgl: camera_bind_group_layout,
@@ -1302,6 +1318,7 @@ impl GpuPipelines {
             mesh_pipeline,
             mesh_translucent_pipeline,
             mesh_pbr,
+            shadow,
             node_pipeline,
             node_translucent_pipeline,
             edge_pipeline,
@@ -1347,6 +1364,12 @@ impl WgpuRenderBackend {
                     } else {
                         &self.mesh_pipeline
                     }),
+                }
+                // Shadows on: the receiving variant (built by `sync_shadows`) + the shadow
+                // group after the base map (classic) or the environment map (PBR)
+                if let Some((pipeline, group, shadow_bg)) = self.shadowed_pipeline(translucent) {
+                    rpass.set_pipeline(pipeline);
+                    rpass.set_bind_group(group, shadow_bg, &[]);
                 }
                 rpass.set_bind_group(0, &self.mesh_bind_group, &[]);
                 rpass.set_vertex_buffer(0, self.mesh_vertices.slice());
@@ -1582,6 +1605,14 @@ impl RenderBackend for WgpuRenderBackend {
             .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&light));
     }
 
+    fn sync_shadows(&mut self, shadows: Option<&crate::renderer::ShadowFrame>) {
+        self.apply_shadows(shadows);
+        if self.shadow_map.is_some() {
+            // After `sync_lighting`: build the receivers of the selected shading model
+            self.shadow.receiving(&self.device, self.pbr);
+        }
+    }
+
     fn sync_environment_map(&mut self, texture_id: u32) {
         // Rebuilt when the id changes or its texture appears / goes away
         if texture_id != self.env.id || self.textures.levels(texture_id) != self.env.levels {
@@ -1702,6 +1733,8 @@ impl RenderBackend for WgpuRenderBackend {
             });
         // Resident graphs read positions from the current GPU layout buffer (ping-pong: per frame)
         let resident_bind = self.resident_layout_bind();
+        // Shadow casters first (depth only), sampled by the main pass's mesh draws
+        self.encode_shadow_pass(&mut encoder);
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1877,7 +1910,8 @@ impl RenderBackend for WgpuRenderBackend {
             + self.parallel.texture_bytes()
             + TextureRegistry::WHITE_BYTES
             + self.textures.bytes()
-            + self.gpu_physics.as_ref().map_or(0, |g| g.bytes());
+            + self.gpu_physics.as_ref().map_or(0, |g| g.bytes())
+            + self.shadow_map.as_ref().map_or(0, |m| m.bytes());
         RenderStats {
             gpu_bytes,
             series_segments: self.chart_series.len + self.chart_series_dashed.len,
