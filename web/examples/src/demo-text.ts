@@ -61,6 +61,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '이상치를 위한 축 끊김', description: '이상치 하나가 다른 막대를 납작하게 만듭니다. 값 축 끊김이 40–430 구간을 접어 둘 다 읽을 수 있게 하고, 플롯 전체에 끊김 표시를 그립니다.' },
     zh: { title: '为离群值设置坐标轴断裂', description: '一个离群值会压扁其他所有柱子。数值轴断裂折叠 40–430 区间，使两者都清晰可读，并在整个绘图区标出断裂。' },
   },
+  'bar/08-rich-labels': {
+    ko: { title: '리치 텍스트 라벨', description: '라벨 format이 {value|42}{unit|k} 같은 템플릿을 돌려주면 rich가 각 구간의 크기, 굵기, 색, 둥근 배지를 정합니다. 배치와 내보내기도 스타일이 적용된 텍스트를 씁니다.' },
+    zh: { title: '富文本标签', description: '标签 format 返回 {value|42}{unit|k} 这样的模板，rich 为每段设置字号、字重、颜色和圆角徽标。布局和导出都使用带样式的文本。' },
+  },
   'box/01-boxplot': {
     ko: { title: '상자 그림', description: 'Rust에서 정렬 없이 선택 알고리즘으로 사분위수를 구하고, Tukey 수염, 샘플링된 이상값, 평균 마커를 표시합니다.' },
     zh: { title: '箱线图', description: '在 Rust 中通过选择算法（无需排序）计算四分位数，并显示 Tukey 须线、抽样异常值和均值标记。' },
@@ -144,6 +148,14 @@ const DEMO_TEXT: Record<string, Entry> = {
   'export/01-export': {
     ko: { title: '벡터 SVG, PDF, PNG 내보내기', description: 'exportChartSVG는 스테이징된 GPU 마크를 SVG 경로로, DOM 레이블을 <text>로 씁니다. 오른쪽: 내보낸 SVG.' },
     zh: { title: '矢量 SVG、PDF 和 PNG 导出', description: 'exportChartSVG 将已暂存的 GPU 图元写为 SVG 路径，并将 DOM 标签写为 <text>。右侧：导出的 SVG。' },
+  },
+  'export/02-watermark': {
+    ko: { title: '워터마크', description: 'setWatermark가 회전한 텍스트를 차트 위에 타일로 깔고, 라벨과 툴팁 아래에 둡니다. 이미지, SVG, PDF 내보내기에 포함됩니다(export: false면 화면에만 표시).' },
+    zh: { title: '水印', description: 'setWatermark 在图表上平铺旋转的文本，位于标签和提示框之下。图片、SVG 和 PDF 导出都包含水印（export: false 时仅在屏幕上显示）。' },
+  },
+  'export/03-loading': {
+    ko: { title: '로딩 표시', description: 'showLoading이 스피너와 상태 텍스트로 차트를 덮고, aria-busy를 설정하고 텍스트를 알립니다. hideLoading이 없앱니다. 렌더링으로는 사라지지 않습니다. 동작 줄이기 설정에서는 스피너가 멈춰 있습니다.' },
+    zh: { title: '加载提示', description: 'showLoading 用加载图标和状态文本遮住图表，设置 aria-busy 并播报文本；hideLoading 将其移除。渲染不会隐藏它。在减少动态效果设置下加载图标保持静止。' },
   },
   'graph/01-force-network': {
     ko: { title: '힘 기반 서비스 네트워크', description: 'Rust의 Barnes-Hut 힘 레이아웃(옥트리, O(n log n))입니다. 노드에 호버하면 메타데이터를, 클릭하면 1-hop 이웃을 강조하고, 더블클릭하면 초점을 맞춥니다. 드래그는 궤도 회전, Shift + 드래그는 이동, 휠은 확대/축소입니다.' },
@@ -296,6 +308,10 @@ const DEMO_TEXT: Record<string, Entry> = {
   'pie/06-nested': {
     ko: { title: '중첩 링', description: '독립된 링 두 개: 퍼센트, 접기, 라벨을 링마다 계산합니다. "Direct"는 두 링에 모두 있어 색과 범례 항목을 하나로 공유합니다.' },
     zh: { title: '嵌套环', description: '两个独立的环：百分比、折叠和标签按环分别计算。"Direct" 同时出现在两个环中，因此共享同一颜色和图例项。' },
+  },
+  'pie/07-rich-labels': {
+    ko: { title: '리치 텍스트 라벨 파이', description: 'label.formatter가 두 줄 템플릿을 돌려줍니다. 이름, 굵은 백분율, 흐린 값. 지시선 간격은 측정한 라벨 크기를 따릅니다.' },
+    zh: { title: '富文本标签饼图', description: 'label.formatter 返回两行模板：名称，以及加粗的百分比和浅色数值。引导线间距按测量的标签尺寸调整。' },
   },
   'react/01-react': {
     ko: { title: 'React <CharturboChart>', description: 'data / options는 참조로 비교합니다. 메모이즈해 두면 값이 바뀔 때만 차트가 다시 렌더링됩니다.' },

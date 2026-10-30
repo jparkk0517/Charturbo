@@ -7,15 +7,18 @@
  * - `theme` identity change -> `setTheme` only (data is not re-sent).
  * - `syncGroup` -> `setSync` when the key / flags change; `interactions` identity change ->
  *   re-binds `enableNodeInteractions`. `createOptions` is read once on mount.
+ * - `loading` -> `showLoading` / `hideLoading`; `watermark` -> `setWatermark` (identity change).
  * - Callbacks (`onHover`, ...) may be inline: the latest ones are called, nothing resubscribes.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { Charturbo } from '../sdk/charturbo';
+import type { ChartWatermarkOptions } from '../sdk/chart-watermark';
 import {
   CharturboChartBinding,
   type CharturboChartCallbacks,
   type CharturboChartData,
   type CharturboChartInteractions,
+  type CharturboChartLoading,
   type CharturboChartOptions,
   type CharturboChartSync,
   type CharturboChartTheme,
@@ -32,6 +35,10 @@ export interface UseCharturboChartOptions<T extends CharturboChartType = Chartur
   syncGroup?: CharturboChartSync;
   /** Tooltip / zoom / pan / touch / brush options; `false` = static chart (default: SDK defaults) */
   interactions?: CharturboChartInteractions;
+  /** `true` / `showLoading` options = loading indicator, falsy = hidden (rendering never hides it) */
+  loading?: CharturboChartLoading;
+  /** `setWatermark` options (absent / null = none) */
+  watermark?: ChartWatermarkOptions | null;
   /** `Charturbo.create` options (`autoResize` default true, `locale`, ...); read on mount */
   createOptions?: CharturboCreateOptions;
 }
@@ -100,7 +107,7 @@ export function useCharturboChart<T extends CharturboChartType>(props: UseChartu
 
   // Declared after the mount effect: they run after it in the same commit (and again after a
   // StrictMode remount), so the new binding always receives the current props
-  const { type, data, options, theme, syncGroup, interactions } = props;
+  const { type, data, options, theme, syncGroup, interactions, loading, watermark } = props;
   useEffect(() => {
     bindingRef.current?.setChart(type, data, options);
   }, [type, data, options]);
@@ -113,6 +120,12 @@ export function useCharturboChart<T extends CharturboChartType>(props: UseChartu
   useEffect(() => {
     bindingRef.current?.setInteractions(interactions);
   }, [interactions]);
+  useEffect(() => {
+    bindingRef.current?.setLoading(loading);
+  }, [loading]);
+  useEffect(() => {
+    bindingRef.current?.setWatermark(watermark);
+  }, [watermark]);
 
   const whenReady = useCallback(() => bindingRef.current?.ready ?? Promise.resolve(null), []);
   const getSdk = useCallback(() => bindingRef.current?.sdk ?? null, []);

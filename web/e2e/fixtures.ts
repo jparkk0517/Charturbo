@@ -1619,6 +1619,94 @@ export const FIXTURES: Fixture[] = [
         sdk.setCameraPose([0, 60, 110], [0, 8, 0]);
       }),
   },
+  {
+    // Rich text bar labels: two lines, mixed sizes, a rounded badge run
+    name: 'bar-rich-labels',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const labels = ['North', 'South', 'East', 'West'];
+        const values = [42, 31, 55, 27];
+        const growth = [12, -4, 18, 3];
+        sdk.renderBarChart(
+          labels.map((label, i) => ({ label, value: values[i], color: i === 0 ? firstColor(ctx) : undefined })),
+          {
+            title: 'Rich labels',
+            padding: { ...PADDING, top: 64 },
+            labels: {
+              format: (v, c) => `{v|${v}}{u|k}\n{${growth[c.category] >= 0 ? 'up' : 'down'}|${growth[c.category]}%}`,
+              rich: {
+                v: { fontSize: 15, fontWeight: 'bold' },
+                u: { fontSize: 10, color: '#64748b' },
+                up: { color: '#ffffff', backgroundColor: '#16a34a', padding: [1, 4], borderRadius: 6, fontSize: 10 },
+                down: { color: '#ffffff', backgroundColor: '#dc2626', padding: [1, 4], borderRadius: 6, fontSize: 10 },
+              },
+            },
+          }
+        );
+      }),
+  },
+  {
+    name: 'pie-rich-labels',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPieChart(
+          { labels: ['Search', 'Direct', 'Social', 'Email'], values: [420, 260, 180, 90] },
+          {
+            title: 'Rich pie labels',
+            labels: 'outside',
+            legend: false,
+            padding: { top: 36, right: 24, bottom: 24, left: 24 },
+            colors: ctx.params.color ? [ctx.params.color] : undefined,
+            label: {
+              formatter: (c) => `{n|${c.name}}\n{p|${c.percent.toFixed(0)}%} {v|${c.value}}`,
+              rich: { n: { fontWeight: 600 }, p: { fontSize: 13, fontWeight: 'bold', color: '#60a5fa' }, v: { fontSize: 10, color: '#94a3b8' } },
+            },
+          }
+        );
+      }),
+  },
+  {
+    name: 'treemap-rich-labels',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderTreemap(hierarchyData(), {
+          title: 'Rich treemap labels',
+          legend: false,
+          padding: { top: 60, right: 12, bottom: 12, left: 12 },
+          label: {
+            formatter: (c) => `{n|${c.name}}\n{v|${c.value}}`,
+            rich: { n: { fontWeight: 'bold' }, v: { fontSize: 10, fontStyle: 'italic' } },
+          },
+        });
+      }),
+  },
+  {
+    // Tiled rotated text over a bar chart (the full shot; the canvas shot hides DOM layers)
+    name: 'watermark-text',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderBarChart(
+          ['Q1', 'Q2', 'Q3', 'Q4'].map((label, i) => ({ label, value: [18, 24, 30, 36][i], color: i === 0 ? firstColor(ctx) : undefined })),
+          { title: 'Watermark', padding: PADDING }
+        );
+        sdk.setWatermark({ text: 'CONFIDENTIAL', fontSize: 14, fontWeight: 600, opacity: 0.25, gap: [60, 50], fontFamily: 'sans-serif' });
+      }),
+  },
+  {
+    // Spinner frozen (no animation) so the shot is stable
+    name: 'loading',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderLineChart(lineSeries(ctx, 200, 2, 11), { title: 'Loading', padding: PADDING, legend: false });
+        sdk.showLoading({ text: 'Loading data…' });
+        for (const el of ctx.card.querySelectorAll<HTMLElement>('.charturbo-sdk-loading-spinner')) el.style.animation = 'none';
+      }),
+  },
 ];
 
 function scatterData(): { x: Float32Array; y: Float32Array; clusters: Uint16Array } {

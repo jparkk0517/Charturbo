@@ -11,6 +11,7 @@ export type {
   CharturboChartCallbacks,
   CharturboChartData,
   CharturboChartInteractions,
+  CharturboChartLoading,
   CharturboChartOptions,
   CharturboChartSpecMap,
   CharturboChartSync,

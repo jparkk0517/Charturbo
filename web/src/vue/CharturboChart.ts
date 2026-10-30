@@ -10,12 +10,14 @@ import type { CharturboEventMap } from '../sdk/chart-events';
 import type {
   CharturboChartData,
   CharturboChartInteractions,
+  CharturboChartLoading,
   CharturboChartOptions,
   CharturboChartSync,
   CharturboChartTheme,
   CharturboChartType,
   CharturboCreateOptions,
 } from '../sdk/chart-binding';
+import type { ChartWatermarkOptions } from '../sdk/chart-watermark';
 import { useCharturboChart } from './useCharturboChart';
 
 /**
@@ -43,6 +45,10 @@ export const CharturboChart = defineComponent({
     theme: { type: [String, Object] as PropType<CharturboChartTheme>, default: undefined },
     syncGroup: { type: [String, Object] as PropType<CharturboChartSync>, default: undefined },
     interactions: { type: [Object, Boolean] as PropType<CharturboChartInteractions>, default: undefined },
+    /** `true` / `showLoading` options = loading indicator; falsy = hidden */
+    loading: { type: [Boolean, Object] as PropType<CharturboChartLoading>, default: undefined },
+    /** `setWatermark` options (absent / null = none) */
+    watermark: { type: Object as PropType<ChartWatermarkOptions | null>, default: undefined },
     createOptions: { type: Object as PropType<CharturboCreateOptions>, default: undefined },
     canvasClass: { type: String, default: undefined },
   },
@@ -72,6 +78,8 @@ export const CharturboChart = defineComponent({
       theme: () => props.theme,
       syncGroup: () => props.syncGroup,
       interactions: () => props.interactions,
+      loading: () => props.loading,
+      watermark: () => props.watermark,
       createOptions: props.createOptions,
       onReady: (s) => emit('ready', s),
       onError: (err) => emit('error', err),

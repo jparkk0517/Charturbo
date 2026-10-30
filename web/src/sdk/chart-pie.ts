@@ -10,6 +10,7 @@ import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import type { ChartAnimationInput } from './chart-animation';
 import { formatCount, getMessages, resolveLocale } from './i18n';
+import { measureRichText, parseRichText, renderRichText, validateRichLabel, type RichLabelOptions } from './chart-rich-text';
 
 export interface PieChartData {
   /** One name per value (legend, labels, tooltip, a11y table) */
@@ -51,6 +52,19 @@ const RING_GAP = 0.06;
 
 /** `'outside'`: name + percent with leader lines; `'percent'`: percent inside the slice. */
 export type PieLabelMode = 'outside' | 'percent' | 'none';
+
+/** Input of a pie `label.formatter` (one displayed slice). */
+export interface PieLabelContext {
+  /** Slice name (`otherLabel` for the folded slice) */
+  name: string;
+  value: number;
+  /** Share of the visible total (0-100) */
+  percent: number;
+  /** Displayed slice index */
+  index: number;
+  /** Ring name (multi-ring pies) */
+  ring?: string;
+}
 
 /**
  * Nightingale rose: the slice radius encodes the value, keeping each slice's area (ring area for
@@ -98,6 +112,12 @@ export interface PieChartOptions {
   /** Slices narrower than this many degrees get no label (legend / tooltip only; default 6) */
   labelMinAngle?: number;
   /**
+   * Label text of every shown slice label (outside and inside), e.g.
+   * `{ formatter: (c) => \`{name|${c.name}}\\n{pct|${c.percent.toFixed(1)}%}\`, rich: { name: { fontWeight: 600 } } }`
+   * (rich text, see chart-rich-text.ts). Default: name + percent outside, percent inside
+   */
+  label?: RichLabelOptions<PieLabelContext>;
+  /**
    * Donut center text: the visible total (the hovered slice while hovering). `true` (default for
    * donuts, not roses) captions it `Total` (in the chart language), a string replaces the caption, `false` hides it
    */
@@ -143,6 +163,7 @@ export interface PieChartMeta {
   donut: number;
   center: { show: boolean; caption: string };
   format?: (value: number) => string;
+  label?: RichLabelOptions<PieLabelContext>;
   colorInputs?: (ColorInput | null | undefined)[];
   otherColor?: ColorInput;
 }
@@ -204,6 +225,7 @@ export function pieMeta(data: PieChartData | PieRingsData, options?: PieChartOpt
     donut,
     center: { show: center !== false && donut > 0, caption: typeof center === 'string' ? center : m.total },
     format: options?.format,
+    ...(options?.label ? { label: options.label } : {}),
     colorInputs: options?.colors,
     otherColor: options?.otherColor,
   };
@@ -222,6 +244,32 @@ export function pieLabelSpace(labels: string[], otherLabel: string, mode: PieLab
   if (mode !== 'outside') return [0, 0];
   const longest = Math.max(otherLabel.length, ...labels.map((l) => l.length), 0);
   return [Math.min(180, Math.max(64, (longest + 7) * 6.5 + 28)), LABEL_LINE_PX + 4];
+}
+
+/** Base font of slice labels (rich runs inherit it). */
+const PIE_LABEL_BASE = { fontSize: 11, fontWeight: '400', fontFamily: 'sans-serif', lineHeight: LABEL_LINE_PX };
+
+/** Throws for a malformed `label` option (before the chart is replaced). */
+export function validatePieLabel(label: PieChartOptions['label']): void {
+  validateRichLabel(label, 'renderPieChart');
+}
+
+/**
+ * `[line px, side room]` of formatter labels, measured from each input's text with its share of
+ * the input total (the engine's displayed shares are not known yet); null without a formatter.
+ */
+function richPieLabelSpace(input: PieInput, meta: PieChartMeta): [number, number] | null {
+  const f = meta.label?.formatter;
+  if (!f) return null;
+  const total = input.values.reduce((a, v) => a + (v > 0 ? v : 0), 0);
+  let [w, h] = [0, LABEL_LINE_PX];
+  input.values.forEach((value, index) => {
+    const name = input.labels[index] ?? `#${index + 1}`;
+    const m = measureRichText(parseRichText(f({ name, value, percent: total > 0 ? (value / total) * 100 : 0, index }), meta.label?.rich), meta.label?.rich, PIE_LABEL_BASE);
+    w = Math.max(w, m.width);
+    h = Math.max(h, Math.ceil(m.height));
+  });
+  return [h, meta.labelMode === 'outside' ? Math.min(240, Math.max(64, Math.ceil(w) + 28)) : 0];
 }
 
 /** Label mode per ring: inner rings default to inside percents, the outermost to the chart's. */
@@ -262,7 +310,8 @@ export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData 
   const values = input.values;
   const packed = input.rings ? encodePieRings(input.rings, meta.donut, options) : { rings: new Float32Array(0), groups: new Uint32Array(0) };
   const max = maxSlicesCode(options?.maxSlices);
-  const [sx, sy] = pieLabelSpace(meta.inputLabels, meta.otherLabel, meta.labelMode);
+  const rich = richPieLabelSpace(input, meta);
+  const [sx, sy] = rich ? [rich[1], rich[0] + 4] : pieLabelSpace(meta.inputLabels, meta.otherLabel, meta.labelMode);
   return (
     backend.set_pie_chart?.(
       values,
@@ -273,7 +322,7 @@ export function sendPie(backend: WasmCharturboEngineBackend, data: PieChartData 
       meta.donut,
       LABEL_CODES[meta.labelMode] ?? 1,
       options?.labelMinAngle ?? NaN,
-      LABEL_LINE_PX,
+      rich ? rich[0] : LABEL_LINE_PX,
       sx,
       sy,
       options?.rose ? (ROSE_CODES[options.rose] ?? 0) : 0,
@@ -476,7 +525,20 @@ export class PieLabelLayer {
         el.style.top = `${y}px`;
         const pct = formatPercent(meta.percents[slice], locale);
         el.replaceChildren();
-        if (side === 0) {
+        const f = meta.label?.formatter;
+        if (f) {
+          const ring = pieRingName(meta, slice);
+          const ctx: PieLabelContext = { name: meta.names[slice] ?? '', value: meta.values[slice], percent: meta.percents[slice], index: slice, ...(ring !== undefined ? { ring } : {}) };
+          renderRichText(el, parseRichText(f(ctx), meta.label?.rich), meta.label?.rich);
+          Object.assign(el.style, {
+            left: `${side === 0 ? x : side > 0 ? x + 4 : x - 4}px`,
+            transform: side === 0 ? 'translate(-50%, -50%)' : side > 0 ? 'translate(0, -50%)' : 'translate(-100%, -50%)',
+            fontSize: '11px',
+            fontWeight: side === 0 ? '600' : '400',
+            lineHeight: `${LABEL_LINE_PX}px`,
+            color: side === 0 ? textOn(meta.colors[slice] ?? [0.5, 0.5, 0.5, 1]) : theme.textSecondary,
+          });
+        } else if (side === 0) {
           // Inside: percent only, contrast color on the slice fill
           el.textContent = pct;
           Object.assign(el.style, {

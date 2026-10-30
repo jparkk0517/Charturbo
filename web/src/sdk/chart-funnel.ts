@@ -23,6 +23,7 @@ import {
   type BusinessLabelLayer,
 } from './chart-business-util';
 import { formatCount, formatNumber, getMessages } from './i18n';
+import { measureRichText, parseRichText, renderRichText, type RichLabelOptions } from './chart-rich-text';
 
 export interface FunnelChartData {
   /** Stage names, first stage first */
@@ -33,6 +34,16 @@ export interface FunnelChartData {
 
 /** Which conversion the stage labels show (the tooltip always shows both). */
 export type FunnelConversion = 'first' | 'previous' | 'both' | 'none';
+
+/** Input of a funnel `label.formatter` (one stage). */
+export interface FunnelLabelContext {
+  stage: string;
+  value: number;
+  /** Percent of the first / previous stage (NaN = undefined) */
+  percentOfFirst: number;
+  percentOfPrevious: number;
+  index: number;
+}
 
 export interface FunnelChartOptions {
   /** `'vertical'` (default: first stage on top, labels to the right) or `'horizontal'` */
@@ -49,6 +60,8 @@ export interface FunnelChartOptions {
   conversion?: FunnelConversion;
   /** Stage labels (default: true) */
   labels?: boolean;
+  /** Text of stage labels (rich text `{style|text}` runs, see chart-rich-text.ts). Default: name, value, conversion */
+  label?: RichLabelOptions<FunnelLabelContext>;
   title?: string;
   /** Accessible name of the canvas */
   description?: string;
@@ -82,6 +95,7 @@ export interface FunnelChartMeta {
   locale?: string;
   /** Value label as given (absent = the localized default) */
   valueLabelInput?: string;
+  label?: RichLabelOptions<FunnelLabelContext>;
 }
 
 /** Hovered funnel stage with its conversion rates. */
@@ -116,6 +130,7 @@ export function funnelMeta(
     format,
     colorInputs: { color: options?.color, colors: options?.colors },
     valueLabelInput: options?.valueLabel,
+    ...(options?.label ? { label: options.label } : {}),
   };
   localizeFunnelMeta(meta, locale);
   return meta;
@@ -161,6 +176,12 @@ export function funnelLabelParts(meta: FunnelChartMeta, i: number, locale = meta
 /** Label room right of a vertical funnel (~6.5 px per character) / below a horizontal one. */
 export function funnelLabelSpace(meta: FunnelChartMeta): number {
   if (!meta.showLabels) return 0;
+  if (meta.label?.formatter) {
+    const base = { fontSize: 11, fontWeight: '400', fontFamily: 'sans-serif', lineHeight: 15 };
+    const boxes = meta.values.map((_, i) => measureRichText(parseRichText(meta.label!.formatter!(funnelLabelContext(meta, i)), meta.label?.rich), meta.label?.rich, base));
+    if (meta.orientation === 'horizontal') return Math.ceil(Math.max(0, ...boxes.map((b) => b.height))) + 10;
+    return Math.min(260, Math.max(64, Math.ceil(Math.max(0, ...boxes.map((b) => b.width)) + 20)));
+  }
   // Name, value and conversion lines (15 px each)
   if (meta.orientation === 'horizontal') return meta.conversion === 'none' ? 40 : 56;
   const longest = meta.values.reduce((w, _, i) => {
@@ -168,6 +189,11 @@ export function funnelLabelSpace(meta: FunnelChartMeta): number {
     return Math.max(w, Math.max(p.name.length, p.value.length + p.conversion.length + 3));
   }, 0);
   return Math.min(220, Math.max(64, longest * 6.5 + 20));
+}
+
+/** Formatter input of stage `i`. */
+function funnelLabelContext(meta: FunnelChartMeta, i: number): FunnelLabelContext {
+  return { stage: meta.stages[i] ?? '', value: meta.values[i], percentOfFirst: meta.pctFirst[i] ?? NaN, percentOfPrevious: meta.pctPrev[i] ?? NaN, index: i };
 }
 
 /** Uploads the funnel (`set_funnel_chart`) and reads the conversion rates back. */
@@ -329,6 +355,14 @@ export class FunnelLabelLayer implements BusinessLabelLayer {
         el = overlayDiv('charturbo-sdk-funnel-label', { fontSize: '11px', lineHeight: '15px', fontVariantNumeric: 'tabular-nums' });
         this.root.appendChild(el);
         this.labels.push(el);
+      }
+      if (meta.label?.formatter) {
+        renderRichText(el, parseRichText(meta.label.formatter(funnelLabelContext(meta, stage)), meta.label.rich), meta.label.rich);
+        el.style.color = theme.textSecondary;
+        el.style.display = 'block';
+        el.style.textAlign = horizontal ? 'center' : 'left';
+        placeAt(el, x, y, ha, va);
+        continue;
       }
       const p = funnelLabelParts(meta, stage, locale);
       el.replaceChildren();

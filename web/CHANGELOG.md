@@ -20,6 +20,25 @@
 - 키보드: 포커스된 포인트를 Shift + 화살표(보이는 범위의 1/50), Alt + 화살표(1/500)로 옮기고 라이브 영역에서 알립니다(영어 · 한국어 · 중국어).
 - 예제 `line/16-draggable` · `scatter/07-click-to-add`, fixture `edit-drag-line` · `edit-add-scatter`(스크립트 드래그 · 클릭), 문서 `guide/editing`. 막대 · 누적 / 밴드 / 희소 선 · 추가 y축 시리즈 편집은 아직 없습니다.
 
+### 추가 — 로딩 표시
+
+- `showLoading(options?)` / `hideLoading()` / `isLoading()`(ECharts `showLoading`): 차트 위에 마스크 · 스피너 · 상태 텍스트를 띄웁니다. 기본 텍스트는 영어 · 한국어 · 중국어(`'Loading…'` / `'로딩 중…'` / `'加载中…'`), 옵션 `text` · `maskColor` · `color` · `textColor` · `fontSize` · `spinner` · `delay`(ms). 렌더링으로는 사라지지 않으며 표시 중 다시 호출하면 옵션만 바뀝니다.
+- 컨테이너에 `aria-busy="true"`(숨기면 이전 값 복원), polite 라이브 영역 알림, `prefers-reduced-motion`이면 정지한 스피너. 기본 색 · 텍스트는 테마 · 언어 전환을 따르고, PNG / SVG / PDF 내보내기에는 들어가지 않습니다. 잘못된 옵션은 현재 표시를 바꾸기 전에 예외를 던집니다.
+- React / Vue `loading` prop(`true` · 옵션 · falsy), 공개 타입 `ChartLoadingOptions` · `CharturboChartLoading`. 예제 `export/03-loading`, fixture `loading`(스피너 고정), 문서 `guide/loading-watermark`.
+
+### 추가 — 리치 텍스트 라벨
+
+- ECharts `label.rich`처럼 `{name|text}` 템플릿과 `rich` 스타일(`color` · `fontSize` · `fontWeight` · `fontStyle` · `fontFamily` · `backgroundColor` · `padding` · `borderRadius` · `lineHeight` · `align`)로 라벨 하나에 여러 글꼴 · 색 · 배지를 섞습니다. `\n` 줄바꿈, `\{` · `\}` · `\\` 이스케이프, 닫히지 않거나 이름 없는 `{`는 일반 텍스트.
+- 막대(`labels.format` + `labels.rich`), 파이 · 트리맵 · 선버스트 · 생키 · 퍼널(`label.formatter` + `label.rich`). 막대 안쪽 맞춤 · `'auto'` 겹침 숨김, 파이 지시선 간격, 퍼널 라벨 공간이 스타일 적용 크기를 씁니다. 트리맵 헤더 띠는 첫 줄만 표시합니다.
+- DOM은 `textContent`로만 만들고, 스크린 리더에는 일반 텍스트가 전달되며, PNG / SVG / PDF 내보내기가 구간 스타일을 그대로 그립니다. `rich`가 없는 라벨은 이전과 같습니다. 잘못된 `rich`는 현재 차트를 바꾸기 전에 예외를 던집니다.
+- 예제 `bar/08-rich-labels` · `pie/07-rich-labels`, fixture `bar-rich-labels` · `pie-rich-labels` · `treemap-rich-labels`, 문서 `guide/rich-labels`.
+
+### 추가 — 워터마크
+
+- `setWatermark(options | null)` / `getWatermark()`: 텍스트 또는 이미지 워터마크를 플롯 위, 라벨 · 툴팁 아래에 타일로 그립니다. 옵션 `text` | `image`(+ `imageWidth` · `imageHeight`), `opacity`(기본 0.15), `rotate`(기본 30°, 양수 = 반시계), `fontSize` · `fontFamily` · `fontWeight` · `color`, `gap`(기본 `[80, 60]`), `repeat`(`false`면 가운데 하나), `export`(기본 `true`).
+- PNG / SVG / PDF 내보내기에 포함(`export: false`로 제외). 레이어는 `aria-hidden`이며 클릭을 통과시키고, 차트를 다시 렌더링해도 남으며 테마를 따릅니다. 이미지는 `crossOrigin = 'anonymous'`로 불러오며 불러오지 못하면 그리지 않습니다. 잘못된 옵션은 현재 워터마크를 바꾸기 전에 예외를 던집니다.
+- React / Vue `watermark` prop, 공개 타입 `ChartWatermarkOptions` · `ResolvedWatermark`. 예제 `export/02-watermark`, fixture `watermark-text`, 문서 `guide/loading-watermark`.
+
 ### 추가 — 극좌표계
 
 - `renderPolarChart(data, options)`: 극좌표계 차트(ECharts `polar` + `angleAxis` / `radiusAxis`). 각도 · 반지름 축은 각각 범주 또는 값 축이며 `min` / `max` / `splitNumber` / `labels` / `splitLine` / `name`을 받습니다. `startAngle`(12시 기준 시계 방향 각도, 파이 · 코드와 같음 — ECharts와 기준이 다름), `clockwise`, `innerRadius`, `barCategoryGap` / `barGap`.

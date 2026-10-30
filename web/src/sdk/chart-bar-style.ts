@@ -10,6 +10,7 @@ import { parseColor, parseOptionalColor, type ColorInput, type RgbaTuple } from 
 import { createFormatter } from './chart-format';
 import { labelRotation } from './chart-labels';
 import { textOn } from './chart-pie';
+import { measureRichText, parseRichText, renderRichText, validateRichStyles, type RichTextStyles } from './chart-rich-text';
 import type { CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 
 export type BarOrientation = 'vertical' | 'horizontal';
@@ -57,6 +58,12 @@ export interface BarLabelOptions {
    * `'auto'` collision hiding use the rotated text's bounding box
    */
   rotate?: number;
+  /**
+   * Rich text styles: a `format` function may return a template like `'{big|42}{unit|k}'`
+   * whose `{name|text}` runs use `rich[name]` (see chart-rich-text.ts). Without `rich` the text
+   * is shown as typed
+   */
+  rich?: RichTextStyles;
 }
 
 /** Error of one value: symmetric `±e`, or `[minus, plus]`; `null` / `NaN` = none. */
@@ -99,6 +106,7 @@ interface ResolvedBarLabels {
   color?: RgbaTuple;
   /** Degrees, positive = anticlockwise (0 = upright) */
   rotate: number;
+  rich?: RichTextStyles;
 }
 
 /** Bar styling state kept in the chart meta. */
@@ -126,12 +134,14 @@ export function resolveBarLabels(opt: boolean | 'auto' | BarLabelOptions | undef
   if (show === false) return null;
   // An invalid spec throws here (render call), like axis specs
   if (typeof o.format === 'string') createFormatter(o.format);
+  validateRichStyles(o.rich);
   return {
     mode: show === 'auto' ? 2 : 1,
     position: o.position && o.position in POSITION_CODES ? o.position : 'outside',
     format: o.format,
     color: parseOptionalColor(o.color),
     rotate: labelRotation(o.rotate),
+    ...(o.rich ? { rich: o.rich } : {}),
   };
 }
 
@@ -284,6 +294,11 @@ export function rotatedBox(w: number, h: number, deg: number): [number, number] 
 
 /** Box of one label text (rotated labels: the rotated text's bounding box). */
 function labelBox(state: BarStyleState, text: string, fontFamily: string): [number, number] {
+  const rich = state.labels?.rich;
+  if (rich) {
+    const m = measureRichText(parseRichText(text, rich), rich, { fontSize: BAR_LABEL_FONT_PX, fontWeight: '500', fontFamily, lineHeight: BAR_LABEL_LINE_PX });
+    return rotatedBox(m.width, m.height, state.labels?.rotate ?? 0);
+  }
   return rotatedBox(measureLabel(text, fontFamily), BAR_LABEL_LINE_PX, state.labels?.rotate ?? 0);
 }
 
@@ -298,7 +313,7 @@ export function tallestLabel(state: BarStyleState, fontFamily: string): number {
 }
 
 /**
- * Uploads label options + measured text sizes (`set_bar_labels`; rotated labels: one rotated box
+ * Uploads label options + measured text sizes (`set_bar_labels`; rotated / rich labels: one box
  * per label, `set_bar_label_boxes`); mode 0 clears them.
  */
 export function sendBarLabels(backend: WasmCharturboEngineBackend, state: BarStyleState, fontFamily: string): void {
@@ -307,7 +322,7 @@ export function sendBarLabels(backend: WasmCharturboEngineBackend, state: BarSty
     backend.set_bar_labels?.(0, 0, new Float32Array(0), 0, NaN);
     return;
   }
-  if (l.rotate !== 0 && backend.set_bar_label_boxes) {
+  if ((l.rotate !== 0 || l.rich) && backend.set_bar_label_boxes) {
     const boxes = state.texts.map((t) => (t ? labelBox(state, t, fontFamily) : [NaN, NaN]));
     const [widths, heights] = [Float32Array.from(boxes, (b) => b[0]), Float32Array.from(boxes, (b) => b[1])];
     backend.set_bar_label_boxes(l.mode, POSITION_CODES[l.position], widths, heights, NaN);
@@ -375,7 +390,8 @@ export class BarLabelLayer {
         this.labels.push(el);
       }
       used++;
-      el.textContent = text;
+      if (this.state.labels?.rich) renderRichText(el, parseRichText(text, this.state.labels.rich), this.state.labels.rich);
+      else el.textContent = text;
       el.style.transform = transform;
       const inside = a[at + 3] !== 0;
       el.style.display = 'block';
