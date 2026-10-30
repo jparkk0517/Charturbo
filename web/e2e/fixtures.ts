@@ -1493,6 +1493,28 @@ export const FIXTURES: Fixture[] = [
         sdk.finishAnimation();
       }),
   },
+  {
+    // Lit 3D scene without textures: guards the mesh shader against untextured regressions
+    name: 'scene-untextured',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.setGraphVisible(false);
+        sdk.setRigidPhysics(false);
+        sdk.addPlane({ position: [0, -1, 0], scale: [160, 2, 110], color: [0.2, 0.24, 0.32, 1], roughness: 0.9 });
+        sdk.addBox({ position: [-40, 9, 0], rotation: [0, 0.6, 0], scale: [18, 18, 18], color: [0.25, 0.6, 1, 1], roughness: 0.5 });
+        sdk.addSphere({ position: [0, 10, 5], scale: [20, 20, 20], color: [0.85, 0.55, 0.25, 1], roughness: 0.3, metallic: 0.4 });
+        sdk.addCylinder({ position: [40, 10, 0], scale: [14, 20, 14], color: [0.4, 0.85, 0.5, 1], roughness: 0.6 });
+        sdk.setLighting({
+          ambientIntensity: 0.3,
+          directionalDirection: [-0.4, -1, -0.3],
+          directionalIntensity: 0.9,
+          pointPosition: [30, 40, 40],
+          pointIntensity: 0.6,
+        });
+        sdk.setCameraPose([0, 60, 110], [0, 8, 0]);
+      }),
+  },
 ];
 
 function scatterData(): { x: Float32Array; y: Float32Array; clusters: Uint16Array } {
