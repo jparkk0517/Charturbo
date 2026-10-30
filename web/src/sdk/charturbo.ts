@@ -1322,7 +1322,55 @@ export interface ObjectTransformDescriptor {
   parentId?: number | null;
 }
 
-export interface ObjectMaterialDescriptor {
+export type Vec2Tuple = [number, number];
+
+/** Image sources `loadTexture` decodes (strings and `URL`s are fetched). */
+export type TextureSource =
+  | string
+  | URL
+  | Blob
+  | ImageBitmap
+  | HTMLImageElement
+  | HTMLCanvasElement
+  | OffscreenCanvas
+  | ImageData;
+
+export interface LoadTextureOptions {
+  /** Build a mip chain (default: true) */
+  mipmaps?: boolean;
+  /** Aborts the fetch / decode; the promise rejects with an `AbortError` */
+  signal?: AbortSignal;
+}
+
+export interface DataTextureOptions {
+  /** Build a mip chain (default: true) */
+  mipmaps?: boolean;
+}
+
+/** A texture the SDK knows about (`getTextures`). `src` is set for string / `URL` sources only. */
+export interface TextureRecord {
+  id: number;
+  width: number;
+  height: number;
+  src: string | null;
+}
+
+/**
+ * Texture mapping shared by materials, primitives and custom meshes. UVs: u runs left to right
+ * and v top to bottom (v = 0 is the top row of the image), so images are not flipped.
+ */
+export interface ObjectMapDescriptor {
+  /** Texture id from `loadTexture` / `createDataTexture`; `null` (or 0) clears the map */
+  map?: number | null;
+  /** UV repeat [u, v] (default: [1, 1]); textures wrap */
+  mapRepeat?: Vec2Tuple;
+  /** UV offset [u, v] (default: [0, 0]) */
+  mapOffset?: Vec2Tuple;
+  /** Fragments whose texture-modulated alpha is below this are discarded (default: 0.5 with a map, else 0) */
+  alphaTest?: number;
+}
+
+export interface ObjectMaterialDescriptor extends ObjectMapDescriptor {
   color?: RgbaTuple;
   metallic?: number;
   roughness?: number;
@@ -1338,7 +1386,7 @@ export interface ObjectPhysicsDescriptor {
   restitution?: number;
 }
 
-export interface PrimitiveObjectDescriptor {
+export interface PrimitiveObjectDescriptor extends ObjectMapDescriptor {
   name?: string;
   shape: PrimitiveShape;
   position?: Vec3Tuple;
@@ -1357,10 +1405,12 @@ export interface PrimitiveObjectDescriptor {
   parentId?: number | null;
 }
 
-export interface CustomMeshObjectDescriptor {
+export interface CustomMeshObjectDescriptor extends ObjectMapDescriptor {
   name?: string;
   positions: Float32Array | number[];
   normals?: Float32Array | number[];
+  /** Two floats (u, v) per vertex; missing uvs are projected planarly along the two largest axes */
+  uvs?: ArrayLike<number>;
   indices: Uint32Array | number[];
   position?: Vec3Tuple;
   rotation?: Vec3Tuple;
@@ -1403,6 +1453,7 @@ export interface SceneObjectRecord {
     positions: number[];
     normals: number[];
     indices: number[];
+    uvs?: number[];
   };
   position: Vec3Tuple;
   rotation: Vec3Tuple;
@@ -1417,9 +1468,25 @@ export interface SceneObjectRecord {
   mass: number;
   restitution: number;
   parentId: number | null;
+  /** Texture id (0 / null = none) */
+  map: number | null;
+  mapRepeat: Vec2Tuple;
+  mapOffset: Vec2Tuple;
+  /** Effective alpha cutoff (0.5 by default with a map, else 0) */
+  alphaTest: number;
+}
+
+/** A texture an exported scene references (`exportScene`); `src` is null for data / canvas textures. */
+export interface SceneTextureDescriptor {
+  id: number;
+  src: string | null;
+  width: number;
+  height: number;
 }
 
 export interface SceneDescriptor {
+  /** Textures the objects' `map` ids refer to (`exportScene`; `loadSceneWithTextures` reloads those with a `src`) */
+  textures?: SceneTextureDescriptor[];
   lighting?: SceneLightingDescriptor;
   helpers?: SceneHelpersDescriptor;
   rigidPhysics?: {
@@ -1586,6 +1653,27 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     roughness: number,
     emissive: number
   ): boolean;
+  /** Largest texture edge in texels */
+  max_texture_size?(): number;
+  /** Uploads a decoded bitmap (straight alpha); returns the texture id */
+  create_texture_from_bitmap?(bitmap: ImageBitmap, mipmaps: boolean): number;
+  create_texture_rgba8?(width: number, height: number, rgba: Uint8Array, mipmaps: boolean): number;
+  dispose_texture?(textureId: number): boolean;
+  texture_count?(): number;
+  texture_bytes?(): number;
+  set_object_map?(
+    objectId: number,
+    textureId: number,
+    repeatU: number,
+    repeatV: number,
+    offsetU: number,
+    offsetV: number,
+    alphaTest: number
+  ): boolean;
+  /** `[texture id, repeat u, repeat v, offset u, offset v, alpha test]`, or empty for an unknown object */
+  get_object_map?(objectId: number): Float32Array;
+  /** Two floats (u, v) per vertex, or empty to fall back to planar projection */
+  set_custom_mesh_uvs?(objectId: number, uvs: Float32Array): boolean;
   set_object_physics?(
     objectId: number,
     bodyType: number,
@@ -2255,6 +2343,67 @@ const EMPTY_U16 = new Uint16Array(0);
 const EMPTY_U32 = new Uint32Array(0);
 const EMPTY_F64 = new Float64Array(0);
 
+/** Alpha cutoff of a textured object unless `alphaTest` says otherwise */
+const DEFAULT_ALPHA_TEST = 0.5;
+
+/** Map state of a scene object from a descriptor (`map` 0 / null / undefined = no texture). */
+function resolveObjectMap(desc: ObjectMapDescriptor): Pick<SceneObjectRecord, 'map' | 'mapRepeat' | 'mapOffset' | 'alphaTest'> {
+  const map = desc.map ? desc.map : null;
+  return {
+    map,
+    mapRepeat: desc.mapRepeat ? [desc.mapRepeat[0], desc.mapRepeat[1]] : [1, 1],
+    mapOffset: desc.mapOffset ? [desc.mapOffset[0], desc.mapOffset[1]] : [0, 0],
+    alphaTest: desc.alphaTest ?? (map !== null ? DEFAULT_ALPHA_TEST : 0),
+  };
+}
+
+/** True when a record carries any texture state worth sending to the engine. */
+function hasObjectMap(rec: SceneObjectRecord): boolean {
+  return (
+    rec.map !== null ||
+    rec.alphaTest !== 0 ||
+    rec.mapRepeat[0] !== 1 ||
+    rec.mapRepeat[1] !== 1 ||
+    rec.mapOffset[0] !== 0 ||
+    rec.mapOffset[1] !== 0
+  );
+}
+
+/** `AbortError` for a signal that fired (its own reason when that already is one). */
+function textureAbortError(signal?: AbortSignal): Error {
+  const reason: unknown = signal?.reason;
+  if (reason instanceof Error && reason.name === 'AbortError') return reason;
+  return new DOMException('loadTexture: aborted', 'AbortError');
+}
+
+/** `{ width, height }` of image sources whose size is known before decoding. */
+function knownImageSize(source: unknown): { width: number; height: number } | null {
+  const s = source as { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number };
+  const width = s.naturalWidth || s.width;
+  const height = s.naturalHeight || s.height;
+  return typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0 ? { width, height } : null;
+}
+
+function isImageData(source: unknown): source is ImageData {
+  const s = source as ImageData;
+  return typeof source === 'object' && source !== null && s.data instanceof Uint8ClampedArray && typeof s.width === 'number' && typeof s.height === 'number';
+}
+
+/** Downscaled size keeping the aspect ratio so the longest edge is `max` texels. */
+function fitTextureSize(width: number, height: number, max: number): { width: number; height: number } {
+  const scale = max / Math.max(width, height);
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+/** Prefixes an engine failure with the SDK method name (once). */
+function textureError(fn: string, cause: unknown): Error {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (message.startsWith(`${fn}:`)) return cause instanceof Error ? cause : new Error(message);
+  const err = new Error(`${fn}: ${message}`);
+  (err as Error & { cause?: unknown }).cause = cause;
+  return err;
+}
+
 /** `set_chart_y_domain` autoscale codes. */
 const Y_AUTOSCALE_CODES: Record<NonNullable<LineYDomainOptions['autoscale']>, number> = { all: 0, visible: 1, none: 2 };
 
@@ -2713,6 +2862,7 @@ export class Charturbo {
   private disposed = false;
   private forceOptions: ForceOptions = { ...DEFAULT_SDK_FORCE_OPTIONS };
   private objectRecords = new Map<number, SceneObjectRecord>();
+  private textureRecords = new Map<number, TextureRecord>();
   private nodeMetadataMap = new Map<number, NodeMetadata>();
   private lightingState: Required<SceneLightingDescriptor> = {
     ambientIntensity: 0.32,
@@ -3058,16 +3208,18 @@ export class Charturbo {
   }
 
   /**
-   * Procedural 3D Torus mesh generator for testing/spawning custom indexed meshes.
+   * Procedural 3D Torus mesh generator for testing/spawning custom indexed meshes. The result
+   * (including `uvs`) can be spread into `addCustomMesh`.
    */
   static createTorusMesh(
     majorRadius = 8,
     minorRadius = 2.6,
     radialSegments = 18,
     tubularSegments = 32
-  ): { positions: Float32Array; normals: Float32Array; indices: Uint32Array } {
+  ): { positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array } {
     const positions: number[] = [];
     const normals: number[] = [];
+    const uvs: number[] = [];
     const indices: number[] = [];
 
     for (let j = 0; j <= radialSegments; j++) {
@@ -3089,6 +3241,8 @@ export class Charturbo {
         const ny = sinV;
         const nz = cosV * sinU;
         normals.push(nx, ny, nz);
+        // u wraps the ring (mirrored so the texture reads left to right from outside), v the tube
+        uvs.push(1 - i / tubularSegments, j / radialSegments);
       }
     }
 
@@ -3105,6 +3259,7 @@ export class Charturbo {
     return {
       positions: new Float32Array(positions),
       normals: new Float32Array(normals),
+      uvs: new Float32Array(uvs),
       indices: new Uint32Array(indices),
     };
   }
@@ -5149,6 +5304,153 @@ export class Charturbo {
     return this.graphVisibleState;
   }
 
+  // ---------------------------------------------------------------------------
+  // Textures (3D scene materials)
+  // ---------------------------------------------------------------------------
+
+  /** Largest texture edge in texels the GPU allows (capped at 4096); 0 when the engine has no texture support. */
+  get maxTextureSize(): number {
+    return this.backend.max_texture_size?.() ?? 0;
+  }
+
+  /**
+   * Decodes an image and uploads it as a texture; resolves to its id for the `map` field of
+   * `addBox` / `addPrimitive` / `addCustomMesh` / `setObjectMaterial`. Strings and `URL`s are fetched
+   * (CORS applies); other sources are decoded with straight alpha and the browser's default color
+   * handling. Images whose longest edge exceeds `maxTextureSize` are downscaled keeping the aspect
+   * ratio. `ImageData` is uploaded as is. Rejects with an `AbortError` when `signal` fires and with
+   * `loadTexture: cross-origin image` for tainted sources.
+   */
+  async loadTexture(source: TextureSource, options: LoadTextureOptions = {}): Promise<number> {
+    const fn = 'loadTexture';
+    const { mipmaps = true, signal } = options;
+    const b = this.backend;
+    if (isImageData(source)) {
+      if (!b.create_texture_rgba8) throw new Error(`${fn}: engine has no texture support (create_texture_rgba8)`);
+      if (signal?.aborted) throw textureAbortError(signal);
+      const max = this.maxTextureSize;
+      if (max > 0 && Math.max(source.width, source.height) > max) {
+        throw new Error(`${fn}: ImageData ${source.width}x${source.height} exceeds the maximum texture size ${max}`);
+      }
+      const rgba = new Uint8Array(source.data.buffer, source.data.byteOffset, source.data.byteLength);
+      return this.registerTexture(fn, source.width, source.height, null, () => b.create_texture_rgba8!(source.width, source.height, rgba, mipmaps));
+    }
+    if (!b.create_texture_from_bitmap) throw new Error(`${fn}: engine has no texture support (create_texture_from_bitmap)`);
+
+    let src: string | null = null;
+    let input: Exclude<TextureSource, string | URL | ImageData>;
+    if (typeof source === 'string' || source instanceof URL) {
+      src = typeof source === 'string' ? source : source.href;
+      try {
+        const res = await fetch(src, { signal });
+        if (!res.ok) throw new Error(`${fn}: failed to fetch ${src} (${res.status})`);
+        input = await res.blob();
+      } catch (e) {
+        if (signal?.aborted) throw textureAbortError(signal);
+        throw e instanceof Error && e.message.startsWith(`${fn}:`) ? e : textureError(fn, `failed to fetch ${src} (${e instanceof Error ? e.message : String(e)})`);
+      }
+    } else {
+      input = source;
+    }
+    if (signal?.aborted) throw textureAbortError(signal);
+
+    const max = this.maxTextureSize;
+    const decodeOptions = {
+      premultiplyAlpha: 'none',
+      colorSpaceConversion: 'default',
+      imageOrientation: 'from-image',
+    } as const;
+    const decode = async (image: ImageBitmapSource, size: { width: number; height: number } | null): Promise<ImageBitmap> => {
+      try {
+        return await createImageBitmap(
+          image,
+          size ? { ...decodeOptions, resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'high' } : decodeOptions
+        );
+      } catch (e) {
+        if ((e as { name?: string } | null)?.name === 'SecurityError') throw new Error(`${fn}: cross-origin image`);
+        throw textureError(fn, `could not decode image (${e instanceof Error ? e.message : String(e)})`);
+      }
+    };
+    const known = knownImageSize(input);
+    let bitmap = await decode(input, known && max > 0 && Math.max(known.width, known.height) > max ? fitTextureSize(known.width, known.height, max) : null);
+    try {
+      if (!known && max > 0 && Math.max(bitmap.width, bitmap.height) > max) {
+        // Size only known after decoding (Blob): shrink the decoded bitmap
+        const full = bitmap;
+        try {
+          bitmap = await decode(full, fitTextureSize(full.width, full.height, max));
+        } finally {
+          full.close();
+        }
+      }
+      if (signal?.aborted) throw textureAbortError(signal);
+      const ready = bitmap;
+      return this.registerTexture(fn, ready.width, ready.height, src, () => b.create_texture_from_bitmap!(ready, mipmaps));
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  /**
+   * Creates a texture from raw RGBA8 texels (straight alpha, row-major, first row at the top of the
+   * image); returns its id. Handy for procedural textures such as checkerboards. Throws when
+   * `rgba.length` is not `width * height * 4`.
+   */
+  createDataTexture(
+    width: number,
+    height: number,
+    rgba: Uint8Array | Uint8ClampedArray,
+    options: DataTextureOptions = {}
+  ): number {
+    const fn = 'createDataTexture';
+    const b = this.backend;
+    if (!b.create_texture_rgba8) throw new Error(`${fn}: engine has no texture support (create_texture_rgba8)`);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+      throw new Error(`${fn}: width and height must be positive integers`);
+    }
+    if (rgba.length !== width * height * 4) {
+      throw new Error(`${fn}: rgba must hold width * height * 4 = ${width * height * 4} bytes (got ${rgba.length})`);
+    }
+    const bytes = rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength);
+    return this.registerTexture(fn, width, height, null, () => b.create_texture_rgba8!(width, height, bytes, options.mipmaps ?? true));
+  }
+
+  /** Runs an engine upload and records the texture; engine errors gain the method prefix. */
+  private registerTexture(fn: string, width: number, height: number, src: string | null, upload: () => number): number {
+    if (this.disposed) throw new Error(`${fn}: Charturbo is disposed`);
+    let id: number;
+    try {
+      id = upload();
+    } catch (e) {
+      throw textureError(fn, e);
+    }
+    this.textureRecords.set(id, { id, width, height, src });
+    return id;
+  }
+
+  /**
+   * Frees a texture. Objects that used it render untextured (white) from then on. Returns false
+   * for an unknown id.
+   */
+  disposeTexture(textureId: number): boolean {
+    if (!this.backend.dispose_texture) throw new Error('disposeTexture: engine has no texture support (dispose_texture)');
+    const ok = this.backend.dispose_texture(textureId);
+    this.textureRecords.delete(textureId);
+    for (const rec of this.objectRecords.values()) {
+      if (rec.map !== textureId) continue;
+      rec.map = null;
+      // Untextured again: the texture cutoff goes with it
+      rec.alphaTest = 0;
+      this.sendObjectMap(rec);
+    }
+    return ok;
+  }
+
+  /** Textures created through this SDK, by id (`src` is set for string / `URL` sources only). */
+  getTextures(): TextureRecord[] {
+    return Array.from(this.textureRecords.values(), (t) => ({ ...t }));
+  }
+
   addPrimitive(desc: PrimitiveObjectDescriptor): number {
     const pos: Vec3Tuple = desc.position ? [...desc.position] : [0, 0, 0];
     const rot: Vec3Tuple = desc.rotation ? [...desc.rotation] : [0, 0, 0];
@@ -5190,6 +5492,7 @@ export class Charturbo {
       mass: desc.mass ?? Math.max(0.2, Math.abs(scale[0] * scale[1] * scale[2]) * 0.01),
       restitution: desc.restitution ?? 0.55,
       parentId: desc.parentId ?? null,
+      ...resolveObjectMap(desc),
     };
 
     this.objectRecords.set(id, record);
@@ -5228,6 +5531,10 @@ export class Charturbo {
       : EMPTY_F32;
     const idxArr =
       desc.indices instanceof Uint32Array ? desc.indices : new Uint32Array(desc.indices);
+    const uvArr = desc.uvs ? (desc.uvs instanceof Float32Array ? desc.uvs : Float32Array.from(desc.uvs)) : EMPTY_F32;
+    if (uvArr.length !== 0 && uvArr.length !== (posArr.length / 3) * 2) {
+      throw new Error('addCustomMesh: uvs length must be 2 per vertex or empty');
+    }
 
     const pos: Vec3Tuple = desc.position ? [...desc.position] : [0, 0, 0];
     const rot: Vec3Tuple = desc.rotation ? [...desc.rotation] : [0, 0, 0];
@@ -5252,6 +5559,8 @@ export class Charturbo {
         color[3],
         encodeBodyType(bodyType)
       ) ?? this.objectRecords.size + 1;
+    // Without uvs the engine projects the mesh planarly
+    if (uvArr.length !== 0) this.backend.set_custom_mesh_uvs?.(id, uvArr);
 
     const record: SceneObjectRecord = {
       id,
@@ -5261,6 +5570,7 @@ export class Charturbo {
         positions: Array.from(posArr),
         normals: Array.from(normArr),
         indices: Array.from(idxArr),
+        ...(uvArr.length !== 0 ? { uvs: Array.from(uvArr) } : {}),
       },
       position: pos,
       rotation: rot,
@@ -5275,6 +5585,7 @@ export class Charturbo {
       mass: desc.mass ?? 2.0,
       restitution: desc.restitution ?? 0.6,
       parentId: desc.parentId ?? null,
+      ...resolveObjectMap(desc),
     };
 
     this.objectRecords.set(id, record);
@@ -5305,6 +5616,7 @@ export class Charturbo {
       record.roughness,
       record.emissive
     );
+    if (hasObjectMap(record)) this.sendObjectMap(record);
     this.backend.set_object_physics?.(
       record.id,
       encodeBodyType(record.bodyType),
@@ -5384,8 +5696,22 @@ export class Charturbo {
     if (mat.metallic !== undefined) rec.metallic = mat.metallic;
     if (mat.roughness !== undefined) rec.roughness = mat.roughness;
     if (mat.emissive !== undefined) rec.emissive = mat.emissive;
+    const mapChanged =
+      mat.map !== undefined || mat.mapRepeat !== undefined || mat.mapOffset !== undefined || mat.alphaTest !== undefined;
+    if (mat.map !== undefined) {
+      const next = mat.map ? mat.map : null;
+      // The default cutoff follows the map unless alphaTest is given or was customised
+      if (mat.alphaTest === undefined && (next !== null) !== (rec.map !== null)) {
+        if (next !== null && rec.alphaTest === 0) rec.alphaTest = DEFAULT_ALPHA_TEST;
+        else if (next === null && rec.alphaTest === DEFAULT_ALPHA_TEST) rec.alphaTest = 0;
+      }
+      rec.map = next;
+    }
+    if (mat.mapRepeat) rec.mapRepeat = [mat.mapRepeat[0], mat.mapRepeat[1]];
+    if (mat.mapOffset) rec.mapOffset = [mat.mapOffset[0], mat.mapOffset[1]];
+    if (mat.alphaTest !== undefined) rec.alphaTest = mat.alphaTest;
 
-    return (
+    const ok =
       this.backend.set_object_material?.(
         objectId,
         rec.color[0],
@@ -5395,6 +5721,21 @@ export class Charturbo {
         rec.metallic,
         rec.roughness,
         rec.emissive
+      ) ?? true;
+    return mapChanged ? this.sendObjectMap(rec) && ok : ok;
+  }
+
+  /** Pushes a record's texture, UV transform and alpha cutoff to the engine. */
+  private sendObjectMap(rec: SceneObjectRecord): boolean {
+    return (
+      this.backend.set_object_map?.(
+        rec.id,
+        rec.map ?? 0,
+        rec.mapRepeat[0],
+        rec.mapRepeat[1],
+        rec.mapOffset[0],
+        rec.mapOffset[1],
+        rec.alphaTest
       ) ?? true
     );
   }
@@ -6302,6 +6643,7 @@ export class Charturbo {
     this.a11y.dispose();
     this.chartMode = null;
     this.chartMeta = null;
+    this.textureRecords.clear();
     this.backend.free?.();
   }
 
@@ -6985,7 +7327,13 @@ export class Charturbo {
     }
 
     const createdIds: number[] = [];
-    for (const item of descriptor.objects) {
+    for (const raw of descriptor.objects) {
+      let item = raw;
+      // Texture ids are engine-local: live ids are kept, unknown ones are dropped
+      if (item.map && !this.textureRecords.has(item.map)) {
+        console.warn(`loadScene: unknown texture id ${item.map}; its map is dropped (loadSceneWithTextures reloads textures that have a src)`);
+        item = { ...item, map: null, alphaTest: 0 };
+      }
       if (item.kind === 'primitive') {
         createdIds.push(this.addPrimitive(item));
       } else {
@@ -6996,7 +7344,57 @@ export class Charturbo {
   }
 
   /**
-   * Exports the current 3D Scene (objects, transforms, materials, physics, lighting, helpers) as a serializable `SceneDescriptor`.
+   * `loadScene` for a scene exported in another session: textures in `descriptor.textures` that
+   * have a `src` are loaded first (a live texture with the same `src` is reused) and the objects'
+   * `map` ids are remapped to the new ids. Textures that fail to load, and textures without a `src`
+   * that no live data texture of the same id and size replaces, are dropped from the objects with a console warning.
+   */
+  async loadSceneWithTextures(descriptor: SceneDescriptor): Promise<number[]> {
+    const idMap = new Map<number, number | null>();
+    for (const t of descriptor.textures ?? []) {
+      if (!t.src) {
+        // Pixel data is not exported: only a live data texture of the same size can stand in
+        const same = this.textureRecords.get(t.id);
+        if (!same || same.src !== null || same.width !== t.width || same.height !== t.height) {
+          idMap.set(t.id, null);
+          console.warn(`loadSceneWithTextures: texture ${t.id} has no src and cannot be restored; its map is dropped`);
+        }
+        continue;
+      }
+      const live = Array.from(this.textureRecords.values()).find((r) => r.src === t.src);
+      if (live) {
+        idMap.set(t.id, live.id);
+        continue;
+      }
+      try {
+        idMap.set(t.id, await this.loadTexture(t.src));
+      } catch (e) {
+        // An unloadable texture must not fall back to an unrelated live texture with the same id
+        idMap.set(t.id, null);
+        console.warn(`loadSceneWithTextures: could not load texture ${t.id} (${t.src}): ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    const objects = descriptor.objects.map((item) => {
+      const mapped = item.map ? idMap.get(item.map) : undefined;
+      if (mapped === undefined) return item;
+      return mapped === null ? { ...item, map: null, alphaTest: 0 } : { ...item, map: mapped };
+    });
+    return this.loadScene({ ...descriptor, objects });
+  }
+
+  private exportObjectMap(rec: SceneObjectRecord) {
+    return {
+      map: rec.map,
+      mapRepeat: [...rec.mapRepeat] as Vec2Tuple,
+      mapOffset: [...rec.mapOffset] as Vec2Tuple,
+      alphaTest: rec.alphaTest,
+    };
+  }
+
+  /**
+   * Exports the current 3D Scene (objects, transforms, materials, physics, lighting, helpers) as a
+   * serializable `SceneDescriptor`. Textures the objects use are listed in `textures` (ids, size and
+   * `src` for fetched images); pixel data is not exported.
    */
   exportScene(): SceneDescriptor {
     const objects = this.getObjects().map((rec) => {
@@ -7018,6 +7416,7 @@ export class Charturbo {
           mass: rec.mass,
           restitution: rec.restitution,
           parentId: rec.parentId,
+          ...this.exportObjectMap(rec),
         };
       }
       return {
@@ -7039,10 +7438,20 @@ export class Charturbo {
         mass: rec.mass,
         restitution: rec.restitution,
         parentId: rec.parentId,
+        ...this.exportObjectMap(rec),
+        ...(rec.customMesh?.uvs ? { uvs: [...rec.customMesh.uvs] } : {}),
       };
     });
 
+    // Only textures the objects reference travel with the scene
+    const textures: SceneTextureDescriptor[] = [];
+    for (const id of new Set(this.getObjects().map((rec) => rec.map))) {
+      const t = id === null ? undefined : this.textureRecords.get(id);
+      if (t) textures.push({ id: t.id, src: t.src, width: t.width, height: t.height });
+    }
+
     return {
+      ...(textures.length ? { textures } : {}),
       lighting: this.getLighting(),
       helpers: this.getHelpers(),
       rigidPhysics: this.getRigidPhysics(),

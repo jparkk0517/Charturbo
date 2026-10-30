@@ -329,6 +329,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '재질 · 조명 · 사용자 정의 메시', description: '거친 표면에서 매끈한 표면(왼쪽 → 오른쪽), 유전체에서 금속(앞 → 뒤)으로 바뀌는 구, 발광 행, 사용자 정의 토러스 메시입니다. 점광원이 장면 주위를 돌며, 조명을 켜고 꺼서 비교할 수 있습니다.' },
     zh: { title: '材质 · 光照 · 自定义网格', description: '从粗糙到光滑（左 → 右）、从电介质到金属（前 → 后）的球体，一排自发光物体，以及自定义圆环网格。点光源绕场景旋转；可切换灯光进行对比。' },
   },
+  'scene/03-textures': {
+    ko: { title: '텍스처 · UV 매핑 · 알파 컷아웃', description: 'createDataTexture로 만든 체크무늬가 바닥에 타일링되고(mapRepeat), 런타임에 그린 캔버스 텍스처가 상자 · 구 · 사용자 정의 토러스(uvs는 createTorusMesh가 함께 제공)를 감쌉니다. alphaTest를 쓴 컷아웃 벽은 구멍 너머로 배경이 보입니다. 버튼으로 타일링을 바꾸거나 바닥에 색조를 입힐 수 있습니다.' },
+    zh: { title: '纹理 · UV 映射 · Alpha 镂空', description: 'createDataTexture 生成的棋盘格平铺在地面上（mapRepeat），运行时绘制的画布纹理包裹盒体、球体和自定义圆环（uvs 由 createTorusMesh 一并提供），使用 alphaTest 的镂空墙可透过孔洞看到背景。可用按钮切换平铺或为地面着色。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

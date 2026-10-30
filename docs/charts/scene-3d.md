@@ -66,13 +66,14 @@ Primitives are unit shapes, so `scale` is the object's size in world units.
 | `mass` | `number` | `max(0.2, abs(sx × sy × sz) × 0.01)` | Mass |
 | `restitution` | `number` | `0.55` | Bounciness |
 | `parentId` | `number \| null` | `null` | Parent object for hierarchical transforms |
+| `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | Texture mapping, see [Textures](#textures) |
 
 ### Custom meshes (`CustomMeshObjectDescriptor`)
 
 ```ts
 const torus = sdk.addCustomMesh({
   name: 'torus',
-  ...Charturbo.createTorusMesh(8, 2.6, 24, 48), // { positions, normals, indices }
+  ...Charturbo.createTorusMesh(8, 2.6, 24, 48), // { positions, normals, uvs, indices }
   position: [0, 40, -10],
   color: [0.62, 0.5, 0.92, 1],
   metallic: 0.8,
@@ -85,12 +86,54 @@ const torus = sdk.addCustomMesh({
 | `positions` | `Float32Array \| number[]` | (required) | `[x0, y0, z0, ...]` vertex positions |
 | `normals` | `Float32Array \| number[]` | | Vertex normals |
 | `indices` | `Uint32Array \| number[]` | (required) | Triangle vertex indices |
+| `uvs` | `Float32Array \| number[]` | | `[u0, v0, ...]` texture coordinates, 2 per vertex (see [Textures](#textures)) |
 | `scale` | `[x, y, z]` | `[1, 1, 1]` | Scale |
 | `color` | `RgbaTuple` | `[0.85, 0.45, 0.95, 1]` | RGBA |
 | `metallic` / `roughness` | `number` | `0.35` / `0.3` | Material |
 | `mass` / `restitution` | `number` | `2.0` / `0.6` | Physics |
+| `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | Texture mapping, see [Textures](#textures) |
 
 The other fields (`name` default `'MESH_<id>'`, `position`, `rotation`, `emissive`, `bodyType`, `velocity`, `angularVelocity`, `parentId`) work as for primitives. `Charturbo.createTorusMesh(majorRadius = 8, minorRadius = 2.6, radialSegments = 18, tubularSegments = 32)` generates a test mesh.
+
+### Textures
+
+```ts
+const wood = await sdk.loadTexture('/img/wood.jpg');            // fetch + decode
+const checker = sdk.createDataTexture(2, 2, new Uint8Array([    // raw RGBA8 texels
+  255, 255, 255, 255,  60, 60, 60, 255,
+   60, 60, 60, 255,  255, 255, 255, 255,
+]));
+
+const crate = sdk.addBox({ map: wood, mapRepeat: [2, 2] });
+sdk.addPlane({ map: checker, mapRepeat: [16, 16] });
+sdk.setObjectMaterial(crate, { map: null });                     // back to the plain color
+sdk.disposeTexture(wood);
+```
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `loadTexture(source, { mipmaps?, signal? })` | `Promise<number>` | Decode an image and upload it; resolves to the texture ID. `source` is a URL string, `URL`, `Blob`, `ImageBitmap`, `HTMLImageElement`, `HTMLCanvasElement`, `OffscreenCanvas` or `ImageData` |
+| `createDataTexture(width, height, rgba, { mipmaps? })` | `number` | Upload raw RGBA8 texels (straight alpha, first row at the top); `rgba.length` must be `width × height × 4` |
+| `disposeTexture(id)` | `boolean` | Free a texture; objects that used it render untextured |
+| `getTextures()` | `TextureRecord[]` | `{ id, width, height, src }` of the textures created through this SDK (`src` for string / `URL` sources only) |
+| `maxTextureSize` | `number` | Largest texture edge in texels (at most 4096); `0` when the engine has no texture support |
+
+The mapping fields work on `addBox` / `addSphere` / `addCylinder` / `addPlane` / `addPrimitive` / `addCustomMesh` and `setObjectMaterial`:
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `map` | `number \| null` | `null` | Texture ID; `null` (or `0`) removes the texture |
+| `mapRepeat` | `[u, v]` | `[1, 1]` | Tiling; textures wrap |
+| `mapOffset` | `[u, v]` | `[0, 0]` | UV offset |
+| `alphaTest` | `number` | `0.5` with a map, else `0` | Fragments whose alpha (texture alpha × color alpha) is below this are discarded, for cutouts |
+| `uvs` | `Float32Array \| number[]` | | Custom meshes only: two floats `u, v` per vertex. Without them the mesh is projected planarly along its two largest axes |
+
+- **UV convention.** `u` runs left to right and `v` top to bottom (`v = 0` is the top row of the image), so images are never flipped. Boxes and planes show the whole image on every face, spheres wrap it once around, cylinders wrap the side and project it onto the caps, and `createTorusMesh` returns `uvs` (spread it into `addCustomMesh`).
+- **Color.** The texture is multiplied by `color`, so the default white shows the image as drawn and any other color tints it. Lighting, metallic and roughness apply as usual. Translucency still follows `color[3]`, and texture alpha is for cutouts (`alphaTest`): with a map, fragments whose alpha is below `alphaTest` (default 0.5) are discarded, so set `alphaTest: 0` on a textured object with `color[3] < 0.5`.
+- **Color space.** Textures are sampled as plain RGBA8 in the renderer's gamma space, and mip levels are averaged there, so shrunken textures look very slightly darker than a linear-light filter would give.
+- **Limits.** Images larger than `maxTextureSize` are downscaled keeping their aspect ratio; `ImageData` and `createDataTexture` data must fit. Each engine allows 256 MiB of textures in total (`texture memory budget exceeded`). Texture IDs are never reused.
+- **Errors.** Tainted images (cross-origin without CORS) reject with `loadTexture: cross-origin image`, an aborted `signal` rejects with an `AbortError`, and an engine built without texture support throws `... engine has no texture support`.
+- A lost GPU device is not recovered: reload the page or recreate the SDK and its textures. Picking, physics, the SVG export and charts are unaffected by textures.
 
 ### Editing objects
 
@@ -98,7 +141,7 @@ The other fields (`name` default `'MESH_<id>'`, `position`, `rotation`, `emissiv
 | --- | --- | --- |
 | `setObjectTransform(id, { position?, rotation?, scale?, parentId? })` | `boolean` | Partial transform update |
 | `getObjectTransform(id)` | `{ position, rotation, scale } \| null` | Current transform, including physics motion |
-| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive? })` | `boolean` | Partial material update |
+| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest? })` | `boolean` | Partial material update |
 | `setObjectPhysics(id, { bodyType?, velocity?, angularVelocity?, mass?, restitution? })` | `boolean` | Partial physics update |
 | `setObjectParent(id, parentId \| null)` | `boolean` | Attach to / detach from a parent |
 | `removeObject(id)` | `boolean` | Remove one object |
@@ -165,6 +208,8 @@ sdk.enableNodeInteractions(canvas, {
 ## Save and load
 
 `exportScene()` returns a serializable `SceneDescriptor` (objects with transforms, materials and physics, plus lighting, helpers, rigid physics and graph visibility). `loadScene(descriptor)` clears the scene, applies the settings and recreates the objects, returning their new IDs.
+
+Textures are not cleared by `clearScene()` / `loadScene()`. `exportScene()` lists the textures its objects use in `textures` (`{ id, src, width, height }`, no pixel data) and keeps the `map` IDs on the objects. `loadScene` is synchronous: it keeps `map` IDs of textures that are still alive and drops unknown ones with a `console.warn`. To restore a scene saved in another session, call `await sdk.loadSceneWithTextures(descriptor)`: it reloads the textures that have a `src` (reusing a live texture with the same `src`), remaps the object `map` IDs and then calls `loadScene`. Textures without a `src` (`createDataTexture`, canvases, `ImageData`) cannot be restored and their maps are dropped.
 
 ```ts
 sdk.loadScene({

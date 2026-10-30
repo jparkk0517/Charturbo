@@ -66,13 +66,14 @@ tick();
 | `mass` | `number` | `max(0.2, abs(sx × sy × sz) × 0.01)` | 질량 |
 | `restitution` | `number` | `0.55` | 반발 계수 |
 | `parentId` | `number \| null` | `null` | 계층 트랜스폼의 부모 객체 |
+| `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | 텍스처 매핑, [텍스처](#텍스처) 참고 |
 
 ### 사용자 메시 (`CustomMeshObjectDescriptor`)
 
 ```ts
 const torus = sdk.addCustomMesh({
   name: 'torus',
-  ...Charturbo.createTorusMesh(8, 2.6, 24, 48), // { positions, normals, indices }
+  ...Charturbo.createTorusMesh(8, 2.6, 24, 48), // { positions, normals, uvs, indices }
   position: [0, 40, -10],
   color: [0.62, 0.5, 0.92, 1],
   metallic: 0.8,
@@ -85,12 +86,54 @@ const torus = sdk.addCustomMesh({
 | `positions` | `Float32Array \| number[]` | (필수) | `[x0, y0, z0, ...]` 꼭짓점 위치 |
 | `normals` | `Float32Array \| number[]` | | 꼭짓점 법선 |
 | `indices` | `Uint32Array \| number[]` | (필수) | 삼각형 꼭짓점 인덱스 |
+| `uvs` | `Float32Array \| number[]` | | `[u0, v0, ...]` 텍스처 좌표, 꼭짓점당 2개([텍스처](#텍스처) 참고) |
 | `scale` | `[x, y, z]` | `[1, 1, 1]` | 배율 |
 | `color` | `RgbaTuple` | `[0.85, 0.45, 0.95, 1]` | RGBA |
 | `metallic` / `roughness` | `number` | `0.35` / `0.3` | 재질 |
 | `mass` / `restitution` | `number` | `2.0` / `0.6` | 물리 |
+| `map` / `mapRepeat` / `mapOffset` / `alphaTest` | | | 텍스처 매핑, [텍스처](#텍스처) 참고 |
 
 나머지 필드(`name` 기본 `'MESH_<id>'`, `position`, `rotation`, `emissive`, `bodyType`, `velocity`, `angularVelocity`, `parentId`)는 기본 도형과 같습니다. `Charturbo.createTorusMesh(majorRadius = 8, minorRadius = 2.6, radialSegments = 18, tubularSegments = 32)`는 테스트용 메시를 만듭니다.
+
+### 텍스처
+
+```ts
+const wood = await sdk.loadTexture('/img/wood.jpg');            // 가져오기 + 디코딩
+const checker = sdk.createDataTexture(2, 2, new Uint8Array([    // RGBA8 원시 텍셀
+  255, 255, 255, 255,  60, 60, 60, 255,
+   60, 60, 60, 255,  255, 255, 255, 255,
+]));
+
+const crate = sdk.addBox({ map: wood, mapRepeat: [2, 2] });
+sdk.addPlane({ map: checker, mapRepeat: [16, 16] });
+sdk.setObjectMaterial(crate, { map: null });                     // 단색으로 되돌리기
+sdk.disposeTexture(wood);
+```
+
+| 메서드 | 반환 | 설명 |
+| --- | --- | --- |
+| `loadTexture(source, { mipmaps?, signal? })` | `Promise<number>` | 이미지를 디코딩해 업로드하고 텍스처 ID로 이행합니다. `source`는 URL 문자열, `URL`, `Blob`, `ImageBitmap`, `HTMLImageElement`, `HTMLCanvasElement`, `OffscreenCanvas`, `ImageData` |
+| `createDataTexture(width, height, rgba, { mipmaps? })` | `number` | RGBA8 원시 텍셀을 업로드합니다(스트레이트 알파, 첫 행이 위). `rgba.length`는 `width × height × 4`여야 합니다 |
+| `disposeTexture(id)` | `boolean` | 텍스처를 해제합니다. 쓰던 객체는 텍스처 없이 그려집니다 |
+| `getTextures()` | `TextureRecord[]` | 이 SDK로 만든 텍스처의 `{ id, width, height, src }`(`src`는 문자열 / `URL` 소스만) |
+| `maxTextureSize` | `number` | 텍스처 한 변의 최대 텍셀 수(최대 4096). 엔진이 텍스처를 지원하지 않으면 `0` |
+
+매핑 필드는 `addBox` / `addSphere` / `addCylinder` / `addPlane` / `addPrimitive` / `addCustomMesh`와 `setObjectMaterial`에서 쓸 수 있습니다.
+
+| 옵션 | 타입 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `map` | `number \| null` | `null` | 텍스처 ID. `null`(또는 `0`)이면 텍스처를 제거합니다 |
+| `mapRepeat` | `[u, v]` | `[1, 1]` | 타일링. 텍스처는 반복됩니다 |
+| `mapOffset` | `[u, v]` | `[0, 0]` | UV 오프셋 |
+| `alphaTest` | `number` | 맵이 있으면 `0.5`, 없으면 `0` | 알파(텍스처 알파 × 색상 알파)가 이 값보다 작은 프래그먼트를 버립니다(컷아웃용) |
+| `uvs` | `Float32Array \| number[]` | | 사용자 메시 전용. 꼭짓점당 `u, v` 두 값. 없으면 가장 긴 두 축으로 평면 투영합니다 |
+
+- **UV 규칙.** `u`는 왼쪽에서 오른쪽, `v`는 위에서 아래로 증가합니다(`v = 0`이 이미지의 맨 윗줄). 이미지를 뒤집을 필요가 없습니다. 상자와 평면은 모든 면에 이미지 전체를 보여 주고, 구는 한 바퀴 감싸며, 원기둥은 옆면을 감싸고 뚜껑에는 평면 투영합니다. `createTorusMesh`는 `uvs`를 함께 반환합니다(`addCustomMesh`에 펼쳐 넣으세요).
+- **색상.** 텍스처에 `color`가 곱해지므로 기본 흰색은 이미지를 그대로, 다른 색은 색조를 입힙니다. 조명, metallic, roughness는 그대로 적용됩니다. 투명도는 여전히 `color[3]`를 따르고 텍스처 알파는 컷아웃(`alphaTest`)용입니다. 맵이 있으면 알파가 `alphaTest`(기본 0.5)보다 작은 프래그먼트가 버려지므로, `color[3] < 0.5`인 텍스처 객체에는 `alphaTest: 0`을 지정하세요.
+- **색 공간.** 텍스처는 렌더러의 감마 공간에서 RGBA8 그대로 샘플링되고 밉 레벨도 그 공간에서 평균하므로, 축소된 텍스처는 선형 광 필터링보다 아주 조금 어둡게 보입니다.
+- **한도.** `maxTextureSize`보다 큰 이미지는 비율을 유지해 축소하며, `ImageData`와 `createDataTexture` 데이터는 한도 안에 들어와야 합니다. 엔진당 텍스처 총량은 256 MiB입니다(`texture memory budget exceeded`). 텍스처 ID는 재사용되지 않습니다.
+- **오류.** 오염된 이미지(CORS 없는 교차 출처)는 `loadTexture: cross-origin image`로, 중단된 `signal`은 `AbortError`로 거부되며, 텍스처 지원 없이 빌드된 엔진은 `... engine has no texture support`를 던집니다.
+- GPU 장치 손실은 복구하지 않습니다. 페이지를 다시 불러오거나 SDK와 텍스처를 다시 만드세요. 선택, 물리, SVG 내보내기, 차트는 텍스처의 영향을 받지 않습니다.
 
 ### 객체 편집
 
@@ -98,7 +141,7 @@ const torus = sdk.addCustomMesh({
 | --- | --- | --- |
 | `setObjectTransform(id, { position?, rotation?, scale?, parentId? })` | `boolean` | 트랜스폼 일부 갱신 |
 | `getObjectTransform(id)` | `{ position, rotation, scale } \| null` | 물리로 움직인 결과를 포함한 현재 트랜스폼 |
-| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive? })` | `boolean` | 재질 일부 갱신 |
+| `setObjectMaterial(id, { color?, metallic?, roughness?, emissive?, map?, mapRepeat?, mapOffset?, alphaTest? })` | `boolean` | 재질 일부 갱신 |
 | `setObjectPhysics(id, { bodyType?, velocity?, angularVelocity?, mass?, restitution? })` | `boolean` | 물리 속성 일부 갱신 |
 | `setObjectParent(id, parentId \| null)` | `boolean` | 부모에 연결 / 분리 |
 | `removeObject(id)` | `boolean` | 객체 하나 제거 |
@@ -165,6 +208,8 @@ sdk.enableNodeInteractions(canvas, {
 ## 저장과 불러오기
 
 `exportScene()`은 직렬화할 수 있는 `SceneDescriptor`(트랜스폼·재질·물리를 포함한 객체, 조명, 보조 표시, 강체 물리, 그래프 표시 여부)를 반환합니다. `loadScene(descriptor)`는 장면을 비우고 설정을 적용한 뒤 객체를 다시 만들고, 새 ID 목록을 반환합니다.
+
+텍스처는 `clearScene()` / `loadScene()`으로 지워지지 않습니다. `exportScene()`은 객체가 쓰는 텍스처를 `textures`(`{ id, src, width, height }`, 픽셀 데이터 없음)에 나열하고 객체에는 `map` ID를 남깁니다. `loadScene`은 동기 함수라서 아직 살아 있는 텍스처의 `map` ID는 유지하고, 알 수 없는 ID는 `console.warn`과 함께 버립니다. 다른 세션에서 저장한 장면을 복원하려면 `await sdk.loadSceneWithTextures(descriptor)`를 호출하세요. `src`가 있는 텍스처를 다시 불러오고(같은 `src`의 살아 있는 텍스처는 재사용), 객체의 `map` ID를 새 ID로 바꾼 뒤 `loadScene`을 호출합니다. `src`가 없는 텍스처(`createDataTexture`, 캔버스, `ImageData`)는 복원할 수 없어 맵이 버려집니다.
 
 ```ts
 sdk.loadScene({

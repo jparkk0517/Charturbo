@@ -127,6 +127,13 @@ export {
   type SceneHelpersDescriptor,
   type SceneObjectRecord,
   type SceneDescriptor,
+  type SceneTextureDescriptor,
+  type ObjectMapDescriptor,
+  type TextureSource,
+  type TextureRecord,
+  type LoadTextureOptions,
+  type DataTextureOptions,
+  type Vec2Tuple,
   type WasmCharturboEngineBackend,
 } from './sdk/charturbo';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';

@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 3D 텍스처
+
+- 3D 장면 객체에 텍스처를 입힙니다. `loadTexture(source, { mipmaps, signal })`(URL 문자열 · `URL` · `Blob` · `ImageBitmap` · 이미지 · 캔버스 · `OffscreenCanvas` · `ImageData`; 스트레이트 알파로 디코딩하고 `maxTextureSize`보다 크면 비율을 유지해 축소, `signal`로 중단하면 `AbortError`, 오염된 이미지는 `loadTexture: cross-origin image`), `createDataTexture(width, height, rgba)`, `disposeTexture(id)`, `getTextures()`, `maxTextureSize`.
+- 재질 · 기본 도형 · 사용자 정의 메시 설명자에 `map`(`null`이면 제거) / `mapRepeat` / `mapOffset` / `alphaTest`(맵이 있으면 기본 0.5)를 추가했고(`addBox` 등, `setObjectMaterial`, `SceneObjectRecord`), 사용자 정의 메시는 `uvs`를 받습니다(없으면 평면 투영). `createTorusMesh`가 `uvs`를 함께 반환합니다. 텍스처는 `color`와 곱해지며 `v = 0`이 이미지의 맨 윗줄이라 뒤집을 필요가 없습니다.
+- `exportScene()`은 객체가 쓰는 텍스처를 `textures`에 담고, `loadScene`은 살아 있는 ID를 유지하며 모르는 ID는 경고 후 맵을 버립니다. 새로 추가된 `loadSceneWithTextures(descriptor)`는 `src`가 있는 텍스처를 다시 불러와 ID를 바꿔 매핑합니다. `clearScene()`은 텍스처를 지우지 않습니다. 엔진이 텍스처를 지원하지 않으면 텍스처 API가 `... engine has no texture support`를 던집니다.
+- 예제 `scene/03-textures`, 문서 `charts/scene-3d`의 「텍스처」 절.
+
 ### 추가 — 극좌표계
 
 - `renderPolarChart(data, options)`: 극좌표계 차트(ECharts `polar` + `angleAxis` / `radiusAxis`). 각도 · 반지름 축은 각각 범주 또는 값 축이며 `min` / `max` / `splitNumber` / `labels` / `splitLine` / `name`을 받습니다. `startAngle`(12시 기준 시계 방향 각도, 파이 · 코드와 같음 — ECharts와 기준이 다름), `clockwise`, `innerRadius`, `barCategoryGap` / `barGap`.
