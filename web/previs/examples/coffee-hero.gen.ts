@@ -26,7 +26,20 @@ const X_TAKE = 3.1;
 const X_LAND = -3.1;
 const X_START = X_TAKE + SPEED * T_TAKE;
 const BUS_SPEED = 8; // m/s, travels +z -> -z, centre passes z=0 at t=5.0
-const busZ = (t: number) => (t - 5.0) * BUS_SPEED;
+const busKeys: [number, number][] = [
+  [0, -30],
+  [2.5, -14],
+  [4.0, -8],
+  [DUR, -8 + 8 * (DUR - 4.0)],
+];
+const busZ = (t: number) => {
+  for (let i = 0; i < busKeys.length - 1; i++) {
+    const [t0, z0] = busKeys[i];
+    const [t1, z1] = busKeys[i + 1];
+    if (t <= t1) return z0 + ((z1 - z0) * (t - t0)) / (t1 - t0);
+  }
+  return busKeys[busKeys.length - 1][1];
+};
 
 // ---- colors ----
 const SKY: Rgb = [0.62, 0.76, 0.9];
@@ -83,9 +96,9 @@ frags.push({
   },
 });
 // sip: raise, hold, lower; then shrug
-frags.push(raiseArm({ joints: j, side: 'right', start: 6.9, end: 7.5, angle: 2.0 }));
-frags.push(raiseArm({ joints: j, side: 'right', start: 8.0, end: 8.35, from: 2.0, angle: 0 }));
-frags.push(shrug({ joints: j, start: 8.4, duration: 0.6 }));
+frags.push(raiseArm({ joints: j, side: 'right', start: 6.7, end: 7.3, angle: 2.0 }));
+frags.push(raiseArm({ joints: j, side: 'right', start: 7.8, end: 8.15, from: 2.0, angle: 0 }));
+frags.push(shrug({ joints: j, start: 8.2, duration: 0.6 }));
 heroNodes = applyMotion(heroNodes, frags);
 
 // cup counter-rotates the right shoulder's rx so it stays level (payoff); extra tilt at the sip.
@@ -93,10 +106,10 @@ const sh = heroNodes.find((n) => n.id === j.shoulderR)!;
 const cupRot: Keyframe<Vec3>[] = [];
 for (const k of sh.tracks!.rotation!) {
   cupRot.push({ t: k.t, v: [-k.v[0], 0, 0], ease: k.ease });
-  if (k.t === 7.5) {
+  if (k.t === 7.3) {
     const base = -k.v[0];
+    cupRot.push({ t: 7.45, v: [base - 0.5, 0, 0], ease: 'ease-in-out' });
     cupRot.push({ t: 7.65, v: [base - 0.5, 0, 0], ease: 'ease-in-out' });
-    cupRot.push({ t: 7.85, v: [base - 0.5, 0, 0], ease: 'ease-in-out' });
   }
 }
 // first key's ease may be needed on the preceding point; keep order sorted
@@ -105,8 +118,8 @@ const cup = heroNodes.find((n) => n.id === 'cup')!;
 cup.tracks = { rotation: cupRot };
 // fix up eases: a key's ease governs the segment starting there; sip tilt segments need explicit values
 for (let i = 0; i < cupRot.length; i++) {
-  if (cupRot[i].t === 7.5) cupRot[i].ease = 'ease-in-out';
-  if (cupRot[i].t === 7.85) cupRot[i].ease = 'ease-in-out';
+  if (cupRot[i].t === 7.3) cupRot[i].ease = 'ease-in-out';
+  if (cupRot[i].t === 7.65) cupRot[i].ease = 'ease-in-out';
 }
 
 // ---- bus ----
@@ -119,10 +132,7 @@ const bus: PrevisNode = {
   rotation: [0, 0, 0],
   size: [2.2, 1.1, 8],
   tracks: {
-    position: [
-      { t: 0, v: [0, 0.55, busZ(0)] },
-      { t: DUR, v: [0, 0.55, busZ(DUR)] },
-    ],
+    position: busKeys.map(([t]) => ({ t, v: [0, 0.55, busZ(t)] as Vec3 })),
   },
 };
 
@@ -163,42 +173,40 @@ const ff = (a: number, b: number): Track<number> => [{ t: a, v: b }];
 
 const shots: Shot[] = [
   {
+    // behind + to the hero's right (-z) so the right-hand cup is visible
     id: 's1-track',
     start: 0,
     end: 2.5,
     camera: {
-      position: sample(0, 2.5, 0.25, (t) => add(heroPos(t), [3.4, 0.55, -0.6 + 0.5 * (t / 2.5)])),
-      target: { follow: 'hero.root', offset: [-0.8, 0.95, 0] },
+      position: sample(0, 2.5, 0.25, (t) => add(heroPos(t), [3.2, 0.6, -1.9])),
+      target: { follow: 'hero.root', offset: [-0.6, 0.9, 0] },
       fov: ff(0, 62),
     },
   },
   {
+    // side view that travels with the hero; hero and the approaching bus share one line of sight
     id: 's2-wide',
     start: 2.5,
-    end: 4.0,
+    end: 3.8,
     camera: {
-      position: [
-        { t: 2.5, v: [11, 2.0, 8] },
-        { t: 4.0, v: [8, 2.0, 8] },
-      ],
-      target: { follow: 'hero.root', offset: [-1.0, 0.9, -0.5] },
-      fov: ff(2.5, 66),
+      position: sample(2.5, 3.8, 0.1, (t) => add(heroPos(t), [3.0, 1.4, 4.8])),
+      target: { follow: 'hero.root', offset: [-1.2, 0.9, -1.0] },
+      fov: ff(2.5, 74),
     },
   },
   {
     id: 's3-orbit',
-    start: 4.0,
-    end: 7.0,
+    start: 3.8,
+    end: 5.6,
     camera: {
       position: (() => {
         const r = 4.6;
+        const ks: [number, number][] = [
+          [3.8, 0.9 * Math.PI],
+          [5.0, 1.5 * Math.PI],
+          [5.6, 1.75 * Math.PI],
+        ];
         const th = (t: number) => {
-          const ks: [number, number][] = [
-            [4.0, 0.9 * Math.PI],
-            [5.0, 1.5 * Math.PI],
-            [5.9, 1.85 * Math.PI],
-            [7.0, 2.0 * Math.PI],
-          ];
           for (let i = 0; i < ks.length - 1; i++) {
             if (t <= ks[i + 1][0]) {
               const u = (t - ks[i][0]) / (ks[i + 1][0] - ks[i][0]);
@@ -208,27 +216,41 @@ const shots: Shot[] = [
           }
           return ks[ks.length - 1][1];
         };
-        return sample(4.0, 7.0, 1 / 12, (t) => {
-          const h = heroPos(clampHold(t, 0, DUR));
+        return sample(3.8, 5.6, 1 / 12, (t) => {
+          const h = heroPos(t);
           const a = th(t);
           return [h[0] + r * Math.sin(a), 0.55 + 0.1 * h[1], h[2] + r * Math.cos(a)];
         });
       })(),
       target: { follow: 'hero.root', offset: [0, 0.9, 0] },
-      fov: ff(4.0, 60),
+      fov: ff(3.8, 60),
     },
   },
   {
-    id: 's4-sip',
-    start: 7.0,
+    // cup closeup right after the landing: cup stays level, nothing spills
+    id: 's4-cup',
+    start: 5.6,
+    end: 6.6,
+    camera: {
+      position: [
+        { t: 5.6, v: [X_LAND - 0.7, 1.0, -0.5], ease: 'ease-in-out' },
+        { t: 6.6, v: [X_LAND - 0.8, 0.95, -0.35] },
+      ],
+      target: { follow: 'cup' },
+      fov: ff(5.6, 42),
+    },
+  },
+  {
+    id: 's5-sip',
+    start: 6.6,
     end: 9.0,
     camera: {
       position: [
-        { t: 7.0, v: [X_LAND + 0.1, 1.4, 3.0], ease: 'ease-in-out' },
+        { t: 6.6, v: [X_LAND + 0.1, 1.4, 3.0], ease: 'ease-in-out' },
         { t: 9.0, v: [X_LAND + 0.1, 1.4, 2.5] },
       ],
       target: { follow: 'hero.root', offset: [0, 1.3, 0] },
-      fov: ff(7.0, 42),
+      fov: ff(6.6, 42),
     },
   },
 ];
@@ -263,9 +285,13 @@ if (process.env.HANDOFF_OUT) {
       { name: 'bg photo', note: '도심 거리 배경 사진' },
     ],
     textOnly: [
-      '커피컵에서 김이 모락모락 피어오름 (컵은 점프 내내 수평 유지, 쏟아지지 않음)',
+      '[previs에 없음, 텍스트로만] 4.4초 도약 직전: 컵 뚜껑이 달각거리며 살짝 들썩임',
+      '[텍스트로만] 4.4~5.6초 공중: 커피 방울이 컵 위로 솟아올랐다가 모두 컵 안으로 다시 떨어짐 (컵은 내내 수평)',
+      '[텍스트로만] 5.6초 착지: 한 방울도 흘리지 않음, 컵 클로즈업에서 커피 표면이 잔잔함, 컵 수평 유지',
+      '[텍스트로만] 컵에서 김이 모락모락 피어오름',
+      '[텍스트로만] 7.3~7.8초 한 모금: 컵을 입 쪽으로 기울여 마심 (previs에서도 컵이 약간 기울어짐)',
+      '[텍스트로만] 8.2~8.8초 작은 어깨 으쓱',
       '표정: 지각 직전의 다급함 -> 착지 후 안도 -> 한 모금 마시고 만족한 미소',
-      '한 모금 마시는 동작과 마지막의 작은 어깨 으쓱',
       '버스 외형(도시 버스), 조명(아침 햇빛), 질감은 참조 이미지 기준',
     ],
   });
