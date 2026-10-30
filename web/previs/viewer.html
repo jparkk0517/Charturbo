@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>charturbo previs viewer</title>
+    <link rel="stylesheet" href="./viewer.css" />
+  </head>
+  <body>
+    <div id="drop">
+      <p>previs JSON 파일을 여기에 끌어다 놓거나</p>
+      <label class="btn">파일 선택<input id="file" type="file" accept=".json,application/json" hidden /></label>
+    </div>
+    <ul id="issues" hidden></ul>
+    <div id="msg" hidden></div>
+    <div id="stage"></div>
+    <div id="bar" hidden>
+      <button id="play">재생</button>
+      <input id="seek" type="range" min="0" max="1" step="any" value="0" />
+      <span id="time">0.00 / 0.00</span>
+      <span id="shot"></span>
+      <label><input id="loop" type="checkbox" checked /> 반복</label>
+      <select id="speed">
+        <option value="0.25">0.25x</option>
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+      </select>
+      <label class="btn small">다른 파일<input id="file2" type="file" accept=".json,application/json" hidden /></label>
+    </div>
+    <script type="module" src="./viewer.ts"></script>
+  </body>
+</html>
