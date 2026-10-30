@@ -200,11 +200,13 @@ const shots: Shot[] = [
     end: 5.6,
     camera: {
       position: (() => {
-        const r = 4.6;
+        const r = 5.2;
         const ks: [number, number][] = [
-          [3.8, 0.9 * Math.PI],
-          [5.0, 1.5 * Math.PI],
-          [5.6, 1.75 * Math.PI],
+          [3.8, 0.55 * Math.PI],
+          [4.7, 0.7 * Math.PI],
+          [5.0, 1.0 * Math.PI],
+          [5.3, 1.3 * Math.PI],
+          [5.6, 1.5 * Math.PI],
         ];
         const th = (t: number) => {
           for (let i = 0; i < ks.length - 1; i++) {
