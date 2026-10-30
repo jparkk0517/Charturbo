@@ -81,6 +81,38 @@ const csv = sdk.exportChartCSV();      // RFC 4180 CSV，行以 CRLF 分隔
 - 键盘焦点环为当前文字颜色的 2 px `:focus-visible` 轮廓线。
 - 无障碍层本身不使用过渡效果。图表[动画](./animation)需要主动开启，并且在 `prefers-reduced-motion: reduce` 下会关闭。
 
+## 图案填充（decal）
+
+对色盲读者或黑白打印来说，仅靠颜色难以区分系列。`decal`（ECharts `aria.decal` / `itemStyle.decal`）在柱状图（分组 / 堆叠 / 百分比，2D）、饼图 / 环形图、面积图、矩形树图、旭日图和漏斗图的图元上绘制由小符号组成的图案：
+
+```ts
+// 每个系列（单系列柱状图：每个数据项 category）获得各自的自动图案
+sdk.renderGroupedBarChart(data, { mode: 'stacked', decal: true });
+
+// 图表级选项叠加在自动图案之上；系列 / 数据项选项再覆盖它们
+sdk.renderGroupedBarChart(
+  { categories, series: [{ name: 'A', values: a }, { name: 'B', values: b, decal: { symbol: 'cross', color: '#facc15' } }, { name: 'C', values: c, decal: false }] },
+  { decal: { opacity: 0.6 } }
+);
+
+// 饼图 / 漏斗图：按输入索引覆盖扇区 / 阶段；矩形树图 / 旭日图：节点上的 `decal`
+sdk.renderPieChart({ labels, values }, { decal: true, decals: [undefined, { symbol: 'circle' }] });
+```
+
+| 选项 | 默认值 | |
+|---|---|---|
+| `symbol` | 自动 | `'rect'`、`'circle'`、`'triangle'`、`'diamond'`、`'line'`（条纹）、`'cross'` 或 `'none'` |
+| `symbolSize` | 自动（2–7） | 符号大小（CSS px），0 < size ≤ 512（`'line'` 为条纹粗细） |
+| `spacing` | 自动（8–10） | 图块大小（CSS px，符号中心间距），1–1024 |
+| `rotation` | 自动 | 角度，屏幕上顺时针 |
+| `color` | `'auto'` | `'auto'`：浅色图元上为黑色，深色图元上为白色；或任意颜色 |
+| `opacity` | 0.45 | 0–1，再乘以颜色的 alpha 和图元的 alpha |
+
+- 自动图案按系列顺序循环使用 8 种不同的符号 / 角度组合（饼图：扇区，漏斗图：阶段，矩形树图 / 旭日图：顶层分组）。
+- 图案在 GPU 上以第二遍绘制（不使用纹理），在 WebGPU 和 WebGL2 上效果一致。图例色块显示图案，SVG 导出写入相同的 `<pattern>` 定义，切换主题时图案保留（自动颜色跟随新的图元颜色）。不设置 `decal` 时不会额外绘制任何内容。
+- 图案**固定在屏幕空间**：图块从画布左上角开始排列，因此图元移动、缩放或播放动画时图案保持不动（类似 CSS `background-attachment: fixed`）。
+- 不绘制的情况：3D 图表、象形柱图、折叠的饼图"其他"扇区、矩形树图父级标题栏和旭日图中心。重叠的面积（`mode: 'overlap'`）会在所有填充之后再绘制所有图案，因此在重叠处下层系列的图案可能显示在上层系列之上。
+
 ## 各图表的行为
 
 - **散点图**：摘要列出各系列的点数和 x / y 范围；表格每个点一行（x、y、系列），按数据顺序排列。

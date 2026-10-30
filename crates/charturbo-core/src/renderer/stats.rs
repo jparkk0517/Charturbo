@@ -34,6 +34,8 @@ pub fn chart_layer_bytes(layers: &ChartLayers<'_>) -> u64 {
     };
     bytes(layers.underlay)
         + bytes(layers.bars)
+        + bytes(layers.bar_decals)
+        + bytes(layers.fill_decals)
         + bytes(layers.series)
         + layers.series_style.as_ref().map_or(0, |l| bytes(Some(l.dashed)) + bytes(Some(l.markers)))
         + bytes(layers.overlay)

@@ -81,6 +81,38 @@ Summaries, long descriptions, keyboard help, live announcements and data table h
 - The keyboard focus ring is a 2 px `:focus-visible` outline in the current text color.
 - The accessibility layer itself uses no transitions. Chart [animations](./animation) are opt-in and are turned off under `prefers-reduced-motion: reduce`.
 
+## Pattern fills (decal)
+
+Color alone does not tell series apart for color-blind readers or on grayscale prints. `decal` (ECharts `aria.decal` / `itemStyle.decal`) draws a pattern of small symbols over the marks of bar (grouped / stacked / percent, 2D), pie / donut, area, treemap, sunburst and funnel charts:
+
+```ts
+// Every series (single-series bars: every item category) gets its own automatic pattern
+sdk.renderGroupedBarChart(data, { mode: 'stacked', decal: true });
+
+// Chart-level options apply over the automatic patterns; series / items override them
+sdk.renderGroupedBarChart(
+  { categories, series: [{ name: 'A', values: a }, { name: 'B', values: b, decal: { symbol: 'cross', color: '#facc15' } }, { name: 'C', values: c, decal: false }] },
+  { decal: { opacity: 0.6 } }
+);
+
+// Pie / funnel: per-slice / per-stage overrides by input index; treemap / sunburst: `decal` on nodes
+sdk.renderPieChart({ labels, values }, { decal: true, decals: [undefined, { symbol: 'circle' }] });
+```
+
+| Option | Default | |
+|---|---|---|
+| `symbol` | automatic | `'rect'`, `'circle'`, `'triangle'`, `'diamond'`, `'line'` (stripes), `'cross'`, or `'none'` |
+| `symbolSize` | automatic (2–7) | Symbol size in CSS px, 0 < size ≤ 512 (stripe thickness for `'line'`) |
+| `spacing` | automatic (8–10) | Tile size in CSS px (distance between symbol centers), 1–1024 |
+| `rotation` | automatic | Degrees, clockwise on screen |
+| `color` | `'auto'` | `'auto'`: black on light marks, white on dark ones; or any color |
+| `opacity` | 0.45 | 0–1, times the color alpha and the mark alpha |
+
+- Automatic patterns cycle through eight distinct symbol / angle combinations in series order (pie: slice, funnel: stage, treemap / sunburst: top-level group).
+- Patterns are drawn on the GPU in a second pass (no textures) and look the same on WebGPU and WebGL2. Legend swatches show the pattern, SVG export writes matching `<pattern>` definitions, and a theme switch keeps the patterns (auto colors follow the new mark colors). Without `decal` nothing extra is drawn.
+- Patterns are **anchored in screen space**: the tiles start at the canvas top-left, so a pattern stays put while marks move, zoom or animate (like CSS `background-attachment: fixed`).
+- Not drawn: 3D charts, pictorial bars, the folded pie "Other" slice, treemap parent headers and the sunburst center. Overlapping areas (`mode: 'overlap'`) draw every pattern after every fill, so a lower series' pattern can show through an upper series where they overlap.
+
 ## Chart-specific behavior
 
 - **Scatter**: the summary lists point counts and x / y ranges per series; the table has one row per point (x, y, series) in data order.

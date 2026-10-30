@@ -39,6 +39,13 @@
 - PNG / SVG / PDF 내보내기에 포함(`export: false`로 제외). 레이어는 `aria-hidden`이며 클릭을 통과시키고, 차트를 다시 렌더링해도 남으며 테마를 따릅니다. 이미지는 `crossOrigin = 'anonymous'`로 불러오며 불러오지 못하면 그리지 않습니다. 잘못된 옵션은 현재 워터마크를 바꾸기 전에 예외를 던집니다.
 - React / Vue `watermark` prop, 공개 타입 `ChartWatermarkOptions` · `ResolvedWatermark`. 예제 `export/02-watermark`, fixture `watermark-text`, 문서 `guide/loading-watermark`.
 
+### 추가 — 패턴 채우기 (decal)
+
+- 차트 옵션 `decal`(ECharts `aria.decal` / `itemStyle.decal`): `true`이면 시리즈마다(단일 시리즈 막대는 category마다, 파이는 조각, 퍼널은 단계, 트리맵 · 선버스트는 최상위 그룹) 자동 패턴이 붙고, 객체면 자동 패턴 위에 옵션을 적용합니다. 시리즈 · 항목 `decal`(막대 · 영역 시리즈, 계층 노드)과 파이 · 퍼널 `decals[]`가 덮어쓰며 `false`는 끕니다.
+- 기호 `rect` · `circle` · `triangle` · `diamond` · `line`(줄무늬) · `cross`, 옵션 `symbolSize` · `spacing` · `rotation`(도, 화면 시계 방향) · `color`(기본 `'auto'`: 마크 밝기에 따라 검정 / 흰색) · `opacity`(기본 0.45). 막대(그룹형 · 누적형 · 백분율, 2D) · 파이 / 도넛 · 영역 · 트리맵 · 선버스트 · 퍼널에 적용.
+- 패턴은 GPU 프래그먼트 셰이더에서 별도 패스로 그리며(Rust `chart/decal.rs`, 텍스처 없음) 화면 공간에 고정됩니다. WebGPU · WebGL2가 같게 보이고, 범례 견본 · SVG 내보내기(`<pattern>`) · 테마 전환에서 유지됩니다. `decal`이 없으면 렌더링은 그대로입니다. 잘못된 옵션은 현재 차트를 지우기 전에 예외를 던집니다.
+- React / Vue 옵션 타입, 예제 `bar/09-decal`, fixture `decal-bar-stacked` · `decal-donut` · `decal-area` · `decal-treemap` · `decal-sunburst` · `decal-funnel`, 문서 `guide/accessibility`. 3D 차트 · 픽토리얼 막대 · 파이 "기타" 조각 · 트리맵 부모 헤더 · 선버스트 중심에는 패턴이 없고, 겹치는 영역(`overlap`)에서는 아래 시리즈의 패턴이 위 시리즈 위에 보일 수 있습니다.
+
 ### 추가 — 극좌표계
 
 - `renderPolarChart(data, options)`: 극좌표계 차트(ECharts `polar` + `angleAxis` / `radiusAxis`). 각도 · 반지름 축은 각각 범주 또는 값 축이며 `min` / `max` / `splitNumber` / `labels` / `splitLine` / `name`을 받습니다. `startAngle`(12시 기준 시계 방향 각도, 파이 · 코드와 같음 — ECharts와 기준이 다름), `clockwise`, `innerRadius`, `barCategoryGap` / `barGap`.

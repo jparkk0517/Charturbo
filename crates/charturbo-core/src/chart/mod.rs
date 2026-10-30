@@ -26,6 +26,8 @@ mod candle;
 mod chord;
 mod calendar;
 mod combo;
+mod decal;
+pub use decal::{parse_decal_specs, DECAL_SPEC_STRIDE, DECAL_SYMBOL_MAX};
 mod fill;
 mod finite;
 mod funnel;
@@ -624,6 +626,8 @@ pub struct ChartState {
     anim: animation::Animator,
     /// Undo / redo zoom steps (see zoom.rs)
     zoom_history: zoom::ZoomHistory,
+    /// Pattern fills of bars / filled marks (see decal.rs)
+    decals: decal::Decals,
 }
 
 impl ChartState {
@@ -661,6 +665,7 @@ impl ChartState {
             styled: StyledSeries::default(),
             anim: Default::default(),
             zoom_history: Default::default(),
+            decals: Default::default(),
         }
     }
 
@@ -1604,7 +1609,7 @@ impl ChartState {
                         let ctx = StyleCtx { pixel_ratio: view.pixel_ratio, ring: self.hover_style.marker_ring_color };
                         l.build_segments(&padded, &ctx, &mut self.series, &mut self.styled);
                         if let ChartKind::Area(a) = &self.kind {
-                            a.build_fills(&padded, &mut self.fills);
+                            a.build_fills(&padded, &mut self.fills, &mut self.decals.fill_runs);
                             self.dirty.fills = true;
                         } else if !self.fills.is_empty() || !self.styled.band.is_empty() {
                             self.fills.clear();
@@ -1755,6 +1760,8 @@ impl ChartState {
 
         // Enter / update animation (animation.rs): eased copies of the staged layers, reveal clip
         let anim = self.prepare_animation(view, &mut series_clip);
+        // Decals of the bars / fills uploading this frame (nothing staged without decals)
+        self.stage_decals(self.dirty.bars, self.dirty.fills);
 
         // Navigator strip (data / view) and window overlay (zoom), outside the series clip
         let (nav_strip, nav_window) = self.prepare_navigator(view);
@@ -1774,7 +1781,15 @@ impl ChartState {
             series_clip,
             underlay: d.underlay.then_some(self.underlay.as_slice()),
             bars: if anim.bars { Some(self.anim_bars()) } else { d.bars.then_some(self.bars.as_slice()) },
+            bar_decals: (anim.bars || d.bars).then(|| match anim.bars {
+                true => decal::aligned(self.decals.bars(), self.anim_bars().len()),
+                false => self.decals.bars(),
+            }),
             fills: if anim.fills { Some(self.anim_fills()) } else { d.fills.then_some(self.fills.as_slice()) },
+            fill_decals: (anim.fills || d.fills).then(|| match anim.fills {
+                true => decal::aligned(self.decals.fills(), self.anim_fills().len()),
+                false => self.decals.fills(),
+            }),
             fill_patch: (!anim.fills && !d.fills && !self.fill_patches.is_empty())
                 .then_some(ChartFillPatch { fills: &self.fills, ranges: &self.fill_patches }),
             fill_style: d.fill_style.then_some(self.fill_style),
@@ -1840,7 +1855,9 @@ pub fn empty_chart_layers() -> ChartLayers<'static> {
         series_clip: None,
         underlay: Some(&[]),
         bars: Some(&[]),
+        bar_decals: Some(&[]),
         fills: Some(&[]),
+        fill_decals: Some(&[]),
         contours_3d: Some(&[]),
         fill_patch: None,
         fill_style: Some(ChartFillStyleRaw::default()),

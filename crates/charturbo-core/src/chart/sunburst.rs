@@ -229,9 +229,18 @@ impl SunburstChart {
     }
 
     /// Arcs (fills + AA outlines) at scale `wpp` with the hovered path highlighted.
-    fn build(&self, wpp: f32, hovered: Option<u32>, fills: &mut Vec<ChartFillRaw>, edges: &mut Vec<ChartSegmentRaw>) {
+    /// `runs` = each arc's vertices by node id (decal.rs; not the center disk).
+    fn build(
+        &self,
+        wpp: f32,
+        hovered: Option<u32>,
+        fills: &mut Vec<ChartFillRaw>,
+        edges: &mut Vec<ChartSegmentRaw>,
+        runs: &mut Vec<super::decal::DecalRun>,
+    ) {
         fills.clear();
         edges.clear();
+        runs.clear();
         let half = 0.5 * SUNBURST_GAP_PX * wpp;
         let center = SliceShape { lo: 0.0, hi: TAU, r_out: self.r0 - half, r_in: 0.0, full: true, corner: 0.0 };
         let center_color = if hovered == Some(self.root) { mix(self.center_color(), self.style.highlight, 0.12) } else { self.center_color() };
@@ -249,9 +258,11 @@ impl SunburstChart {
             }
             let full = hi - lo >= TAU * 0.99999;
             let shape = SliceShape { lo, hi, r_out: r_out - half, r_in: r_in + half, full, corner: 0.0 };
+            let at = fills.len();
             if tessellate_slice(&shape, wpp, (0.0, 0.0), self.display_color(v, hovered), fills, edges) {
                 stack.extend_from_slice(self.tree.shown_children(v));
             }
+            super::decal::push_run(runs, at, fills.len(), v);
         }
     }
 
@@ -419,7 +430,7 @@ impl SunburstChart {
             None => true,
         };
         if stale || force {
-            self.build(screen.wpp, hovered, out.fills, out.edges);
+            self.build(screen.wpp, hovered, out.fills, out.edges, out.decal_runs);
             self.built = Some((screen.wpp, hovered));
             changed.fills = true;
         }

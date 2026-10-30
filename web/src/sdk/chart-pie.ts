@@ -9,6 +9,7 @@
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
 import type { ChartAnimationInput } from './chart-animation';
+import type { ChartDecalInput, DecalOverride } from './chart-decal';
 import { formatCount, getMessages, resolveLocale } from './i18n';
 import { measureRichText, parseRichText, renderRichText, validateRichLabel, type RichLabelOptions } from './chart-rich-text';
 
@@ -74,6 +75,16 @@ export type PieRoseMode = 'radius' | 'area';
 
 export interface PieChartOptions {
   // Multi-ring data (`{ rings }`): `colors` index the concatenated values of every ring
+  /**
+   * Pattern fills over the marks (accessibility, ECharts `aria.decal`): `true` gives each slice (multi-ring pies: each name)
+   * its own automatic pattern; options apply over the automatic patterns (default off). The folded "Other" slice has none
+   */
+  decal?: ChartDecalInput;
+  /**
+   * Per-slice decal over `decal` by input index (`false`: none); multi-ring pies: the first
+   * value of each name decides
+   */
+  decals?: DecalOverride[];
   /** Enter / update animation of this chart (default: the SDK setting, `setAnimation`) */
   animation?: ChartAnimationInput;
   /** Donut hole radius / outer radius (0 or omitted = pie; up to 0.95) */

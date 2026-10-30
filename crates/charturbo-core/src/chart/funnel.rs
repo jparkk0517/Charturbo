@@ -199,9 +199,18 @@ impl FunnelChart {
     }
 
     /// Stage fills and AA outlines at scale `wpp`; the hovered stage is lightened.
-    pub(crate) fn build(&self, wpp: f32, hovered: Option<usize>, fills: &mut Vec<ChartFillRaw>, edges: &mut Vec<ChartSegmentRaw>) {
+    /// `runs` = each stage's vertices (decal.rs).
+    pub(crate) fn build(
+        &self,
+        wpp: f32,
+        hovered: Option<usize>,
+        fills: &mut Vec<ChartFillRaw>,
+        edges: &mut Vec<ChartSegmentRaw>,
+        runs: &mut Vec<super::decal::DecalRun>,
+    ) {
         fills.clear();
         edges.clear();
+        runs.clear();
         let step = self.step();
         // Half the gap off both flow ends, as a fraction of the stage
         let g = (0.5 * FUNNEL_GAP_PX * wpp / step).min(0.45);
@@ -212,7 +221,9 @@ impl FunnelChart {
             let (ha, hb) = (self.half_at(i, ta), self.half_at(i, tb));
             let pts = [self.world(fa, -ha), self.world(fa, ha), self.world(fb, hb), self.world(fb, -hb)];
             let color = if hovered == Some(i) { lighten(s.color, 0.22) } else { s.color };
+            let at = fills.len();
             aa_polygon(&pts, wpp, 0.0, color, fills, edges);
+            super::decal::push_run(runs, at, fills.len(), i as u32);
         }
     }
 
@@ -342,7 +353,7 @@ impl ChartState {
         let Some(wpp) = FunnelChart::wpp(view) else { return };
         let stale = f.built.is_none_or(|(w, h)| h != hovered || ((w - wpp) / wpp).abs() > 1e-4);
         if stale || self.dirty.fills {
-            f.build(wpp, hovered, &mut self.fills, &mut self.series);
+            f.build(wpp, hovered, &mut self.fills, &mut self.series, &mut self.decals.fill_runs);
             f.built = Some((wpp, hovered));
             self.styled.dashed.clear();
             self.styled.markers.clear();

@@ -64,6 +64,9 @@ const DEMO_TEXT: Record<string, Entry> = {
   'bar/08-rich-labels': {
     ko: { title: '리치 텍스트 라벨', description: '라벨 format이 {value|42}{unit|k} 같은 템플릿을 돌려주면 rich가 각 구간의 크기, 굵기, 색, 둥근 배지를 정합니다. 배치와 내보내기도 스타일이 적용된 텍스트를 씁니다.' },
     zh: { title: '富文本标签', description: '标签 format 返回 {value|42}{unit|k} 这样的模板，rich 为每段设置字号、字重、颜色和圆角徽标。布局和导出都使用带样式的文本。' },
+  'bar/09-decal': {
+    ko: { title: '데칼 패턴 채우기', description: 'decal: true로 시리즈마다 고유한 패턴을 줍니다(GPU에서 그리며 화면 공간에 고정). 시리즈별로 덮어쓸 수 있습니다. 막대, 파이, 트리맵을 지원하며 범례 견본과 SVG 내보내기에도 패턴이 유지됩니다.' },
+    zh: { title: '贴花图案填充', description: 'decal: true 为每个系列提供独有的图案（在 GPU 上绘制，固定在屏幕空间），系列可单独覆盖。支持柱状图、饼图和矩形树图；图例色块和 SVG 导出同样保留图案。' },
   },
   'box/01-boxplot': {
     ko: { title: '상자 그림', description: 'Rust에서 정렬 없이 선택 알고리즘으로 사분위수를 구하고, Tukey 수염, 샘플링된 이상값, 평균 마커를 표시합니다.' },

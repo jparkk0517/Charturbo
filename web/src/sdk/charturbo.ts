@@ -303,6 +303,7 @@ export type { ChartGaugeTooltip, GaugeBandOptions, GaugeChartData, GaugeChartOpt
 export type { ChartFunnelTooltip, FunnelChartData, FunnelChartOptions, FunnelConversion, FunnelLabelContext } from './chart-funnel';
 export type { RichLabelOptions, RichTextStyle, RichTextStyles } from './chart-rich-text';
 export type { ChartWaterfallTooltip, WaterfallChartData, WaterfallChartOptions, WaterfallItemKind } from './chart-waterfall';
+import { decalSwatchCss, encodeDecals, resolveDecal, resolveDecals, validateDecal, validateDecals, type ChartDecalInput, type DecalOverride, type ResolvedDecal } from './chart-decal';
 import { encodePictorial, pictorialPerBar, type PictorialBarChartData, type PictorialBarChartOptions, type PictorialBarItem } from './chart-pictorial';
 import { calendarMeta, sendCalendar, type CalendarHeatmapData, type CalendarHeatmapOptions, type ChartCalendarTooltip } from './chart-calendar';
 import {
@@ -353,6 +354,7 @@ import {
   HierarchyLabelLayer,
   drillEvent,
   hierarchyDetails,
+  encodeHierarchy,
   hierarchyParent,
   hierarchyTooltipContext,
   hierarchyTooltipHtml,
@@ -519,6 +521,8 @@ export interface CosineSimilarityMatch {
 
 export interface LineSeriesDescriptor extends LineStyleInput {
   name: string;
+  /** Area charts: pattern fill of this series over the chart `decal` (`false`: none) */
+  decal?: DecalOverride;
   /** Sample values; `NaN` / `null` / `undefined` are missing (see `nulls`) */
   values: Float32Array | number[];
   /**
@@ -639,6 +643,11 @@ export interface AreaChartOptions extends Omit<LineChartOptions, 'viewMode' | 'e
   mode?: 'overlap' | 'stacked' | 'percent';
   /** Fill alpha multiplier of the series color (default: 0.2 overlap, 0.8 stacked / percent) */
   fillOpacity?: number;
+  /**
+   * Pattern fills over the areas (accessibility, ECharts `aria.decal`): `true` gives each series its
+   * own automatic pattern; options apply over the automatic patterns (default off).
+   */
+  decal?: ChartDecalInput;
 }
 
 export interface BarChartItemDescriptor {
@@ -648,6 +657,8 @@ export interface BarChartItemDescriptor {
   error?: BarErrorValue;
   category?: string;
   color?: ColorInput;
+  /** Pattern fill of this bar over the chart `decal` (2D; `false`: none) */
+  decal?: DecalOverride;
   /** @deprecated Ignored: the 3D matrix layout is computed by the engine */
   row?: number;
   /** @deprecated Ignored: the 3D matrix layout is computed by the engine */
@@ -706,6 +717,11 @@ export interface BarChartOptions {
    * largest `max` bars (bars entering / leaving fade). The value axis takes the new domain at once
    */
   realtimeSort?: boolean | BarRealtimeSortOptions;
+  /**
+   * Pattern fills over the bars (2D, not pictorial bars) (accessibility, ECharts `aria.decal`): `true` gives each series (single series: each item `category`) its
+   * own automatic pattern; options apply over the automatic patterns (default off).
+   */
+  decal?: ChartDecalInput;
 }
 
 /** One series of a multi-series bar chart: one value per category (`NaN` = missing). */
@@ -716,6 +732,8 @@ export interface BarSeriesDescriptor {
   error?: BarErrorValue[];
   /** Default: theme palette in series order */
   color?: ColorInput;
+  /** Pattern fill of this series over the chart `decal` (`false`: none) */
+  decal?: DecalOverride;
 }
 
 export interface GroupedBarChartData {
@@ -2322,6 +2340,8 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_chart_bar_pictorial?(symbols: string, records: Float32Array): boolean;
   /** The engine can draw the pictorial symbol (built-in name or `path://` data) */
   pictorial_symbol_valid?(symbol: string): boolean;
+  /** Decal specs per mark key (chart-decal.ts, 8 floats each; empty = off); "" or the error */
+  set_chart_decals?(specs: Float32Array): string;
   /** Releases the WASM engine (wasm-bindgen) */
   free?(): void;
 }
@@ -2920,6 +2940,8 @@ export class Charturbo {
     | 'line' | 'band' | 'errorBar' | 'impulse' | 'bar' | 'scatter' | 'candlestick' | 'ohlc' | 'heatmap' | 'box' | 'pie' | 'combo'
     | BusinessChartMeta['kind'] | 'treemap' | 'sunburst' | 'sankey' | 'tree' | 'graph' | null = null;
   private chartMeta: ChartMeta | null = null;
+  /** Decal of legend entry `i` (index into the meta colors); null = the chart has no decals */
+  private chartDecalSwatch: ((i: number) => ResolvedDecal | null) | null = null;
   /** Hide stale tooltips when the chart / scene is replaced. */
   private hoverResetHooks = new Set<() => void>();
   private chartDataHooks = new Set<() => void>();
@@ -7061,6 +7083,12 @@ export class Charturbo {
           Object.assign(swatch.style, { borderRadius: '0px', background: 'none', ...sw.style });
           if (sw.text) swatch.textContent = sw.text;
         }
+        // Pattern fills: the swatch shows the pattern (area strokes grow into squares)
+        const decal = this.chartDecalSwatch?.(i);
+        if (decal) {
+          const side = bars ? 10 : 12;
+          Object.assign(swatch.style, { width: `${side}px`, height: `${side}px`, backgroundImage: decalSwatchCss(decal, meta.colors[i], side, side) });
+        }
         const label = document.createElement('span');
         label.textContent = name;
         label.style.whiteSpace = 'nowrap';
@@ -7088,16 +7116,18 @@ export class Charturbo {
       });
     } else if (meta?.kind === 'bar' && p.legend.show) {
       // Single-series bars: a static category color key (nothing to toggle)
-      for (const k of meta.legendKey ?? []) {
+      (meta.legendKey ?? []).forEach((k, j) => {
         const item = div({ position: 'static', display: 'inline-flex', alignItems: 'center', gap: '6px', color: t.textSecondary }, 'charturbo-sdk-legend-item');
         const swatch = document.createElement('span');
         Object.assign(swatch.style, { width: '10px', height: '10px', borderRadius: '2px', background: rgbaToCss(k.color), flex: 'none' });
+        const decal = this.chartDecalSwatch?.(j);
+        if (decal) swatch.style.backgroundImage = decalSwatchCss(decal, k.color, 10, 10);
         const label = document.createElement('span');
         label.textContent = k.name;
         label.style.whiteSpace = 'nowrap';
         item.append(swatch, label);
         legend.appendChild(item);
-      }
+      });
     }
 
     if (meta?.kind === 'scatter' && meta.trendlines && p.legend.show) {
@@ -7125,6 +7155,8 @@ export class Charturbo {
       Object.assign(item.style, { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 0', color: t.textSecondary });
       const swatch = document.createElement('span');
       Object.assign(swatch.style, { width: '10px', height: '10px', borderRadius: '2px', background: rgbaToCss(meta.legendEntry.color), flex: 'none' });
+      const decal = this.chartDecalSwatch?.(0);
+      if (decal) swatch.style.backgroundImage = decalSwatchCss(decal, meta.legendEntry.color, 10, 10);
       const label = document.createElement('span');
       label.textContent = meta.legendEntry.name;
       label.style.whiteSpace = 'nowrap';
@@ -7403,8 +7435,21 @@ export class Charturbo {
     o.colorbar?.layout([plotL, plotT, plotW + colorbarGap, plotH], this.chartLocale());
   }
 
+  /**
+   * Sends resolved decals to the current engine chart (nothing when every mark is plain, so
+   * charts without decals draw exactly as before); `swatch` feeds the legend.
+   */
+  private sendDecals(list: (ResolvedDecal | null)[] | null, swatch: (i: number) => ResolvedDecal | null): void {
+    if (!list) return;
+    const err = this.backend.set_chart_decals?.(encodeDecals(list));
+    if (err === undefined) return;
+    if (err) throw new Error(`decal: ${err}`);
+    this.chartDecalSwatch = swatch;
+  }
+
   /** Removes every scene object and the active chart. */
   clearScene(): void {
+    this.chartDecalSwatch = null;
     this.objectRecords.clear();
     this.backend.clear_scene_objects?.();
     this.exitChartMode();
@@ -8008,6 +8053,9 @@ export class Charturbo {
     // A user `endLabel.format` first runs here, so a throwing one keeps the current chart
     const endLabelFormat = endLabelOpt && endLabelOpt !== true ? endLabelOpt.format : undefined;
     const customEndReserve = endLabelFormat ? this.endLabelReserve(seriesList, endLabelFormat) : undefined;
+    // Area pattern fills (ThemeRiver streams have none)
+    const areaDecal = area && !river ? (options as AreaChartOptions | undefined)?.decal : undefined;
+    if (area && !river) validateDecals(areaDecal, seriesList.map((s) => s.decal), fn);
     if (options?.animation !== undefined) resolveAnimation(options.animation, true);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
@@ -8235,6 +8283,10 @@ export class Charturbo {
     this.applyChartPadding(this.chartPresentation, legend.show, options?.padding);
     this.chartNavigator = flat ? resolveNavigator(options?.navigator) : null;
     if (this.chartNavigator) this.syncNavigator();
+    if (area && !river) {
+      const decals = resolveDecals(areaDecal, seriesList.length, (k) => seriesList[k].decal, (k) => k);
+      this.sendDecals(decals, (i) => decals?.[i] ?? null);
+    }
     this.rebuildChartOverlay();
     return { totalPoints, seriesCount: seriesList.length };
   }
@@ -8255,6 +8307,7 @@ export class Charturbo {
     // Bad options throw before the current chart is cleared
     const race = resolveRealtimeSort(options?.realtimeSort);
     if (options?.animation !== undefined) resolveAnimation(options.animation, true);
+    validateDecals(options?.decal, items.map((it) => it.decal), 'renderBarChart');
     const raceFrom = race ? this.raceShownValues() : null;
     if (race) items = raceOrder(items, race.max);
     resolveBarLabels(options?.labels);
@@ -8367,6 +8420,13 @@ export class Charturbo {
         const counting = race.valueAnimation && !!barStyle?.labels && !!this.animationApplied;
         this.barRace = { keys, values, from: raceFrom ?? new Map(), counting };
       }
+    }
+    if (flat) {
+      // One pattern for the series, or one per item category (as the category colors)
+      const cats = new Map<string, number>();
+      const auto = items.map((it) => (it.category === undefined ? 0 : (cats.get(it.category) ?? (cats.set(it.category, cats.size), cats.size - 1))));
+      const decals = resolveDecals(options?.decal, n, (k) => items[k].decal, (k) => auto[k]);
+      this.sendDecals(decals, (j) => decals?.[auto.indexOf(j)] ?? null);
     }
     this.rebuildChartOverlay();
     return { barCount: n };
@@ -8518,6 +8578,7 @@ export class Charturbo {
     }
     // Bad label options (format spec, rich styles) throw before the current chart is cleared
     resolveBarLabels(options?.labels);
+    validateDecals(options?.decal, (data.series ?? []).map((series) => series.decal), 'renderGroupedBarChart');
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -8621,6 +8682,11 @@ export class Charturbo {
       ...this.barPadding(this.chartPresentation, legend.show, barStyle, data.categories.map((_, i) => category(i))),
       ...options?.padding,
     });
+    if (flat) {
+      // Bar ids: series * categories + category; one pattern per series
+      const decals = resolveDecals(options?.decal, s * n, (g) => seriesList[Math.floor(g / n)].decal, (g) => Math.floor(g / n));
+      this.sendDecals(decals, (i) => decals?.[i * n] ?? null);
+    }
     this.rebuildChartOverlay();
     return { barCount: s * n, seriesCount: s, categoryCount: n };
   }
@@ -9216,6 +9282,8 @@ export class Charturbo {
   renderPieChart(data: PieChartData | PieRingsData, options?: PieChartOptions): { sliceCount: number } {
     if (options?.animation !== undefined) resolveAnimation(options.animation, true);
     validatePieLabel(options?.label);
+    if (options?.decals !== undefined && !Array.isArray(options.decals)) throw new Error('renderPieChart: decals must be an array');
+    validateDecals(options?.decal, options?.decals ?? [], 'renderPieChart');
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -9257,6 +9325,21 @@ export class Charturbo {
       formatX: (v) => meta.names[v] ?? String(v),
     };
     this.applyChartPadding(this.chartPresentation, legend.show, options?.padding);
+    // Slice keys: the input index, or (several rings) the name's first-seen index
+    const rings = 'rings' in data;
+    const groupOf = new Map<string, number>();
+    const firstOf: number[] = [];
+    if (rings) {
+      meta.inputLabels.forEach((name, i) => {
+        if (!groupOf.has(name)) groupOf.set(name, firstOf.push(i) - 1);
+      });
+    }
+    const keys = rings ? firstOf.length : meta.inputLabels.length;
+    const decals = resolveDecals(options?.decal, keys, (g) => options?.decals?.[rings ? firstOf[g] : g], (g) => g);
+    this.sendDecals(decals, (i) => {
+      const key = rings ? groupOf.get(meta.names[i]) : meta.sources[i];
+      return key === undefined || key < 0 ? null : (decals?.[key] ?? null);
+    });
     this.rebuildChartOverlay();
     return { sliceCount };
   }
@@ -9314,7 +9397,12 @@ export class Charturbo {
 
   private renderHierarchy(kind: 'treemap' | 'sunburst', data: HierarchyData, options?: TreemapChartOptions): { nodeCount: number } {
     if (options?.animation !== undefined) resolveAnimation(options.animation, true);
-    validateRichLabel(options?.label, kind === 'treemap' ? 'renderTreemap' : 'renderSunburst');
+    // Input and decals throw before the current chart is cleared
+    const fn = kind === 'treemap' ? 'renderTreemap' : 'renderSunburst';
+    const encoded = encodeHierarchy(data, this.locale);
+    validateDecal(options?.decal, fn);
+    encoded.decals.forEach((d, i) => d !== false && validateDecal(d, `${fn}: node "${encoded.names[i]}"`));
+    validateRichLabel(options?.label, fn);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -9322,12 +9410,13 @@ export class Charturbo {
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
 
-    const meta = sendHierarchy(this.backend, kind, data, options, this.locale);
+    const meta = sendHierarchy(this.backend, kind, data, options, this.locale, encoded);
     // Transitions pair treemap cells and sunburst arcs by node path
     if (this.animationApplied?.transition) this.backend.set_chart_mark_keys?.(this.markKeys.keysOf(hierarchyPaths(meta.parents, meta.nodeNames)));
     this.bindHierarchyEngine(meta);
     sendHierarchyStyle(this.backend, meta, this.theme);
     syncHierarchy(this.backend, meta, this.locale);
+    this.sendHierarchyDecals(meta, encoded.decals, options?.decal);
     return this.presentHierarchy(meta, options, meta.names.length >= 2, true);
   }
 
@@ -9353,6 +9442,31 @@ export class Charturbo {
     syncSankey(this.backend, meta, this.locale);
     const { nodeCount } = this.presentHierarchy(meta, options, meta.names.length >= 2, false);
     return { nodeCount, linkCount: meta.sources.length };
+  }
+
+  /**
+   * Treemap / sunburst decals per node: the automatic pattern of the node's legend group (nodes
+   * outside a shown group: the folded "Other" entry), node options on top.
+   */
+  private sendHierarchyDecals(meta: HierarchyChartMeta, own: DecalOverride[], chart: ChartDecalInput | undefined): void {
+    if (!chart && !own.some((d) => d)) return;
+    const entry = new Map<number, number>();
+    meta.legendNodes.forEach((node, k) => entry.set(node, k));
+    const other = entry.get(-1) ?? 0;
+    // Groups: the children of a single root, else the roots; unlisted groups are "Other"
+    const multiRoot = meta.parents.filter((p) => p < 0).length > 1;
+    const group: number[] = [];
+    const groupOf = (n: number): number => {
+      if (group[n] !== undefined) return group[n];
+      const p = meta.parents[n];
+      const g = entry.has(n) ? entry.get(n)! : p < 0 ? (multiRoot ? other : 0) : !multiRoot && meta.parents[p] < 0 ? other : groupOf(p);
+      return (group[n] = g);
+    };
+    const decals = resolveDecals(chart, meta.parents.length, (n) => own[n], groupOf);
+    this.sendDecals(decals, (i) => {
+      const node = meta.legendNodes[i];
+      return node === undefined ? null : resolveDecal(chart, node >= 0 ? own[node] : undefined, i);
+    });
   }
 
   /** Chart mode, presentation (no axes), padding and overlay of a hierarchy / flow chart. */
@@ -9930,6 +10044,8 @@ export class Charturbo {
    */
   renderFunnelChart(data: FunnelChartData, options?: FunnelChartOptions): { stageCount: number } {
     validateRichLabel(options?.label, 'renderFunnelChart');
+    if (options?.decals !== undefined && !Array.isArray(options.decals)) throw new Error('renderFunnelChart: decals must be an array');
+    validateDecals(options?.decal, options?.decals ?? [], 'renderFunnelChart');
     this.beginBusinessChart();
     const meta = funnelMeta(data, options, this.businessFormat(options?.format), this.locale);
     const stageCount = sendFunnel(this.backend, meta, options, this.theme);
@@ -9937,6 +10053,7 @@ export class Charturbo {
     const space = funnelLabelSpace(meta);
     const pad = meta.orientation === 'horizontal' ? { left: 16, right: 16, bottom: 12 + space } : { left: 16, right: 16 + space };
     this.showBusinessChart('funnel', meta, options, legend, pad);
+    this.sendDecals(resolveDecals(options?.decal, stageCount, (k) => options?.decals?.[k], (k) => k), () => null);
     return { stageCount };
   }
 

@@ -434,6 +434,81 @@ export const FIXTURES: Fixture[] = [
       }),
   },
   {
+    // Decal pattern fills: automatic per-series patterns on stacked bars (one series overrides
+    // its pattern, one opts out); the legend swatches show the patterns
+    name: 'decal-bar-stacked',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderGroupedBarChart(
+          {
+            categories: ['Q1', 'Q2', 'Q3', 'Q4'],
+            series: [
+              { name: 'North', values: [32, 41, 38, 50] },
+              { name: 'South', values: [21, 18, 30, 26] },
+              { name: 'East', values: [14, 22, 17, 25], decal: { symbol: 'cross', symbolSize: 7, spacing: 9, color: '#facc15', opacity: 0.9 } },
+              { name: 'West', values: [9, 12, 10, 15], decal: false },
+            ],
+          },
+          { title: 'Decal stacked bars', mode: 'stacked', decal: true, padding: { ...PADDING, top: 60 } }
+        );
+      }),
+  },
+  {
+    // Every symbol on a donut (auto contrast: dark symbols on light slices, light on dark)
+    name: 'decal-donut',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderPieChart(
+          { labels: ['Line', 'Circle', 'Rect', 'Cross', 'Line -45', 'Triangle', 'Diamond'], values: [30, 26, 22, 18, 15, 12, 10] },
+          { title: 'Decal donut', donut: 0.45, labels: 'none', decal: true, legend: { position: 'right' }, padding: { top: 36, right: 24, bottom: 16, left: 24 } }
+        );
+      }),
+  },
+  {
+    // Stacked areas with patterns, rotated stripes on one series
+    name: 'decal-area',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        const rand = mulberry32(71);
+        const series = ['A', 'B', 'C'].map((name, i) => ({
+          name,
+          values: Array.from({ length: 24 }, () => 10 + rand() * 20),
+          decal: i === 2 ? ({ symbol: 'line', symbolSize: 1.5, spacing: 6, rotation: 90 } as const) : undefined,
+        }));
+        sdk.renderAreaChart(series, { title: 'Decal areas', mode: 'stacked', decal: true, padding: { ...PADDING, top: 60 } });
+      }),
+  },
+  {
+    name: 'decal-treemap',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderTreemap(hierarchyData(), { title: 'Decal treemap', legend: false, decal: true, padding: { top: 60, right: 12, bottom: 12, left: 12 }, format: '$,.0f' });
+      }),
+  },
+  {
+    name: 'decal-sunburst',
+    theme: 'light',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderSunburst(hierarchyData(), { title: 'Decal sunburst', legend: false, decal: { opacity: 0.6 }, padding: { top: 60, right: 12, bottom: 12, left: 12 }, format: '$,.0f' });
+      }),
+  },
+  {
+    name: 'decal-funnel',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.renderFunnelChart(
+          { labels: ['Visits', 'Sign-ups', 'Trials', 'Paid'], values: [12000, 5400, 2100, 760] },
+          { title: 'Decal funnel', format: ',.0f', colors: ['#38bdf8', '#818cf8', '#f472b6', '#facc15'], decal: true, padding: { top: 40, left: 24, bottom: 16 } }
+        );
+      }),
+  },
+  {
     // Bar values rotated 90° from the base; long category names rotated 40° on the x axis
     name: 'bar-label-rotation',
     theme: 'light',

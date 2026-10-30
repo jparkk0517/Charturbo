@@ -906,9 +906,18 @@ impl PieChart {
     }
 
     /// Slice triangles (`fills`) and their anti-aliasing outlines (`edges`) at scale `wpp`.
-    pub(crate) fn build(&self, wpp: f32, hovered: Option<usize>, fills: &mut Vec<ChartFillRaw>, edges: &mut Vec<ChartSegmentRaw>) {
+    /// `runs` = each slice's vertices and color group (decal.rs).
+    pub(crate) fn build(
+        &self,
+        wpp: f32,
+        hovered: Option<usize>,
+        fills: &mut Vec<ChartFillRaw>,
+        edges: &mut Vec<ChartSegmentRaw>,
+        runs: &mut Vec<super::decal::DecalRun>,
+    ) {
         fills.clear();
         edges.clear();
+        runs.clear();
         let shown = self.shown_per_ring(self.slices.iter().map(|s| s.span()));
         for (k, s) in self.slices.iter().enumerate() {
             if s.span() <= 0.0 {
@@ -925,7 +934,9 @@ impl PieChart {
             };
             let corner = self.opts.corner_radius_px * wpp;
             let shape = SliceShape { lo, hi, r_out: s.r_out, r_in: s.r_in, full, corner };
+            let at = fills.len();
             tessellate_slice(&shape, wpp, offset, self.display_color(k), fills, edges);
+            super::decal::push_run(runs, at, fills.len(), s.group);
         }
     }
 
@@ -1214,7 +1225,7 @@ impl ChartState {
             None => true,
         };
         if stale || self.dirty.fills {
-            p.build(screen.wpp, hovered, &mut self.fills, &mut self.series);
+            p.build(screen.wpp, hovered, &mut self.fills, &mut self.series, &mut self.decals.fill_runs);
             p.built = Some((screen.wpp, hovered));
             self.dirty.fills = true;
             self.dirty.series = true;

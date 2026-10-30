@@ -227,6 +227,7 @@ export {
   type PictorialSymbol,
   type PictorialSymbolOptions,
 } from './sdk/chart-pictorial';
+export { type ChartDecalInput, type DecalOptions, type DecalOverride, type DecalSymbol } from './sdk/chart-decal';
 export {
   type GraphAxisOptions,
   type GraphCategoryInput,

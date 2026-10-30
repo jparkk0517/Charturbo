@@ -832,6 +832,7 @@ impl ChartState {
             style: &mut self.fill_style,
             markers: &mut self.styled.markers,
             overlay_markers: &mut self.markers,
+            decal_runs: &mut self.decals.fill_runs,
         };
         let changed = match h {
             HierChart::Treemap(t) => t.prepare(view, &self.padding, hovered, force, self.dirty.overlay, out),
@@ -886,6 +887,8 @@ pub(crate) struct HierFrame<'a> {
     pub markers: &'a mut Vec<ChartMarkerRaw>,
     /// Hover symbol (tree)
     pub overlay_markers: &'a mut Vec<ChartMarkerRaw>,
+    /// Fill vertices of every decorated cell / arc by node id (treemap / sunburst; decal.rs)
+    pub decal_runs: &'a mut Vec<super::decal::DecalRun>,
 }
 
 /// What a hierarchy frame rebuilt.

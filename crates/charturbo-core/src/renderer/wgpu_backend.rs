@@ -15,6 +15,8 @@ use crate::renderer::parallel::ParallelGpu;
 use crate::renderer::shader::chart_parallel_wgsl;
 use crate::renderer::shader::chart_dash_line_wgsl;
 use crate::renderer::ChartDashSegmentRaw;
+use crate::renderer::shader::{chart_bar_decal_wgsl, chart_fill_decal_wgsl};
+use crate::renderer::ChartDecalRaw;
 use crate::renderer::gpu_context::GpuContext;
 use crate::renderer::texture::TextureRegistry;
 use crate::renderer::{chart_layer_bytes, RenderStats};
@@ -129,6 +131,9 @@ pub struct WgpuRenderBackend {
     bar_pipeline: wgpu::RenderPipeline,
     marker_pipeline: wgpu::RenderPipeline,
     fill_pipeline: wgpu::RenderPipeline,
+    /// Decal (pattern fill) passes over the bars / fills (chart/decal.rs)
+    bar_decal_pipeline: wgpu::RenderPipeline,
+    fill_decal_pipeline: wgpu::RenderPipeline,
     marker_3d_pipeline: wgpu::RenderPipeline,
     fill_3d_pipeline: wgpu::RenderPipeline,
     /// Scientific 3D isolines (fill vertices as a line list, depth-tested, no depth write)
@@ -163,6 +168,9 @@ pub struct WgpuRenderBackend {
     chart_overlay: GpuArray,
     chart_markers: GpuArray,
     chart_fills: GpuArray,
+    /// Decals of `chart_bars` / `chart_fills` (empty = none; drawn only when lengths match)
+    chart_bar_decals: GpuArray,
+    chart_fill_decals: GpuArray,
     chart_contours_3d: GpuArray,
     chart_parallel: GpuArray,
     chart_points: GpuArray,
@@ -293,6 +301,18 @@ const ATTRS_2: [wgpu::VertexAttribute; 2] = vec4_attrs::<2>();
 const ATTRS_3: [wgpu::VertexAttribute; 3] = vec4_attrs::<3>();
 const ATTRS_4: [wgpu::VertexAttribute; 4] = vec4_attrs::<4>();
 
+/// `ChartDecalRaw` (pattern, color) at shader locations `first..first + 2`.
+const fn decal_attrs(first: u32) -> [wgpu::VertexAttribute; 2] {
+    let mut attrs = vec4_attrs::<2>();
+    attrs[0].shader_location = first;
+    attrs[1].shader_location = first + 1;
+    attrs
+}
+
+/// Bar decals follow the 3 bar instance attributes, fill decals the 2 fill vertex attributes.
+const BAR_DECAL_ATTRS: [wgpu::VertexAttribute; 2] = decal_attrs(3);
+const FILL_DECAL_ATTRS: [wgpu::VertexAttribute; 2] = decal_attrs(2);
+
 /// Scatter point instance: `[x, y, series_slot, radius]` then RGBA8 color.
 const POINT_ATTRS: [wgpu::VertexAttribute; 2] = [
     wgpu::VertexAttribute {
@@ -332,7 +352,7 @@ fn layout_of<T>(step_mode: wgpu::VertexStepMode, attributes: &'static [wgpu::Ver
 const COMPACT_ARRAY_ELEMS: u64 = 16;
 
 /// `(label, default initial elements, element bytes)` of every per-engine growable GPU array.
-const ENGINE_ARRAYS: [(&str, u64, usize); 15] = [
+const ENGINE_ARRAYS: [(&str, u64, usize); 17] = [
     ("node-instances", 1024, size_of::<NodeInstanceRaw>()),
     ("edge-vertices", 2048, size_of::<EdgeVertexRaw>()),
     ("helper-lines", 512, size_of::<EdgeVertexRaw>()),
@@ -348,6 +368,8 @@ const ENGINE_ARRAYS: [(&str, u64, usize); 15] = [
     ("chart-points", 1024, size_of::<ChartPointRaw>()),
     ("chart-series-dashed", 16, size_of::<ChartDashSegmentRaw>()),
     ("chart-series-markers", 16, size_of::<ChartMarkerRaw>()),
+    ("chart-bar-decals", 16, size_of::<ChartDecalRaw>()),
+    ("chart-fill-decals", 16, size_of::<ChartDecalRaw>()),
 ];
 
 /// Annotation-style layers (`AnnotationArrays`): below, above, brush, navigator, window.
@@ -403,6 +425,9 @@ pub struct GpuPipelines {
     bar_pipeline: wgpu::RenderPipeline,
     marker_pipeline: wgpu::RenderPipeline,
     fill_pipeline: wgpu::RenderPipeline,
+    /// Decal (pattern fill) passes over the bars / fills (chart/decal.rs)
+    bar_decal_pipeline: wgpu::RenderPipeline,
+    fill_decal_pipeline: wgpu::RenderPipeline,
     marker_3d_pipeline: wgpu::RenderPipeline,
     fill_3d_pipeline: wgpu::RenderPipeline,
     contour_3d_pipeline: wgpu::RenderPipeline,
@@ -698,6 +723,8 @@ impl WgpuRenderBackend {
         let chart_overlay = arr("chart-overlay", vb);
         let chart_markers = arr("chart-markers", vb);
         let chart_fills = arr("chart-fills", vb);
+        let chart_bar_decals = arr("chart-bar-decals", vb);
+        let chart_fill_decals = arr("chart-fill-decals", vb);
         let chart_contours_3d = arr("chart-contours-3d", vb);
         let chart_parallel = arr("chart-parallel", vb);
         let chart_points = arr("chart-points", vb);
@@ -735,6 +762,8 @@ impl WgpuRenderBackend {
             bar_pipeline: p.bar_pipeline,
             marker_pipeline: p.marker_pipeline,
             fill_pipeline: p.fill_pipeline,
+            bar_decal_pipeline: p.bar_decal_pipeline,
+            fill_decal_pipeline: p.fill_decal_pipeline,
             marker_3d_pipeline: p.marker_3d_pipeline,
             fill_3d_pipeline: p.fill_3d_pipeline,
             contour_3d_pipeline: p.contour_3d_pipeline,
@@ -762,6 +791,8 @@ impl WgpuRenderBackend {
             chart_overlay,
             chart_markers,
             chart_fills,
+            chart_bar_decals,
+            chart_fill_decals,
             chart_contours_3d,
             chart_parallel,
             chart_points,
@@ -1102,6 +1133,22 @@ impl GpuPipelines {
                 depth_compare: Always,
             },
         );
+        // Decal passes: redraw the decorated bars / fills with a second (decal) vertex buffer,
+        // blended over them without writing depth (equal depth passes the bars' test)
+        let bar_decal_shader = shader("chart-bar-decal-shader", chart_bar_decal_wgsl());
+        let fill_decal_shader = shader("chart-fill-decal-shader", chart_fill_decal_wgsl());
+        let bar_decal_pipeline = create_pipeline(device, format, PipelineSpec {
+            label: "chart-bar-decals", layout: &pipeline_layout, shader: &bar_decal_shader,
+            vs: "vs_bar_decal", fs: "fs_bar_decal",
+            buffers: &[layout_of::<ChartBarRaw>(Instance, &ATTRS_3), layout_of::<ChartDecalRaw>(Instance, &BAR_DECAL_ATTRS)],
+            topology: TriangleList, depth_write: false, depth_compare: DEPTH_TEST,
+        });
+        let fill_decal_pipeline = create_pipeline(device, format, PipelineSpec {
+            label: "chart-fill-decals", layout: &fill_pipeline_layout, shader: &fill_decal_shader,
+            vs: "vs_fill_decal", fs: "fs_fill_decal",
+            buffers: &[layout_of::<ChartFillRaw>(Vertex, &ATTRS_2), layout_of::<ChartDecalRaw>(Vertex, &FILL_DECAL_ATTRS)],
+            topology: TriangleList, depth_write: false, depth_compare: DEPTH_TEST,
+        });
         // Camera (binding 0) + point style (binding 1): same layout as the mesh pipelines
         let point_pipeline = create_pipeline(
             device,
@@ -1184,6 +1231,8 @@ impl GpuPipelines {
             bar_pipeline,
             marker_pipeline,
             fill_pipeline,
+            bar_decal_pipeline,
+            fill_decal_pipeline,
             marker_3d_pipeline,
             fill_3d_pipeline,
             contour_3d_pipeline,
@@ -1239,6 +1288,30 @@ fn draw_fills<'a>(rpass: &mut wgpu::RenderPass<'a>, pipeline: &'a wgpu::RenderPi
     rpass.set_bind_group(0, bind, &[]);
     rpass.set_vertex_buffer(0, array.slice());
     rpass.draw(0..array.len, 0..1);
+}
+
+/// Decal pass over `marks` (bar quads when `quads`, else fill triangles): skipped unless
+/// `decals` holds one decal per mark (charts without decals upload none).
+fn draw_decals<'a>(
+    rpass: &mut wgpu::RenderPass<'a>,
+    pipeline: &'a wgpu::RenderPipeline,
+    bind: &'a wgpu::BindGroup,
+    marks: &'a GpuArray,
+    decals: &'a GpuArray,
+    quads: bool,
+) {
+    if marks.len == 0 || decals.len != marks.len {
+        return;
+    }
+    rpass.set_pipeline(pipeline);
+    rpass.set_bind_group(0, bind, &[]);
+    rpass.set_vertex_buffer(0, marks.slice());
+    rpass.set_vertex_buffer(1, decals.slice());
+    if quads {
+        rpass.draw(0..6, 0..marks.len);
+    } else {
+        rpass.draw(0..marks.len, 0..1);
+    }
 }
 
 /// Draws `count` instances of a 6-vertex quad from `array`.
@@ -1421,6 +1494,7 @@ impl RenderBackend for WgpuRenderBackend {
         }
         if let Some(v) = layers.bars {
             self.chart_bars.upload(device, queue, v, max);
+            self.chart_bar_decals.upload(device, queue, layers.bar_decals.unwrap_or(&[]), max);
         }
         if let Some(v) = layers.series {
             self.chart_series.upload(device, queue, v, max);
@@ -1437,6 +1511,7 @@ impl RenderBackend for WgpuRenderBackend {
         }
         if let Some(v) = layers.fills {
             self.chart_fills.upload(device, queue, v, max);
+            self.chart_fill_decals.upload(device, queue, layers.fill_decals.unwrap_or(&[]), max);
         } else if let Some(p) = &layers.fill_patch {
             self.chart_fills.write_ranges(queue, p.fills, p.ranges);
         }
@@ -1565,7 +1640,11 @@ impl RenderBackend for WgpuRenderBackend {
                 rpass.set_scissor_rect(x, y, w, h);
             }
             draw_quads(&mut rpass, &self.bar_pipeline, cam, &self.chart_bars);
+            draw_decals(&mut rpass, &self.bar_decal_pipeline, cam, &self.chart_bars, &self.chart_bar_decals, true);
             draw_fills(&mut rpass, if self.depth_3d { &self.fill_3d_pipeline } else { &self.fill_pipeline }, fill, &self.chart_fills);
+            if !self.depth_3d {
+                draw_decals(&mut rpass, &self.fill_decal_pipeline, fill, &self.chart_fills, &self.chart_fill_decals, false);
+            }
             draw_fills(&mut rpass, &self.contour_3d_pipeline, fill, &self.chart_contours_3d);
             // Parallel polylines: brushed-out rows (vertices 0..6) beneath active rows (6..12)
             if self.chart_parallel.len > 0 {
@@ -1668,6 +1747,8 @@ impl RenderBackend for WgpuRenderBackend {
             &self.chart_overlay,
             &self.chart_markers,
             &self.chart_fills,
+            &self.chart_bar_decals,
+            &self.chart_fill_decals,
             &self.chart_contours_3d,
             &self.chart_parallel,
             &self.chart_points,

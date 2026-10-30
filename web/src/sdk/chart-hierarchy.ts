@@ -9,6 +9,7 @@
 import { parseOptionalColor, type ColorInput, type RgbaTuple } from './color';
 import type { ChartValueFormat } from './chart-format';
 import type { ChartAnimationInput } from './chart-animation';
+import type { ChartDecalInput, DecalOverride } from './chart-decal';
 import type { A11yChartModel, ChartDataCell } from './chart-a11y';
 import type { A11yCommon, A11yCustomModel } from './chart-business-util';
 import type { ChartLegendOptions, ChartPaddingOptions, ChartTooltipContext, CharturboTheme, WasmCharturboEngineBackend } from './charturbo';
@@ -27,6 +28,8 @@ export interface HierarchyNode {
   children?: HierarchyNode[];
   /** Fill override of this node */
   color?: ColorInput;
+  /** Pattern fill of this node over the chart `decal` (`false`: none) */
+  decal?: DecalOverride;
 }
 
 /** Flat hierarchy row: `parent` is another row's `id` (missing / `null` = a root). */
@@ -37,6 +40,8 @@ export interface HierarchyFlatNode {
   /** Display name (default: the id) */
   name?: string;
   color?: ColorInput;
+  /** Pattern fill of this node over the chart `decal` (`false`: none) */
+  decal?: DecalOverride;
 }
 
 /** One root node, or flat rows (several roots get a synthetic `rootLabel` root). */
@@ -54,6 +59,11 @@ export interface HierarchyLabelContext {
 
 export interface HierarchyChartOptions {
   title?: string;
+  /**
+   * Pattern fills over the marks (accessibility, ECharts `aria.decal`): `true` gives each top-level group
+   * its own automatic pattern; options apply over the automatic patterns (default off). Nodes override with their own `decal`; treemap parent headers and the sunburst center stay plain
+   */
+  decal?: ChartDecalInput;
   /** Accessible name of the canvas */
   description?: string;
   /** Categorical palette in fixed order (default: the theme palette) */
@@ -215,6 +225,8 @@ export interface EncodedHierarchy {
   names: string[];
   ids: (string | number | undefined)[];
   colors: (ColorInput | undefined)[];
+  /** Decal option per node (chart-decal.ts) */
+  decals: DecalOverride[];
 }
 
 /** Flattens a nested tree (depth-first) or indexes flat rows by id (`locale`: default node names). */
@@ -222,6 +234,7 @@ export function encodeHierarchy(data: HierarchyData, locale?: string): EncodedHi
   const names: string[] = [];
   const ids: (string | number | undefined)[] = [];
   const colors: (ColorInput | undefined)[] = [];
+  const decals: DecalOverride[] = [];
   const parents: number[] = [];
   const values: number[] = [];
   const num = (v: unknown) => (typeof v === 'number' ? v : v === undefined || v === null ? NaN : Number(v));
@@ -245,6 +258,7 @@ export function encodeHierarchy(data: HierarchyData, locale?: string): EncodedHi
       names.push(row.name ?? String(row.id));
       ids.push(row.id);
       colors.push(row.color);
+      decals.push(row.decal);
     });
   } else if (data && typeof data === 'object') {
     // Objects on the current root path: a node among its own ancestors is a cycle (a shared
@@ -266,11 +280,12 @@ export function encodeHierarchy(data: HierarchyData, locale?: string): EncodedHi
       names.push(node.name ?? getMessages(locale).common.itemName(i + 1));
       ids.push(undefined);
       colors.push(node.color);
+      decals.push(node.decal);
       const kids = node.children ?? [];
       for (let k = kids.length - 1; k >= 0; k--) stack.push([kids[k], i]);
     }
   }
-  return { parents: Int32Array.from(parents), values: Float64Array.from(values), names, ids, colors };
+  return { parents: Int32Array.from(parents), values: Float64Array.from(values), names, ids, colors, decals };
 }
 
 /** Engine error text with `node <i>` replaced by the node's name. */
@@ -371,9 +386,10 @@ export function sendHierarchy(
   kind: 'treemap' | 'sunburst',
   data: HierarchyData,
   options?: TreemapChartOptions,
-  locale?: string
+  locale?: string,
+  encoded?: EncodedHierarchy
 ): HierarchyChartMeta {
-  const enc = encodeHierarchy(data, locale);
+  const enc = encoded ?? encodeHierarchy(data, locale);
   const o = options ?? {};
   const colorBy = COLOR_BY[o.colorBy ?? 'auto'] ?? 0;
   const labels = o.labels ?? true;
