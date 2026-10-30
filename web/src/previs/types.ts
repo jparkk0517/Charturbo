@@ -31,7 +31,7 @@ export type Track<T> = Keyframe<T>[];
 export type PrevisShape = 'box' | 'sphere' | 'cylinder';
 
 export interface PrevisNode {
-  /** Unique, stable, `[a-z0-9_.-]+`. Tracks, `parent`, `follow` and `role` refer to it. */
+  /** Unique, stable, `[A-Za-z0-9_.-]+`. Tracks, `parent`, `follow` and `role` refer to it. */
   id: string;
   shape: PrevisShape;
   /**

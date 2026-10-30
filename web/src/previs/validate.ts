@@ -168,7 +168,7 @@ export function validateDoc(
   if (!Array.isArray(d.nodes)) add('nodes', 'nodes must be an array');
   nodes.forEach((n, i) => {
     if (isObj(n) && typeof n.id === 'string') {
-      if (!/^[a-z0-9_.-]+$/.test(n.id)) add(`nodes[${i}].id`, `node id "${n.id}" must match [a-z0-9_.-]+ (lowercase letters, digits, _ . -)`);
+      if (!/^[A-Za-z0-9_.-]+$/.test(n.id)) add(`nodes[${i}].id`, `node id "${n.id}" must match [A-Za-z0-9_.-]+ (letters, digits, _ . -)`);
       if (nodeIds.has(n.id)) add(`nodes[${i}].id`, `duplicate node id "${n.id}"; ids must be unique`);
       nodeIds.add(n.id);
     }
@@ -177,7 +177,7 @@ export function validateDoc(
   nodes.forEach((n, i) => {
     const p = `nodes[${i}]`;
     if (!isObj(n)) return add(p, 'node must be an object');
-    if (typeof n.id !== 'string' || !n.id) add(`${p}.id`, 'node id must be a non-empty string matching [a-z0-9_.-]+');
+    if (typeof n.id !== 'string' || !n.id) add(`${p}.id`, 'node id must be a non-empty string matching [A-Za-z0-9_.-]+');
     if (!['box', 'sphere', 'cylinder'].includes(n.shape as string)) add(`${p}.shape`, `shape must be box, sphere or cylinder; got ${JSON.stringify(n.shape)}`);
     rgb(n.color, `${p}.color`);
     vec3(n.position, `${p}.position`);
