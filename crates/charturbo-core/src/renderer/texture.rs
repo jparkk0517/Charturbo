@@ -29,8 +29,8 @@ pub fn texture_byte_size(width: u32, height: u32, levels: u32) -> u64 {
 
 /// `rgba` must hold exactly `width * height` RGBA8 texels.
 pub fn check_rgba_len(width: u32, height: u32, len: usize) -> Result<(), String> {
-    let expected = u64::from(width) * u64::from(height) * 4;
-    if len as u64 != expected {
+    let expected = u128::from(width) * u128::from(height) * 4;
+    if len as u128 != expected {
         return Err(format!(
             "rgba length must be width * height * 4 ({expected}), got {len}"
         ));

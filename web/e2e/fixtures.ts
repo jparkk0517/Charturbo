@@ -1515,6 +1515,47 @@ export const FIXTURES: Fixture[] = [
         sdk.setCameraPose([0, 60, 110], [0, 8, 0]);
       }),
   },
+  {
+    // Same layout as scene-untextured with checkerboard maps: UV orientation (red corner = image
+    // top-left), repeat on the plane (minified, so mips), offset, and an alpha-tested cutout
+    name: 'scene-textured',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.setGraphVisible(false);
+        sdk.setRigidPhysics(false);
+        const size = 64;
+        const cell = 8;
+        const rgba = new Uint8Array(size * size * 4);
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const i = (y * size + x) * 4;
+            const on = (Math.floor(x / cell) + Math.floor(y / cell)) % 2 === 0;
+            const corner = x < cell && y < cell;
+            rgba.set(corner ? [255, 40, 40, 255] : on ? [255, 255, 255, 255] : [40, 40, 40, 255], i);
+          }
+        }
+        const checker = sdk.createDataTexture(size, size, rgba);
+        const holes = new Uint8Array(rgba);
+        for (let i = 3; i < holes.length; i += 4) {
+          const p = (i - 3) / 4;
+          if ((Math.floor((p % size) / cell) + Math.floor(Math.floor(p / size) / cell)) % 2 === 1) holes[i] = 0;
+        }
+        const cutout = sdk.createDataTexture(size, size, holes);
+        sdk.addPlane({ position: [0, -1, 0], scale: [160, 2, 110], color: [0.6, 0.65, 0.8, 1], roughness: 0.9, map: checker, mapRepeat: [8, 6] });
+        sdk.addBox({ position: [-40, 9, 0], rotation: [0, 0.6, 0], scale: [18, 18, 18], color: [1, 1, 1, 1], roughness: 0.5, map: checker });
+        sdk.addSphere({ position: [0, 10, 5], scale: [20, 20, 20], color: [1, 0.85, 0.6, 1], roughness: 0.3, map: checker, mapRepeat: [4, 2], mapOffset: [0.25, 0] });
+        sdk.addCylinder({ position: [40, 10, 0], scale: [14, 20, 14], color: [0.6, 1, 0.7, 1], roughness: 0.6, map: cutout });
+        sdk.setLighting({
+          ambientIntensity: 0.3,
+          directionalDirection: [-0.4, -1, -0.3],
+          directionalIntensity: 0.9,
+          pointPosition: [30, 40, 40],
+          pointIntensity: 0.6,
+        });
+        sdk.setCameraPose([0, 60, 110], [0, 8, 0]);
+      }),
+  },
 ];
 
 function scatterData(): { x: Float32Array; y: Float32Array; clusters: Uint16Array } {
