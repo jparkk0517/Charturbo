@@ -267,6 +267,10 @@ const MESH_LIGHT_STRUCT_PBR: &str = "struct SceneLightUniform {
     env_sky: vec4<f32>,
     // linear ground rgb, w = 1: encode the output to sRGB (non-sRGB surface)
     env_ground: vec4<f32>,
+    // x = 1: prefiltered linear HDR map (+ SH irradiance), y / z = cos / sin of the map's Y rotation
+    env_params: vec4<f32>,
+    // HDR maps: diffuse irradiance / PI as 9 premultiplied SH terms (rgb)
+    env_sh: array<vec4<f32>, 9>,
 };";
 
 /// Text edits turning the classic module into the PBR one (besides the light struct): the
@@ -319,7 +323,9 @@ var occlusion_map: texture_2d<f32>;
 @group(1) @binding(5)
 var emissive_map: texture_2d<f32>;
 
-// Equirectangular LDR (sRGB) environment, mipmapped; 1 x 1 white when unset (env_sky.w = 0)
+// Equirectangular environment, mipmapped; 1 x 1 white when unset (env_sky.w = 0). LDR maps are
+// sRGB with box-filtered mips; HDR maps (env_params.x = 1) linear Rgba16Float whose mip i is
+// GGX-prefiltered for roughness i / (mips - 1)
 @group(2) @binding(0)
 var env_map: texture_2d<f32>;
 
@@ -351,13 +357,33 @@ fn hemisphere(d: vec3<f32>) -> vec3<f32> {
     return mix(light.env_ground.rgb, light.env_sky.rgb, 0.5 + 0.5 * d.y) * light.shading.w;
 }
 
+// World direction -> map direction: the map is rotated by env_params.z / .y (sin / cos)
+// around +y, so look it up rotated the other way (identity at rotation 0)
+fn env_rotate(d: vec3<f32>) -> vec3<f32> {
+    let c = light.env_params.y;
+    let s = light.env_params.z;
+    return vec3<f32>(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
+}
+
 // Environment radiance along `d` at mip `lod` (hemisphere colour without a map)
 fn env_radiance(d: vec3<f32>, lod: f32) -> vec3<f32> {
     if (light.env_sky.w >= 1.0) {
-        let t = textureSampleLevel(env_map, env_sampler, equirect_uv(d), lod).rgb;
-        return srgb_to_linear3(t) * light.shading.w;
+        let t = textureSampleLevel(env_map, env_sampler, equirect_uv(env_rotate(d)), lod).rgb;
+        // HDR texels are linear radiance (values > 1 kept for tone mapping)
+        let radiance = select(srgb_to_linear3(t), t, light.env_params.x > 0.5);
+        return radiance * light.shading.w;
     }
     return hemisphere(d);
+}
+
+// HDR maps: diffuse irradiance / PI along the unit normal from the SH terms
+fn env_irradiance(n_world: vec3<f32>) -> vec3<f32> {
+    let n = env_rotate(n_world);
+    let sh = light.env_sh;
+    let e = sh[0].rgb + sh[1].rgb * n.y + sh[2].rgb * n.z + sh[3].rgb * n.x
+        + sh[4].rgb * (n.x * n.y) + sh[5].rgb * (n.y * n.z) + sh[6].rgb * (3.0 * n.z * n.z - 1.0)
+        + sh[7].rgb * (n.x * n.z) + sh[8].rgb * (n.x * n.x - n.y * n.y);
+    return max(e, vec3<f32>(0.0)) * light.shading.w;
 }
 
 // Split-sum environment BRDF, analytic fit (Karis, "Physically Based Shading on Mobile")
@@ -463,13 +489,20 @@ fn fs_mesh_pbr(in: MeshVertexOutput) -> @location(0) vec4<f32> {
     color += punctual(n, v, point_vec / max(dist, 0.001), n_dot_v, f0, diffuse_color, roughness)
         * (light.point_light_pos_intensity.w * attenuation);
 
-    // Environment: diffuse irradiance from a coarse mip (or the hemisphere), specular from the
-    // roughness-selected mip along the dominant reflection direction
+    // Environment: diffuse irradiance from SH (HDR maps), a coarse mip (LDR maps) or the
+    // hemisphere; specular from the roughness-selected mip (GGX-prefiltered for HDR maps) along
+    // the dominant reflection direction
     let mips = light.env_sky.w;
     let r = reflect(-v, n);
     let spec_dir = normalize(mix(r, n, roughness * roughness));
     let spec_env = env_radiance(spec_dir, roughness * max(mips - 1.0, 0.0));
-    let diffuse_env = env_radiance(n, max(mips - 3.0, (mips - 1.0) * 0.5));
+    // HDR maps: SH irradiance; LDR maps / the hemisphere: a blurry mip (branch free, so the
+    // LDR shaders compile as before)
+    let diffuse_env = select(
+        env_radiance(n, max(mips - 3.0, (mips - 1.0) * 0.5)),
+        env_irradiance(n),
+        light.env_params.x > 0.5 && mips >= 1.0,
+    );
     // Occlusion darkens the environment (indirect) light only
     let ao = 1.0 + in.pbr_maps.y * (occlusion_texel - 1.0);
     color += (diffuse_color * diffuse_env + spec_env * env_brdf_approx(f0, n_dot_v, roughness)) * ao;
@@ -669,6 +702,115 @@ fn vs_blit(@builtin(vertex_index) vi: u32) -> BlitOutput {
 @fragment
 fn fs_blit(in: BlitOutput) -> @location(0) vec4<f32> {
     return textureSample(src_level, src_sampler, in.uv);
+}
+"#;
+
+/// GPU prefiltering of HDR environment maps (`env_prefilter`): a fullscreen triangle per mip
+/// of an `Rgba16Float` equirect target. `fs_env_downsample` box-filters the source's own mip
+/// chain (bilinear at half resolution); `fs_env_prefilter` convolves the source with the GGX
+/// lobe of `params.x` (n = v = r, Karis 2013) from `ENV_PREFILTER_SAMPLES` Hammersley samples,
+/// each read from the source mip whose texel matches the sample's solid angle (filtered
+/// importance sampling, Krivanek & Colbert 2008), so a bright sun does not alias.
+pub const ENV_PREFILTER_WGSL: &str = r#"
+struct PrefilterParams {
+    // (roughness, source mip count, source width, source height)
+    params: vec4<f32>,
+};
+
+@group(0) @binding(0)
+var src_env: texture_2d<f32>;
+
+@group(0) @binding(1)
+var src_sampler: sampler;
+
+@group(0) @binding(2)
+var<uniform> prefilter: PrefilterParams;
+
+const PI: f32 = 3.141592653589793;
+const SAMPLES: u32 = 128u;
+
+struct BlitOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_env(@builtin(vertex_index) vi: u32) -> BlitOutput {
+    let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+    var out: BlitOutput;
+    out.position = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+@fragment
+fn fs_env_downsample(in: BlitOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureSampleLevel(src_env, src_sampler, in.uv, 0.0).rgb, 1.0);
+}
+
+// Same mapping as the mesh shader's `equirect_uv`: u = 0.5 faces -z, v = 0 is +y
+fn env_uv(d: vec3<f32>) -> vec2<f32> {
+    let pole = abs(d.x) + abs(d.z) < 1e-6;
+    let u = atan2(d.x, select(-d.z, 1.0, pole)) * (0.5 / PI) + 0.5;
+    let v = acos(clamp(d.y, -1.0, 1.0)) / PI;
+    return vec2<f32>(u, v);
+}
+
+fn env_dir(uv: vec2<f32>) -> vec3<f32> {
+    let theta = uv.y * PI;
+    let phi = (uv.x - 0.5) * 2.0 * PI;
+    return vec3<f32>(sin(theta) * sin(phi), cos(theta), -sin(theta) * cos(phi));
+}
+
+// Van der Corput radical inverse (base 2) without bitfieldReverse (GLSL ES 3.00)
+fn radical_inverse(i: u32) -> f32 {
+    var b = i;
+    b = (b << 16u) | (b >> 16u);
+    b = ((b & 0x55555555u) << 1u) | ((b & 0xAAAAAAAAu) >> 1u);
+    b = ((b & 0x33333333u) << 2u) | ((b & 0xCCCCCCCCu) >> 2u);
+    b = ((b & 0x0F0F0F0Fu) << 4u) | ((b & 0xF0F0F0F0u) >> 4u);
+    b = ((b & 0x00FF00FFu) << 8u) | ((b & 0xFF00FF00u) >> 8u);
+    return f32(b) * 2.3283064365386963e-10;
+}
+
+@fragment
+fn fs_env_prefilter(in: BlitOutput) -> @location(0) vec4<f32> {
+    let roughness = prefilter.params.x;
+    if (roughness <= 0.0) {
+        // Mirror level: the source itself (same size, texel centres)
+        return vec4<f32>(textureSampleLevel(src_env, src_sampler, in.uv, 0.0).rgb, 1.0);
+    }
+    let n = env_dir(in.uv);
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let up = select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), abs(n.y) > 0.999);
+    let tx = normalize(cross(up, n));
+    let ty = cross(n, tx);
+    let max_lod = prefilter.params.y - 1.0;
+    // Solid angle of a source texel at the equator (equirect texels shrink with sin(theta))
+    let texel_omega = 2.0 * PI * PI / (prefilter.params.z * prefilter.params.w);
+    var sum = vec3<f32>(0.0);
+    var weight = 0.0;
+    for (var i = 0u; i < SAMPLES; i = i + 1u) {
+        let xi = vec2<f32>(f32(i) / f32(SAMPLES), radical_inverse(i));
+        let phi = 2.0 * PI * xi.x;
+        let cos_h = sqrt((1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y));
+        let sin_h = sqrt(max(1.0 - cos_h * cos_h, 0.0));
+        let h = tx * (sin_h * cos(phi)) + ty * (sin_h * sin(phi)) + n * cos_h;
+        let l = 2.0 * dot(n, h) * h - n;
+        let n_dot_l = dot(n, l);
+        if (n_dot_l > 0.0) {
+            // pdf of l = D(h) / 4 (v = n); lod from the sample / texel solid angle ratio
+            let dd = cos_h * cos_h * (a2 - 1.0) + 1.0;
+            let pdf = a2 / (4.0 * PI * dd * dd);
+            let sample_omega = 1.0 / (f32(SAMPLES) * pdf + 1e-6);
+            let pixel_omega = texel_omega * sqrt(max(1.0 - l.y * l.y, 1e-4));
+            let lod = clamp(0.5 * log2(sample_omega / pixel_omega) + 1.0, 0.0, max_lod);
+            sum += textureSampleLevel(src_env, src_sampler, env_uv(l), lod).rgb * n_dot_l;
+            weight += n_dot_l;
+        }
+    }
+    return vec4<f32>(sum / max(weight, 1e-6), 1.0);
 }
 "#;
 
@@ -1710,6 +1852,7 @@ mod tests {
             ("mesh-pbr-shadowed", mesh_shadowed_wgsl(true)),
             ("mesh-shadow-depth", mesh_shadow_depth_wgsl()),
             ("mipmap-blit", MIPMAP_BLIT_WGSL.to_string()),
+            ("env-prefilter", ENV_PREFILTER_WGSL.to_string()),
             ("chart-line", chart_line_wgsl()),
             ("chart-marker", chart_marker_wgsl()),
             ("chart-dash-line", chart_dash_line_wgsl()),
@@ -1901,6 +2044,72 @@ mod tests {
     }
 
     #[test]
+    fn env_prefilter_shader_translates_to_webgl2_glsl() {
+        // The GGX sample loop (explicit-lod lookups, manual bit reversal: no bitfieldReverse in
+        // GLSL ES 3.00) and the downsample entry must survive WebGL2; the sample count matches
+        // the Rust side's `PREFILTER_SAMPLES`
+        use naga::back::glsl;
+        let src = ENV_PREFILTER_WGSL;
+        assert!(src.contains(&format!(
+            "const SAMPLES: u32 = {}u;",
+            super::super::env_map::PREFILTER_SAMPLES
+        )));
+        let module = naga::front::wgsl::parse_str(src)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(src)));
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .unwrap();
+        let options = glsl::Options {
+            version: glsl::Version::Embedded {
+                version: 300,
+                is_webgl: true,
+            },
+            ..Default::default()
+        };
+        for (stage, entry) in [
+            (naga::ShaderStage::Vertex, "vs_env"),
+            (naga::ShaderStage::Fragment, "fs_env_downsample"),
+            (naga::ShaderStage::Fragment, "fs_env_prefilter"),
+        ] {
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: stage,
+                entry_point: entry.into(),
+                multiview: None,
+            };
+            let mut out = String::new();
+            glsl::Writer::new(
+                &mut out,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                naga::proc::BoundsCheckPolicies::default(),
+            )
+            .and_then(|mut w| w.write())
+            .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+            assert!(out.contains("#version 300 es"));
+            assert!(!out.contains("bitfieldReverse"), "{entry}: GLSL ES 3.10 only");
+            if stage == naga::ShaderStage::Fragment {
+                assert!(out.contains("textureLod("), "{entry}: explicit lod");
+            }
+        }
+    }
+
+    #[test]
+    fn pbr_shader_keeps_the_ldr_environment_path() {
+        // LDR maps (env_params.x = 0) keep the sRGB decode + coarse-mip diffuse; HDR maps read
+        // linear texels and the SH irradiance
+        let src = mesh_pbr_wgsl();
+        assert!(src.contains("select(srgb_to_linear3(t), t, light.env_params.x > 0.5)"));
+        assert!(src.contains("env_radiance(n, max(mips - 3.0, (mips - 1.0) * 0.5)),"));
+        assert!(src.contains("env_irradiance(n),"));
+        assert!(src.contains("equirect_uv(env_rotate(d))"));
+    }
+
+    #[test]
     fn shadow_shaders_translate_to_webgl2_glsl() {
         // Comparison sampling at an explicit level (PCF in a loop), the receive flag varying and
         // the depth pass's alpha-test discard must survive GLSL ES 3.00 within 4 bind groups
@@ -1997,9 +2206,10 @@ mod tests {
         assert_eq!(back, MESH_LIT_WGSL);
         assert!(!MESH_LIT_WGSL.contains("pbr_maps") && !MESH_LIT_WGSL.contains("@location(12)"));
         assert!(!MESH_LIT_WGSL.contains("env_map"));
-        // Uniform layout: struct fields match `SceneLightUniformRaw` (6 x vec4)
+        // Uniform layout: struct fields match `SceneLightUniformRaw` (7 x vec4 + 9 SH vec4s)
+        assert!(MESH_LIGHT_STRUCT_PBR.contains("env_sh: array<vec4<f32>, 9>,"));
         assert_eq!(
-            MESH_LIGHT_STRUCT_PBR.matches("vec4<f32>").count() * 16,
+            (MESH_LIGHT_STRUCT_PBR.matches("vec4<f32>").count() + 8) * 16,
             std::mem::size_of::<super::super::SceneLightUniformRaw>()
         );
     }

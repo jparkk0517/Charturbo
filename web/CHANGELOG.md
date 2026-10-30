@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — HDR 환경 맵
+
+- `loadEnvironmentHdr(source, { signal })`(Radiance `.hdr`: RGBE, 평면 · 새 형식 RLE, `-Y` / `+Y`; URL · `Blob` · `ArrayBuffer` · 타입 배열) / `createEnvironmentFromFloat(width, height, rgb)`(선형 RGB float): PBR `environment.map`에 쓸 HDR 환경 맵을 만듭니다(최대 4096x2048, 오류는 메서드 이름으로 시작). 너비 1024 이하로 줄여 `Rgba16Float`로 저장하고 생성 시 GPU에서 한 번 사전 필터링합니다: 밉 `i`는 거칠기 `i / (n - 1)`의 GGX 중요도 샘플링(텍셀당 128개, 필터링 중요도 샘플링), 확산광은 SH9 복사조도. 1보다 큰 값이 노출 · 톤 매핑까지 유지됩니다. half float 렌더 타깃이 없는 WebGL2는 CPU 박스 밉으로 대체합니다.
+- `environment.rotation`(+y 축 라디안, HDR · LDR 맵 모두). HDR 텍스처는 `getTextures()` / `exportScene`에 `hdr: true`로 표시되고 `loadSceneWithTextures`가 `loadEnvironmentHdr`로 다시 불러옵니다. 텍스처 예산 · `texture_bytes` · `gpuBytes`에 집계되고 `disposeTexture` · 엔진 해제로 풀립니다. LDR 맵 · 하늘/땅 반구 · classic 렌더 결과는 그대로입니다. wasm `create_environment_hdr` / `create_environment_from_float` / `set_scene_env_rotation` 추가, `get_scene_shading`이 회전 값을 12번째로 반환합니다.
+- 예제 `scene/08-hdr-environment`, fixture `scene-pbr-hdr`, 문서 `charts/scene-3d`의 「HDR 환경 맵」 절.
+
 ### 추가 — PBR 재질 맵
 
 - 객체 재질 필드 `metallicRoughnessMap`(B = 금속성, G = 거칠기, 계수에 곱함) · `normalMap` + `normalScale`(접선 공간) · `aoMap` + `aoStrength`(R 채널, 환경광만 줄임) · `emissiveMap` + `emissiveColor`(sRGB 맵 × 색): 기본 도형 · 사용자 메시 · `setObjectMaterial`에서 지정하며 PBR 모델에서만 적용됩니다(classic과 맵 없는 PBR 렌더 결과는 그대로). 접선 프레임은 화면 미분으로 만드는 cotangent 프레임이라 정점 형식 변경 · `TANGENT` 속성 없이 WebGPU · WebGL2 모두 동작하고 뒤집힌 UV도 처리합니다. 모든 맵은 객체의 `mapRepeat` / `mapOffset`을 공유합니다.

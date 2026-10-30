@@ -12,6 +12,8 @@ mod parallel;
 pub mod shader;
 mod stats;
 pub mod texture;
+pub mod env_map;
+mod env_prefilter;
 pub mod wgpu_backend;
 
 pub use fill_style::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillPatch, ChartFillStyleRaw, FILL_EMPH_ALPHA, FILL_EMPH_FADE};
@@ -363,7 +365,7 @@ pub struct ShadowFrame {
     pub uniform: ShadowUniformRaw,
 }
 
-/// 16-byte aligned scene lighting uniform buffer (96 bytes). The classic mesh shader reads the
+/// 16-byte aligned scene lighting uniform buffer (256 bytes). The classic mesh shader reads the
 /// first 48 bytes only; the trailing fields drive the PBR shader (`scene::ShadingConfig`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -377,6 +379,11 @@ pub struct SceneLightUniformRaw {
     pub env_sky: [f32; 4],
     /// Linear ground radiance rgb, w = 1 when the shader must sRGB-encode its output (backend)
     pub env_ground: [f32; 4],
+    /// x = 1: the env map is a prefiltered HDR map (backend); y / z = cos / sin of the map's
+    /// rotation around +y (`ShadingConfig::env_rotation`); w unused
+    pub env_params: [f32; 4],
+    /// HDR env maps: diffuse irradiance / PI as 9 premultiplied SH terms (rgb, backend)
+    pub env_sh: [[f32; 4]; 9],
 }
 
 impl SceneLightUniformRaw {
@@ -395,6 +402,8 @@ impl Default for SceneLightUniformRaw {
             shading: [0.0, 1.0, 1.0, 1.0],
             env_sky: [0.0; 4],
             env_ground: [0.0; 4],
+            env_params: [0.0, 1.0, 0.0, 0.0],
+            env_sh: [[0.0; 4]; 9],
         }
     }
 }
@@ -647,6 +656,11 @@ pub trait RenderBackend {
     fn create_texture_from_bitmap(&mut self, _bitmap: &web_sys::ImageBitmap, _mipmaps: bool) -> Result<u32, String> {
         Err("textures require a GPU render backend".into())
     }
+    /// New HDR environment map from `width * height` linear RGB texels (top row = +y, equirect):
+    /// stored as `Rgba16Float`, GGX-prefiltered per mip + SH diffuse irradiance; returns its id.
+    fn create_environment_rgb(&mut self, _width: u32, _height: u32, _rgb: &[f32]) -> Result<u32, String> {
+        Err("environment maps require a GPU render backend".into())
+    }
     /// Frees a texture; draws still referencing its id fall back to white.
     fn dispose_texture(&mut self, _texture_id: u32) -> bool {
         false
@@ -738,6 +752,8 @@ pub struct MockRenderBackend {
     /// `(width, height, mipmaps)` per successful create, ids per successful dispose
     pub textures: texture::TextureLedger<()>,
     pub texture_creates: Vec<(u32, u32, bool)>,
+    /// `(width, height)` of the successful `create_environment_rgb` calls (source size)
+    pub environment_creates: Vec<(u32, u32)>,
     pub texture_disposes: Vec<u32>,
     /// Last `sync_lighting` uniform / `sync_environment_map` id
     pub last_light: Option<SceneLightUniformRaw>,
@@ -830,6 +846,17 @@ impl RenderBackend for MockRenderBackend {
         let (levels, bytes) = self.textures.plan(width, height, mipmaps)?;
         self.texture_creates.push((width, height, mipmaps));
         Ok(self.textures.insert(width, height, levels, bytes, ()))
+    }
+
+    fn create_environment_rgb(&mut self, width: u32, height: u32, rgb: &[f32]) -> Result<u32, String> {
+        env_map::check_env_source(width, height, rgb.len())?;
+        // Same plan as the GPU registry: the downsampled base, its prefiltered chain in f16
+        let (w, h) = env_map::env_base_size(width, height);
+        let levels = env_map::prefilter_levels(w, h);
+        let bytes = env_map::env_byte_size(w, h, levels);
+        self.textures.plan_bytes(w, h, bytes)?;
+        self.environment_creates.push((width, height));
+        Ok(self.textures.insert(w, h, levels, bytes, ()))
     }
 
     fn dispose_texture(&mut self, texture_id: u32) -> bool {
@@ -990,7 +1017,7 @@ mod tests {
         assert_eq!(size_of::<EdgeVertexRaw>(), 32);
         assert_eq!(size_of::<MeshVertexRaw>(), 32);
         assert_eq!(size_of::<MeshInstanceRaw>(), 192);
-        assert_eq!(size_of::<SceneLightUniformRaw>(), 96);
+        assert_eq!(size_of::<SceneLightUniformRaw>(), 256);
         assert_eq!(size_of::<ShadowUniformRaw>(), 96);
     }
 

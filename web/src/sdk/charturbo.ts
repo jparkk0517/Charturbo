@@ -1409,6 +1409,16 @@ export interface TextureRecord {
   width: number;
   height: number;
   src: string | null;
+  /** HDR environment map (`loadEnvironmentHdr` / `createEnvironmentFromFloat`); usable as `environment.map` only */
+  hdr?: true;
+}
+
+/** `loadEnvironmentHdr` source: a URL to fetch, or the `.hdr` file bytes. */
+export type EnvironmentHdrSource = string | URL | Blob | ArrayBuffer | ArrayBufferView;
+
+export interface LoadEnvironmentHdrOptions {
+  /** Aborts the fetch / read; the promise rejects with an `AbortError` */
+  signal?: AbortSignal;
 }
 
 /**
@@ -1536,11 +1546,15 @@ export interface SceneEnvironmentDescriptor {
   /** Environment radiance scale, 0..16 (default: 1) */
   intensity?: number;
   /**
-   * Equirectangular LDR (sRGB) texture id from `loadTexture` / `createDataTexture`, 2:1 with mipmaps
-   * (blurry reflections of rough surfaces read lower mips); u = 0.5 faces -z, the top row is
-   * straight up. `null` (or 0) uses the sky / ground hemisphere, as do unknown or disposed ids.
+   * Equirectangular environment texture id, 2:1; u = 0.5 faces -z, the top row is straight up.
+   * HDR maps (`loadEnvironmentHdr` / `createEnvironmentFromFloat`) are linear radiance, GGX
+   * prefiltered per roughness, with spherical-harmonics diffuse. LDR (sRGB) maps from
+   * `loadTexture` / `createDataTexture` need mipmaps (rough surfaces read blurrier mips). `null`
+   * (or 0) uses the sky / ground hemisphere, as do unknown or disposed ids.
    */
   map?: number | null;
+  /** Rotation of `map` around +y in radians (default: 0) */
+  rotation?: number;
 }
 
 /** Scene mesh shading (`setShading`). Chart 3D marks are not affected. */
@@ -1560,7 +1574,7 @@ export interface SceneShadingState {
   model: SceneShadingModel;
   toneMapping: SceneToneMapping;
   exposure: number;
-  environment: { sky: RgbTuple; ground: RgbTuple; intensity: number; map: number | null };
+  environment: { sky: RgbTuple; ground: RgbTuple; intensity: number; map: number | null; rotation: number };
 }
 
 export interface SceneHelpersDescriptor {
@@ -1621,6 +1635,8 @@ export interface SceneTextureDescriptor {
   src: string | null;
   width: number;
   height: number;
+  /** Reloaded with `loadEnvironmentHdr` (an HDR environment map) */
+  hdr?: boolean;
 }
 
 export interface SceneDescriptor {
@@ -1802,6 +1818,9 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   /** Uploads a decoded bitmap (straight alpha); returns the texture id */
   create_texture_from_bitmap?(bitmap: ImageBitmap, mipmaps: boolean): number;
   create_texture_rgba8?(width: number, height: number, rgba: Uint8Array, mipmaps: boolean): number;
+  /** Radiance `.hdr` bytes -> `[id, width, height]` (prefiltered HDR environment map) */
+  create_environment_hdr?(bytes: Uint8Array): Uint32Array | number[];
+  create_environment_from_float?(width: number, height: number, rgb: Float32Array): number;
   dispose_texture?(textureId: number): boolean;
   texture_count?(): number;
   texture_bytes?(): number;
@@ -1867,6 +1886,7 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     envIntensity: number,
     envMap: number
   ): void;
+  set_scene_env_rotation?(radians: number): void;
   set_scene_helpers?(
     showGrid: boolean,
     gridSize: number,
@@ -2595,10 +2615,10 @@ function hasObjectMap(rec: SceneObjectRecord): boolean {
 }
 
 /** `AbortError` for a signal that fired (its own reason when that already is one). */
-function textureAbortError(signal?: AbortSignal): Error {
+function textureAbortError(signal?: AbortSignal, fn = 'loadTexture'): Error {
   const reason: unknown = signal?.reason;
   if (reason instanceof Error && reason.name === 'AbortError') return reason;
-  return new DOMException('loadTexture: aborted', 'AbortError');
+  return new DOMException(`${fn}: aborted`, 'AbortError');
 }
 
 /** `{ width, height }` of image sources whose size is known before decoding. */
@@ -2639,13 +2659,13 @@ function defaultShadingState(): SceneShadingState {
     model: 'classic',
     toneMapping: 'aces',
     exposure: 1,
-    environment: { sky: [0.6, 0.66, 0.76], ground: [0.24, 0.22, 0.2], intensity: 1, map: null },
+    environment: { sky: [0.6, 0.66, 0.76], ground: [0.24, 0.22, 0.2], intensity: 1, map: null, rotation: 0 },
   };
 }
 
 function cloneShading(s: SceneShadingState): SceneShadingState {
   const e = s.environment;
-  return { ...s, environment: { sky: [...e.sky], ground: [...e.ground], intensity: e.intensity, map: e.map } };
+  return { ...s, environment: { sky: [...e.sky], ground: [...e.ground], intensity: e.intensity, map: e.map, rotation: e.rotation } };
 }
 
 /** Merges `options` over `current`, validating every given field (throws `fn: ...`). */
@@ -2684,6 +2704,11 @@ function resolveShading(fn: string, current: SceneShadingState, options: SceneSh
       const map = environment.map;
       if (map !== null && (!Number.isInteger(map) || map < 0)) throw new Error(`${fn}: environment.map must be a texture id or null`);
       env.map = map === 0 ? null : map;
+    }
+    if (environment.rotation !== undefined) {
+      const r = environment.rotation;
+      if (typeof r !== 'number' || !Number.isFinite(r)) throw new Error(`${fn}: environment.rotation must be a finite number (radians)`);
+      env.rotation = r;
     }
   }
   return next;
@@ -5817,8 +5842,79 @@ export class Charturbo {
     return this.registerTexture(fn, width, height, null, () => b.create_texture_rgba8!(width, height, bytes, options.mipmaps ?? true));
   }
 
+  /**
+   * Loads a Radiance `.hdr` (RGBE, flat or run-length encoded, at most 4096x2048) as an HDR
+   * environment map; resolves to its texture id for `setShading({ environment: { map } })`.
+   * The equirect image is downsampled to at most 1024 texels wide and prefiltered once on the
+   * GPU: a GGX mip chain read by roughness plus spherical-harmonics diffuse irradiance. Radiance
+   * above 1 is kept for exposure and tone mapping. Strings and `URL`s are fetched (CORS applies).
+   * Rejects with an `AbortError` when `signal` fires and with `loadEnvironmentHdr: ...` for
+   * malformed or oversized files. Free it with `disposeTexture`.
+   */
+  async loadEnvironmentHdr(source: EnvironmentHdrSource, options: LoadEnvironmentHdrOptions = {}): Promise<number> {
+    const fn = 'loadEnvironmentHdr';
+    const { signal } = options;
+    const b = this.backend;
+    if (!b.create_environment_hdr) throw new Error(`${fn}: engine has no HDR environment support (create_environment_hdr)`);
+    if (signal?.aborted) throw textureAbortError(signal, fn);
+    let src: string | null = null;
+    let bytes: Uint8Array;
+    if (typeof source === 'string' || source instanceof URL) {
+      src = typeof source === 'string' ? source : source.href;
+      try {
+        const res = await fetch(src, { signal });
+        if (!res.ok) throw new Error(`${fn}: failed to fetch ${src} (${res.status})`);
+        bytes = new Uint8Array(await res.arrayBuffer());
+      } catch (e) {
+        if (signal?.aborted) throw textureAbortError(signal, fn);
+        throw e instanceof Error && e.message.startsWith(`${fn}:`) ? e : textureError(fn, `failed to fetch ${src} (${e instanceof Error ? e.message : String(e)})`);
+      }
+    } else if (typeof Blob !== 'undefined' && source instanceof Blob) {
+      bytes = new Uint8Array(await source.arrayBuffer());
+    } else if (source instanceof ArrayBuffer) {
+      bytes = new Uint8Array(source);
+    } else if (ArrayBuffer.isView(source)) {
+      bytes = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+    } else {
+      throw new Error(`${fn}: source must be a URL string, URL, Blob, ArrayBuffer or typed array`);
+    }
+    if (signal?.aborted) throw textureAbortError(signal, fn);
+    let size = { width: 0, height: 0 };
+    const id = this.registerTexture(fn, 0, 0, src, () => {
+      const out = b.create_environment_hdr!(bytes);
+      size = { width: out[1], height: out[2] };
+      return out[0];
+    }, true);
+    const rec = this.textureRecords.get(id);
+    if (rec) Object.assign(rec, size);
+    return id;
+  }
+
+  /**
+   * Creates an HDR environment map from linear RGB floats: `width * height` texels, 3 floats each,
+   * row-major with the top row straight up (equirect, 2:1, at most 4096x2048). Same prefiltering
+   * and use as `loadEnvironmentHdr`. Negative and non-finite values are treated as 0, values
+   * above 65504 are clamped. Returns the texture id.
+   */
+  createEnvironmentFromFloat(width: number, height: number, rgb: Float32Array | ArrayLike<number>): number {
+    const fn = 'createEnvironmentFromFloat';
+    const b = this.backend;
+    if (!b.create_environment_from_float) throw new Error(`${fn}: engine has no HDR environment support (create_environment_from_float)`);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+      throw new Error(`${fn}: width and height must be positive integers`);
+    }
+    if (rgb === null || typeof rgb !== 'object' || typeof rgb.length !== 'number') {
+      throw new Error(`${fn}: rgb must be a Float32Array or an array of numbers`);
+    }
+    if (rgb.length !== width * height * 3) {
+      throw new Error(`${fn}: rgb must hold width * height * 3 = ${width * height * 3} floats (got ${rgb.length})`);
+    }
+    const data = rgb instanceof Float32Array ? rgb : Float32Array.from(rgb);
+    return this.registerTexture(fn, width, height, null, () => b.create_environment_from_float!(width, height, data), true);
+  }
+
   /** Runs an engine upload and records the texture; engine errors gain the method prefix. */
-  private registerTexture(fn: string, width: number, height: number, src: string | null, upload: () => number): number {
+  private registerTexture(fn: string, width: number, height: number, src: string | null, upload: () => number, hdr = false): number {
     if (this.disposed) throw new Error(`${fn}: Charturbo is disposed`);
     let id: number;
     try {
@@ -5826,7 +5922,7 @@ export class Charturbo {
     } catch (e) {
       throw textureError(fn, e);
     }
-    this.textureRecords.set(id, { id, width, height, src });
+    this.textureRecords.set(id, hdr ? { id, width, height, src, hdr: true } : { id, width, height, src });
     return id;
   }
 
@@ -7938,6 +8034,7 @@ export class Charturbo {
       e.intensity,
       e.map ?? 0
     );
+    this.backend.set_scene_env_rotation?.(e.rotation);
   }
 
   setHelpers(helpers: SceneHelpersDescriptor): void {
@@ -8064,19 +8161,19 @@ export class Charturbo {
       if (!t.src) {
         // Pixel data is not exported: only a live data texture of the same size can stand in
         const same = this.textureRecords.get(t.id);
-        if (!same || same.src !== null || same.width !== t.width || same.height !== t.height) {
+        if (!same || same.src !== null || same.width !== t.width || same.height !== t.height || !same.hdr !== !t.hdr) {
           idMap.set(t.id, null);
           console.warn(`loadSceneWithTextures: texture ${t.id} has no src and cannot be restored; its map is dropped`);
         }
         continue;
       }
-      const live = Array.from(this.textureRecords.values()).find((r) => r.src === t.src);
+      const live = Array.from(this.textureRecords.values()).find((r) => r.src === t.src && !r.hdr === !t.hdr);
       if (live) {
         idMap.set(t.id, live.id);
         continue;
       }
       try {
-        idMap.set(t.id, await this.loadTexture(t.src));
+        idMap.set(t.id, await (t.hdr ? this.loadEnvironmentHdr(t.src) : this.loadTexture(t.src)));
       } catch (e) {
         // An unloadable texture must not fall back to an unrelated live texture with the same id
         idMap.set(t.id, null);
@@ -8184,7 +8281,7 @@ export class Charturbo {
     used.add(this.shadingState.environment.map);
     for (const id of used) {
       const t = id === null ? undefined : this.textureRecords.get(id);
-      if (t) textures.push({ id: t.id, src: t.src, width: t.width, height: t.height });
+      if (t) textures.push({ id: t.id, src: t.src, width: t.width, height: t.height, ...(t.hdr ? { hdr: true } : {}) });
     }
 
     return {

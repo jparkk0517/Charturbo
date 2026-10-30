@@ -687,8 +687,9 @@ impl WgpuRenderBackend {
         let config = surface_config(&surface, &adapter, width, height)?;
         surface.configure(&device, &config);
         let msaa_x4 = msaa::msaa_x4_supported(&adapter, &device, config.format);
+        let float_targets = msaa::float_targets_supported(&adapter, &device);
 
-        Ok(Self::build_pipelines(surface, device, queue, config, msaa_x4))
+        Ok(Self::build_pipelines(surface, device, queue, config, msaa_x4, float_targets))
     }
 
     /// Engine on a shared device: its own surface (WebGPU) or a 2D context the shared GL canvas
@@ -738,7 +739,9 @@ impl WgpuRenderBackend {
         };
         let pipes = ctx.pipelines.get_or_build((config.format, 1), || GpuPipelines::new(&ctx.device, config.format));
         let msaa_x4 = msaa::msaa_x4_supported(&ctx.adapter, &ctx.device, config.format);
-        let mut backend = Self::assemble(target, ctx.device.clone(), ctx.queue.clone(), config, pipes, true, msaa_x4);
+        let float_targets = msaa::float_targets_supported(&ctx.adapter, &ctx.device);
+        let mut backend =
+            Self::assemble(target, ctx.device.clone(), ctx.queue.clone(), config, pipes, true, msaa_x4, float_targets);
         backend._shared = Some(ctx.clone());
         Ok(backend)
     }
@@ -750,9 +753,10 @@ impl WgpuRenderBackend {
         queue: wgpu::Queue,
         config: wgpu::SurfaceConfiguration,
         msaa_x4: bool,
+        float_targets: bool,
     ) -> Self {
         let pipes = Rc::new(GpuPipelines::new(&device, config.format));
-        Self::assemble(PresentTarget::Surface(surface), device, queue, config, pipes, false, msaa_x4)
+        Self::assemble(PresentTarget::Surface(surface), device, queue, config, pipes, false, msaa_x4, float_targets)
     }
 
     /// Per-engine resources (depth texture, uniforms, bind groups, instance buffers) around
@@ -766,6 +770,7 @@ impl WgpuRenderBackend {
         pipes: Rc<GpuPipelines>,
         compact: bool,
         msaa_x4: bool,
+        float_targets: bool,
     ) -> Self {
         let depth_view = Self::create_depth_view(&device, config.width, config.height);
         let max_buffer_bytes = device.limits().max_buffer_size;
@@ -866,6 +871,7 @@ impl WgpuRenderBackend {
             &queue,
             pipes.mesh_texture_bgl.clone(),
             pipes.mesh_material_bgl.clone(),
+            float_targets,
         );
         let env = EnvBinding { id: 0, levels: 0, bind_group: textures.env_bind_group(&device, 0) };
 
@@ -1661,6 +1667,10 @@ impl RenderBackend for WgpuRenderBackend {
         self.textures.create_rgba8(&self.device, &self.queue, width, height, rgba, mipmaps)
     }
 
+    fn create_environment_rgb(&mut self, width: u32, height: u32, rgb: &[f32]) -> Result<u32, String> {
+        self.textures.create_environment_rgb(&self.device, &self.queue, width, height, rgb)
+    }
+
     #[cfg(target_arch = "wasm32")]
     fn create_texture_from_bitmap(&mut self, bitmap: &web_sys::ImageBitmap, mipmaps: bool) -> Result<u32, String> {
         self.textures.create_from_bitmap(&self.device, &self.queue, bitmap, mipmaps)
@@ -1742,6 +1752,10 @@ impl RenderBackend for WgpuRenderBackend {
         // Backend-owned fields: env map mip count, and sRGB encoding unless the surface does it
         light.env_sky[3] = self.env.levels as f32;
         light.env_ground[3] = if self.config.format.is_srgb() { 0.0 } else { 1.0 };
+        // HDR maps: linear texels + SH diffuse (x = 1); LDR maps / sky-ground keep x = 0
+        let sh = if self.env.levels > 0 { self.textures.env_sh(self.env.id) } else { None };
+        light.env_params[0] = if sh.is_some() { 1.0 } else { 0.0 };
+        light.env_sh = sh.copied().unwrap_or([[0.0; 4]; 9]);
         self.pbr = light.is_pbr();
         if self.pbr {
             self.mesh_pbr.get(&self.device, self.samples);

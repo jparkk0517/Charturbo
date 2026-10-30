@@ -81,6 +81,18 @@ impl<T> TextureLedger<T> {
 
     /// Validates a new texture: `(mip levels, bytes)` or an error (size, budget, ids).
     pub fn plan(&self, width: u32, height: u32, mipmaps: bool) -> Result<(u32, u64), String> {
+        let levels = if mipmaps {
+            mip_level_count(width, height)
+        } else {
+            1
+        };
+        let bytes = texture_byte_size(width, height, levels);
+        self.plan_bytes(width, height, bytes)?;
+        Ok((levels, bytes))
+    }
+
+    /// Validates a new texture of a known byte size (any format / mip chain).
+    pub fn plan_bytes(&self, width: u32, height: u32, bytes: u64) -> Result<(), String> {
         if width == 0 || height == 0 {
             return Err("texture width and height must be > 0".into());
         }
@@ -93,16 +105,10 @@ impl<T> TextureLedger<T> {
         if self.next_id == u32::MAX {
             return Err("texture ids exhausted".into());
         }
-        let levels = if mipmaps {
-            mip_level_count(width, height)
-        } else {
-            1
-        };
-        let bytes = texture_byte_size(width, height, levels);
         if self.used + bytes > self.budget {
             return Err("texture memory budget exceeded".into());
         }
-        Ok((levels, bytes))
+        Ok(())
     }
 
     /// Records a texture validated by `plan` and returns its new id.
@@ -148,8 +154,10 @@ impl<T> TextureLedger<T> {
 
 /// GPU side of one texture: kept for explicit destruction, bind group cached for draws.
 pub(crate) struct GpuTexture {
-    texture: wgpu::Texture,
-    bind_group: wgpu::BindGroup,
+    pub(super) texture: wgpu::Texture,
+    pub(super) bind_group: wgpu::BindGroup,
+    /// HDR environment maps (`Rgba16Float`, prefiltered): SH diffuse irradiance terms
+    pub(super) env_sh: Option<Box<[[f32; 4]; 9]>>,
 }
 
 /// Texture ids of a PBR material bind group: base color, metallic-roughness, normal,
@@ -171,9 +179,9 @@ struct MipBlit {
 /// Per-engine mesh textures, their shared sampler, the default white texture and the PBR
 /// material bind groups.
 pub(crate) struct TextureRegistry {
-    ledger: TextureLedger<GpuTexture>,
-    layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
+    pub(super) ledger: TextureLedger<GpuTexture>,
+    pub(super) layout: wgpu::BindGroupLayout,
+    pub(super) sampler: wgpu::Sampler,
     /// PBR environment maps: u wraps (longitude), v clamps at the poles
     env_sampler: wgpu::Sampler,
     white: wgpu::Texture,
@@ -185,7 +193,11 @@ pub(crate) struct TextureRegistry {
     flat_normal: Option<wgpu::Texture>,
     /// Material bind groups of the drawn texture combinations (`prepare_materials`); cleared
     /// whenever a texture is created or disposed, so none outlives / misses its textures
-    materials: HashMap<MaterialKey, wgpu::BindGroup>,
+    pub(super) materials: HashMap<MaterialKey, wgpu::BindGroup>,
+    /// The device renders into `Rgba16Float` (HDR prefiltering on the GPU; else box mips)
+    pub(super) float_targets: bool,
+    /// Lazily built HDR environment prefilter pipelines
+    pub(super) prefilter: Option<super::env_prefilter::EnvPrefilter>,
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -195,12 +207,14 @@ impl TextureRegistry {
     pub const WHITE_BYTES: u64 = 4;
 
     /// `layout`: the mesh texture bind group layout (b0 texture, b1 sampler) of the pipelines;
-    /// `material_layout`: the PBR material group (b0 base map, b1 sampler, b2..b5 maps).
+    /// `material_layout`: the PBR material group (b0 base map, b1 sampler, b2..b5 maps);
+    /// `float_targets`: `Rgba16Float` is renderable (GPU prefiltering of HDR environments).
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: wgpu::BindGroupLayout,
         material_layout: wgpu::BindGroupLayout,
+        float_targets: bool,
     ) -> Self {
         let max_edge = device
             .limits()
@@ -242,6 +256,8 @@ impl TextureRegistry {
             material_layout,
             flat_normal: None,
             materials: HashMap::new(),
+            float_targets,
+            prefilter: None,
         }
     }
 
@@ -266,8 +282,14 @@ impl TextureRegistry {
                 .iter()
                 .enumerate()
                 .map(|(slot, id)| {
-                    let fallback = if slot == NORMAL_SLOT { &*flat } else { &self.white };
-                    let texture = self.ledger.get(*id).map_or(fallback, |e| &e.value.texture);
+                    let fallback = if slot == NORMAL_SLOT {
+                        &*flat
+                    } else {
+                        &self.white
+                    };
+                    // HDR environment maps are not object maps: same fallback
+                    let live = self.ledger.get(*id).filter(|e| e.value.env_sh.is_none());
+                    let texture = live.map_or(fallback, |e| &e.value.texture);
                     texture.create_view(&wgpu::TextureViewDescriptor::default())
                 })
                 .collect();
@@ -309,11 +331,18 @@ impl TextureRegistry {
         self.ledger.bytes()
     }
 
-    /// Bind group of `id`; unknown / disposed ids (and 0) get the white texture.
+    /// Bind group of `id`; unknown / disposed ids (and 0) and HDR environment maps get the
+    /// white texture.
     pub fn bind_group(&self, id: u32) -> &wgpu::BindGroup {
         self.ledger
             .get(id)
+            .filter(|e| e.value.env_sh.is_none())
             .map_or(&self.white_bind_group, |e| &e.value.bind_group)
+    }
+
+    /// SH irradiance terms of a live HDR environment map (`None` for LDR / unknown ids).
+    pub fn env_sh(&self, id: u32) -> Option<&[[f32; 4]; 9]> {
+        self.ledger.get(id)?.value.env_sh.as_deref()
     }
 
     /// Mip levels of a live texture (0 for unknown / disposed ids and 0).
@@ -324,7 +353,10 @@ impl TextureRegistry {
     /// Environment-map bind group of `id` (same layout as the base-color group, env sampler);
     /// unknown / disposed ids get the white texture (the shader then uses the hemisphere).
     pub fn env_bind_group(&self, device: &wgpu::Device, id: u32) -> wgpu::BindGroup {
-        let texture = self.ledger.get(id).map_or(&self.white, |e| &e.value.texture);
+        let texture = self
+            .ledger
+            .get(id)
+            .map_or(&self.white, |e| &e.value.texture);
         Self::create_bind_group(device, &self.layout, &self.env_sampler, texture)
     }
 
@@ -372,6 +404,7 @@ impl TextureRegistry {
             GpuTexture {
                 texture,
                 bind_group,
+                env_sh: None,
             },
         ))
     }
@@ -404,7 +437,11 @@ impl TextureRegistry {
                     color_space: wgpu::PredefinedColorSpace::Srgb,
                     premultiplied_alpha: false,
                 },
-                wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
             )
         })
     }
@@ -476,7 +513,7 @@ impl TextureRegistry {
         );
     }
 
-    fn create_bind_group(
+    pub(super) fn create_bind_group(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,

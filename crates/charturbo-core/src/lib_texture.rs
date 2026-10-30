@@ -36,6 +36,27 @@ impl WasmCharturboEngine {
             .map_err(|e| JsValue::from_str(&e))
     }
 
+    /// HDR environment map from Radiance `.hdr` bytes (RGBE, flat or RLE): returns
+    /// `[id, width, height]`. Usable as the shading `env_map`; freed by `dispose_texture`.
+    pub fn create_environment_hdr(&mut self, bytes: &[u8]) -> Result<Vec<u32>, JsValue> {
+        self.inner
+            .create_environment_hdr(bytes)
+            .map(|(id, w, h)| vec![id, w, h])
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// HDR environment map from `width * height` linear RGB floats (equirect, top row = +y).
+    pub fn create_environment_from_float(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgb: &[f32],
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .create_environment_rgb(width, height, rgb)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
     /// Frees a texture; objects using it fall back to no map. `false` for unknown ids.
     pub fn dispose_texture(&mut self, texture_id: u32) -> bool {
         self.inner.dispose_texture(texture_id)

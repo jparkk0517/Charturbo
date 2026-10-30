@@ -226,7 +226,7 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 
 - 금속성-거칠기 모델: GGX 분포, 높이 상관 Smith 가시성, `F0 = mix(0.04, color, metallic)`인 Schlick 프레넬, Lambert 확산 항을 씁니다. `roughness`는 최소 0.045로 제한됩니다. `setLighting`의 방향광 · 점광원과 `emissive`는 그대로 적용되며, `ambientIntensity`는 classic 전용입니다(PBR의 주변광은 환경에서 옵니다).
 - 색은 다른 곳과 마찬가지로 sRGB입니다. 셰이더가 색과 텍스처를 선형으로 디코딩해 선형 공간에서 조명하고, `exposure`를 곱한 뒤 톤 매핑(`'aces'` · `'reinhard'` · `'none'`)하여 다시 sRGB로 인코딩합니다.
-- 환경: `map`이 없으면 하늘 / 땅 반구(`sky` · `ground`, 0..1 범위 sRGB `[r, g, b]`)가 장면을 비춥니다. `map`(`loadTexture` / `createDataTexture`의 등장방형 텍스처 ID, 맨 윗줄 = 위, 가운데 열이 −z 방향)이 있으면 정반사는 거칠기에 따라 커지는 밉 레벨을, 확산광은 흐린 밉을 샘플링하며, 사전 필터링 맵 대신 해석적 split-sum 근사를 씁니다. 기본값 `mipmaps: true`를 유지하세요. 모르거나 해제된 ID는 반구로 대체되고, `disposeTexture`는 이 참조를 지웁니다.
+- 환경: `map`이 없으면 하늘 / 땅 반구(`sky` · `ground`, 0..1 범위 sRGB `[r, g, b]`)가 장면을 비춥니다. `map`(`loadTexture` / `createDataTexture`의 등장방형 텍스처 ID, 맨 윗줄 = 위, 가운데 열이 −z 방향)이 있으면 정반사는 거칠기에 따라 커지는 밉 레벨을, 확산광은 흐린 밉을 샘플링하며, 사전 필터링 맵 대신 해석적 split-sum 근사를 씁니다. 기본값 `mipmaps: true`를 유지하세요. HDR 맵은 사전 필터링됩니다([HDR 환경 맵](#hdr-environment-maps) 참고). 모르거나 해제된 ID는 반구로 대체되고, `disposeTexture`는 이 참조를 지웁니다.
 - `setShading`은 현재 설정에 병합되며 잘못된 값이면 `setShading: ...`을 던집니다. `getShading()`은 사본을 반환합니다. `exportScene()`은 설정을 `shading`에(환경 텍스처는 `textures`에) 저장하고, `loadScene`이 이를 복원하며 `loadSceneWithTextures`는 환경 텍스처 ID를 다시 매핑합니다.
 - PBR 파이프라인은 처음 쓸 때 컴파일됩니다. WebGPU와 WebGL2를 모두 지원합니다.
 
@@ -239,6 +239,24 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+| `environment.rotation` | `number` (+y 축 기준 라디안) | `0` |
+
+### HDR 환경 맵 {#hdr-environment-maps}
+
+HDR 환경은 실제 복사휘도로 PBR 메시를 비춥니다. 값이 50인 태양은 1에서 잘리지 않고 매끈한 금속 위에 선명하고 밝은 하이라이트로 남습니다.
+
+```ts
+const studio = await sdk.loadEnvironmentHdr('/env/studio.hdr'); // Radiance RGBE, 평면 또는 RLE
+sdk.setShading({ model: 'pbr', exposure: 0.8, environment: { map: studio, rotation: Math.PI / 2 } });
+
+// 선형 float로도 만들 수 있습니다: width * height * 3, 맨 윗줄 = 위
+const env = sdk.createEnvironmentFromFloat(256, 128, rgb);
+```
+
+- `loadEnvironmentHdr(source, { signal })`는 Radiance `.hdr` 파일(`#?RADIANCE` / `#?RGBE`, `FORMAT=32-bit_rle_rgbe`, `-Y h +X w` 또는 `+Y h +X w`)을 담은 URL 문자열 · `URL` · `Blob` · `ArrayBuffer` · 타입 배열을 받습니다. `createEnvironmentFromFloat(width, height, rgb)`는 선형 RGB float를 받습니다. 둘 다 `environment.map`에 쓸 텍스처 ID를 반환하고 최대 4096x2048까지 받습니다. 오류 메시지에는 메서드 이름이 앞에 붙고, 중단된 `signal`은 `AbortError`로 거부됩니다.
+- 생성할 때 등장방형 이미지를 최대 너비 1024 텍셀로 줄여 `Rgba16Float`로 저장하고 GPU에서 한 번 사전 필터링합니다. `n`개 밉 중 `i`번째에는 거칠기 `i / (n - 1)`의 GGX 컨볼루션이 들어가므로(텍셀당 중요도 샘플 128개, 가장 작은 밉은 높이 8 텍셀) 거친 반사가 BRDF대로 흐려집니다. 확산광은 맵을 계수 9개짜리 구면 조화 함수로 투영해 계산합니다. 1보다 큰 값은 `exposure`와 톤 매핑까지 유지됩니다(65504를 넘는 값은 잘리고, 음수 · NaN 텍셀은 0이 됩니다).
+- 1024x512 맵은 약 5.6 MB를 차지합니다(`getTextures()`에 `hdr: true`로 나오고, 텍스처 예산과 `getRenderStats().gpuBytes`에 집계됩니다). `disposeTexture`로 해제합니다. 사전 필터링은 WebGPU에서 수 밀리초, WebGL2에서 수십 밀리초가 걸립니다. half float 렌더링을 지원하지 않는 WebGL2 장치에서는 단순 박스 필터 밉을 대신 씁니다(거친 반사가 더 흐릿하고 API는 같음).
+- `environment.rotation`은 모든 환경 맵(HDR · LDR)을 +y 축으로 돌립니다. HDR 텍스처는 `environment.map` 전용이며 객체 `map`으로 쓰면 흰색으로 그려집니다. `exportScene`은 이를 `hdr: true`로 표시하고, `loadSceneWithTextures`는 `src`가 있는 것을 `loadEnvironmentHdr`로 다시 불러옵니다.
 
 ### 재질 맵 {#material-maps}
 

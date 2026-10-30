@@ -22,6 +22,25 @@ impl VisualizationEngine {
             .create_texture_rgba8(width, height, rgba, mipmaps)
     }
 
+    /// HDR environment map (`SceneWorld::shading.env_map`) from `width * height` linear RGB
+    /// texels (equirect, top row = +y), prefiltered once for roughness; returns its id.
+    pub fn create_environment_rgb(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgb: &[f32],
+    ) -> Result<u32, String> {
+        self.renderer.create_environment_rgb(width, height, rgb)
+    }
+
+    /// HDR environment map from a Radiance `.hdr` file; returns `(id, width, height)` of the
+    /// decoded source image.
+    pub fn create_environment_hdr(&mut self, bytes: &[u8]) -> Result<(u32, u32, u32), String> {
+        let image = crate::renderer::env_map::decode_radiance_hdr(bytes)?;
+        let id = self.create_environment_rgb(image.width, image.height, &image.rgb)?;
+        Ok((id, image.width, image.height))
+    }
+
     /// New texture from a decoded image (browser only); returns its id.
     pub fn create_texture_from_bitmap(
         &mut self,

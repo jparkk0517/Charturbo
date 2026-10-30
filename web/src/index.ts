@@ -140,6 +140,8 @@ export {
   type TextureRecord,
   type LoadTextureOptions,
   type DataTextureOptions,
+  type EnvironmentHdrSource,
+  type LoadEnvironmentHdrOptions,
   type Vec2Tuple,
   type WasmCharturboEngineBackend,
 } from './sdk/charturbo';

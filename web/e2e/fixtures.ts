@@ -1860,6 +1860,31 @@ export const FIXTURES: Fixture[] = [
     render: (ctx) => single(ctx, (sdk) => pbrMapsScene(sdk)),
   },
   {
+    // HDR environment (createEnvironmentFromFloat): a blue sky gradient, a dark ground and a
+    // small sun of radiance 60 behind the camera, upper right, rotated 0.3 rad. Spheres with
+    // roughness 0..1 (columns), dielectric (bottom row) and metal (top row), lit by the map only.
+    // Smooth spheres show a sharp sun highlight that spreads and dims with roughness; the
+    // dielectrics are bright on the sun side (SH diffuse), no NaN black, no clipped sky band.
+    name: 'scene-pbr-hdr',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        sdk.setGraphVisible(false);
+        sdk.setRigidPhysics(false);
+        const env = sdk.createEnvironmentFromFloat(256, 128, hdrSkyEquirect(256, 128));
+        sdk.addPlane({ position: [0, -1, 0], scale: [200, 2, 120], color: [0.35, 0.36, 0.38, 1], roughness: 0.9 });
+        const roughness = [0, 0.25, 0.5, 0.75, 1];
+        [0, 1].forEach((m, row) =>
+          roughness.forEach((r, col) =>
+            sdk.addSphere({ position: [-36 + col * 18, 9 + row * 18, 0], scale: [15, 15, 15], color: [0.95, 0.75, 0.45, 1], roughness: r, metallic: m })
+          )
+        );
+        sdk.setLighting({ ambientIntensity: 0, directionalIntensity: 0, pointIntensity: 0 });
+        sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 0.9, environment: { map: env, intensity: 1, rotation: 0.3 } });
+        sdk.setCameraPose([0, 30, 100], [0, 18, 0]);
+      }),
+  },
+  {
     // Directional shadows (classic): box / sphere / cylinder shadows fall left on the plane; the
     // small box inside the big box's shadow opts out of receiving (stays lit), the floating
     // sphere opts out of casting (no shadow), the floating checker cutout casts a holed shadow
@@ -2068,6 +2093,37 @@ function pbrSkyEquirect(w: number, h: number): Uint8Array {
       }
       if (Math.floor(u * 16) % 4 === 0 && v > 0.35 && v < 0.5) c = c.map((ch) => ch * 0.45);
       out.set([c[0], c[1], c[2], 255].map(Math.round), (y * w + x) * 4);
+    }
+  }
+  return out;
+}
+
+/**
+ * Linear RGB HDR equirect (u = 0.5 faces -z, top row up): sky gradient (zenith 0.25..horizon
+ * 1.2, blue), dark ground (0.08) with a soft horizon line, and a 4 degree sun of radiance 60
+ * towards +z (behind the camera), up 35 degrees, slightly right.
+ */
+function hdrSkyEquirect(w: number, h: number): Float32Array {
+  const out = new Float32Array(w * h * 3);
+  const sun = [0.35, Math.sin((35 * Math.PI) / 180), 0.85];
+  const len = Math.hypot(sun[0], sun[1], sun[2]);
+  const s = sun.map((c) => c / len);
+  const cosSun = Math.cos((2 * Math.PI) / 180);
+  for (let y = 0; y < h; y++) {
+    const theta = ((y + 0.5) / h) * Math.PI;
+    for (let x = 0; x < w; x++) {
+      const phi = ((x + 0.5) / w - 0.5) * 2 * Math.PI;
+      const d = [Math.sin(theta) * Math.sin(phi), Math.cos(theta), -Math.sin(theta) * Math.cos(phi)];
+      let c: number[];
+      if (d[1] >= 0) {
+        const t = Math.pow(1 - d[1], 3);
+        c = [0.25 + 0.95 * t, 0.4 + 0.8 * t, 0.9 + 0.3 * t];
+      } else {
+        const t = Math.min(1, -d[1] * 8);
+        c = [0.08 + 0.5 * (1 - t), 0.07 + 0.45 * (1 - t), 0.06 + 0.4 * (1 - t)];
+      }
+      if (d[0] * s[0] + d[1] * s[1] + d[2] * s[2] > cosSun) c = [60, 56, 48];
+      out.set(c, (y * w + x) * 3);
     }
   }
   return out;

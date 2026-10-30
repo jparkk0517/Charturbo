@@ -1645,6 +1645,10 @@ mod tests {
             self.0.borrow_mut().create_texture_rgba8(width, height, rgba, mipmaps)
         }
 
+        fn create_environment_rgb(&mut self, width: u32, height: u32, rgb: &[f32]) -> Result<u32, String> {
+            self.0.borrow_mut().create_environment_rgb(width, height, rgb)
+        }
+
         fn dispose_texture(&mut self, texture_id: u32) -> bool {
             self.0.borrow_mut().dispose_texture(texture_id)
         }
@@ -2173,6 +2177,52 @@ mod tests {
         engine.sync_and_render();
         assert_eq!(state.borrow().environment_map, 0, "disposed env map is no longer sent");
         assert!(state.borrow().last_light.unwrap().is_pbr(), "model survives the dispose");
+    }
+
+    #[test]
+    fn hdr_environments_are_counted_rotated_and_freed() {
+        use crate::scene::{ShadingConfig, ShadingModel};
+        let ds = GraphDataset::default_empty();
+        let sim = Box::new(ForceDirectedSimulator::new(
+            OctreeSpatialIndex::default(),
+            ForceConfig::default(),
+        ));
+        let state = Rc::new(RefCell::new(MockRenderBackend::default()));
+        let renderer = Box::new(SharedMockRenderer(Rc::clone(&state)));
+        let mut engine = VisualizationEngine::new(ds, sim, OrbitCamera::new(100.0, 1.0), renderer);
+
+        let rgb = vec![2.0f32; 64 * 32 * 3];
+        let env = engine.create_environment_rgb(64, 32, &rgb).unwrap();
+        // 64 x 32 -> 3 prefiltered levels (heights 32, 16, 8) of 8-byte texels
+        assert_eq!(engine.texture_bytes(), (64 * 32 + 32 * 16 + 16 * 8) * 8);
+        assert!(engine.create_environment_rgb(64, 32, &rgb[3..]).unwrap_err().contains("rgb length"));
+        assert!(engine.create_environment_rgb(8192, 32, &[]).unwrap_err().contains("4096x2048"));
+
+        // A tiny flat .hdr (8 x 2, all texels 1.0) goes through the decoder
+        let mut file = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2 +X 8\n".to_vec();
+        file.extend(std::iter::repeat([128u8, 128, 128, 129]).take(16).flatten());
+        let (hdr, w, h) = engine.create_environment_hdr(&file).unwrap();
+        assert_eq!((w, h), (8, 2));
+        assert!(engine.create_environment_hdr(b"P6 nope").unwrap_err().contains("Radiance"));
+
+        engine.set_shading(ShadingConfig {
+            model: ShadingModel::Pbr,
+            env_map: env,
+            env_rotation: std::f32::consts::PI,
+            ..ShadingConfig::default()
+        });
+        engine.sync_and_render();
+        {
+            let st = state.borrow();
+            assert_eq!(st.environment_map, env);
+            let light = st.last_light.unwrap();
+            assert!((light.env_params[1] + 1.0).abs() < 1e-6, "cos(pi)");
+        }
+        assert!(engine.dispose_texture(env));
+        assert!(engine.dispose_texture(hdr));
+        assert_eq!(engine.texture_bytes(), 0, "prefiltered chains are freed");
+        assert_eq!(engine.shading().env_map, 0);
+        assert_eq!(engine.shading().env_rotation, std::f32::consts::PI, "rotation survives");
     }
 
     #[test]

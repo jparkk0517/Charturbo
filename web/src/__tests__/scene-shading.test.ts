@@ -58,7 +58,7 @@ const DEFAULTS: SceneShadingState = {
   model: 'classic',
   toneMapping: 'aces',
   exposure: 1,
-  environment: { sky: [0.6, 0.66, 0.76], ground: [0.24, 0.22, 0.2], intensity: 1, map: null },
+  environment: { sky: [0.6, 0.66, 0.76], ground: [0.24, 0.22, 0.2], intensity: 1, map: null, rotation: 0 },
 };
 
 afterEach(() => {
@@ -82,7 +82,7 @@ describe('setShading', () => {
     expect(lastShading(calls)).toEqual([1, 2, 1.5, 0.6, 0.66, 0.76, 0, 0, 0.5, 1, env]);
     sdk.setShading({ environment: { intensity: 2 } });
     const s = sdk.getShading();
-    expect(s.environment).toEqual({ sky: [0.6, 0.66, 0.76], ground: [0, 0, 0.5], intensity: 2, map: env });
+    expect(s.environment).toEqual({ sky: [0.6, 0.66, 0.76], ground: [0, 0, 0.5], intensity: 2, map: env, rotation: 0 });
     expect(s.model).toBe('pbr');
     sdk.setShading({ toneMapping: 'none', environment: { map: 0 } });
     expect(sdk.getShading().environment.map).toBeNull();
@@ -166,7 +166,7 @@ describe('shading in exportScene / loadScene', () => {
       model: 'pbr',
       toneMapping: 'reinhard',
       exposure: 0.8,
-      environment: { sky: [1, 0.9, 0.8], ground: [0.24, 0.22, 0.2], intensity: 1.5, map: env },
+      environment: { sky: [1, 0.9, 0.8], ground: [0.24, 0.22, 0.2], intensity: 1.5, map: env, rotation: 0 },
     });
     expect(scene.textures).toEqual([{ id: env, src: null, width: 8, height: 4 }]);
     const json = JSON.parse(JSON.stringify(scene));

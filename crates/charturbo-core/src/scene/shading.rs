@@ -56,6 +56,8 @@ pub struct ShadingConfig {
     pub env_intensity: f32,
     /// Equirectangular environment texture id (0 = none; unknown ids fall back to the hemisphere)
     pub env_map: u32,
+    /// Rotation of the environment map around +y, radians (0 = the map's own orientation)
+    pub env_rotation: f32,
 }
 
 impl Default for ShadingConfig {
@@ -68,6 +70,7 @@ impl Default for ShadingConfig {
             env_ground: DEFAULT_ENV_GROUND,
             env_intensity: 1.0,
             env_map: 0,
+            env_rotation: 0.0,
         }
     }
 }
@@ -112,12 +115,14 @@ impl ShadingConfig {
             env_intensity: finite_or(self.env_intensity, d.env_intensity)
                 .clamp(0.0, MAX_ENV_INTENSITY),
             env_map: self.env_map,
+            env_rotation: finite_or(self.env_rotation, d.env_rotation),
         }
     }
 
-    /// Writes the shading fields of the light uniform. The environment mip count (`env_sky.w`)
-    /// and the output sRGB encode flag (`env_ground.w`) are left 0: the render backend fills
-    /// them in from its texture registry and surface format.
+    /// Writes the shading fields of the light uniform. The environment mip count (`env_sky.w`),
+    /// the output sRGB encode flag (`env_ground.w`) and the HDR flag + SH (`env_params.x`,
+    /// `env_sh`) are left 0: the render backend fills them in from its texture registry and
+    /// surface format.
     pub fn pack(&self, light: &mut SceneLightUniformRaw) {
         let lin = |c: [f32; 3]| c.map(srgb_to_linear);
         let (sky, ground) = (lin(self.env_sky), lin(self.env_ground));
@@ -133,6 +138,9 @@ impl ShadingConfig {
         ];
         light.env_sky = [sky[0], sky[1], sky[2], 0.0];
         light.env_ground = [ground[0], ground[1], ground[2], 0.0];
+        // cos / sin are exactly 1 / 0 at rotation 0: the unrotated lookup stays bit-identical
+        light.env_params[1] = self.env_rotation.cos();
+        light.env_params[2] = self.env_rotation.sin();
     }
 }
 
@@ -162,6 +170,7 @@ mod tests {
             env_ground: [0.0, 0.0, 1.0],
             env_intensity: 2.0,
             env_map: 7,
+            env_rotation: std::f32::consts::FRAC_PI_2,
         };
         cfg.pack(&mut light);
         assert_eq!(light.shading, [1.0, 2.0, 1.5, 2.0]);
@@ -169,6 +178,10 @@ mod tests {
         assert!((light.env_sky[1] - 0.214_041_14).abs() < 1e-6);
         assert_eq!(light.env_sky[3], 0.0, "mip count is the backend's");
         assert_eq!(light.env_ground, [0.0, 0.0, 1.0, 0.0]);
+        assert!(light.env_params[1].abs() < 1e-6 && (light.env_params[2] - 1.0).abs() < 1e-6);
+        assert_eq!(light.env_params[0], 0.0, "hdr flag is the backend's");
+        ShadingConfig::default().pack(&mut light);
+        assert_eq!(&light.env_params[1..3], &[1.0, 0.0], "no rotation is exact");
     }
 
     #[test]
@@ -177,10 +190,12 @@ mod tests {
             exposure: f32::NAN,
             env_intensity: 99.0,
             env_sky: [2.0, -1.0, f32::INFINITY],
+            env_rotation: f32::NAN,
             ..ShadingConfig::default()
         }
         .sanitized();
         assert_eq!(cfg.exposure, 1.0);
+        assert_eq!(cfg.env_rotation, 0.0);
         assert_eq!(cfg.env_intensity, MAX_ENV_INTENSITY);
         assert_eq!(cfg.env_sky, [1.0, 0.0, DEFAULT_ENV_SKY[2]]);
         assert_eq!(ToneMapping::from_code(0), ToneMapping::None);

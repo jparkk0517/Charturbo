@@ -226,7 +226,7 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 
 - Metallic-roughness model: GGX distribution, height-correlated Smith visibility, Schlick Fresnel with `F0 = mix(0.04, color, metallic)` and a Lambert diffuse term. `roughness` is clamped to at least 0.045. The directional and point lights from `setLighting` and `emissive` apply as before; `ambientIntensity` is classic only (PBR ambient light comes from the environment).
 - Colors stay sRGB like everywhere else. The shader decodes them (and textures) to linear, lights in linear space, multiplies by `exposure`, tone maps (`'aces'`, `'reinhard'` or `'none'`) and encodes back to sRGB.
-- Environment: without `map` a sky / ground hemisphere (`sky`, `ground`, sRGB `[r, g, b]` in 0..1) lights the scene. With `map` (an equirectangular texture id from `loadTexture` / `createDataTexture`, top row = up, the center column faces −z) specular reflections sample a mip level that grows with roughness and diffuse light uses a blurry mip, with an analytic split-sum approximation instead of prefiltered maps. Keep the default `mipmaps: true`. An unknown or disposed id falls back to the hemisphere; `disposeTexture` clears it.
+- Environment: without `map` a sky / ground hemisphere (`sky`, `ground`, sRGB `[r, g, b]` in 0..1) lights the scene. With `map` (an equirectangular texture id from `loadTexture` / `createDataTexture`, top row = up, the center column faces −z) specular reflections sample a mip level that grows with roughness and diffuse light uses a blurry mip, with an analytic split-sum approximation instead of prefiltered maps. Keep the default `mipmaps: true`. HDR maps are prefiltered instead; see [HDR environment maps](#hdr-environment-maps). An unknown or disposed id falls back to the hemisphere; `disposeTexture` clears it.
 - `setShading` merges into the current settings and throws `setShading: ...` for invalid values; `getShading()` returns a copy. `exportScene()` stores the settings in `shading` (and the environment texture in `textures`), `loadScene` restores them and `loadSceneWithTextures` remaps the environment texture id.
 - The PBR pipelines are compiled on first use. Both WebGPU and WebGL2 are supported.
 
@@ -239,6 +239,24 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+| `environment.rotation` | `number` (radians around +y) | `0` |
+
+### HDR environment maps {#hdr-environment-maps}
+
+High dynamic range environments light PBR meshes with real radiance: a sun of value 50 stays a sharp, bright highlight on smooth metal instead of clipping at 1.
+
+```ts
+const studio = await sdk.loadEnvironmentHdr('/env/studio.hdr'); // Radiance RGBE, flat or RLE
+sdk.setShading({ model: 'pbr', exposure: 0.8, environment: { map: studio, rotation: Math.PI / 2 } });
+
+// Or from linear floats: width * height * 3, top row = up
+const env = sdk.createEnvironmentFromFloat(256, 128, rgb);
+```
+
+- `loadEnvironmentHdr(source, { signal })` takes a URL string, `URL`, `Blob`, `ArrayBuffer` or typed array holding a Radiance `.hdr` file (`#?RADIANCE` / `#?RGBE`, `FORMAT=32-bit_rle_rgbe`, `-Y h +X w` or `+Y h +X w`). `createEnvironmentFromFloat(width, height, rgb)` takes linear RGB floats. Both return a texture id for `environment.map` and accept at most 4096x2048; errors are prefixed with the method name, and an aborted `signal` rejects with an `AbortError`.
+- At creation the equirect image is downsampled to at most 1024 texels wide, stored as `Rgba16Float` and prefiltered once on the GPU: mip `i` of `n` holds the GGX convolution for roughness `i / (n - 1)` (128 importance samples per texel, the smallest mip is 8 texels high), so rough reflections are blurred the way the BRDF blurs them. Diffuse light comes from a 9-coefficient spherical-harmonics projection of the map. Values above 1 are kept until `exposure` and tone mapping (values above 65504 are clamped, negative and NaN texels become 0).
+- A 1024x512 map takes about 5.6 MB (`getTextures()` lists it with `hdr: true`; it counts against the texture budget and `getRenderStats().gpuBytes`). `disposeTexture` frees it. Prefiltering costs a few milliseconds on WebGPU and tens of milliseconds on WebGL2. A WebGL2 device that cannot render to half floats gets plain box-filtered mips instead (blurrier rough reflections, same API).
+- `environment.rotation` turns any environment map (HDR or LDR) around +y. HDR textures are for `environment.map` only: as an object `map` they render white. `exportScene` marks them with `hdr: true` so `loadSceneWithTextures` reloads those with a `src` through `loadEnvironmentHdr`.
 
 ### Material maps
 

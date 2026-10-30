@@ -377,6 +377,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: 'PBR 재질 맵 · normalMap · aoMap', description: 'PBR 재질에 쓰는 glTF 방식 텍스처 맵이며 모두 createDataTexture로 만들었습니다. 노멀 맵과 줄눈 부분 오클루전 맵을 입힌 벽돌 상자, 금속-거칠기 줄무늬 구(광택 금속과 무광 페인트가 번갈아 나옴), 노멀 맵으로 리벳을 표현한 패널, 발광 링이 있는 상자가 있습니다. 객체가 천천히 돌아 조명이 요철 위를 지나갑니다. 맵마다 켜고 끄거나 노멀 세기를 바꿀 수 있고, 맵을 무시하는 classic 모델로 전환할 수도 있습니다.' },
     zh: { title: 'PBR 材质贴图 · normalMap · aoMap', description: 'PBR 材质上的 glTF 风格纹理贴图，全部由 createDataTexture 生成：带法线贴图并在砖缝处有遮蔽贴图的砖墙盒体、金属度-粗糙度条纹球（抛光金属与哑光漆交替）、用法线贴图表现铆钉的面板，以及带自发光圆环的盒体。物体缓慢旋转，光照在凹凸表面上移动。可逐个开关贴图、调整法线强度，或切换到忽略贴图的 classic 模型。' },
   },
+  'scene/08-hdr-environment': {
+    ko: { title: 'HDR 환경 맵 · loadEnvironmentHdr', description: '브라우저에서 RGBE 바이트로 만든 Radiance .hdr 하늘(파란 그라데이션, 따뜻한 지평선, 흰색보다 80배 밝은 태양)을 loadEnvironmentHdr로 불러옵니다. 불러올 때 GPU에서 한 번 사전 필터링하므로 매끈한 구에는 선명한 태양이, 거친 구에는 부드러운 빛 번짐이 비칩니다. 위쪽은 금 금속, 아래쪽은 칠한 플라스틱이며 왼쪽에서 오른쪽으로 갈수록 거칠어집니다. 회전 슬라이더로 하늘을 돌리고 노출과 톤 매핑을 바꾸거나, 같은 하늘을 8비트 텍스처로 바꿔 태양이 흰색으로 잘리고 거친 반사가 흐려지는 것과 비교해 보세요.' },
+    zh: { title: 'HDR 环境贴图 · loadEnvironmentHdr', description: '在浏览器中以 RGBE 字节写出 Radiance .hdr 天空（蓝色渐变、暖色地平线、比白色亮 80 倍的太阳），并用 loadEnvironmentHdr 加载，加载时在 GPU 上预过滤一次：光滑的球映出清晰的太阳，粗糙的球呈现柔和的光晕。上排为金色金属，下排为涂漆塑料，粗糙度从左到右递增。用旋转滑块转动天空，调整曝光和色调映射，或换成同一天空的 8 位纹理进行比较：太阳被截断为白色，粗糙反射变暗。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

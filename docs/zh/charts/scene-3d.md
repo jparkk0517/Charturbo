@@ -226,7 +226,7 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 
 - 金属度-粗糙度模型：GGX 分布、高度相关 Smith 可见性、`F0 = mix(0.04, color, metallic)` 的 Schlick 菲涅耳以及 Lambert 漫反射项。`roughness` 最小限制为 0.045。`setLighting` 的方向光、点光源和 `emissive` 照常生效；`ambientIntensity` 仅用于 classic（PBR 的环境光来自环境）。
 - 颜色与其他地方一样使用 sRGB。着色器将颜色和纹理解码为线性值，在线性空间中计算光照，乘以 `exposure`，进行色调映射（`'aces'`、`'reinhard'` 或 `'none'`），再编码回 sRGB。
-- 环境：没有 `map` 时由天空 / 地面半球（`sky`、`ground`，0..1 的 sRGB `[r, g, b]`）照亮场景。有 `map`（来自 `loadTexture` / `createDataTexture` 的等距柱状纹理 ID，首行 = 上方，中间列朝向 −z）时，镜面反射按粗糙度采样逐渐增大的 mip 级别，漫反射使用模糊的 mip，并以解析的 split-sum 近似代替预过滤贴图。请保持默认的 `mipmaps: true`。未知或已释放的 ID 回退到半球；`disposeTexture` 会清除该引用。
+- 环境：没有 `map` 时由天空 / 地面半球（`sky`、`ground`，0..1 的 sRGB `[r, g, b]`）照亮场景。有 `map`（来自 `loadTexture` / `createDataTexture` 的等距柱状纹理 ID，首行 = 上方，中间列朝向 −z）时，镜面反射按粗糙度采样逐渐增大的 mip 级别，漫反射使用模糊的 mip，并以解析的 split-sum 近似代替预过滤贴图。请保持默认的 `mipmaps: true`。HDR 贴图则会预过滤，见 [HDR 环境贴图](#hdr-environment-maps)。未知或已释放的 ID 回退到半球；`disposeTexture` 会清除该引用。
 - `setShading` 合并到当前设置，值无效时抛出 `setShading: ...`；`getShading()` 返回副本。`exportScene()` 将设置保存在 `shading` 中（环境纹理保存在 `textures` 中），`loadScene` 会恢复设置，`loadSceneWithTextures` 会重新映射环境纹理 ID。
 - PBR 管线在首次使用时编译。同时支持 WebGPU 和 WebGL2。
 
@@ -239,6 +239,24 @@ sdk.addSphere({ position: [0, 10, 0], scale: [20, 20, 20], color: [1, 0.78, 0.35
 | `environment.ground` | `[r, g, b]` | `[0.24, 0.22, 0.2]` |
 | `environment.intensity` | `number` (0..16) | `1` |
 | `environment.map` | `number \| null` | `null` |
+| `environment.rotation` | `number`（绕 +y 轴的弧度） | `0` |
+
+### HDR 环境贴图 {#hdr-environment-maps}
+
+高动态范围环境以真实辐亮度照亮 PBR 网格：值为 50 的太阳不会在 1 处截断，而是在光滑金属上留下清晰明亮的高光。
+
+```ts
+const studio = await sdk.loadEnvironmentHdr('/env/studio.hdr'); // Radiance RGBE，平铺或 RLE
+sdk.setShading({ model: 'pbr', exposure: 0.8, environment: { map: studio, rotation: Math.PI / 2 } });
+
+// 也可以用线性浮点数创建：width * height * 3，首行 = 上方
+const env = sdk.createEnvironmentFromFloat(256, 128, rgb);
+```
+
+- `loadEnvironmentHdr(source, { signal })` 接受包含 Radiance `.hdr` 文件（`#?RADIANCE` / `#?RGBE`、`FORMAT=32-bit_rle_rgbe`、`-Y h +X w` 或 `+Y h +X w`）的 URL 字符串、`URL`、`Blob`、`ArrayBuffer` 或类型化数组。`createEnvironmentFromFloat(width, height, rgb)` 接受线性 RGB 浮点数。两者都返回可用于 `environment.map` 的纹理 ID，最大支持 4096x2048；错误信息以方法名为前缀，已中止的 `signal` 以 `AbortError` 拒绝。
+- 创建时等距柱状图像被缩小到最多 1024 texel 宽，以 `Rgba16Float` 存储，并在 GPU 上预过滤一次：`n` 个 mip 中的第 `i` 级保存粗糙度 `i / (n - 1)` 的 GGX 卷积（每 texel 128 个重要性采样，最小 mip 高 8 texel），因此粗糙反射按 BRDF 的方式模糊。漫反射来自贴图的 9 系数球谐投影。大于 1 的值保留到 `exposure` 和色调映射（超过 65504 的值被截断，负值和 NaN texel 变为 0）。
+- 1024x512 的贴图约占 5.6 MB（`getTextures()` 中带 `hdr: true`，计入纹理预算和 `getRenderStats().gpuBytes`）。用 `disposeTexture` 释放。预过滤在 WebGPU 上需数毫秒，在 WebGL2 上需数十毫秒。无法渲染到半精度浮点的 WebGL2 设备改用简单的盒式滤波 mip（粗糙反射更模糊，API 相同）。
+- `environment.rotation` 让任意环境贴图（HDR 或 LDR）绕 +y 轴旋转。HDR 纹理仅用于 `environment.map`：作为对象 `map` 时渲染为白色。`exportScene` 用 `hdr: true` 标记它们，`loadSceneWithTextures` 通过 `loadEnvironmentHdr` 重新加载带 `src` 的项。
 
 ### 材质贴图 {#material-maps}
 

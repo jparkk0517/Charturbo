@@ -70,6 +70,22 @@ pub(super) fn msaa_x4_supported(
     )
 }
 
+/// Whether the device can render into `Rgba16Float` (the GPU environment prefilter); WebGL2
+/// needs `EXT_color_buffer_float` / `EXT_color_buffer_half_float` for it.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub(super) fn float_targets_supported(adapter: &wgpu::Adapter, device: &wgpu::Device) -> bool {
+    let format = wgpu::TextureFormat::Rgba16Float;
+    let render = wgpu::TextureUsages::RENDER_ATTACHMENT;
+    let adapter_usages = adapter.get_texture_format_features(format).allowed_usages;
+    if adapter.get_downlevel_capabilities().is_webgpu_compliant() {
+        // Core WebGPU guarantees it; the adapter check only guards odd native drivers
+        format.guaranteed_format_features(device.features()).allowed_usages.contains(render)
+            && adapter_usages.contains(render)
+    } else {
+        adapter_usages.contains(render)
+    }
+}
+
 /// Multisampled color (surface format) + depth attachments of the main pass.
 pub(super) struct MsaaTargets {
     pub color: wgpu::TextureView,
