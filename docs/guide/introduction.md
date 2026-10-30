@@ -41,9 +41,9 @@ A separate WebGPU-only build without the WebGL2 stack is also packaged: see [Ins
 
 | Group | Charts |
 |---|---|
-| Cartesian | [Line](../charts/line), [Area](../charts/area), [Band · Range](../charts/band), [Error Bar · Impulse](../charts/errorbar-impulse), [Bar](../charts/bar), [Histogram](../charts/histogram), [Scatter · Bubble](../charts/scatter), [Candlestick · OHLC](../charts/candlestick), [Heatmap](../charts/heatmap), [Box Plot · Violin](../charts/box-violin), [Combo](../charts/combo) |
+| Cartesian | [Line](../charts/line), [Area](../charts/area), [Band · Range](../charts/band), [Error Bar · Impulse](../charts/errorbar-impulse), [Bar](../charts/bar), [Histogram](../charts/histogram), [Scatter · Bubble](../charts/scatter), [Candlestick · OHLC](../charts/candlestick), [Heatmap](../charts/heatmap), [Box Plot · Violin](../charts/box-violin), [Combo](../charts/combo), [Pictorial Bar](../charts/pictorial-bar), [Parallel Coordinates](../charts/parallel) |
 | Business | [Pie · Donut](../charts/pie), [Radar](../charts/radar), [Gauge](../charts/gauge), [Funnel](../charts/funnel), [Waterfall](../charts/waterfall), [Polar](../charts/polar), [Sparkline](../charts/sparkline) |
-| Hierarchy & flow | [Treemap · Sunburst](../charts/treemap-sunburst), [Sankey](../charts/sankey), [Chord](../charts/chord) |
+| Hierarchy & flow | [Treemap · Sunburst](../charts/treemap-sunburst), [Sankey](../charts/sankey), [Chord](../charts/chord), [2D Graph](../charts/graph-2d) |
 | 3D | [PointCloud3D · Surface3D](../charts/scientific-3d), [3D Network Graph](../charts/graph-3d), [Embeddings · Similarity](../charts/embeddings), [3D Scene · Physics](../charts/scene-3d) |
 
 Shared features across charts: real-time streaming, time / log / reversed / dual y axes, wheel / drag / pinch zoom, range navigator, brush selection, dashboard sync, annotations, PNG / SVG / PDF export, opt-in animation, accessibility summaries with data tables and keyboard navigation, and [React](./react) / [Vue](./vue) components.

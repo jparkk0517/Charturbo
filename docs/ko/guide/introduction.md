@@ -41,9 +41,9 @@ WebGL2 스택을 뺀 WebGPU 전용 빌드도 함께 패키징됩니다. [설치�
 
 | 그룹 | 차트 |
 |---|---|
-| 직교 좌표 | [선](../charts/line), [영역](../charts/area), [밴드 · 범위](../charts/band), [오차 막대 · 임펄스](../charts/errorbar-impulse), [막대](../charts/bar), [히스토그램](../charts/histogram), [산점도 · 버블](../charts/scatter), [캔들스틱 · OHLC](../charts/candlestick), [히트맵](../charts/heatmap), [박스 플롯 · 바이올린](../charts/box-violin), [콤보](../charts/combo) |
+| 직교 좌표 | [선](../charts/line), [영역](../charts/area), [밴드 · 범위](../charts/band), [오차 막대 · 임펄스](../charts/errorbar-impulse), [막대](../charts/bar), [히스토그램](../charts/histogram), [산점도 · 버블](../charts/scatter), [캔들스틱 · OHLC](../charts/candlestick), [히트맵](../charts/heatmap), [박스 플롯 · 바이올린](../charts/box-violin), [콤보](../charts/combo), [픽토리얼 막대](../charts/pictorial-bar), [평행 좌표](../charts/parallel) |
 | 비즈니스 | [파이 · 도넛](../charts/pie), [레이더](../charts/radar), [게이지](../charts/gauge), [퍼널](../charts/funnel), [워터폴](../charts/waterfall), [극좌표](../charts/polar), [스파크라인](../charts/sparkline) |
-| 계층 · 흐름 | [트리맵 · 선버스트](../charts/treemap-sunburst), [생키](../charts/sankey), [코드 다이어그램](../charts/chord) |
+| 계층 · 흐름 | [트리맵 · 선버스트](../charts/treemap-sunburst), [생키](../charts/sankey), [코드 다이어그램](../charts/chord), [2D 그래프](../charts/graph-2d) |
 | 3D | [PointCloud3D · Surface3D](../charts/scientific-3d), [3D 네트워크 그래프](../charts/graph-3d), [임베딩 · 유사도](../charts/embeddings), [3D 장면 · 물리](../charts/scene-3d) |
 
 차트 공통 기능: 실시간 스트리밍, 시간·로그·반전·이중 y축, 휠·드래그·핀치 줌, 범위 내비게이터, 브러시 선택, 대시보드 동기화, 주석, PNG·SVG·PDF 내보내기, 선택형 애니메이션, 데이터 표와 키보드 탐색을 갖춘 접근성 요약, [React](./react) / [Vue](./vue) 컴포넌트.

@@ -42,11 +42,11 @@ HANDOFF의 계약을 따른다.
 
 ## 3단계: 축·좌표계·전환 (약 3~4주)
 
-- [ ] 극좌표계: polar bar/line/누적, 극좌표 히트맵
-- [ ] 축 끊김(axis break)
-- [ ] 다중 축: x·y축 3개 이상
-- [ ] Bar/Line Race: 정렬 애니메이션
-- [ ] 전환 애니메이션: 막대↔파이, 트리맵↔선버스트
+- [x] 극좌표계: polar bar/line/누적, 극좌표 히트맵, `renderPolarChart`. 범주 · 값 각도 / 반지름 축, `startAngle` · `clockwise` · `innerRadius`, roundCap, smooth · area, 산점, 범례 토글 트윈. 남은 것: 극좌표 위 캔들스틱 · 박스 · effectScatter, 여러 극좌표계, 축 줌, 다시 렌더링 트윈, 시작 스포크 위 반지름 라벨 겹침
+- [x] 축 끊김(axis break): `breaks: [{ start, end, gap? }]` (line y / y2 / extraY, area y, combo, bar · grouped bar 값 축, scatter x / y), 지그재그 표시 · 눈금 건너뛰기 · SVG. 남은 것: 시간 축 · line x축 · waterfall · pictorial 끊김, 오차 막대와 함께 쓰기
+- [x] 다중 축: y축 3개 이상 (`yAxisIndex`, `axes.extraY`, 최대 8축, position · offset · color). 남은 것: x축 여러 개, area 다중 y, 주석은 y / y2에만 연결, 안 쓰는 extraY도 여백을 차지
+- [x] Bar/Line Race: 정렬 애니메이션 (`realtimeSort` · `max` · `valueAnimation` 카운트업, 선 `endLabel`). 남은 것: 중간 프레임 baseline(결정적 시계 없음, Rust 단위 테스트로 검증)
+- [x] 전환 애니메이션: 막대↔파이, 트리맵↔선버스트 (`animation.transition`, 24점 폴리곤 모핑). 남은 것: 모핑 중 둥근 모서리 · AA, 다른 차트 쌍
 
 ## 4단계: 인터랙션·기타 (약 1주)
 

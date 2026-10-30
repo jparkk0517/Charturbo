@@ -72,6 +72,9 @@ export function CpuChart({ values, dark }: { values: Float32Array; dark: boolean
 | `'treemap'`, `'sunburst'`, `'sankey'` | `renderTreemap`, `renderSunburst`, `renderSankey` |
 | `'chord'` | `renderChordChart` |
 | `'polar'` | `renderPolarChart` |
+| `'pictorialBar'` | `renderPictorialBarChart` |
+| `'graph'` | `renderGraph` |
+| `'parallel'` | `renderParallelChart` |
 | `'sparkline'` | `renderSparkline` |
 | `'pointCloud3d'`, `'surface3d'` | `renderPointCloud3D`, `renderSurface3D` |
 
