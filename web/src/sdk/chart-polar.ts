@@ -359,7 +359,8 @@ export function polarMeta(data: PolarChartData, options: PolarChartOptions | und
   const longest = angle.categories ? Math.max(0, ...angle.categories.map((s) => s.length)) : 6;
   const room = labels ? Math.min(160, Math.max(24, Math.ceil(longest * CHAR_PX) + 6)) : 0;
   meta.options.set([
-    start * DEG,
+    // One turn: the engine works in f32, where a huge angle loses its fraction
+    (((start % 360) + 360) % 360) * DEG,
     o.clockwise === false ? 0 : 1,
     inner,
     catGap,

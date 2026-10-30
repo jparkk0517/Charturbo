@@ -51,6 +51,8 @@ pub const POLAR_RADIUS_LABEL: u32 = 1 << 16;
 const LABEL_OFFSET_PX: f32 = 6.0;
 /// Angle axis tick length outside the rim (CSS px).
 const TICK_PX: f32 = 4.0;
+/// Closest split circles / spokes may sit (CSS px) before they thin out
+const GRID_MIN_PX: f32 = 4.0;
 /// Points hit this far past their symbol (CSS px).
 const HIT_SLACK_PX: f32 = 4.0;
 /// Curve segments per smoothed line segment.
@@ -412,20 +414,31 @@ fn lerp(a: f32, b: f32, e: f32) -> f32 {
 }
 
 /// Tween frame between `a` and `b` (indexed by global id): sectors lerp (a missing end is the
-/// other end shrunk to its base; `radial` = bars along the radius), points appear with `b`.
-fn lerp_geo(a: &[Geo], b: &[Geo], e: f32, radial: bool) -> Vec<Geo> {
+/// other end shrunk onto its edge nearest `base`, the value axis zero; `radial` = bars along
+/// the radius), points / line bases slide from / to the inner radius `r0`.
+fn lerp_geo(a: &[Geo], b: &[Geo], e: f32, radial: bool, base: f32, r0: f32) -> Vec<Geo> {
     let collapse = |s: [f32; 4]| {
-        if radial {
-            [s[0], s[1], s[2], s[2]]
+        let (lo, hi) = if radial { (2, 3) } else { (0, 1) };
+        let edge = if (s[hi] - base).abs() < (s[lo] - base).abs() {
+            s[hi]
         } else {
-            [s[0], s[0], s[2], s[3]]
-        }
+            s[lo]
+        };
+        let mut c = s;
+        c[lo] = edge;
+        c[hi] = edge;
+        c
     };
     let l4 =
         |p: [f32; 4], q: [f32; 4]| -> [f32; 4] { std::array::from_fn(|i| lerp(p[i], q[i], e)) };
-    let l2 = |p: Option<[f32; 2]>, q: Option<[f32; 2]>| match (p, q) {
-        (Some(p), Some(q)) => Some([lerp(p[0], q[0], e), lerp(p[1], q[1], e)]),
-        (_, q) => q,
+    let l2 = |p: Option<[f32; 2]>, q: Option<[f32; 2]>| {
+        let l = |p: [f32; 2], q: [f32; 2]| Some([lerp(p[0], q[0], e), lerp(p[1], q[1], e)]);
+        match (p, q) {
+            (Some(p), Some(q)) => l(p, q),
+            (Some(p), None) if e < 1.0 => l(p, [p[0], r0]),
+            (None, Some(q)) => l([q[0], r0], q),
+            _ => None,
+        }
     };
     a.iter()
         .zip(b)
@@ -1233,15 +1246,30 @@ impl PolarChart {
             return;
         };
         let (wpp, w, r0) = (screen.wpp, style.stroke_px, self.r0());
+        // Every `step`-th line where neighbours would sit closer than GRID_MIN_PX
+        let thin = |n: usize, spacing_css: f32| -> usize {
+            if n < 2 || spacing_css <= 0.0 {
+                1
+            } else {
+                ((GRID_MIN_PX / spacing_css).ceil() as usize).max(1)
+            }
+        };
         let spokes: Vec<f32> = self
             .angle_grid
             .iter()
             .copied()
             .filter(|&f| f < 1.0 - 1e-6)
             .collect();
+        let spoke_step = thin(
+            spokes.len(),
+            TAU * screen.r_css / spokes.len().max(1) as f32,
+        );
+        let spokes: Vec<f32> = spokes.into_iter().step_by(spoke_step).collect();
+        let nr = self.radius_grid.len();
+        let ring_step = thin(nr, (POLAR_RADIUS - r0) / wpp / (nr.max(2) - 1) as f32);
         if style.show_grid {
             if self.opts.radius.split_lines {
-                for &f in &self.radius_grid {
+                for &f in self.radius_grid.iter().step_by(ring_step) {
                     let r = self.rad(f);
                     if r > r0 + 1e-3 && r < POLAR_RADIUS - 1e-3 {
                         push_circle(out, r, wpp, w, style.grid_color);
@@ -1420,7 +1448,13 @@ impl PolarChart {
         } else {
             1.0
         };
-        let frame = lerp_geo(from, &self.geo, e, self.radial());
+        let radial = self.radial();
+        let base = if radial {
+            self.rad(self.radius.frac(0.0).clamp(0.0, 1.0))
+        } else {
+            self.angle.frac(0.0).clamp(0.0, 1.0) * TAU
+        };
+        let frame = lerp_geo(from, &self.geo, e, radial, base, self.r0());
         self.build(&frame, wpp, fills, edges, markers);
         self.drawn = Some(frame);
         true
@@ -1851,6 +1885,55 @@ mod tests {
         assert_eq!(p.angle_labels.first(), Some(&0.0));
         assert_eq!(p.angle_labels.last(), Some(&300.0), "{:?}", p.angle_labels);
         assert_eq!(p.angle_labels.len(), p.angle_label_at.len());
+    }
+
+    #[test]
+    fn split_lines_thin_out_on_huge_category_axes() {
+        let data = vec![[0.0, 0.0, 1.0]];
+        let (mut c, cam) = chart(
+            opts(10_000, 10_000),
+            vec![PolarSeries::new(PolarSeriesKind::Heatmap, data)],
+        );
+        let n = c.prepare_layers(&view(&cam)).underlay.unwrap().len();
+        assert!(n > 0 && n < 20_000, "{n} grid segments");
+    }
+
+    #[test]
+    fn tween_collapses_bars_to_the_value_base_and_moves_points_to_the_center() {
+        // Negative radial bar (radius 2..5, zero base at 5): it shrinks toward 5, not 2
+        let neg = Geo {
+            sector: Some([0.0, 1.0, 2.0, 5.0]),
+            ..Default::default()
+        };
+        let pos = Geo {
+            sector: Some([0.0, 1.0, 5.0, 9.0]),
+            ..Default::default()
+        };
+        let dot = Geo {
+            point: Some([1.0, 8.0]),
+            ..Default::default()
+        };
+        let none = Geo::default();
+        let a = [neg, pos, dot];
+        let b = [none.clone(), none.clone(), none.clone()];
+        let f = lerp_geo(&a, &b, 0.5, true, 5.0, 1.0);
+        assert_eq!(f[0].sector, Some([0.0, 1.0, 3.5, 5.0]));
+        assert_eq!(f[1].sector, Some([0.0, 1.0, 5.0, 7.0]));
+        // A hidden point slides toward the inner radius, then disappears
+        assert_eq!(f[2].point, Some([1.0, 4.5]));
+        assert_eq!(lerp_geo(&a, &b, 1.0, true, 5.0, 1.0)[2].point, None);
+        // Appearing point grows out of the center
+        assert_eq!(
+            lerp_geo(&b, &a, 0.5, true, 5.0, 1.0)[2].point,
+            Some([1.0, 4.5])
+        );
+        // Ring bar (angle values): negative collapses to the zero angle
+        let ring = Geo {
+            sector: Some([0.5, 2.0, 3.0, 4.0]),
+            ..Default::default()
+        };
+        let f = lerp_geo(&[ring], &[none], 0.5, false, 2.0, 1.0);
+        assert_eq!(f[0].sector, Some([1.25, 2.0, 3.0, 4.0]));
     }
 
     #[test]

@@ -131,6 +131,8 @@ function mockBackend(calls: Calls, st: EngineState): WasmCharturboEngineBackend 
     chart_heatmap_lut: () => new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255]),
     chart_heatmap_color: () => new Uint8Array([10, 20, 30, 255]),
     set_chart_series_visible: record('set_chart_series_visible'),
+    chart_export_svg: () =>
+      '<!--viz:0,12,0,16,12,448,276-->' + '<g data-layer="series"><path d="M240 150L240 60A90 90 0 0 1 330 150Z" fill="rgb(255,0,0)"/></g>',
     set_chart_emphasis: record('set_chart_emphasis'),
     set_chart_hover_style: record('set_chart_hover_style'),
     set_chart_frame_style: record('set_chart_frame_style'),
@@ -345,6 +347,31 @@ describe('Polar chart (SDK binding)', () => {
     ]);
     expect(sent().o[7]).toBe(0);
     expect(sent().o[13]).toBe(0);
+  });
+
+  it('normalizes startAngle to one turn before encoding (huge angles keep f32 precision)', () => {
+    const { sdk, sent } = setup();
+    sdk.renderPolarChart(BARS, { angleAxis: { data: DAYS }, startAngle: 1e9 });
+    const huge = sent().o[0];
+    sdk.renderPolarChart(BARS, { angleAxis: { data: DAYS }, startAngle: 1e9 % 360 });
+    expect(huge).toBeCloseTo(sent().o[0], 12);
+    expect(huge).toBeLessThan(2 * Math.PI);
+    sdk.renderPolarChart(BARS, { angleAxis: { data: DAYS }, startAngle: -90 });
+    expect(sent().o[0]).toBeCloseTo((270 * Math.PI) / 180, 12);
+  });
+
+  it('exportChartCSV lists polar items; exportChartSVG carries the engine sectors', () => {
+    const { sdk } = setup();
+    sdk.renderPolarChart(BARS, { angleAxis: { data: DAYS }, title: 'Week' });
+    const csv = sdk.exportChartCSV().split(/\r?\n/);
+    expect(csv[0]).toBe('Series,Angle,Radius');
+    expect(csv[1]).toBe('Sales,Mon,3');
+    expect(csv).toContain('Cost,Thu,4');
+    // No browser layout here: the DOM overlay is skipped, the engine marks remain
+    vi.stubGlobal('getComputedStyle', () => ({ display: 'none', visibility: 'hidden', opacity: '0' }));
+    const svg = sdk.exportChartSVG();
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('A90 90 0 0 1 330 150Z');
   });
 
   it('legend toggle of a heatmap series re-reads the colorbar (domain follows visible series)', () => {
