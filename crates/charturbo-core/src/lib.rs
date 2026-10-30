@@ -25,6 +25,7 @@ mod lib_animation;
 mod lib_svg;
 mod lib_zoom;
 mod lib_stats;
+mod lib_texture;
 mod lib_camera;
 mod lib_scatter;
 mod lib_pieces;

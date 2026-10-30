@@ -27,6 +27,10 @@ mod chart_ext;
 #[path = "engine_parallel_ext.rs"]
 mod parallel_ext;
 
+// Base-color textures of scene meshes (registry in the render backend, maps in the scene)
+#[path = "engine_texture_ext.rs"]
+mod texture_ext;
+
 #[cfg(test)]
 #[path = "engine_sleep_tests.rs"]
 mod sleep_tests;
@@ -1584,6 +1588,26 @@ mod tests {
         fn resize(&mut self, width: u32, height: u32) {
             self.0.borrow_mut().resize(width, height);
         }
+
+        fn max_texture_size(&self) -> u32 {
+            self.0.borrow().max_texture_size()
+        }
+
+        fn create_texture_rgba8(&mut self, width: u32, height: u32, rgba: &[u8], mipmaps: bool) -> Result<u32, String> {
+            self.0.borrow_mut().create_texture_rgba8(width, height, rgba, mipmaps)
+        }
+
+        fn dispose_texture(&mut self, texture_id: u32) -> bool {
+            self.0.borrow_mut().dispose_texture(texture_id)
+        }
+
+        fn texture_count(&self) -> u32 {
+            self.0.borrow().texture_count()
+        }
+
+        fn texture_bytes(&self) -> u64 {
+            self.0.borrow().texture_bytes()
+        }
     }
 
     #[test]
@@ -1923,6 +1947,39 @@ mod tests {
         engine.set_frustum_culling(true);
         engine.sync_and_render();
         assert_eq!(mock_state.borrow().synced_node_count, 2);
+    }
+
+    #[test]
+    fn textures_are_created_mapped_and_disposed_through_the_backend() {
+        use crate::scene::{BodyType, PrimitiveKind, TextureMap};
+        let (mut engine, state) = mock_engine(GraphDataset::default_empty());
+        assert_eq!(engine.max_texture_size(), 4096);
+        let a = engine.create_texture_rgba8(2, 2, &[255; 16], true).unwrap();
+        let b = engine.create_texture_rgba8(1, 1, &[0, 0, 0, 255], false).unwrap();
+        assert_eq!((a, b), (1, 2));
+        // Rejected before reaching the backend registry: bad length / size
+        assert!(engine.create_texture_rgba8(2, 2, &[255; 15], false).is_err());
+        assert!(engine.create_texture_rgba8(5000, 1, &[255; 20000], false).is_err());
+        assert_eq!(engine.texture_count(), 2);
+        assert_eq!(engine.texture_bytes(), (16 + 4) + 4);
+
+        let obj = engine.scene_mut().add_primitive(PrimitiveKind::Box, Vec3::ZERO, Vec3::splat(10.0), [1.0; 4], BodyType::Static);
+        let map = TextureMap { texture: a, repeat: [2.0, 2.0], offset: [0.0, 0.0], alpha_test: 0.5 };
+        assert!(engine.set_object_map(obj, map));
+        assert_eq!(engine.object_map(obj), Some(map));
+        engine.sync_and_render();
+        assert_eq!(state.borrow().synced_draws[0].texture, a);
+
+        assert!(engine.dispose_texture(a));
+        assert!(!engine.dispose_texture(a), "double dispose");
+        assert_eq!(engine.object_map(obj).map(|m| m.texture), Some(0));
+        engine.sync_and_render();
+        assert_eq!(state.borrow().synced_draws[0].texture, 0, "disposed map renders white");
+        let c = engine.create_texture_rgba8(1, 1, &[1, 2, 3, 4], false).unwrap();
+        assert_eq!(c, 3, "ids are never reused");
+        let st = state.borrow();
+        assert_eq!(st.texture_creates, vec![(2, 2, true), (1, 1, false), (1, 1, false)]);
+        assert_eq!(st.texture_disposes, vec![a]);
     }
 
     #[test]

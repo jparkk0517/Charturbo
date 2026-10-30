@@ -29,6 +29,7 @@ features = [
   "Window",
   "Element",
   "HtmlCanvasElement",
+  "ImageBitmap",
   "CanvasRenderingContext2d",
   "Performance",
   "console",

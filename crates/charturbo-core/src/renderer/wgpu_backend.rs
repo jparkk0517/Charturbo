@@ -16,6 +16,7 @@ use crate::renderer::shader::chart_parallel_wgsl;
 use crate::renderer::shader::chart_dash_line_wgsl;
 use crate::renderer::ChartDashSegmentRaw;
 use crate::renderer::gpu_context::GpuContext;
+use crate::renderer::texture::TextureRegistry;
 use crate::renderer::{chart_layer_bytes, RenderStats};
 use bytemuck::Pod;
 use std::mem::size_of;
@@ -151,6 +152,8 @@ pub struct WgpuRenderBackend {
     mesh_indices: GpuArray,
     mesh_instances: GpuArray,
     mesh_draws: Vec<MeshDraw>,
+    /// Base-color textures of the scene meshes (id 0 = white)
+    textures: TextureRegistry,
     chart_underlay: GpuArray,
     chart_bars: GpuArray,
     chart_series: GpuArray,
@@ -304,11 +307,11 @@ const POINT_ATTRS: [wgpu::VertexAttribute; 2] = [
     },
 ];
 
-/// Mesh instance attributes at shader locations 2..=10 (after the 2 per-vertex attributes).
-const MESH_INSTANCE_ATTRS: [wgpu::VertexAttribute; 9] = {
-    let mut attrs = vec4_attrs::<9>();
+/// Mesh instance attributes at shader locations 2..=11 (after the 2 per-vertex attributes).
+const MESH_INSTANCE_ATTRS: [wgpu::VertexAttribute; 10] = {
+    let mut attrs = vec4_attrs::<10>();
     let mut i = 0;
-    while i < 9 {
+    while i < 10 {
         attrs[i].shader_location = 2 + i as u32;
         i += 1;
     }
@@ -363,7 +366,8 @@ fn initial_array_bytes(label: &str, compact: bool) -> u64 {
 
 /// GPU memory one engine allocates at creation for a `width x height` px target, excluding
 /// the shared pipelines and the swap chain: growable arrays, annotation layers, uniforms,
-/// the depth texture and the heatmap textures. Compact engines start every array small.
+/// the depth texture, the heatmap textures and the white default mesh texture. Compact
+/// engines start every array small.
 pub fn engine_gpu_bytes(compact: bool, width: u32, height: u32) -> u64 {
     let arrays: u64 = ENGINE_ARRAYS.iter().map(|(l, ..)| initial_array_bytes(l, compact).max(256)).sum();
     let annotation = AnnotationArrays::initial_bytes().iter().map(|b| b.max(&256)).sum::<u64>() * ANNOTATION_LAYERS;
@@ -374,7 +378,7 @@ pub fn engine_gpu_bytes(compact: bool, width: u32, height: u32) -> u64 {
     // Heatmap value texel (R32Float 1 x 1) + colormap LUT (RGBA8 256 x 1)
     let heatmap_textures = 4 + 4 * crate::renderer::HEATMAP_LUT_SIZE as u64;
     let depth = width.max(1) as u64 * height.max(1) as u64 * 4;
-    arrays + annotation + uniforms + heatmap_textures + depth
+    arrays + annotation + uniforms + heatmap_textures + depth + TextureRegistry::WHITE_BYTES
 }
 
 /// Bind group layouts and render pipelines for one surface format. Built once per device and
@@ -384,6 +388,8 @@ pub fn engine_gpu_bytes(compact: bool, width: u32, height: u32) -> u64 {
 pub struct GpuPipelines {
     camera_bgl: wgpu::BindGroupLayout,
     mesh_bgl: wgpu::BindGroupLayout,
+    /// Mesh base-color texture (b0) + sampler (b1), bind group 1 of the mesh pipelines
+    mesh_texture_bgl: wgpu::BindGroupLayout,
     heatmap_bgl: wgpu::BindGroupLayout,
     parallel_bgl: wgpu::BindGroupLayout,
     mesh_pipeline: wgpu::RenderPipeline,
@@ -674,6 +680,7 @@ impl WgpuRenderBackend {
 
         let heatmap = HeatmapGpu::new(&device, pipes.heatmap_bgl.clone(), &camera_buffer);
         let parallel = ParallelGpu::new(&device, pipes.parallel_bgl.clone(), &camera_buffer);
+        let textures = TextureRegistry::new(&device, &queue, pipes.mesh_texture_bgl.clone());
 
         let vb = wgpu::BufferUsages::VERTEX;
         let arr = |label, usage| GpuArray::new(&device, label, usage, initial_array_bytes(label, compact));
@@ -746,6 +753,7 @@ impl WgpuRenderBackend {
             mesh_indices,
             mesh_instances,
             mesh_draws: Vec::new(),
+            textures,
             chart_underlay,
             chart_bars,
             chart_series,
@@ -871,6 +879,34 @@ impl GpuPipelines {
             push_constant_ranges: &[],
         });
 
+        // Lit meshes: camera + light (group 0) and the base-color texture + sampler (group 1)
+        let mesh_texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mesh-texture-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let mesh_lit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("mesh-lit-pipeline-layout"),
+            bind_group_layouts: &[&mesh_bind_group_layout, &mesh_texture_bgl],
+            push_constant_ranges: &[],
+        });
+
         // Fills: camera + emphasis uniform. Same bind group layout as the meshes / points but its own
         // pipeline layout: wgpu re-reads the shader's expected uniform sizes only when the layout
         // object changes, so point (1088 B) -> fill (48 B) draws must not share one
@@ -905,7 +941,7 @@ impl GpuPipelines {
         ];
         let mesh_spec = |label, depth_write| PipelineSpec {
             label,
-            layout: &mesh_pipeline_layout,
+            layout: &mesh_lit_pipeline_layout,
             shader: &mesh_shader,
             vs: "vs_mesh",
             fs: "fs_mesh",
@@ -1134,6 +1170,7 @@ impl GpuPipelines {
         Self {
             camera_bgl: camera_bind_group_layout,
             mesh_bgl: mesh_bind_group_layout,
+            mesh_texture_bgl,
             heatmap_bgl,
             parallel_bgl,
             mesh_pipeline,
@@ -1163,6 +1200,7 @@ impl WgpuRenderBackend {
     /// instance buffer (no `first_instance` / base-vertex support needed, so WebGL2 works).
     fn draw_meshes<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>, translucent: bool) {
         let mut bound = false;
+        let mut bound_texture = None;
         let stride = size_of::<MeshInstanceRaw>() as u64;
         for d in self.mesh_draws.iter().filter(|d| d.translucent == translucent) {
             if d.instance_count == 0 || d.index_count == 0 {
@@ -1178,6 +1216,11 @@ impl WgpuRenderBackend {
                 rpass.set_vertex_buffer(0, self.mesh_vertices.slice());
                 rpass.set_index_buffer(self.mesh_indices.slice(), wgpu::IndexFormat::Uint32);
                 bound = true;
+            }
+            // Opaque draws are sorted by texture, so this rebinds once per texture
+            if bound_texture != Some(d.texture) {
+                rpass.set_bind_group(1, self.textures.bind_group(d.texture), &[]);
+                bound_texture = Some(d.texture);
             }
             let from = d.first_instance as u64 * stride;
             let to = from + d.instance_count as u64 * stride;
@@ -1270,6 +1313,31 @@ impl WgpuRenderBackend {
 impl RenderBackend for WgpuRenderBackend {
     fn supports_gpu_physics(&self) -> bool {
         self.device.limits().max_compute_workgroups_per_dimension > 0
+    }
+
+    fn max_texture_size(&self) -> u32 {
+        self.textures.max_edge()
+    }
+
+    fn create_texture_rgba8(&mut self, width: u32, height: u32, rgba: &[u8], mipmaps: bool) -> Result<u32, String> {
+        self.textures.create_rgba8(&self.device, &self.queue, width, height, rgba, mipmaps)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_texture_from_bitmap(&mut self, bitmap: &web_sys::ImageBitmap, mipmaps: bool) -> Result<u32, String> {
+        self.textures.create_from_bitmap(&self.device, &self.queue, bitmap, mipmaps)
+    }
+
+    fn dispose_texture(&mut self, texture_id: u32) -> bool {
+        self.textures.dispose(texture_id)
+    }
+
+    fn texture_count(&self) -> u32 {
+        self.textures.count()
+    }
+
+    fn texture_bytes(&self) -> u64 {
+        self.textures.bytes()
     }
 
     fn gpu_layout_step(&mut self, step: &super::gpu_layout::GpuLayoutStep) -> Result<(), String> {
@@ -1609,6 +1677,8 @@ impl RenderBackend for WgpuRenderBackend {
             + layers.iter().map(|l| l.fills.capacity_bytes + l.lines.capacity_bytes + l.markers.capacity_bytes).sum::<u64>()
             + self.heatmap.texture_bytes()
             + self.parallel.texture_bytes()
+            + TextureRegistry::WHITE_BYTES
+            + self.textures.bytes()
             + self.gpu_physics.as_ref().map_or(0, |g| g.bytes());
         RenderStats {
             gpu_bytes,

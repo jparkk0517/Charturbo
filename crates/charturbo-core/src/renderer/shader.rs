@@ -148,6 +148,14 @@ var<uniform> camera: CameraUniform;
 @group(0) @binding(1)
 var<uniform> light: SceneLightUniform;
 
+// Base-color texture (1 x 1 white when the object has no map) and the engine's sampler
+@group(1) @binding(0)
+var base_map: texture_2d<f32>;
+
+@group(1) @binding(1)
+var base_sampler: sampler;
+
+// position.w = u, normal.w = v (v = 0 is the top row of the image)
 struct MeshVertex {
     @location(0) position: vec4<f32>,
     @location(1) normal: vec4<f32>,
@@ -163,15 +171,17 @@ struct MeshInstance {
     @location(7) normal_1: vec4<f32>,
     @location(8) normal_2: vec4<f32>,
     @location(9) color: vec4<f32>,
-    @location(10) material: vec4<f32>, // (metallic, roughness, emissive, 0)
+    @location(10) material: vec4<f32>, // (metallic, roughness, emissive, alpha_test)
+    @location(11) uv_transform: vec4<f32>, // (repeat_u, repeat_v, offset_u, offset_v)
 };
 
 struct MeshVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
-    @location(2) mat_params: vec3<f32>, // (metallic, roughness, emissive)
+    @location(2) mat_params: vec4<f32>, // (metallic, roughness, emissive, alpha_test)
     @location(3) color: vec4<f32>,
+    @location(4) uv: vec2<f32>,
 };
 
 @vertex
@@ -183,20 +193,26 @@ fn vs_mesh(v: MeshVertex, inst: MeshInstance) -> MeshVertexOutput {
     out.clip_position = camera.view_proj * world;
     out.world_pos = world.xyz;
     out.world_normal = normal_mat * v.normal.xyz;
-    out.mat_params = inst.material.xyz;
+    out.mat_params = inst.material;
     out.color = inst.color;
+    out.uv = vec2<f32>(v.position.w, v.normal.w) * inst.uv_transform.xy + inst.uv_transform.zw;
     return out;
 }
 
 @fragment
 fn fs_mesh(in: MeshVertexOutput) -> @location(0) vec4<f32> {
+    // Sampled first (uniform control flow) so the alpha-test discard can follow
+    let tex = textureSample(base_map, base_sampler, in.uv);
+    let alpha = clamp(in.color.a, 0.0, 1.0) * tex.a;
+    if (alpha < in.mat_params.w) {
+        discard;
+    }
     let N = normalize(in.world_normal);
     let V = normalize(light.eye_pos_ambient.xyz - in.world_pos);
     let metallic = clamp(in.mat_params.x, 0.0, 1.0);
     let roughness = clamp(in.mat_params.y, 0.05, 1.0);
-    let base_rgb = in.color.rgb;
+    let base_rgb = in.color.rgb * tex.rgb;
     let emissive = max(0.0, in.mat_params.z);
-    let alpha = clamp(in.color.a, 0.0, 1.0);
 
     // Sky/ground hemisphere ambient
     let hemi = 0.5 + 0.5 * N.y;
@@ -229,6 +245,36 @@ fn fs_mesh(in: MeshVertexOutput) -> @location(0) vec4<f32> {
     let final_rgb = ambient + dir_contrib + pt_contrib + base_rgb * emissive + vec3<f32>(fresnel);
 
     return vec4<f32>(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), alpha);
+}
+"#;
+
+/// WGSL mipmap generation: a fullscreen triangle that linearly samples the previous mip level
+/// (bound as its own single-level view) into the next one.
+pub const MIPMAP_BLIT_WGSL: &str = r#"
+@group(0) @binding(0)
+var src_level: texture_2d<f32>;
+
+@group(0) @binding(1)
+var src_sampler: sampler;
+
+struct BlitOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_blit(@builtin(vertex_index) vi: u32) -> BlitOutput {
+    // (0,0) (2,0) (0,2) in uv space covers the whole target
+    let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+    var out: BlitOutput;
+    out.position = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+@fragment
+fn fs_blit(in: BlitOutput) -> @location(0) vec4<f32> {
+    return textureSample(src_level, src_sampler, in.uv);
 }
 "#;
 
@@ -1020,6 +1066,7 @@ mod tests {
             ("node", NODE_BILLBOARD_WGSL.to_string()),
             ("edge", EDGE_LINE_WGSL.to_string()),
             ("mesh", MESH_LIT_WGSL.to_string()),
+            ("mipmap-blit", MIPMAP_BLIT_WGSL.to_string()),
             ("chart-line", chart_line_wgsl()),
             ("chart-marker", chart_marker_wgsl()),
             ("chart-dash-line", chart_dash_line_wgsl()),
@@ -1062,6 +1109,41 @@ mod tests {
                 .and_then(|mut w| w.write())
                 .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
             assert!(out.contains("#version 300 es"));
+        }
+    }
+
+    #[test]
+    fn mesh_and_mipmap_shaders_translate_to_webgl2_glsl() {
+        // Base-color texture sampling + alpha-test discard (mesh) and the mip blit must
+        // survive GLSL ES 3.00
+        use naga::back::glsl;
+        let shaders = [
+            (MESH_LIT_WGSL, ["vs_mesh", "fs_mesh"]),
+            (MIPMAP_BLIT_WGSL, ["vs_blit", "fs_blit"]),
+        ];
+        for (src, [vs, fs]) in shaders {
+            let module = naga::front::wgsl::parse_str(src).unwrap();
+            let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
+                .validate(&module)
+                .unwrap();
+            let options = glsl::Options {
+                version: glsl::Version::Embedded { version: 300, is_webgl: true },
+                ..Default::default()
+            };
+            for (stage, entry) in [(naga::ShaderStage::Vertex, vs), (naga::ShaderStage::Fragment, fs)] {
+                let pipeline = glsl::PipelineOptions { shader_stage: stage, entry_point: entry.into(), multiview: None };
+                let mut out = String::new();
+                glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, naga::proc::BoundsCheckPolicies::default())
+                    .and_then(|mut w| w.write())
+                    .unwrap_or_else(|e| panic!("{entry}: {e:?}"));
+                assert!(out.contains("#version 300 es"));
+                if stage == naga::ShaderStage::Fragment {
+                    assert!(out.contains("texture("), "{entry}: filtered texture sample");
+                }
+                if entry == "fs_mesh" {
+                    assert!(out.contains("discard"), "alpha test");
+                }
+            }
         }
     }
 

@@ -11,6 +11,7 @@ mod heatmap;
 mod parallel;
 pub mod shader;
 mod stats;
+pub mod texture;
 pub mod wgpu_backend;
 
 pub use fill_style::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillPatch, ChartFillStyleRaw, FILL_EMPH_ALPHA, FILL_EMPH_FADE};
@@ -282,13 +283,13 @@ pub struct EdgeVertexRaw {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct MeshVertexRaw {
-    /// `[x, y, z, 0]`
+    /// `[x, y, z, u]`
     pub position: [f32; 4],
-    /// `[nx, ny, nz, 0]`
+    /// `[nx, ny, nz, v]` (v = 0 is the top row of the texture)
     pub normal: [f32; 4],
 }
 
-/// Per-object mesh instance (144 bytes): transform, normal matrix, and material.
+/// Per-object mesh instance (160 bytes): transform, normal matrix, material and uv transform.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct MeshInstanceRaw {
@@ -297,8 +298,10 @@ pub struct MeshInstanceRaw {
     /// Inverse-transpose of the world matrix's 3x3 part, as columns (`w` unused)
     pub normal: [[f32; 4]; 3],
     pub color: [f32; 4],
-    /// `[metallic, roughness, emissive, 0]` (emissive is kept out of `color.a`)
+    /// `[metallic, roughness, emissive, alpha_test]` (emissive is kept out of `color.a`)
     pub material: [f32; 4],
+    /// `[repeat_u, repeat_v, offset_u, offset_v]`: `uv * repeat + offset`
+    pub uv_transform: [f32; 4],
 }
 
 /// One instanced draw: `index_count` indices from `first_index` (absolute vertex ids) for
@@ -311,6 +314,8 @@ pub struct MeshDraw {
     pub instance_count: u32,
     /// Drawn after nodes without depth writes (back-to-front order)
     pub translucent: bool,
+    /// Base-color texture id (0 = built-in white)
+    pub texture: u32,
 }
 
 /// 16-byte aligned scene lighting uniform buffer (48 bytes).
@@ -553,6 +558,29 @@ pub trait RenderBackend {
     fn stats(&self) -> RenderStats {
         RenderStats::default()
     }
+    /// Largest accepted texture edge (0 = textures unsupported).
+    fn max_texture_size(&self) -> u32 {
+        0
+    }
+    /// New base-color texture from tightly packed RGBA8 texels (top row first); returns its id.
+    fn create_texture_rgba8(&mut self, _width: u32, _height: u32, _rgba: &[u8], _mipmaps: bool) -> Result<u32, String> {
+        Err("textures require a GPU render backend".into())
+    }
+    /// New base-color texture from a decoded image (browser only).
+    fn create_texture_from_bitmap(&mut self, _bitmap: &web_sys::ImageBitmap, _mipmaps: bool) -> Result<u32, String> {
+        Err("textures require a GPU render backend".into())
+    }
+    /// Frees a texture; draws still referencing its id fall back to white.
+    fn dispose_texture(&mut self, _texture_id: u32) -> bool {
+        false
+    }
+    fn texture_count(&self) -> u32 {
+        0
+    }
+    /// Bytes held by live textures (all mip levels).
+    fn texture_bytes(&self) -> u64 {
+        0
+    }
 }
 
 /// In-memory mock implementation of `RenderBackend` for deterministic unit & integration testing.
@@ -626,6 +654,11 @@ pub struct MockRenderBackend {
     pub gpu_steps: Vec<(bool, u32)>,
     pub gpu_writes: Vec<Vec<u32>>,
     pub gpu_readbacks: Vec<gpu_layout::GpuLayoutReadback>,
+    /// Fake texture registry (real id / budget accounting, no GPU) and the recorded calls:
+    /// `(width, height, mipmaps)` per successful create, ids per successful dispose
+    pub textures: texture::TextureLedger<()>,
+    pub texture_creates: Vec<(u32, u32, bool)>,
+    pub texture_disposes: Vec<u32>,
 }
 
 impl RenderBackend for MockRenderBackend {
@@ -677,6 +710,33 @@ impl RenderBackend for MockRenderBackend {
 
     fn sync_helper_lines(&mut self, lines: &[EdgeVertexRaw]) {
         self.synced_helper_line_count = lines.len();
+    }
+
+    fn max_texture_size(&self) -> u32 {
+        self.textures.max_edge()
+    }
+
+    fn create_texture_rgba8(&mut self, width: u32, height: u32, rgba: &[u8], mipmaps: bool) -> Result<u32, String> {
+        texture::check_rgba_len(width, height, rgba.len())?;
+        let (levels, bytes) = self.textures.plan(width, height, mipmaps)?;
+        self.texture_creates.push((width, height, mipmaps));
+        Ok(self.textures.insert(width, height, levels, bytes, ()))
+    }
+
+    fn dispose_texture(&mut self, texture_id: u32) -> bool {
+        let removed = self.textures.remove(texture_id).is_some();
+        if removed {
+            self.texture_disposes.push(texture_id);
+        }
+        removed
+    }
+
+    fn texture_count(&self) -> u32 {
+        self.textures.len() as u32
+    }
+
+    fn texture_bytes(&self) -> u64 {
+        self.textures.bytes()
     }
 
     fn sync_chart(&mut self, layers: &ChartLayers<'_>) {
@@ -813,7 +873,7 @@ mod tests {
         assert_eq!(size_of::<NodeInstanceRaw>(), 32);
         assert_eq!(size_of::<EdgeVertexRaw>(), 32);
         assert_eq!(size_of::<MeshVertexRaw>(), 32);
-        assert_eq!(size_of::<MeshInstanceRaw>(), 144);
+        assert_eq!(size_of::<MeshInstanceRaw>(), 160);
         assert_eq!(size_of::<SceneLightUniformRaw>(), 48);
     }
 

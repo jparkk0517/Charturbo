@@ -51,11 +51,35 @@ impl BodyType {
     }
 }
 
-/// Local-space vertex with position and unit normal.
+/// Local-space vertex with position, unit normal and texture coordinate (v = 0 is the top row
+/// of the image).
 #[derive(Debug, Clone, Copy)]
 pub struct LocalVertex {
     pub position: Vec3,
     pub normal: Vec3,
+    pub uv: [f32; 2],
+}
+
+/// Base-color texture of a `SceneObject`. Texture id 0 is the built-in white texture, so an
+/// object without a map renders exactly as untextured. Ids are owned by the render backend.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextureMap {
+    pub texture: u32,
+    pub repeat: [f32; 2],
+    pub offset: [f32; 2],
+    /// Fragments whose final alpha is below this are discarded (0 = never)
+    pub alpha_test: f32,
+}
+
+impl Default for TextureMap {
+    fn default() -> Self {
+        Self {
+            texture: 0,
+            repeat: [1.0, 1.0],
+            offset: [0.0, 0.0],
+            alpha_test: 0.0,
+        }
+    }
 }
 
 /// Geometry representation for a `SceneObject`.
@@ -156,6 +180,8 @@ pub struct SceneObject {
     pub transform: Transform,
     pub geometry: SceneGeometry,
     pub material: Material,
+    /// Base-color texture (kept apart from `Material`, which callers replace wholesale)
+    pub map: TextureMap,
     pub body: RigidBody,
     pub selected: bool,
     pub visible: bool,
@@ -499,6 +525,7 @@ impl SceneWorld {
                 color,
                 ..Material::default()
             },
+            map: TextureMap::default(),
             body: RigidBody {
                 body_type,
                 mass,
@@ -551,8 +578,10 @@ impl SceneWorld {
             vertices.push(LocalVertex {
                 position: p,
                 normal: if n.length_squared() > 0.0 { n } else { Vec3::Y },
+                uv: [0.0, 0.0],
             });
         }
+        planar_uvs(&mut vertices);
 
         // If normals were omitted, compute face-averaged vertex normals
         if normals.is_empty() {
@@ -600,6 +629,7 @@ impl SceneWorld {
                 color,
                 ..Material::default()
             },
+            map: TextureMap::default(),
             body: RigidBody {
                 body_type,
                 mass: (scale.x.abs() * scale.y.abs() * scale.z.abs()).clamp(0.2, 100.0),
@@ -677,6 +707,68 @@ impl SceneWorld {
         } else {
             false
         }
+    }
+
+    /// Sets the base-color texture map. Non-finite values fall back to the defaults; the
+    /// texture id is not checked here (unknown / disposed ids render white).
+    pub fn set_object_map(&mut self, object_id: u32, map: TextureMap) -> bool {
+        let finite_or = |v: f32, d: f32| if v.is_finite() { v } else { d };
+        let map = TextureMap {
+            texture: map.texture,
+            repeat: [finite_or(map.repeat[0], 1.0), finite_or(map.repeat[1], 1.0)],
+            offset: [finite_or(map.offset[0], 0.0), finite_or(map.offset[1], 0.0)],
+            alpha_test: finite_or(map.alpha_test, 0.0).clamp(0.0, 1.0),
+        };
+        if let Some(obj) = self.find_object_mut(object_id) {
+            obj.map = map;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Resets every map that points at `texture_id` (after the texture was disposed) to the
+    /// white default texture with no alpha test (a translucent object must not be cut away by
+    /// a test meant for the texture). Returns how many objects changed.
+    pub fn clear_texture_refs(&mut self, texture_id: u32) -> usize {
+        if texture_id == 0 {
+            return 0;
+        }
+        let mut changed = 0;
+        for obj in &mut self.objects {
+            if obj.map.texture == texture_id {
+                obj.map.texture = 0;
+                obj.map.alpha_test = 0.0;
+                changed += 1;
+            }
+        }
+        if changed > 0 {
+            self.touch();
+        }
+        changed
+    }
+
+    /// Replaces the texture coordinates of a custom mesh (2 floats per vertex). Empty `uvs`
+    /// restores the planar projection. `Ok(false)` when the object is missing or not custom.
+    pub fn set_custom_mesh_uvs(&mut self, object_id: u32, uvs: &[f32]) -> Result<bool, &'static str> {
+        let Some(i) = self.index_of(object_id) else {
+            return Ok(false);
+        };
+        let SceneGeometry::Custom { vertices, .. } = &mut self.objects[i].geometry else {
+            return Ok(false);
+        };
+        if uvs.is_empty() {
+            planar_uvs(vertices);
+        } else if uvs.len() == vertices.len() * 2 {
+            for (v, uv) in vertices.iter_mut().zip(uvs.as_chunks::<2>().0) {
+                v.uv = *uv;
+            }
+        } else {
+            return Err("uvs length must be 2 per vertex or empty");
+        }
+        self.touch();
+        self.bump_geometry();
+        Ok(true)
     }
 
     pub fn set_object_physics(
@@ -1008,8 +1100,8 @@ impl SceneWorld {
         order.clear();
         order.extend((0..self.objects.len()).filter(|&i| self.objects[i].visible));
         let split = partition_in_place(&mut order, |&i| self.objects[i].material.color[3] >= 0.999);
-        // Opaque: group by geometry so each mesh is one instanced draw
-        order[..split].sort_by_key(|&i| self.geometry_range(i).0);
+        // Opaque: group by texture, then geometry, so each (texture, mesh) is one instanced draw
+        order[..split].sort_by_key(|&i| (self.objects[i].map.texture, self.geometry_range(i).0));
         // Translucent: far-to-near for correct blending
         order[split..].sort_by(|&a, &b| {
             let da = world[a].w_axis.truncate().distance_squared(camera_eye);
@@ -1020,11 +1112,16 @@ impl SceneWorld {
         for (k, &idx) in order.iter().enumerate() {
             let translucent = k >= split;
             let (first_index, index_count) = self.geometry_range(idx);
+            let texture = self.objects[idx].map.texture;
             let instance = self.instances.len() as u32;
             self.pack_instance(idx, &world[idx]);
             match self.draws.last_mut() {
-                // Consecutive instances of the same mesh share a draw
-                Some(d) if d.first_index == first_index && d.translucent == translucent => {
+                // Consecutive instances of the same mesh and texture share a draw
+                Some(d)
+                    if d.first_index == first_index
+                        && d.texture == texture
+                        && d.translucent == translucent =>
+                {
                     d.instance_count += 1;
                 }
                 _ => self.draws.push(MeshDraw {
@@ -1033,6 +1130,7 @@ impl SceneWorld {
                     first_instance: instance,
                     instance_count: 1,
                     translucent,
+                    texture,
                 }),
             }
         }
@@ -1062,8 +1160,9 @@ impl SceneWorld {
             let base = gv.len() as u32;
             let first = gi.len() as u32;
             gv.extend(verts.iter().map(|v| MeshVertexRaw {
-                position: [v.position.x, v.position.y, v.position.z, 0.0],
-                normal: [v.normal.x, v.normal.y, v.normal.z, 0.0],
+                // uv rides in the spare w lanes (u in position.w, v in normal.w)
+                position: [v.position.x, v.position.y, v.position.z, v.uv[0]],
+                normal: [v.normal.x, v.normal.y, v.normal.z, v.uv[1]],
             }));
             gi.extend(idx.iter().map(|&i| base + i));
             (first, idx.len() as u32)
@@ -1189,7 +1288,13 @@ impl SceneWorld {
                 obj.material.metallic,
                 obj.material.roughness.clamp(0.04, 1.0),
                 emissive,
-                0.0,
+                obj.map.alpha_test,
+            ],
+            uv_transform: [
+                obj.map.repeat[0],
+                obj.map.repeat[1],
+                obj.map.offset[0],
+                obj.map.offset[1],
             ],
         });
 
@@ -1306,6 +1411,36 @@ fn append_wireframe_box(
     }
 }
 
+/// Default texture coordinates of a custom mesh: planar projection onto the two largest axes
+/// of its local bounding box, normalised to [0, 1] (u along the lower axis index; when v runs
+/// along Y it is flipped so the top of the image is up).
+fn planar_uvs(vertices: &mut [LocalVertex]) {
+    let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+    for v in vertices.iter() {
+        lo = lo.min(v.position);
+        hi = hi.max(v.position);
+    }
+    let ext = (hi - lo).max(Vec3::ZERO).to_array();
+    // The two largest axes, in axis order (stable on ties)
+    let mut axes = [0usize, 1, 2];
+    axes.sort_by(|&a, &b| ext[b].total_cmp(&ext[a]));
+    let (a, b) = (axes[0].min(axes[1]), axes[0].max(axes[1]));
+    let lo = lo.to_array();
+    let norm = |p: f32, axis: usize| {
+        if ext[axis] > 1e-12 {
+            ((p - lo[axis]) / ext[axis]).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    for v in vertices.iter_mut() {
+        let p = v.position.to_array();
+        let u = norm(p[a], a);
+        let t = norm(p[b], b);
+        v.uv = [u, if b == 1 { 1.0 - t } else { t }];
+    }
+}
+
 fn build_unit_box() -> (Vec<LocalVertex>, Vec<u32>) {
     let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
         // +Z front
@@ -1376,10 +1511,13 @@ fn build_unit_box() -> (Vec<LocalVertex>, Vec<u32>) {
     for (n, quad) in faces {
         let base = vertices.len() as u32;
         let normal = Vec3::from_array(n);
-        for p in quad {
+        // Corners are BL, BR, TR, TL; v = 0 is the top row of the image
+        const FACE_UV: [[f32; 2]; 4] = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+        for (p, uv) in quad.into_iter().zip(FACE_UV) {
             vertices.push(LocalVertex {
                 position: Vec3::from_array(p),
                 normal,
+                uv,
             });
         }
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -1413,9 +1551,18 @@ fn build_unit_sphere(sectors: u32, stacks: u32) -> (Vec<LocalVertex>, Vec<u32>) 
             let x = xy * sector_angle.cos();
             let z = xy * sector_angle.sin();
             let pos = Vec3::new(x, y, z);
+            // Pole vertices take the u of the one triangle that uses them (column midpoint)
+            let u = if i == 0 {
+                1.0 - (j as f32 - 0.5) / sectors as f32
+            } else if i == stacks {
+                1.0 - (j as f32 + 0.5) / sectors as f32
+            } else {
+                1.0 - j as f32 / sectors as f32
+            };
             vertices.push(LocalVertex {
                 position: pos,
                 normal: pos.normalize_or_zero(),
+                uv: [u.clamp(0.0, 1.0), i as f32 / stacks as f32],
             });
         }
     }
@@ -1448,13 +1595,16 @@ fn build_unit_cylinder(segments: u32) -> (Vec<LocalVertex>, Vec<u32>) {
         let c = theta.cos();
         let s = theta.sin();
         let normal = Vec3::new(c, 0.0, s);
+        let u = 1.0 - i as f32 / segments as f32;
         vertices.push(LocalVertex {
             position: Vec3::new(radius * c, -half_h, radius * s),
             normal,
+            uv: [u, 1.0],
         });
         vertices.push(LocalVertex {
             position: Vec3::new(radius * c, half_h, radius * s),
             normal,
+            uv: [u, 0.0],
         });
     }
 
@@ -1468,12 +1618,15 @@ fn build_unit_cylinder(segments: u32) -> (Vec<LocalVertex>, Vec<u32>) {
     vertices.push(LocalVertex {
         position: Vec3::new(0.0, half_h, 0.0),
         normal: Vec3::Y,
+        uv: [0.5, 0.5],
     });
     for i in 0..=segments {
         let theta = (i as f32 / segments as f32) * TAU;
+        let (x, z) = (radius * theta.cos(), radius * theta.sin());
         vertices.push(LocalVertex {
-            position: Vec3::new(radius * theta.cos(), half_h, radius * theta.sin()),
+            position: Vec3::new(x, half_h, z),
             normal: Vec3::Y,
+            uv: [0.5 + x, 0.5 + z],
         });
     }
     for i in 0..segments {
@@ -1489,12 +1642,15 @@ fn build_unit_cylinder(segments: u32) -> (Vec<LocalVertex>, Vec<u32>) {
     vertices.push(LocalVertex {
         position: Vec3::new(0.0, -half_h, 0.0),
         normal: Vec3::NEG_Y,
+        uv: [0.5, 0.5],
     });
     for i in 0..=segments {
         let theta = (i as f32 / segments as f32) * TAU;
+        let (x, z) = (radius * theta.cos(), radius * theta.sin());
         vertices.push(LocalVertex {
-            position: Vec3::new(radius * theta.cos(), -half_h, radius * theta.sin()),
+            position: Vec3::new(x, -half_h, z),
             normal: Vec3::NEG_Y,
+            uv: [0.5 + x, 0.5 - z],
         });
     }
     for i in 0..segments {
@@ -1641,6 +1797,131 @@ mod tests {
         assert_eq!(verts[tri[1] as usize].position[0], 1.0, "absolute indices point at the mesh");
         assert!(scene.remove_object(id));
         assert!(scene.pack_render_data(Vec3::Z * 100.0).geometry.is_some());
+    }
+
+    #[test]
+    fn opaque_draws_split_by_texture_and_keep_translucent_order() {
+        let mut scene = SceneWorld::new();
+        let mut boxes = Vec::new();
+        for i in 0..6 {
+            boxes.push(scene.add_primitive(PrimitiveKind::Box, Vec3::X * i as f32, Vec3::ONE, [1.0; 4], BodyType::Static));
+        }
+        let map = |texture| TextureMap { texture, ..TextureMap::default() };
+        // Interleaved textures 7 / 0 / 7 / 0 ...: sorted into one draw per texture
+        for (k, &id) in boxes.iter().enumerate() {
+            assert!(scene.set_object_map(id, map(if k % 2 == 0 { 7 } else { 0 })));
+        }
+        let packed = scene.pack_render_data(Vec3::Z * 100.0);
+        let draws: Vec<(u32, u32)> = packed.draws.iter().map(|d| (d.texture, d.instance_count)).collect();
+        assert_eq!(draws, vec![(0, 3), (7, 3)], "(texture, mesh) batches");
+        assert_eq!(packed.instances[0].uv_transform, [1.0, 1.0, 0.0, 0.0]);
+
+        // Translucent objects stay far-to-near even when textures alternate (rebind per draw)
+        let mut scene = SceneWorld::new();
+        let near = scene.add_primitive(PrimitiveKind::Box, Vec3::Z * 50.0, Vec3::ONE, [1.0, 0.0, 0.0, 0.5], BodyType::Static);
+        let mid = scene.add_primitive(PrimitiveKind::Box, Vec3::ZERO, Vec3::ONE, [0.0, 1.0, 0.0, 0.5], BodyType::Static);
+        let far = scene.add_primitive(PrimitiveKind::Box, Vec3::Z * -50.0, Vec3::ONE, [0.0, 0.0, 1.0, 0.5], BodyType::Static);
+        scene.set_object_map(near, map(3));
+        scene.set_object_map(far, map(3));
+        let _ = mid;
+        let packed = scene.pack_render_data(Vec3::Z * 200.0);
+        let draws: Vec<(bool, u32, u32)> = packed.draws.iter().map(|d| (d.translucent, d.texture, d.instance_count)).collect();
+        assert_eq!(draws, vec![(true, 3, 1), (true, 0, 1), (true, 3, 1)]);
+        assert_eq!(packed.instances[0].color[2], 1.0, "far box first");
+    }
+
+    #[test]
+    fn primitive_uvs_stay_in_unit_range_and_ride_in_the_w_lanes() {
+        let scene = SceneWorld::new();
+        let p = &scene.primitives;
+        for (name, mesh) in [("box", &p.box_mesh), ("sphere", &p.sphere_mesh), ("plane", &p.plane_mesh), ("cylinder", &p.cylinder_mesh)] {
+            for v in &mesh.0 {
+                assert!(
+                    (0.0..=1.0).contains(&v.uv[0]) && (0.0..=1.0).contains(&v.uv[1]),
+                    "{name}: uv {:?} out of range",
+                    v.uv
+                );
+            }
+        }
+        // Box front face: BL, BR, TR, TL -> (0,1) (1,1) (1,0) (0,0) (v = 0 at the image top)
+        let front: Vec<[f32; 2]> = p.box_mesh.0[..4].iter().map(|v| v.uv).collect();
+        assert_eq!(front, vec![[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
+        // Plane top face shows the whole image
+        let top = &p.plane_mesh.0[8..12];
+        assert!(top.iter().all(|v| v.normal == Vec3::Y));
+        assert_eq!(top[0].uv, [0.0, 1.0]);
+        assert_eq!(top[2].uv, [1.0, 0.0]);
+        // Packed vertices carry (u, v) in position.w / normal.w
+        let mut scene = SceneWorld::new();
+        let packed = scene.pack_render_data(Vec3::Z);
+        let (verts, _) = packed.geometry.unwrap();
+        assert_eq!([verts[0].position[3], verts[0].normal[3]], [0.0, 1.0]);
+        assert_eq!([verts[2].position[3], verts[2].normal[3]], [1.0, 0.0]);
+    }
+
+    #[test]
+    fn custom_mesh_uvs_are_validated_or_projected() {
+        let mut scene = SceneWorld::new();
+        // Quad in the XY plane spanning x 0..4, y 0..2 (z flat)
+        let positions = [0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 2.0, 0.0, 0.0, 2.0, 0.0];
+        let id = scene
+            .add_custom_mesh(&positions, &[], &[0, 1, 2, 0, 2, 3], Vec3::ZERO, Vec3::ONE, [1.0; 4], BodyType::Static)
+            .unwrap();
+        let uvs = |scene: &SceneWorld| match &scene.find_object(id).unwrap().geometry {
+            SceneGeometry::Custom { vertices, .. } => vertices.iter().map(|v| v.uv).collect::<Vec<_>>(),
+            _ => unreachable!(),
+        };
+        // Planar fallback on the two largest axes (x, y), normalised, image top up
+        assert_eq!(uvs(&scene), vec![[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
+
+        assert_eq!(
+            scene.set_custom_mesh_uvs(id, &[0.0, 0.0, 1.0]),
+            Err("uvs length must be 2 per vertex or empty")
+        );
+        let geometry_rev = scene.geometry_revision;
+        assert_eq!(scene.set_custom_mesh_uvs(id, &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 2.0, -1.0]), Ok(true));
+        assert_ne!(scene.geometry_revision, geometry_rev, "uvs re-upload the geometry");
+        assert_eq!(uvs(&scene), vec![[0.1, 0.2], [0.3, 0.4], [0.5, 0.6], [2.0, -1.0]]);
+        // Empty restores the projection; primitives / missing objects are not custom meshes
+        assert_eq!(scene.set_custom_mesh_uvs(id, &[]), Ok(true));
+        assert_eq!(uvs(&scene)[1], [1.0, 1.0]);
+        let prim = scene.add_primitive(PrimitiveKind::Box, Vec3::ZERO, Vec3::ONE, [1.0; 4], BodyType::Static);
+        assert_eq!(scene.set_custom_mesh_uvs(prim, &[0.0; 48]), Ok(false));
+        assert_eq!(scene.set_custom_mesh_uvs(9999, &[]), Ok(false));
+    }
+
+    #[test]
+    fn disposed_textures_clear_object_maps() {
+        let mut scene = SceneWorld::new();
+        let a = scene.add_primitive(PrimitiveKind::Box, Vec3::ZERO, Vec3::ONE, [1.0; 4], BodyType::Static);
+        let b = scene.add_primitive(PrimitiveKind::Sphere, Vec3::ZERO, Vec3::ONE, [1.0; 4], BodyType::Static);
+        let map = TextureMap { texture: 5, repeat: [2.0, 3.0], offset: [0.5, 0.25], alpha_test: 0.5 };
+        assert!(scene.set_object_map(a, map));
+        assert!(scene.set_object_map(b, TextureMap { texture: 6, ..map }));
+        assert!(!scene.set_object_map(9999, map));
+        // Non-finite values fall back to the defaults, alpha test is clamped
+        let c = scene.add_primitive(PrimitiveKind::Box, Vec3::ZERO, Vec3::ONE, [1.0; 4], BodyType::Static);
+        scene.set_object_map(c, TextureMap { texture: 5, repeat: [f32::NAN, 2.0], offset: [f32::INFINITY, 0.0], alpha_test: 7.0 });
+        let m = scene.find_object(c).unwrap().map;
+        assert_eq!((m.repeat, m.offset, m.alpha_test), ([1.0, 2.0], [0.0, 0.0], 1.0));
+
+        let packed = scene.pack_render_data(Vec3::Z * 10.0);
+        let inst = packed.instances.iter().find(|i| i.uv_transform == [2.0, 3.0, 0.5, 0.25]).expect("map packed");
+        assert_eq!(inst.material[3], 0.5, "alpha test in material.w");
+
+        let rev = scene.revision();
+        assert_eq!(scene.clear_texture_refs(5), 2);
+        assert_ne!(scene.revision(), rev, "disposal repacks");
+        assert_eq!(scene.find_object(a).unwrap().map.texture, 0);
+        // Repeat / offset are kept, the alpha test is dropped; other textures untouched
+        assert_eq!(scene.find_object(a).unwrap().map.repeat, [2.0, 3.0]);
+        assert_eq!(scene.find_object(a).unwrap().map.alpha_test, 0.0);
+        assert_eq!(scene.find_object(b).unwrap().map.alpha_test, 0.5);
+        assert_eq!(scene.find_object(b).unwrap().map.texture, 6);
+        let rev = scene.revision();
+        assert_eq!(scene.clear_texture_refs(5), 0);
+        assert_eq!(scene.clear_texture_refs(0), 0);
+        assert_eq!(scene.revision(), rev);
     }
 
     #[test]
