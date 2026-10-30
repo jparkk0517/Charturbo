@@ -263,7 +263,7 @@ sdk.enableNodeInteractions(canvas, {
 });
 ```
 
-- `raycastObjectAtNdc(ndcX, ndcY)` 返回最近的命中对象和世界空间中的交点。球体和平面用解析法求交，立方体和圆柱体按立方体求交，自定义网格先做包围盒检测再逐个三角形求交。
+- `raycastObjectAtNdc(ndcX, ndcY)` 返回最近的命中对象和世界空间中的交点。球体、平面和圆柱体（侧面与端面）用解析法求交，立方体按立方体求交，自定义网格先做包围盒检测再逐个三角形求交；64 个及以上三角形的网格使用首次拾取时构建的三角形 BVH，射线未穿过其世界包围盒的对象会被跳过。
 - `pickObjectAtNdc(ndcX, ndcY)` 只返回对象 ID（没有时为 `null`）。
 - `selectObject(id | null)` 高亮对象（大型静态平面只显示描边）。
 

@@ -4,11 +4,16 @@ use collision::Collider;
 use glam::{Mat3, Mat4, Quat, Vec3};
 use std::f32::consts::{PI, TAU};
 
+mod bvh;
 mod collision;
 #[cfg(test)]
 mod collision_tests;
 mod dynamics;
+mod pick;
+#[cfg(test)]
+mod pick_tests;
 mod shading;
+pub use bvh::PickCache;
 pub use shading::{srgb_to_linear, ShadingConfig, ShadingModel, ToneMapping, MAX_ENV_INTENSITY, MAX_EXPOSURE};
 
 /// Primitive 3D shape types supported natively by the scene engine.
@@ -187,6 +192,8 @@ pub struct SceneObject {
     pub body: RigidBody,
     pub selected: bool,
     pub visible: bool,
+    /// Lazily built triangle BVH for picking custom meshes (empty for primitives)
+    pub pick_cache: PickCache,
 }
 
 impl SceneObject {
@@ -206,6 +213,16 @@ impl SceneObject {
     /// World-space approximate half extents for broad-phase physics & AABB bounds.
     pub fn world_half_extents(&self) -> Vec3 {
         (self.base_half_extents() * self.transform.scale.abs()).max(Vec3::splat(0.05))
+    }
+
+    /// Local box enclosing everything `intersect_ray` can hit.
+    fn pick_half_extents(&self) -> Vec3 {
+        match &self.geometry {
+            SceneGeometry::Primitive(_) => Vec3::splat(0.5),
+            SceneGeometry::Custom {
+                local_half_extents, ..
+            } => (*local_half_extents).max(Vec3::splat(0.1)),
+        }
     }
 
     /// Intersects a world-space ray with this object using its world transform matrix.
@@ -230,8 +247,11 @@ impl SceneObject {
             SceneGeometry::Primitive(PrimitiveKind::Plane) => {
                 intersect_local_plane(local_origin, local_dir)
             }
-            SceneGeometry::Primitive(PrimitiveKind::Box | PrimitiveKind::Cylinder) => {
+            SceneGeometry::Primitive(PrimitiveKind::Box) => {
                 intersect_local_aabb(local_origin, local_dir, Vec3::splat(0.5))
+            }
+            SceneGeometry::Primitive(PrimitiveKind::Cylinder) => {
+                pick::intersect_local_cylinder(local_origin, local_dir)
             }
             SceneGeometry::Custom {
                 vertices,
@@ -244,53 +264,11 @@ impl SceneObject {
                     local_dir,
                     (*local_half_extents).max(Vec3::splat(0.1)),
                 )?;
-                intersect_local_triangles(local_origin, local_dir, vertices, indices)
+                self.pick_cache.intersect(local_origin, local_dir, vertices, indices)
             }
         }?;
 
         Some(local_t / dir_len)
-    }
-}
-
-fn intersect_local_triangles(
-    origin: Vec3,
-    dir: Vec3,
-    vertices: &[LocalVertex],
-    indices: &[u32],
-) -> Option<f32> {
-    let mut best_t = f32::INFINITY;
-    for tri in indices.chunks_exact(3) {
-        let v0 = vertices[tri[0] as usize].position;
-        let v1 = vertices[tri[1] as usize].position;
-        let v2 = vertices[tri[2] as usize].position;
-
-        let e1 = v1 - v0;
-        let e2 = v2 - v0;
-        let h = dir.cross(e2);
-        let a = e1.dot(h);
-        if a.abs() < 1e-6 {
-            continue;
-        }
-        let f = 1.0 / a;
-        let s = origin - v0;
-        let u = f * s.dot(h);
-        if !(0.0..=1.0).contains(&u) {
-            continue;
-        }
-        let q = s.cross(e1);
-        let v = f * dir.dot(q);
-        if v < 0.0 || u + v > 1.0 {
-            continue;
-        }
-        let t = f * e2.dot(q);
-        if t >= 0.0 && t < best_t {
-            best_t = t;
-        }
-    }
-    if best_t.is_finite() {
-        Some(best_t)
-    } else {
-        None
     }
 }
 
@@ -538,6 +516,7 @@ impl SceneWorld {
             },
             selected: false,
             visible: true,
+            pick_cache: PickCache::default(),
         });
         id
     }
@@ -642,6 +621,7 @@ impl SceneWorld {
             },
             selected: false,
             visible: true,
+            pick_cache: PickCache::default(),
         });
         Ok(id)
     }
@@ -877,6 +857,9 @@ impl SceneWorld {
                 continue;
             }
             let world_mat = self.world_matrix_of(obj.id);
+            if pick::culled_by_world_bounds(&world_mat, obj.pick_half_extents(), ray, best_t) {
+                continue;
+            }
             if let Some(t) = obj.intersect_ray(&world_mat, ray) {
                 if t < best_t {
                     best_t = t;

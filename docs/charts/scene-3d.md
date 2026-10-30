@@ -263,7 +263,7 @@ sdk.enableNodeInteractions(canvas, {
 });
 ```
 
-- `raycastObjectAtNdc(ndcX, ndcY)` returns the nearest hit object and the world-space hit point. Spheres and planes are intersected analytically, boxes and cylinders as boxes, and custom meshes per triangle after a bounding-box test.
+- `raycastObjectAtNdc(ndcX, ndcY)` returns the nearest hit object and the world-space hit point. Spheres, planes and cylinders (sides and caps) are intersected analytically, boxes as boxes, and custom meshes per triangle after a bounding-box test; meshes of 64+ triangles use a triangle BVH built on the first pick, and objects whose world bounds the ray misses are skipped.
 - `pickObjectAtNdc(ndcX, ndcY)` returns only the object ID (`null` for none).
 - `selectObject(id | null)` highlights an object (large static planes get an outline-only selection).
 

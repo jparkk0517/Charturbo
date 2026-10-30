@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 변경 — 3D 장면 피킹 가속
+
+- `raycastObjectAtNdc` / `pickObjectAtNdc`: 삼각형 64개 이상인 사용자 메시는 첫 피킹 때 만든 binned-SAH 삼각형 BVH(삼각형당 약 20–23 B, 메시마다 캐시)로 교차를 찾습니다. 결과(객체 · 교차점)는 기존 전수 검사와 비트 단위로 같고, 20만 삼각형 메시에서 광선당 약 840 µs → 0.7 µs입니다. 광선이 월드 경계 상자를 지나지 않는 객체는 역행렬 계산 전에 건너뜁니다.
+- 원기둥 피킹이 경계 상자 대신 해석적 원기둥(옆면 · 뚜껑)으로 바뀌어, 상자 모서리 부근의 빈 공간은 더 이상 맞지 않습니다.
+
 ### 추가 — 물리 기반 셰이딩(PBR)
 
 - `setShading({ model, toneMapping, exposure, environment: { sky, ground, intensity, map } })` / `getShading()`: 3D 장면 메시에 선택형 PBR을 켭니다(기본값 `model: 'classic'`은 기존 Blinn-Phong 그대로이며 차트 · 과학 3D · 3D 그래프는 바뀌지 않습니다). GGX · 높이 상관 Smith · Schlick 프레넬(`F0 = mix(0.04, color, metallic)`) · Lambert 확산, 선형 공간 조명 후 노출 · 톤 매핑(`'aces'` 기본 · `'reinhard'` · `'none'`) · sRGB 인코딩을 셰이더에서 합니다. 환경광은 하늘 / 땅 반구 또는 등장방형 텍스처(`map`, 거칠기에 따른 밉 레벨, 해석적 split-sum 근사)이며, 모르거나 해제된 텍스처 ID는 반구로 대체됩니다. `ambientIntensity`는 classic 전용입니다.

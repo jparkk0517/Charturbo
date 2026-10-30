@@ -263,7 +263,7 @@ sdk.enableNodeInteractions(canvas, {
 });
 ```
 
-- `raycastObjectAtNdc(ndcX, ndcY)`는 가장 가까이 맞은 객체와 월드 공간 교차점을 반환합니다. 구와 평면은 해석적으로, 상자와 원기둥은 상자로, 사용자 메시는 경계 상자 검사 후 삼각형 단위로 교차를 계산합니다.
+- `raycastObjectAtNdc(ndcX, ndcY)`는 가장 가까이 맞은 객체와 월드 공간 교차점을 반환합니다. 구 · 평면 · 원기둥(옆면과 뚜껑)은 해석적으로, 상자는 상자로, 사용자 메시는 경계 상자 검사 후 삼각형 단위로 교차를 계산합니다. 삼각형 64개 이상인 메시는 첫 피킹 때 만든 삼각형 BVH를 쓰고, 광선이 월드 경계 상자를 지나지 않는 객체는 건너뜁니다.
 - `pickObjectAtNdc(ndcX, ndcY)`는 객체 ID만 반환합니다(없으면 `null`).
 - `selectObject(id | null)`는 객체를 강조합니다(큰 정적 평면은 외곽선만 표시).
 
