@@ -365,6 +365,43 @@ sdk.getAntialias(); // 实际采样数：1 或 4
 - 开销：多重采样目标每个画布像素占用 4 × (颜色 + 深度) 字节（480 × 300 ≈ 4.4 MiB，计入 `getRenderStats().gpuBytes`），主通道的填充开销也增加到 4 倍。开启 MSAA 时创建，尺寸变化时重建，`setAntialias(1)` 时释放。关闭时不分配任何资源，管线也保持不变。
 - 画布导出（`toImage`、`toDataURL`）得到的是 resolve 后的图像。WebGPU 与 WebGL2 均受支持。该设置属于画布而非场景，`exportScene` 不会保存它。
 
+## 后期处理 {#post-processing}
+
+泛光（bloom）与自动曝光（人眼适应）是作用于 PBR 场景网格的可选 HDR 效果，默认均关闭：
+
+```ts
+sdk.setShading({ model: 'pbr', toneMapping: 'aces' });
+sdk.setPostProcessing({
+  bloom: { enabled: true, intensity: 0.8, threshold: 1, knee: 0.5, radius: 0.7 },
+  autoExposure: { enabled: true, minEv: -4, maxEv: 4, speedUp: 3, speedDown: 1, compensation: 0 },
+});
+sdk.addSphere({ position: [0, 10, 0], emissiveColor: [8, 2.4, 0.5] }); // HDR 自发光产生光晕
+sdk.getPostProcessing(); // { bloom, autoExposure, supported, active }
+```
+
+- 开启任一效果后，网格不经色调映射渲染到 `Rgba16Float` HDR 目标（开启 MSAA 时先渲染到多重采样目标再 resolve 到它）。随后全屏合成通道应用曝光、叠加泛光、进行色调映射（`setShading({ toneMapping })`）、与清除色混合并以 sRGB 写入画布。2D 图表、节点、边和辅助线照常绘制在合成结果之上，因此也会绘制在半透明网格之上。
+- 泛光：预过滤保留曝光后高于 `threshold` 的亮度，并带有柔和的 `knee`（对亮像素取平均，避免单个高光闪烁）；最多 6 级半尺寸 mip 链用 13 采样滤波逐级缩小，再用帐篷滤波逐级上采样叠加回来。`radius` 控制光晕范围，`intensity` 控制强度。大于 1 的自发光颜色、强烈的太阳和 HDR 环境贴图泛光最明显。
+- 自动曝光：GPU 每帧测量网格的平均对数亮度（64 × 64 逐级缩小到 1 × 1，忽略背景），并将曝光调向 EV `log2(平均值 / 0.18)`，限制在 `minEv..maxEv` 内并加上 `compensation`。该值只保存在 GPU 上（无回读）。`setShading({ exposure })` 仍会与结果相乘。`adaptation: 'smooth'`（默认）按已渲染帧的时间以每秒 `speedUp` / `speedDown` 的速度变化，因此需要持续渲染（动画循环）才能看到收敛过程；`adaptation: 'instant'` 每帧直接测光。开启后的第一帧总是直接到位。
+- 需要 PBR 模型（经典着色以显示为参照，保持不变，`active` 为 `false`）。不支持浮点渲染目标的设备（没有 `EXT_color_buffer_float` 的 WebGL2）会跳过后期处理：场景照常渲染，`getPostProcessing().supported` 为 `false`。WebGPU 与带该扩展的 WebGL2 均受支持。
+- 开销：两个效果都关闭时没有任何开销（无目标、无额外通道、管线不变）。开启后 HDR 目标每像素 8 字节（MSAA x4 时为 32 字节加 8 字节 resolve 目标），泛光 mip 约为其三分之一，曝光链 34 KiB，均计入 `getRenderStats().gpuBytes`。目标在开启时创建，尺寸或 MSAA 变化时重建，两个效果都关闭时释放。在无头 Chrome（Apple M1，1280 × 720，41 个 PBR 网格）上，每帧耗时 WebGPU 为关闭 0.72 ms、泛光 1.18 ms、泛光 + 自动曝光 1.36 ms，WebGL2 为 1.09 / 1.72 / 1.82 ms。
+- `setPostProcessing` 合并到当前设置，无效值抛出 `setPostProcessing: ...`。`exportScene()` 将设置保存在 `postProcessing` 中，`loadScene` 会恢复它们。
+
+| 泛光选项 | 类型 | 默认值 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `intensity` | `number` (0..8) | `0.6` |
+| `threshold` | `number` (0..64，曝光后的线性亮度) | `1` |
+| `knee` | `number` (0..1，相对 threshold 的比例) | `0.5` |
+| `radius` | `number` (0..1) | `0.7` |
+
+| 自动曝光选项 | 类型 | 默认值 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `minEv` / `maxEv` | `number` (-16..16，`maxEv >= minEv`) | `-4` / `4` |
+| `speedUp` / `speedDown` | `number` (每秒 0..100) | `3` / `1` |
+| `compensation` | `number` (-8..8 EV) | `0` |
+| `adaptation` | `'smooth' \| 'instant'` | `'smooth'` |
+
 ## 刚体物理
 
 `setRigidPhysics(enabled, gravity?)` 开启或关闭仿真；默认开启，重力为 `[0, -40, 0]`。`getRigidPhysics()` 返回 `{ enabled, gravity }`。

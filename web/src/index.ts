@@ -164,6 +164,16 @@ export {
   type ObjectShadowDescriptor,
   type SceneShadowsBackend,
 } from './sdk/scene-shadows';
+export {
+  type SceneBloomDescriptor,
+  type SceneBloomState,
+  type SceneAutoExposureDescriptor,
+  type SceneAutoExposureState,
+  type SceneExposureAdaptation,
+  type ScenePostProcessingDescriptor,
+  type ScenePostProcessingState,
+  type ScenePostBackend,
+} from './sdk/scene-post';
 export { type CharturboAntialias, type CharturboAntialiasSamples, type AntialiasBackend } from './sdk/antialias';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';

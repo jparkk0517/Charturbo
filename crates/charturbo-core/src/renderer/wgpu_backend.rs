@@ -30,6 +30,9 @@ use wgpu::util::DeviceExt;
 mod shadow;
 #[path = "wgpu_msaa.rs"]
 mod msaa;
+#[path = "wgpu_post.rs"]
+mod post_gpu;
+use post_gpu::{hdr_source, mesh_format, mesh_slot};
 pub use msaa::{msaa_target_bytes, resolve_sample_count};
 
 /// Float depth for reversed-Z (supported by WebGPU and WebGL2).
@@ -222,6 +225,12 @@ pub struct WgpuRenderBackend {
     /// (engines on a shared context use the context's cache instead)
     base_pipes: Rc<GpuPipelines>,
     msaa_pipes: Option<Rc<GpuPipelines>>,
+    /// Post pipelines (built on the first post frame, shared like `mesh_pbr`)
+    post_pipes: Rc<post_gpu::LazyPost>,
+    /// This engine's post targets while post-processing is on (`sync_post_processing`)
+    post: Option<post_gpu::PostState>,
+    /// The device renders the `Rgba16Float` HDR targets at (1x, x4)
+    hdr_targets: (bool, bool),
 }
 
 /// Environment map bind group of the PBR mesh pipelines (group 2).
@@ -241,14 +250,14 @@ struct MeshPbrPipelines {
 }
 
 /// What `MeshPbrPipelines` are built from, plus the once-built pipelines per sample count
-/// (`msaa_slot`; shared by the 1x and MSAA pipeline sets of a format).
+/// and output (`mesh_slot`: surface or HDR target; shared by the 1x and MSAA pipeline sets).
 pub(crate) struct LazyMeshPbr {
     format: wgpu::TextureFormat,
     mesh_bgl: wgpu::BindGroupLayout,
     texture_bgl: wgpu::BindGroupLayout,
     /// Group 1: base map + sampler + metallic-roughness / normal / occlusion / emissive maps
     material_bgl: wgpu::BindGroupLayout,
-    pipelines: [OnceCell<MeshPbrPipelines>; 2],
+    pipelines: [OnceCell<MeshPbrPipelines>; 4],
 }
 
 /// Index of a sample count's lazily built pipelines: 0 = 1x, 1 = MSAA.
@@ -257,12 +266,13 @@ pub(crate) fn msaa_slot(samples: u32) -> usize {
 }
 
 impl LazyMeshPbr {
-    fn get(&self, device: &wgpu::Device, samples: u32) -> &MeshPbrPipelines {
-        self.pipelines[msaa_slot(samples)].get_or_init(|| {
-            let target = ColorTarget { format: self.format, samples };
+    /// `hdr`: linear output into the post-processing HDR target.
+    fn get(&self, device: &wgpu::Device, samples: u32, hdr: bool) -> &MeshPbrPipelines {
+        self.pipelines[mesh_slot(samples, hdr)].get_or_init(|| {
+            let target = ColorTarget { format: mesh_format(self.format, hdr), samples };
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("mesh-pbr-shader"),
-                source: wgpu::ShaderSource::Wgsl(mesh_pbr_wgsl().into()),
+                source: wgpu::ShaderSource::Wgsl(hdr_source(mesh_pbr_wgsl(), hdr).into()),
             });
             // The environment map group has the base-color group's layout (texture + sampler)
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -572,6 +582,7 @@ pub struct GpuPipelines {
     mesh_translucent_pipeline: wgpu::RenderPipeline,
     mesh_pbr: Rc<LazyMeshPbr>,
     shadow: Rc<shadow::LazyShadow>,
+    post: Rc<post_gpu::LazyPost>,
     node_pipeline: wgpu::RenderPipeline,
     node_translucent_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
@@ -692,8 +703,9 @@ impl WgpuRenderBackend {
         surface.configure(&device, &config);
         let msaa_x4 = msaa::msaa_x4_supported(&adapter, &device, config.format);
         let float_targets = msaa::float_targets_supported(&adapter, &device);
+        let hdr_targets = post_gpu::hdr_targets_supported(&adapter, &device);
 
-        Ok(Self::build_pipelines(surface, device, queue, config, msaa_x4, float_targets))
+        Ok(Self::build_pipelines(surface, device, queue, config, msaa_x4, (float_targets, hdr_targets)))
     }
 
     /// Engine on a shared device: its own surface (WebGPU) or a 2D context the shared GL canvas
@@ -744,8 +756,17 @@ impl WgpuRenderBackend {
         let pipes = ctx.pipelines.get_or_build((config.format, 1), || GpuPipelines::new(&ctx.device, config.format));
         let msaa_x4 = msaa::msaa_x4_supported(&ctx.adapter, &ctx.device, config.format);
         let float_targets = msaa::float_targets_supported(&ctx.adapter, &ctx.device);
-        let mut backend =
-            Self::assemble(target, ctx.device.clone(), ctx.queue.clone(), config, pipes, true, msaa_x4, float_targets);
+        let hdr_targets = post_gpu::hdr_targets_supported(&ctx.adapter, &ctx.device);
+        let mut backend = Self::assemble(
+            target,
+            ctx.device.clone(),
+            ctx.queue.clone(),
+            config,
+            pipes,
+            true,
+            msaa_x4,
+            (float_targets, hdr_targets),
+        );
         backend._shared = Some(ctx.clone());
         Ok(backend)
     }
@@ -757,10 +778,10 @@ impl WgpuRenderBackend {
         queue: wgpu::Queue,
         config: wgpu::SurfaceConfiguration,
         msaa_x4: bool,
-        float_targets: bool,
+        float: (bool, (bool, bool)),
     ) -> Self {
         let pipes = Rc::new(GpuPipelines::new(&device, config.format));
-        Self::assemble(PresentTarget::Surface(surface), device, queue, config, pipes, false, msaa_x4, float_targets)
+        Self::assemble(PresentTarget::Surface(surface), device, queue, config, pipes, false, msaa_x4, float)
     }
 
     /// Per-engine resources (depth texture, uniforms, bind groups, instance buffers) around
@@ -774,7 +795,7 @@ impl WgpuRenderBackend {
         pipes: Rc<GpuPipelines>,
         compact: bool,
         msaa_x4: bool,
-        float_targets: bool,
+        (float_targets, hdr_targets): (bool, (bool, bool)),
     ) -> Self {
         let depth_view = Self::create_depth_view(&device, config.width, config.height);
         let max_buffer_bytes = device.limits().max_buffer_size;
@@ -998,6 +1019,9 @@ impl WgpuRenderBackend {
             msaa: None,
             base_pipes: pipes,
             msaa_pipes: None,
+            post_pipes: p.post.clone(),
+            post: None,
+            hdr_targets,
         }
     }
 
@@ -1446,6 +1470,7 @@ impl GpuPipelines {
             },
             |b| b.shadow.clone(),
         );
+        let post = base.map_or_else(|| Rc::new(post_gpu::LazyPost::new(format)), |b| b.post.clone());
 
         Self {
             target,
@@ -1459,6 +1484,7 @@ impl GpuPipelines {
             mesh_translucent_pipeline,
             mesh_pbr,
             shadow,
+            post,
             node_pipeline,
             node_translucent_pipeline,
             edge_pipeline,
@@ -1490,7 +1516,8 @@ fn material_key(d: &MeshDraw) -> crate::renderer::texture::MaterialKey {
 impl WgpuRenderBackend {
     /// Issues the opaque or translucent mesh draws. Instances are addressed by slicing the
     /// instance buffer (no `first_instance` / base-vertex support needed, so WebGL2 works).
-    fn draw_meshes<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>, translucent: bool) {
+    /// `hdr`: the post-processing HDR pass (its pipeline variants).
+    fn draw_meshes<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>, translucent: bool, hdr: bool) {
         let mut bound = false;
         let mut bound_texture = None;
         let stride = size_of::<MeshInstanceRaw>() as u64;
@@ -1500,7 +1527,7 @@ impl WgpuRenderBackend {
             }
             if !bound {
                 // `sync_lighting` built the PBR pipelines when it selected them
-                match self.mesh_pbr.pipelines[msaa_slot(self.samples)].get().filter(|_| self.pbr) {
+                match self.mesh_pbr.pipelines[mesh_slot(self.samples, hdr)].get().filter(|_| self.pbr) {
                     Some(p) => {
                         rpass.set_pipeline(if translucent { &p.translucent } else { &p.opaque });
                         rpass.set_bind_group(2, &self.env.bind_group, &[]);
@@ -1513,7 +1540,7 @@ impl WgpuRenderBackend {
                 }
                 // Shadows on: the receiving variant (built by `sync_shadows`) + the shadow
                 // group after the base map (classic) or the environment map (PBR)
-                if let Some((pipeline, group, shadow_bg)) = self.shadowed_pipeline(translucent) {
+                if let Some((pipeline, group, shadow_bg)) = self.shadowed_pipeline(translucent, hdr) {
                     rpass.set_pipeline(pipeline);
                     rpass.set_bind_group(group, shadow_bg, &[]);
                 }
@@ -1542,6 +1569,131 @@ impl WgpuRenderBackend {
             rpass.set_vertex_buffer(1, self.mesh_instances.buffer.slice(from..to));
             rpass.draw_indexed(d.first_index..d.first_index + d.index_count, 0, 0..d.instance_count);
         }
+    }
+}
+
+impl WgpuRenderBackend {
+    /// Every main-pass draw in order (`meshes = false`: all but the scene meshes, which the
+    /// post-processing path draws into its HDR pass).
+    fn draw_scene<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>, resident_bind: Option<&'a wgpu::BindGroup>, meshes: bool) {
+        let cam = &self.camera_bind_group;
+        let fill = &self.fill_bind_group;
+
+        // 1. Opaque scene meshes (one instanced draw per mesh)
+        if meshes {
+            self.draw_meshes(rpass, false, false);
+        }
+
+        // 2. Chart marks: gridlines, bars, fills, series strokes, scatter points
+        draw_quads(rpass, &self.segment_pipeline, cam, &self.chart_underlay);
+        // Heatmap cells: one quad, every cell resolved in the fragment shader
+        if self.heatmap.active {
+            rpass.set_pipeline(&self.heatmap_pipeline);
+            rpass.set_bind_group(0, &self.heatmap.bind_group, &[]);
+            rpass.draw(0..6, 0..1);
+        }
+        // Annotations below the series: bands, reference lines, markers (clipped on the CPU)
+        let below = &self.annotations_below;
+        draw_fills(rpass, &self.fill_pipeline, fill, &below.fills);
+        draw_quads(rpass, &self.segment_pipeline, cam, &below.lines);
+        draw_quads(rpass, &self.marker_pipeline, cam, &below.markers);
+        // Zoomed bars (candlesticks) / fills / series / points are clipped to the plot rectangle
+        let (vw, vh) = (self.config.width, self.config.height);
+        let clip = self.series_clip.and_then(|[x, y, w, h]| {
+            let (x, y) = (x.min(vw), y.min(vh));
+            let (w, h) = (w.min(vw - x), h.min(vh - y));
+            (w > 0 && h > 0).then_some((x, y, w, h))
+        });
+        if let Some((x, y, w, h)) = clip {
+            rpass.set_scissor_rect(x, y, w, h);
+        }
+        draw_quads(rpass, &self.bar_pipeline, cam, &self.chart_bars);
+        draw_decals(rpass, &self.bar_decal_pipeline, cam, &self.chart_bars, &self.chart_bar_decals, true);
+        draw_fills(rpass, if self.depth_3d { &self.fill_3d_pipeline } else { &self.fill_pipeline }, fill, &self.chart_fills);
+        if !self.depth_3d {
+            draw_decals(rpass, &self.fill_decal_pipeline, fill, &self.chart_fills, &self.chart_fill_decals, false);
+        }
+        draw_fills(rpass, &self.contour_3d_pipeline, fill, &self.chart_contours_3d);
+        // Parallel polylines: brushed-out rows (vertices 0..6) beneath active rows (6..12)
+        if self.chart_parallel.len > 0 {
+            rpass.set_pipeline(&self.parallel_pipeline);
+            rpass.set_bind_group(0, &self.parallel.bind_group, &[]);
+            rpass.set_vertex_buffer(0, self.chart_parallel.slice());
+            if self.parallel.brushed() {
+                rpass.draw(0..6, 0..self.chart_parallel.len);
+            }
+            rpass.draw(6..12, 0..self.chart_parallel.len);
+        }
+        draw_quads(rpass, &self.segment_pipeline, cam, &self.chart_series);
+        // Dashed series strokes, then series point markers over the strokes
+        draw_quads(rpass, &self.dash_segment_pipeline, cam, &self.chart_series_dashed);
+        draw_quads(rpass, if self.depth_3d { &self.marker_3d_pipeline } else { &self.marker_pipeline }, cam, &self.chart_series_markers);
+        draw_quads(rpass, &self.point_pipeline, &self.point_bind_group, &self.chart_points);
+        if self.point_emphasis && self.chart_points.len > 0 {
+            // Second pass (vertices 6..12): only the emphasized series, on top
+            rpass.draw(6..12, 0..self.chart_points.len);
+        }
+        // Annotations above the series (no depth test: always over bars / strokes / points)
+        let above = &self.annotations_above;
+        draw_fills(rpass, &self.fill_overlay_pipeline, fill, &above.fills);
+        draw_quads(rpass, &self.segment_overlay_pipeline, cam, &above.lines);
+        draw_quads(rpass, &self.marker_pipeline, cam, &above.markers);
+        // Brush / selection band over everything in the plot (no depth test)
+        draw_fills(rpass, &self.fill_overlay_pipeline, fill, &self.brush.fills);
+        draw_quads(rpass, &self.segment_overlay_pipeline, cam, &self.brush.lines);
+        if clip.is_some() {
+            rpass.set_scissor_rect(0, 0, vw, vh);
+        }
+        // Navigator below the plot (unclipped): strip, then the zoom window over it
+        for nav in [&self.navigator, &self.navigator_window] {
+            draw_fills(rpass, &self.fill_overlay_pipeline, fill, &nav.fills);
+            draw_quads(rpass, &self.segment_overlay_pipeline, cam, &nav.lines);
+        }
+
+        // Graph pipelines: CPU-packed positions, or node indexes into the resident layout
+        let resident = self.resident_pipelines.as_ref().zip(resident_bind);
+        let (node, node_translucent, edge) = match resident {
+            Some((r, bind)) => {
+                rpass.set_bind_group(1, bind, &[]);
+                (&r.node, &r.node_translucent, &r.edge)
+            }
+            None => (&self.node_pipeline, &self.node_translucent_pipeline, &self.edge_pipeline),
+        };
+
+        // 3. Opaque nodes write depth first, so edges are hidden only where a node is in front
+        if self.opaque_nodes > 0 {
+            rpass.set_pipeline(node);
+            rpass.set_bind_group(0, cam, &[]);
+            rpass.set_vertex_buffer(0, self.nodes.slice());
+            rpass.draw(0..6, 0..self.opaque_nodes);
+        }
+
+        // 4. Graph edges and scene helper lines (depth-tested, no depth writes)
+        for (lines, pipeline) in [(&self.edges, edge), (&self.helper_lines, &self.edge_pipeline)] {
+            if lines.len > 0 {
+                rpass.set_pipeline(pipeline);
+                rpass.set_bind_group(0, cam, &[]);
+                rpass.set_vertex_buffer(0, lines.slice());
+                rpass.draw(0..lines.len, 0..1);
+            }
+        }
+
+        // 5. Translucent nodes without depth writes
+        if self.nodes.len > self.opaque_nodes {
+            rpass.set_pipeline(node_translucent);
+            rpass.set_bind_group(0, cam, &[]);
+            rpass.set_vertex_buffer(0, self.nodes.slice());
+            rpass.draw(0..6, self.opaque_nodes..self.nodes.len);
+        }
+
+        // 6. Translucent scene meshes (sorted back-to-front on the CPU)
+        if meshes {
+            self.draw_meshes(rpass, true, false);
+        }
+
+        // 7. Chart hover overlays always on top
+        draw_quads(rpass, &self.segment_overlay_pipeline, cam, &self.chart_overlay);
+        draw_quads(rpass, &self.marker_pipeline, cam, &self.chart_markers);
     }
 }
 
@@ -1768,10 +1920,18 @@ impl RenderBackend for WgpuRenderBackend {
         light.env_sh = sh.copied().unwrap_or([[0.0; 4]; 9]);
         self.pbr = light.is_pbr();
         if self.pbr {
-            self.mesh_pbr.get(&self.device, self.samples);
+            self.mesh_pbr.get(&self.device, self.samples, false);
         }
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&light));
+    }
+
+    fn sync_post_processing(&mut self, post: Option<&crate::renderer::PostFrame>) {
+        self.apply_post(post);
+    }
+
+    fn post_processing_supported(&self) -> bool {
+        self.post_supported()
     }
 
     fn sync_shadows(&mut self, shadows: Option<&crate::renderer::ShadowFrame>) {
@@ -1913,13 +2073,17 @@ impl RenderBackend for WgpuRenderBackend {
         // Shadow casters first (depth only), sampled by the main pass's mesh draws
         self.encode_shadow_pass(&mut encoder);
 
-        // MSAA: draw into the multisampled targets and resolve into the frame at the end of this
-        // (the frame's only) pass; the samples themselves are never read again
-        let (color_view, resolve_target, depth_view, store) = match &self.msaa {
-            Some(m) => (&m.color, Some(&view), &m.depth, wgpu::StoreOp::Discard),
-            None => (&view, None, &self.depth_view, wgpu::StoreOp::Store),
-        };
-        {
+        // Post-processing: the meshes render HDR into the post targets, the composite pass
+        // writes them (exposed, bloomed, tone mapped) into the frame before everything else
+        if self.post_ready() {
+            self.encode_post_frame(&mut encoder, &view, resident_bind.as_ref());
+        } else {
+            // MSAA: draw into the multisampled targets and resolve into the frame at the end of
+            // this (the frame's only) pass; the samples themselves are never read again
+            let (color_view, resolve_target, depth_view, store) = match &self.msaa {
+                Some(m) => (&m.color, Some(&view), &m.depth, wgpu::StoreOp::Discard),
+                None => (&view, None, &self.depth_view, wgpu::StoreOp::Store),
+            };
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("charturbo-main-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1942,121 +2106,7 @@ impl RenderBackend for WgpuRenderBackend {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-
-            let cam = &self.camera_bind_group;
-            let fill = &self.fill_bind_group;
-
-            // 1. Opaque scene meshes (one instanced draw per mesh)
-            self.draw_meshes(&mut rpass, false);
-
-            // 2. Chart marks: gridlines, bars, fills, series strokes, scatter points
-            draw_quads(&mut rpass, &self.segment_pipeline, cam, &self.chart_underlay);
-            // Heatmap cells: one quad, every cell resolved in the fragment shader
-            if self.heatmap.active {
-                rpass.set_pipeline(&self.heatmap_pipeline);
-                rpass.set_bind_group(0, &self.heatmap.bind_group, &[]);
-                rpass.draw(0..6, 0..1);
-            }
-            // Annotations below the series: bands, reference lines, markers (clipped on the CPU)
-            let below = &self.annotations_below;
-            draw_fills(&mut rpass, &self.fill_pipeline, fill, &below.fills);
-            draw_quads(&mut rpass, &self.segment_pipeline, cam, &below.lines);
-            draw_quads(&mut rpass, &self.marker_pipeline, cam, &below.markers);
-            // Zoomed bars (candlesticks) / fills / series / points are clipped to the plot rectangle
-            let (vw, vh) = (self.config.width, self.config.height);
-            let clip = self.series_clip.and_then(|[x, y, w, h]| {
-                let (x, y) = (x.min(vw), y.min(vh));
-                let (w, h) = (w.min(vw - x), h.min(vh - y));
-                (w > 0 && h > 0).then_some((x, y, w, h))
-            });
-            if let Some((x, y, w, h)) = clip {
-                rpass.set_scissor_rect(x, y, w, h);
-            }
-            draw_quads(&mut rpass, &self.bar_pipeline, cam, &self.chart_bars);
-            draw_decals(&mut rpass, &self.bar_decal_pipeline, cam, &self.chart_bars, &self.chart_bar_decals, true);
-            draw_fills(&mut rpass, if self.depth_3d { &self.fill_3d_pipeline } else { &self.fill_pipeline }, fill, &self.chart_fills);
-            if !self.depth_3d {
-                draw_decals(&mut rpass, &self.fill_decal_pipeline, fill, &self.chart_fills, &self.chart_fill_decals, false);
-            }
-            draw_fills(&mut rpass, &self.contour_3d_pipeline, fill, &self.chart_contours_3d);
-            // Parallel polylines: brushed-out rows (vertices 0..6) beneath active rows (6..12)
-            if self.chart_parallel.len > 0 {
-                rpass.set_pipeline(&self.parallel_pipeline);
-                rpass.set_bind_group(0, &self.parallel.bind_group, &[]);
-                rpass.set_vertex_buffer(0, self.chart_parallel.slice());
-                if self.parallel.brushed() {
-                    rpass.draw(0..6, 0..self.chart_parallel.len);
-                }
-                rpass.draw(6..12, 0..self.chart_parallel.len);
-            }
-            draw_quads(&mut rpass, &self.segment_pipeline, cam, &self.chart_series);
-            // Dashed series strokes, then series point markers over the strokes
-            draw_quads(&mut rpass, &self.dash_segment_pipeline, cam, &self.chart_series_dashed);
-            draw_quads(&mut rpass, if self.depth_3d { &self.marker_3d_pipeline } else { &self.marker_pipeline }, cam, &self.chart_series_markers);
-            draw_quads(&mut rpass, &self.point_pipeline, &self.point_bind_group, &self.chart_points);
-            if self.point_emphasis && self.chart_points.len > 0 {
-                // Second pass (vertices 6..12): only the emphasized series, on top
-                rpass.draw(6..12, 0..self.chart_points.len);
-            }
-            // Annotations above the series (no depth test: always over bars / strokes / points)
-            let above = &self.annotations_above;
-            draw_fills(&mut rpass, &self.fill_overlay_pipeline, fill, &above.fills);
-            draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &above.lines);
-            draw_quads(&mut rpass, &self.marker_pipeline, cam, &above.markers);
-            // Brush / selection band over everything in the plot (no depth test)
-            draw_fills(&mut rpass, &self.fill_overlay_pipeline, fill, &self.brush.fills);
-            draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &self.brush.lines);
-            if clip.is_some() {
-                rpass.set_scissor_rect(0, 0, vw, vh);
-            }
-            // Navigator below the plot (unclipped): strip, then the zoom window over it
-            for nav in [&self.navigator, &self.navigator_window] {
-                draw_fills(&mut rpass, &self.fill_overlay_pipeline, fill, &nav.fills);
-                draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &nav.lines);
-            }
-
-            // Graph pipelines: CPU-packed positions, or node indexes into the resident layout
-            let resident = self.resident_pipelines.as_ref().zip(resident_bind.as_ref());
-            let (node, node_translucent, edge) = match resident {
-                Some((r, bind)) => {
-                    rpass.set_bind_group(1, bind, &[]);
-                    (&r.node, &r.node_translucent, &r.edge)
-                }
-                None => (&self.node_pipeline, &self.node_translucent_pipeline, &self.edge_pipeline),
-            };
-
-            // 3. Opaque nodes write depth first, so edges are hidden only where a node is in front
-            if self.opaque_nodes > 0 {
-                rpass.set_pipeline(node);
-                rpass.set_bind_group(0, cam, &[]);
-                rpass.set_vertex_buffer(0, self.nodes.slice());
-                rpass.draw(0..6, 0..self.opaque_nodes);
-            }
-
-            // 4. Graph edges and scene helper lines (depth-tested, no depth writes)
-            for (lines, pipeline) in [(&self.edges, edge), (&self.helper_lines, &self.edge_pipeline)] {
-                if lines.len > 0 {
-                    rpass.set_pipeline(pipeline);
-                    rpass.set_bind_group(0, cam, &[]);
-                    rpass.set_vertex_buffer(0, lines.slice());
-                    rpass.draw(0..lines.len, 0..1);
-                }
-            }
-
-            // 5. Translucent nodes without depth writes
-            if self.nodes.len > self.opaque_nodes {
-                rpass.set_pipeline(node_translucent);
-                rpass.set_bind_group(0, cam, &[]);
-                rpass.set_vertex_buffer(0, self.nodes.slice());
-                rpass.draw(0..6, self.opaque_nodes..self.nodes.len);
-            }
-
-            // 6. Translucent scene meshes (sorted back-to-front on the CPU)
-            self.draw_meshes(&mut rpass, true);
-
-            // 7. Chart hover overlays always on top
-            draw_quads(&mut rpass, &self.segment_overlay_pipeline, cam, &self.chart_overlay);
-            draw_quads(&mut rpass, &self.marker_pipeline, cam, &self.chart_markers);
+            self.draw_scene(&mut rpass, resident_bind.as_ref(), true);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -2096,7 +2146,8 @@ impl RenderBackend for WgpuRenderBackend {
             + self.gpu_physics.as_ref().map_or(0, |g| g.bytes())
             + self.shadow_map.as_ref().map_or(0, |m| m.bytes())
             + self.point_shadow_map.as_ref().map_or(0, |m| m.bytes())
-            + self.msaa.as_ref().map_or(0, |m| m.bytes);
+            + self.msaa.as_ref().map_or(0, |m| m.bytes)
+            + self.post.as_ref().map_or(0, |p| p.bytes());
         RenderStats {
             gpu_bytes,
             series_segments: self.chart_series.len + self.chart_series_dashed.len,
@@ -2124,6 +2175,7 @@ impl RenderBackend for WgpuRenderBackend {
         if self.msaa.is_some() {
             self.msaa = Some(msaa::MsaaTargets::new(&self.device, self.config.format, self.samples, width, height));
         }
+        self.resize_post_targets();
     }
 
     fn set_sample_count(&mut self, samples: u32) -> u32 {

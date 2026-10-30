@@ -365,6 +365,43 @@ sdk.getAntialias(); // applied count: 1 or 4
 - Cost: the multisampled targets take 4 × (color + depth) bytes per canvas pixel (480 × 300 ≈ 4.4 MiB, counted in `getRenderStats().gpuBytes`), plus 4x fill rate in the main pass. They are created when MSAA turns on, recreated on resize and released on `setAntialias(1)`. With MSAA off nothing is allocated and the pipelines are unchanged.
 - Canvas export (`toImage`, `toDataURL`) sees the resolved image. WebGPU and WebGL2 are both supported. The setting belongs to the canvas, not the scene: `exportScene` does not store it.
 
+## Post-processing {#post-processing}
+
+Bloom and auto exposure (eye adaptation) are opt-in HDR effects of the PBR scene meshes. Both are off by default:
+
+```ts
+sdk.setShading({ model: 'pbr', toneMapping: 'aces' });
+sdk.setPostProcessing({
+  bloom: { enabled: true, intensity: 0.8, threshold: 1, knee: 0.5, radius: 0.7 },
+  autoExposure: { enabled: true, minEv: -4, maxEv: 4, speedUp: 3, speedDown: 1, compensation: 0 },
+});
+sdk.addSphere({ position: [0, 10, 0], emissiveColor: [8, 2.4, 0.5] }); // HDR emissive glows
+sdk.getPostProcessing(); // { bloom, autoExposure, supported, active }
+```
+
+- With an effect on, the meshes render into an `Rgba16Float` HDR target (with MSAA, a multisampled one resolved into it) without tone mapping. A fullscreen composite then applies the exposure, adds the bloom, tone maps (`setShading({ toneMapping })`), blends over the clear color and encodes sRGB into the canvas. 2D charts, nodes, edges and helper lines draw on top of the composite unchanged, so they also draw over translucent meshes.
+- Bloom: a prefilter keeps the exposed brightness above `threshold` with a soft `knee` (and averages bright pixels so single sparkles do not flicker), a chain of up to 6 half-size mips downsamples it with a 13-tap filter, and tent upsamples add it back up the chain. `radius` widens the glow, `intensity` scales it. Emissive colors above 1, a strong sun and HDR environment maps bloom the most.
+- Auto exposure: every frame the GPU meters the average log luminance of the meshes (64 × 64, reduced to 1 × 1; the background is ignored) and adapts the exposure toward EV `log2(average / 0.18)`, clamped to `minEv..maxEv`, plus `compensation`. The value stays on the GPU (no readback). `setShading({ exposure })` still multiplies the result. `adaptation: 'smooth'` (default) moves at `speedUp` / `speedDown` per second of rendered frames, so render continuously (an animation loop) to watch it settle; `adaptation: 'instant'` meters every frame. The first frame after enabling always snaps.
+- Needs the PBR model (classic shading is display referred and stays unchanged; `active` is `false`). Devices without float render targets (WebGL2 without `EXT_color_buffer_float`) skip post-processing: the scene renders as before and `getPostProcessing().supported` is `false`. WebGPU and WebGL2 with the extension are both supported.
+- Cost: nothing while both effects are off (no targets, no extra passes, unchanged pipelines). On, the HDR target takes 8 bytes per pixel (32 with MSAA x4, plus the 8-byte resolve), the bloom mips about a third of that, and the exposure chain 34 KiB, all counted in `getRenderStats().gpuBytes`. Targets are created on enable, recreated on resize and MSAA changes, and released when both effects turn off. Headless Chrome (Apple M1, 1280 × 720, 41 PBR meshes) measured 0.72 ms off, 1.18 ms bloom, 1.36 ms bloom + auto exposure per frame on WebGPU, and 1.09 / 1.72 / 1.82 ms on WebGL2.
+- `setPostProcessing` merges into the current settings and throws `setPostProcessing: ...` for invalid values. `exportScene()` stores the settings in `postProcessing` and `loadScene` restores them.
+
+| Bloom option | Type | Default |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `intensity` | `number` (0..8) | `0.6` |
+| `threshold` | `number` (0..64, exposed linear brightness) | `1` |
+| `knee` | `number` (0..1, fraction of the threshold) | `0.5` |
+| `radius` | `number` (0..1) | `0.7` |
+
+| Auto exposure option | Type | Default |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `minEv` / `maxEv` | `number` (-16..16, `maxEv >= minEv`) | `-4` / `4` |
+| `speedUp` / `speedDown` | `number` (0..100 per second) | `3` / `1` |
+| `compensation` | `number` (-8..8 EV) | `0` |
+| `adaptation` | `'smooth' \| 'instant'` | `'smooth'` |
+
 ## Rigid-body physics
 
 `setRigidPhysics(enabled, gravity?)` turns the simulation on or off; it is on by default with gravity `[0, -40, 0]`. `getRigidPhysics()` returns `{ enabled, gravity }`.

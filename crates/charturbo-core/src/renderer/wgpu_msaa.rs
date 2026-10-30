@@ -40,7 +40,7 @@ pub(super) fn renders_x4(
 /// Format features the device validates against: the adapter's own on downlevel (WebGL2)
 /// adapters or with adapter-specific format features, else the WebGPU-guaranteed ones.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn device_format_flags(
+pub(super) fn device_format_flags(
     adapter: &wgpu::Adapter,
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -206,13 +206,23 @@ impl WgpuRenderBackend {
                 self.config.height,
             )
         });
+        let hdr = self.hdr_meshes();
         if self.pbr {
-            self.mesh_pbr.get(&self.device, samples);
+            self.mesh_pbr.get(&self.device, samples, false);
+            if hdr {
+                self.mesh_pbr.get(&self.device, samples, true);
+            }
         }
         if let Some(variant) = self.shadow_variant() {
             self.shadow
-                .receiving(&self.device, self.pbr, samples, variant);
+                .receiving(&self.device, self.pbr, samples, variant, false);
+            if hdr {
+                self.shadow
+                    .receiving(&self.device, self.pbr, samples, variant, true);
+            }
         }
+        // HDR targets follow the sample count (or post turns off: unsupported at x4)
+        self.resize_post_targets();
         samples
     }
 }

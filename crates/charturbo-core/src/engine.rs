@@ -110,6 +110,9 @@ pub struct VisualizationEngine {
     chart: Option<ChartState>,
     /// GPU still holds chart instances that must be cleared
     chart_gpu_stale: bool,
+    /// Exposure adaptation step of the next frame and the clock it was measured on
+    post_dt: f32,
+    post_clock: Option<f64>,
     /// Positions / masses changed since the spatial index was built (rebuilt lazily on query)
     index_dirty: bool,
     /// Chart animations (`None` = off) handed to every new chart (see chart/animation.rs)
@@ -161,6 +164,8 @@ impl VisualizationEngine {
             node_hover_style: NodeHoverStyle::default(),
             chart: None,
             chart_gpu_stale: false,
+            post_dt: 0.0,
+            post_clock: None,
             index_dirty: false,
             chart_animation: None,
             chart_anim_prev: None,
@@ -492,6 +497,8 @@ impl VisualizationEngine {
         }
         self.renderer.sync_environment_map(self.scene.shading.env_map);
         self.renderer.sync_lighting(&self.scene.light_uniform(eye));
+        let post = self.scene.post.frame(&self.scene.shading, std::mem::take(&mut self.post_dt));
+        self.renderer.sync_post_processing(post.as_ref());
         self.renderer.sync_point_shadows(self.scene.point_shadow_frame().as_ref());
         self.renderer.sync_shadows(self.scene.shadow_frame().as_ref());
 
@@ -601,6 +608,35 @@ impl VisualizationEngine {
 
     pub fn point_shadows(&self) -> crate::scene::PointShadowConfig {
         self.scene.point_shadows
+    }
+
+    /// HDR bloom / auto exposure of the PBR meshes (fields are clamped).
+    pub fn set_post_processing(&mut self, post: crate::scene::PostProcessConfig) {
+        self.scene.post = post.sanitized();
+    }
+
+    pub fn post_processing(&self) -> crate::scene::PostProcessConfig {
+        self.scene.post
+    }
+
+    /// The device renders the HDR targets at the current sample count.
+    pub fn post_processing_supported(&self) -> bool {
+        self.renderer.post_processing_supported()
+    }
+
+    /// Post-processing runs this frame: enabled, PBR shading and a supporting device.
+    pub fn post_processing_active(&self) -> bool {
+        self.post_processing_supported() && self.scene.post.frame(&self.scene.shading, 0.0).is_some()
+    }
+
+    /// Frame clock of the exposure adaptation (seconds, any origin): the next frame steps by
+    /// the time since the previous call (the first call steps 0).
+    pub fn advance_post_clock(&mut self, now_seconds: f64) {
+        if let Some(prev) = self.post_clock {
+            let dt = (now_seconds - prev) as f32;
+            self.post_dt += if dt.is_finite() { dt.max(0.0) } else { 0.0 };
+        }
+        self.post_clock = now_seconds.is_finite().then_some(now_seconds);
     }
 
     /// Main-pass MSAA: 4 = x4, anything else = off; devices without x4 support for the surface
@@ -1677,6 +1713,14 @@ mod tests {
 
         fn sync_point_shadows(&mut self, shadows: Option<&crate::renderer::PointShadowFrame>) {
             self.0.borrow_mut().sync_point_shadows(shadows);
+        }
+
+        fn sync_post_processing(&mut self, post: Option<&crate::renderer::PostFrame>) {
+            self.0.borrow_mut().sync_post_processing(post);
+        }
+
+        fn post_processing_supported(&self) -> bool {
+            self.0.borrow().post_processing_supported()
         }
 
         fn set_sample_count(&mut self, samples: u32) -> u32 {

@@ -365,6 +365,43 @@ sdk.getAntialias(); // 적용된 샘플 수: 1 또는 4
 - 비용: 멀티샘플 타깃은 캔버스 픽셀당 4 × (색상 + 깊이) 바이트를 씁니다(480 × 300 ≈ 4.4 MiB, `getRenderStats().gpuBytes`에 집계). 메인 패스의 채우기 비용도 4배입니다. MSAA를 켤 때 만들고, 크기가 바뀌면 다시 만들고, `setAntialias(1)`에서 해제합니다. 꺼져 있으면 아무것도 할당하지 않고 파이프라인도 그대로입니다.
 - 캔버스 내보내기(`toImage`, `toDataURL`)는 resolve된 이미지를 받습니다. WebGPU와 WebGL2 모두 지원합니다. 이 설정은 장면이 아니라 캔버스에 속하므로 `exportScene`에 저장되지 않습니다.
 
+## 후처리 {#post-processing}
+
+블룸과 자동 노출(눈 적응)은 PBR 장면 메시에 쓰는 선택형 HDR 효과입니다. 둘 다 기본적으로 꺼져 있습니다:
+
+```ts
+sdk.setShading({ model: 'pbr', toneMapping: 'aces' });
+sdk.setPostProcessing({
+  bloom: { enabled: true, intensity: 0.8, threshold: 1, knee: 0.5, radius: 0.7 },
+  autoExposure: { enabled: true, minEv: -4, maxEv: 4, speedUp: 3, speedDown: 1, compensation: 0 },
+});
+sdk.addSphere({ position: [0, 10, 0], emissiveColor: [8, 2.4, 0.5] }); // HDR 발광이 번집니다
+sdk.getPostProcessing(); // { bloom, autoExposure, supported, active }
+```
+
+- 효과를 켜면 메시는 톤 매핑 없이 `Rgba16Float` HDR 타깃에 그려집니다(MSAA를 켜면 멀티샘플 타깃에 그린 뒤 여기로 resolve). 이어서 전체 화면 합성 패스가 노출을 적용하고 블룸을 더하고 톤 매핑(`setShading({ toneMapping })`)한 뒤 배경색 위에 섞어 sRGB로 캔버스에 씁니다. 2D 차트, 노드, 에지, 헬퍼 선은 합성 위에 그대로 그려지므로 반투명 메시 위에도 그려집니다.
+- 블룸: 프리필터가 노출 적용 후 `threshold`보다 밝은 부분을 부드러운 `knee`로 남기고(밝은 픽셀을 평균해 작은 반짝임이 깜빡이지 않게 함), 최대 6단계의 절반 크기 밉 체인이 13탭 필터로 줄인 뒤, 텐트 업샘플로 체인을 거슬러 올라가며 더합니다. `radius`는 번짐 폭, `intensity`는 세기입니다. 1을 넘는 발광색, 강한 태양, HDR 환경 맵이 가장 크게 번집니다.
+- 자동 노출: 매 프레임 GPU가 메시의 평균 로그 휘도를 측정하고(64 × 64에서 1 × 1로 축소, 배경은 제외) 노출을 EV `log2(평균 / 0.18)`(`minEv..maxEv`로 제한, `compensation` 더함) 쪽으로 맞춥니다. 값은 GPU에만 있습니다(리드백 없음). `setShading({ exposure })`는 결과에 그대로 곱해집니다. `adaptation: 'smooth'`(기본)는 그려진 프레임 기준 초당 `speedUp` / `speedDown` 속도로 움직이므로, 수렴하는 모습을 보려면 애니메이션 루프로 계속 렌더하세요. `adaptation: 'instant'`는 매 프레임 바로 맞춥니다. 켠 뒤 첫 프레임은 항상 바로 맞춥니다.
+- PBR 모델이 필요합니다(클래식 셰이딩은 디스플레이 기준이라 그대로이며 `active`는 `false`). 부동소수점 렌더 타깃이 없는 장치(`EXT_color_buffer_float`가 없는 WebGL2)는 후처리를 건너뜁니다. 장면은 전과 같이 그려지고 `getPostProcessing().supported`가 `false`입니다. WebGPU와 확장이 있는 WebGL2 모두 지원합니다.
+- 비용: 두 효과가 모두 꺼져 있으면 비용이 없습니다(타깃 · 추가 패스 없음, 파이프라인 그대로). 켜면 HDR 타깃이 픽셀당 8바이트(MSAA x4면 32바이트 + resolve 8바이트), 블룸 밉이 그 약 1/3, 노출 체인이 34 KiB를 쓰며 모두 `getRenderStats().gpuBytes`에 집계됩니다. 켤 때 만들고, 크기나 MSAA가 바뀌면 다시 만들고, 두 효과를 모두 끄면 해제합니다. 헤드리스 Chrome(Apple M1, 1280 × 720, PBR 메시 41개)에서 프레임당 WebGPU는 끔 0.72 ms, 블룸 1.18 ms, 블룸 + 자동 노출 1.36 ms, WebGL2는 1.09 / 1.72 / 1.82 ms였습니다.
+- `setPostProcessing`은 현재 설정에 병합하며 잘못된 값에는 `setPostProcessing: ...` 오류를 던집니다. `exportScene()`은 설정을 `postProcessing`에 저장하고 `loadScene`이 복원합니다.
+
+| 블룸 옵션 | 타입 | 기본값 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `intensity` | `number` (0..8) | `0.6` |
+| `threshold` | `number` (0..64, 노출 적용 후 선형 밝기) | `1` |
+| `knee` | `number` (0..1, threshold 대비 비율) | `0.5` |
+| `radius` | `number` (0..1) | `0.7` |
+
+| 자동 노출 옵션 | 타입 | 기본값 |
+| --- | --- | --- |
+| `enabled` | `boolean` | `false` |
+| `minEv` / `maxEv` | `number` (-16..16, `maxEv >= minEv`) | `-4` / `4` |
+| `speedUp` / `speedDown` | `number` (초당 0..100) | `3` / `1` |
+| `compensation` | `number` (-8..8 EV) | `0` |
+| `adaptation` | `'smooth' \| 'instant'` | `'smooth'` |
+
 ## 강체 물리
 
 `setRigidPhysics(enabled, gravity?)`는 시뮬레이션을 켜거나 끕니다. 기본은 켜져 있고 중력은 `[0, -40, 0]`입니다. `getRigidPhysics()`는 `{ enabled, gravity }`를 반환합니다.

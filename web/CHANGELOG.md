@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 후처리 (블룸 · 자동 노출)
+
+- `setPostProcessing({ bloom: { enabled, intensity, threshold, knee, radius }, autoExposure: { enabled, minEv, maxEv, speedUp, speedDown, compensation, adaptation } })` / `getPostProcessing()`(`supported` · `active` 포함): PBR 장면 메시에 선택형 HDR 후처리를 켭니다(기본값 꺼짐). 효과가 켜지면 메시를 톤 매핑 없이 `Rgba16Float` HDR 타깃(MSAA면 멀티샘플 타깃에서 resolve)에 그리고, 전체 화면 합성 패스가 노출 · 블룸 · 톤 매핑 · sRGB 인코딩을 한 번에 적용합니다. 2D 차트 · 노드 · 에지 · 헬퍼는 합성 위에 그대로 그려집니다.
+- 블룸: 소프트 knee 임계값 프리필터(Karis 평균으로 반짝임 깜빡임 억제), 최대 6단계 13탭 다운샘플 체인, 텐트 업샘플 가산. 자동 노출: 컴퓨트 없이 64 → 16 → 4 → 1 로그 휘도 축소(배경 제외), `minEv..maxEv` 제한 · `compensation`, 1 × 1 상태 텍스처 핑퐁으로 `speedUp` / `speedDown` 시간 적응(리드백 없음). 켠 뒤 첫 프레임과 `adaptation: 'instant'`는 바로 맞춥니다. `setShading({ exposure })`는 결과에 곱해집니다.
+- 두 효과가 모두 꺼져 있으면 타깃 · 패스 · 파이프라인이 없고 렌더 결과가 그대로입니다. HDR 메시 · 리시버 파이프라인과 후처리 파이프라인은 처음 쓸 때 만들고, 타깃은 켤 때 만들고 크기 · MSAA 변경 시 다시 만들며 끄면 해제해 `gpuBytes`에 집계됩니다(1280 × 720 기준 약 10 MB, x4는 약 39 MB). WebGPU · `EXT_color_buffer_float`가 있는 WebGL2를 지원하며, 부동소수점 렌더 타깃이 없으면 후처리를 건너뛰고 `supported: false`를 반환합니다. classic 셰이딩에서는 적용되지 않습니다. `exportScene` / `loadScene`이 `postProcessing`을 저장 · 복원합니다. wasm `set_post_processing` / `get_post_processing` 추가.
+- 예제 `scene/10-post-processing`, fixture `scene-bloom` · `scene-bloom-msaa` · `scene-auto-exposure`, 문서 `charts/scene-3d`의 「후처리」 절.
+
 ### 추가 — 점광원 그림자
 
 - `setShadows({ point: { enabled, mapSize, bias, normalBias, softness, darkness, near, far } })` / `getShadows().point`: `setLighting` 점광원(`pointPosition`)의 전방향 그림자를 켭니다(기본값 꺼짐, 방향광 그림자와 독립). 메인 패스 전 광원 위치에서 90° 큐브 면마다 깊이 전용 패스 6개(`Depth32Float` 큐브 맵, `near`–`far` 역 Z 원근 깊이, `castShadow`인 불투명 객체만)를 그리고, 받는 면은 하드웨어 비교 3 × 3 이중선형 PCF(`softness` 텍셀)로 큐브 이음새까지 틈 없이 필터링합니다. `bias`(기울기 비례) · `normalBias`는 받는 면 거리 기준 텍셀 단위, `far: 'auto'`는 캐스터 · 리시버 범위에 맞춥니다. 그림자는 classic · PBR 모두에서 점광원만 줄입니다.

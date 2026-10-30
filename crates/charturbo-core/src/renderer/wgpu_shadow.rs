@@ -60,7 +60,8 @@ pub(super) struct ShadowPipelines {
     pub depth: wgpu::RenderPipeline,
     /// `[variant][msaa slot]`
     pub classic: [[OnceCell<ShadowedMeshPipelines>; 2]; 3],
-    pub pbr: [[OnceCell<ShadowedMeshPipelines>; 2]; 3],
+    /// `[variant][mesh slot]` (`mesh_slot`: 2 / 3 = the post-processing HDR target)
+    pub pbr: [[OnceCell<ShadowedMeshPipelines>; 4]; 3],
 }
 
 fn fragment_entry(binding: u32, ty: wgpu::BindingType) -> wgpu::BindGroupLayoutEntry {
@@ -225,8 +226,9 @@ impl LazyShadow {
         pbr: bool,
         samples: u32,
         variant: ShadowVariant,
+        hdr: bool,
     ) -> ShadowedMeshPipelines {
-        let target = ColorTarget { format: self.format, samples };
+        let target = ColorTarget { format: super::mesh_format(self.format, hdr), samples };
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(if pbr {
                 "mesh-pbr-shadowed-shader"
@@ -234,7 +236,7 @@ impl LazyShadow {
                 "mesh-shadowed-shader"
             }),
             source: wgpu::ShaderSource::Wgsl(
-                mesh_shadowed_variant_wgsl(pbr, variant.dir(), variant.point()).into(),
+                super::hdr_source(mesh_shadowed_variant_wgsl(pbr, variant.dir(), variant.point()), hdr).into(),
             ),
         });
         let groups: Vec<&wgpu::BindGroupLayout> = if pbr {
@@ -281,12 +283,14 @@ impl LazyShadow {
         pbr: bool,
         samples: u32,
         variant: ShadowVariant,
+        hdr: bool,
     ) -> &ShadowedMeshPipelines {
         let p = self.get(device);
         let v = variant as usize;
-        let cells = if pbr { &p.pbr[v] } else { &p.classic[v] };
-        cells[msaa_slot(samples)]
-            .get_or_init(|| self.receivers(device, &p.receive_bgl[v], pbr, samples, variant))
+        // Classic shading never post-processes
+        let hdr = hdr && pbr;
+        let cell = if pbr { &p.pbr[v][super::mesh_slot(samples, hdr)] } else { &p.classic[v][msaa_slot(samples)] };
+        cell.get_or_init(|| self.receivers(device, &p.receive_bgl[v], pbr, samples, variant, hdr))
     }
 }
 
@@ -595,7 +599,11 @@ impl WgpuRenderBackend {
                 Some(both_receive_bind_group(&self.device, pipes, dir, point));
         }
         self.shadow
-            .receiving(&self.device, self.pbr, self.samples, variant);
+            .receiving(&self.device, self.pbr, self.samples, variant, false);
+        if self.hdr_meshes() {
+            self.shadow
+                .receiving(&self.device, self.pbr, self.samples, variant, true);
+        }
     }
 
     /// Depth-only passes of the opaque casters (each draw's leading `shadow_instances`) into the
@@ -685,6 +693,7 @@ impl WgpuRenderBackend {
     pub(super) fn shadowed_pipeline(
         &self,
         translucent: bool,
+        hdr: bool,
     ) -> Option<(&wgpu::RenderPipeline, u32, &wgpu::BindGroup)> {
         let variant = self.shadow_variant()?;
         let bind_group = match variant {
@@ -695,7 +704,7 @@ impl WgpuRenderBackend {
         let pipes = self.shadow.pipelines.get()?;
         let (slot, v) = (msaa_slot(self.samples), variant as usize);
         let (p, group) = if self.pbr {
-            (pipes.pbr[v][slot].get()?, 3)
+            (pipes.pbr[v][super::mesh_slot(self.samples, hdr)].get()?, 3)
         } else {
             (pipes.classic[v][slot].get()?, 2)
         };

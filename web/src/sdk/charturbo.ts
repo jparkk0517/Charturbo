@@ -15,6 +15,17 @@ import {
   type SceneShadowsDescriptor,
   type SceneShadowsState,
 } from './scene-shadows';
+import {
+  clonePostSettings,
+  defaultPostSettings,
+  postProcessingState,
+  resolvePostProcessing,
+  sendPostProcessing,
+  type ScenePostBackend,
+  type ScenePostProcessingDescriptor,
+  type ScenePostProcessingState,
+  type ScenePostSettings,
+} from './scene-post';
 import { resolveAntialias, sendAntialias, type AntialiasBackend, type CharturboAntialias, type CharturboAntialiasSamples } from './antialias';
 export type { CameraControlOptions } from './camera-controls';
 
@@ -1647,6 +1658,8 @@ export interface SceneDescriptor {
   shading?: SceneShadingDescriptor;
   /** Directional-light shadows (`setShadows`) */
   shadows?: SceneShadowsDescriptor;
+  /** Bloom / auto exposure (`setPostProcessing`) */
+  postProcessing?: ScenePostProcessingDescriptor;
   helpers?: SceneHelpersDescriptor;
   rigidPhysics?: {
     enabled: boolean;
@@ -1659,7 +1672,7 @@ export interface SceneDescriptor {
   >;
 }
 
-export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend, AntialiasBackend {
+export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend, ScenePostBackend, AntialiasBackend {
   /** SVG of the last frame (chart/svg.rs; header comment + markup) */
   chart_export_svg?(maxMarks: number, id: string): string;
   reload_dataset(seed: number, nodeCount: number, edgeCount: number, clusterCount: number): void;
@@ -3187,6 +3200,7 @@ export class Charturbo {
   };
   private shadingState: SceneShadingState = defaultShadingState();
   private shadowsState: SceneShadowsState = defaultShadowsState();
+  private postState: ScenePostSettings = defaultPostSettings();
   private antialiasState: CharturboAntialiasSamples = 1;
   private helpersState: Required<SceneHelpersDescriptor> = {
     showGrid: false,
@@ -8056,6 +8070,35 @@ export class Charturbo {
   }
 
   /**
+   * Opt-in HDR post-processing of the scene meshes (both effects off by default; costs nothing
+   * while off). With an effect on, the meshes render into an `Rgba16Float` target and a
+   * composite pass applies exposure, bloom, the `setShading` tone mapping and the sRGB encode;
+   * 2D charts, nodes, edges and helpers draw on top unchanged (also over translucent meshes).
+   * Needs the PBR shading model; skipped (`getPostProcessing().supported === false`) on devices
+   * without float render targets (WebGL2 without `EXT_color_buffer_float`).
+   *
+   * `bloom`: pixels brighter than `threshold` (after exposure, soft `knee`) glow through a mip
+   * chain; `radius` widens it, `intensity` scales it. HDR values (emissive, a strong sun, HDR
+   * environments) bloom the most.
+   *
+   * `autoExposure`: meters the average log luminance on the GPU every frame and adapts the
+   * exposure toward EV `log2(average / 0.18)` (clamped to `minEv..maxEv`, plus `compensation`;
+   * `setShading({ exposure })` still multiplies). `adaptation: 'smooth'` moves at `speedUp` /
+   * `speedDown` per second of rendered frames (render continuously to see it settle);
+   * `'instant'` meters every frame. The first frame after enabling always snaps.
+   *
+   * Omitted fields keep their current value; throws on invalid values.
+   */
+  setPostProcessing(options: ScenePostProcessingDescriptor): void {
+    this.postState = resolvePostProcessing('setPostProcessing', this.postState, options);
+    sendPostProcessing(this.backend, this.postState);
+  }
+
+  getPostProcessing(): ScenePostProcessingState {
+    return postProcessingState(this.backend, this.postState);
+  }
+
+  /**
    * Multisample anti-aliasing of the main pass (default 1 = off): 4 renders 4 samples per pixel
    * and resolves them, smoothing stair-stepped mesh edges (2D lines and markers are already
    * shader anti-aliased; texture interiors and DOM text are unchanged). Costs 4x the color + depth memory of the canvas
@@ -8170,6 +8213,9 @@ export class Charturbo {
     }
     if (descriptor.shadows) {
       this.setShadows(descriptor.shadows);
+    }
+    if (descriptor.postProcessing) {
+      this.setPostProcessing(descriptor.postProcessing);
     }
     if (descriptor.helpers) {
       this.setHelpers(descriptor.helpers);
@@ -8345,6 +8391,7 @@ export class Charturbo {
       lighting: this.getLighting(),
       shading: this.getShading(),
       shadows: this.getShadows(),
+      postProcessing: clonePostSettings(this.postState),
       helpers: this.getHelpers(),
       rigidPhysics: this.getRigidPhysics(),
       graphVisible: this.graphVisibleState,

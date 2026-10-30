@@ -29,6 +29,7 @@ mod lib_stats;
 mod lib_texture;
 mod lib_shading;
 mod lib_shadows;
+mod lib_post;
 mod lib_antialias;
 mod lib_camera;
 mod lib_scatter;
@@ -363,6 +364,7 @@ impl WasmCharturboEngine {
     }
 
     pub fn sync_and_render(&mut self) {
+        self.advance_post_clock();
         self.inner.sync_and_render();
     }
 

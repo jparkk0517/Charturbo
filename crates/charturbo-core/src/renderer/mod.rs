@@ -9,6 +9,7 @@ mod gpu_tree;
 pub mod gpu_repulsion;
 mod heatmap;
 mod parallel;
+pub mod post;
 pub mod shader;
 mod stats;
 pub mod texture;
@@ -20,6 +21,7 @@ pub use fill_style::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillPatch, 
 pub use heatmap::{ChartHeatmapGrid, ChartHeatmapStyleRaw, HEATMAP_LUT_SIZE};
 pub use parallel::{ChartParallelStyleRaw, PARALLEL_ACTIVE, PARALLEL_HIDDEN, PARALLEL_INACTIVE};
 pub use env_prefilter::EnvCheck;
+pub use post::{AutoExposureParams, BloomParams, PostFrame};
 pub use stats::{chart_layer_bytes, RenderStats};
 
 /// 16-byte aligned uniform buffer payload for camera matrices, billboard vectors, and viewport (112 bytes).
@@ -655,6 +657,15 @@ pub trait RenderBackend {
     /// released). Sent every frame right before `sync_shadows`, which builds the receivers of
     /// the enabled combination.
     fn sync_point_shadows(&mut self, _shadows: Option<&PointShadowFrame>) {}
+    /// HDR post-processing (bloom / auto exposure) of the PBR meshes for this frame (`None` =
+    /// off: no HDR target, the post targets are released). Sent every frame after
+    /// `sync_lighting`, before the shadow syncs. Ignored unless `post_processing_supported`.
+    fn sync_post_processing(&mut self, _post: Option<&PostFrame>) {}
+    /// Whether the device renders the HDR targets (`Rgba16Float`, blendable; x4 + resolve at
+    /// the current sample count).
+    fn post_processing_supported(&self) -> bool {
+        false
+    }
     /// Uploads changed chart layers (see `ChartLayers`); unchanged layers are passed as `None`.
     fn sync_chart(&mut self, _layers: &ChartLayers<'_>) {}
     /// Background color the frame is cleared to.
@@ -795,6 +806,9 @@ pub struct MockRenderBackend {
     pub environment_map: u32,
     /// Last `sync_shadows` frame (`None` = off)
     pub last_shadows: Option<ShadowFrame>,
+    /// Last `sync_post_processing` frame (`None` = off) and the reported device support
+    pub last_post: Option<PostFrame>,
+    pub post_supported: bool,
     /// Last `sync_point_shadows` frame (`None` = off)
     pub last_point_shadows: Option<PointShadowFrame>,
     /// Fake device support for MSAA x4 and the applied sample count (0 = never set: 1)
@@ -867,6 +881,14 @@ impl RenderBackend for MockRenderBackend {
 
     fn sync_point_shadows(&mut self, shadows: Option<&PointShadowFrame>) {
         self.last_point_shadows = shadows.copied();
+    }
+
+    fn sync_post_processing(&mut self, post: Option<&PostFrame>) {
+        self.last_post = post.copied();
+    }
+
+    fn post_processing_supported(&self) -> bool {
+        self.post_supported
     }
 
     fn set_sample_count(&mut self, samples: u32) -> u32 {

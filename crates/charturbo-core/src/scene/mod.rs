@@ -15,6 +15,8 @@ mod pick_tests;
 mod shading;
 pub use bvh::PickCache;
 mod point_shadows;
+mod post;
+pub use post::{AutoExposureConfig, BloomConfig, PostProcessConfig};
 mod shadows;
 pub use point_shadows::{
     cube_face_axes, cube_face_lookup, depth_coefficients, face_view_proj, snap_point_map_size, PointShadowConfig,
@@ -498,6 +500,8 @@ pub struct SceneWorld {
     pub shadows: ShadowConfig,
     /// Point-light shadows (off by default; independent of `shadows`)
     pub point_shadows: PointShadowConfig,
+    /// HDR bloom / auto exposure of the PBR meshes (off by default)
+    pub post: PostProcessConfig,
     pub helpers: SceneHelpersConfig,
     pub gravity: Vec3,
     pub rigid_physics_enabled: bool,
@@ -538,6 +542,7 @@ impl SceneWorld {
             shading: ShadingConfig::default(),
             shadows: ShadowConfig::default(),
             point_shadows: PointShadowConfig::default(),
+            post: PostProcessConfig::default(),
             helpers: SceneHelpersConfig::default(),
             gravity: Vec3::new(0.0, -40.0, 0.0),
             rigid_physics_enabled: true,

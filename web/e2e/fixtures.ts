@@ -1933,6 +1933,36 @@ export const FIXTURES: Fixture[] = [
       ),
   },
   {
+    // Bloom (`setPostProcessing`): emissive orange / cyan / green spheres (radiance 4..8) glow
+    // with soft halos over the dark floor; smooth metal spheres mirror the HDR sun (behind the
+    // camera, upper right) as small bloomed highlights; the half-transparent white sphere blends
+    // over the floor; the rough blue box stays unbloomed
+    name: 'scene-bloom',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => bloomScene(sdk)),
+  },
+  {
+    // scene-bloom with MSAA x4 (the multisampled HDR target resolved before the bloom chain):
+    // same glow, smoother sphere edges
+    name: 'scene-bloom-msaa',
+    theme: 'dark',
+    render: (ctx) => single(ctx, (sdk) => bloomScene(sdk), 4),
+  },
+  {
+    // Auto exposure (instant adaptation): the scene-shadows-pbr layout lit 8x brighter (blown
+    // out white without it), metered back toward mid grey: floor, shadows and colors read like
+    // scene-shadows-pbr, nothing clipped white
+    name: 'scene-auto-exposure',
+    theme: 'dark',
+    render: (ctx) =>
+      single(ctx, (sdk) => {
+        shadowScene(sdk, true);
+        sdk.setLighting({ ambientIntensity: 2.4, directionalIntensity: 9.6, pointIntensity: 2.4 });
+        sdk.setShading({ environment: { intensity: 8 } });
+        sdk.setPostProcessing({ autoExposure: { enabled: true, adaptation: 'instant' } });
+      }),
+  },
+  {
     // MSAA x4 on a 2D chart: steep thin lines and markers (`antialias` param as scene-msaa)
     name: 'line-msaa',
     theme: 'dark',
@@ -2083,6 +2113,31 @@ function shadowScene(sdk: Charturbo, pbr: boolean): void {
   }
   sdk.setShadows({ enabled: true });
   sdk.setCameraPose([0, 60, 110], [0, 8, 0]);
+}
+
+/** Layout of the `scene-bloom` fixture. */
+function bloomScene(sdk: Charturbo): void {
+  sdk.setGraphVisible(false);
+  sdk.setRigidPhysics(false);
+  const env = sdk.createEnvironmentFromFloat(256, 128, hdrSkyEquirect(256, 128));
+  sdk.addPlane({ position: [0, -1, 0], scale: [200, 2, 120], color: [0.2, 0.21, 0.24, 1], roughness: 0.85 });
+  const glow: [number, number, number][] = [
+    [8, 2.4, 0.5],
+    [0.5, 3, 8],
+    [1, 6, 1.2],
+  ];
+  glow.forEach((emissiveColor, i) =>
+    sdk.addSphere({ position: [-40 + i * 22, 8, 10], scale: [12, 12, 12], color: [0.1, 0.1, 0.1, 1], roughness: 0.6, emissiveColor })
+  );
+  [0, 0.2, 0.5].forEach((r, i) =>
+    sdk.addSphere({ position: [-30 + i * 22, 26, -12], scale: [15, 15, 15], color: [0.95, 0.85, 0.7, 1], roughness: r, metallic: 1 })
+  );
+  sdk.addSphere({ position: [42, 10, 14], scale: [16, 16, 16], color: [1, 1, 1, 0.45], roughness: 0.4 });
+  sdk.addBox({ position: [48, 9, -18], rotation: [0, 0.5, 0], scale: [14, 18, 14], color: [0.3, 0.45, 0.8, 1], roughness: 0.9 });
+  sdk.setLighting({ ambientIntensity: 0, directionalIntensity: 0, pointIntensity: 0 });
+  sdk.setShading({ model: 'pbr', toneMapping: 'aces', exposure: 0.6, environment: { map: env, intensity: 0.35, rotation: 0.3 } });
+  sdk.setPostProcessing({ bloom: { enabled: true, intensity: 0.8, threshold: 1, knee: 0.5, radius: 0.7 } });
+  sdk.setCameraPose([0, 30, 100], [0, 14, 0]);
 }
 
 /** Layout of the `scene-point-shadows` fixtures. */
