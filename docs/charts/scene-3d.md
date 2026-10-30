@@ -336,7 +336,7 @@ const saved = JSON.stringify(sdk.exportScene());
 
 ## Camera
 
-The scene uses the same orbit camera as the [3D graph](./graph-3d#camera): mouse and touch controls, `setCameraPose(eye, target)`, `rotateCamera`, `panCamera`, `zoomCamera` and `getCameraState()`. For first-person movement use `moveCameraLocal(forward, right, up)` and `rotateCameraLook(deltaYaw, deltaPitch)`.
+The scene uses the same orbit camera as the [3D graph](./graph-3d#camera): mouse and touch controls, `setCameraPose(eye, target)`, `rotateCamera`, `panCamera`, `zoomCamera` and `getCameraState()`. For first-person movement use `moveCameraLocal(forward, right, up)` and `rotateCameraLook(deltaYaw, deltaPitch)`. `setCameraFov(degrees)` sets the vertical field of view (default 45, clamped to 10-120); call `fitToView()` afterwards to re-frame the content for the new angle.
 
 ## Notes
 

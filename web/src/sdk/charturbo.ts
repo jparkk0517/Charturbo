@@ -1706,6 +1706,7 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
     targetY: number,
     targetZ: number
   ): void;
+  set_camera_fov?(degrees: number): void;
   add_primitive?(
     kind: number,
     px: number,
@@ -3753,6 +3754,16 @@ export class Charturbo {
   setCameraPose(eye: Vec3Tuple, target: Vec3Tuple): void {
     this.backend.set_camera_pose?.(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
     this.overviewDistance = this.getCameraState()?.distance ?? null;
+  }
+
+  /**
+   * Sets the camera's vertical field of view in degrees (the engine clamps it to 10..120;
+   * default 45). Takes effect on the next frame; call `fitToView` to re-frame for the new angle.
+   * No-op on engine builds without the `set_camera_fov` binding.
+   */
+  setCameraFov(deg: number): void {
+    if (typeof deg !== 'number' || !Number.isFinite(deg)) throw new Error(`setCameraFov: degrees must be a finite number, got ${String(deg)}`);
+    this.backend.set_camera_fov?.(deg);
   }
 
   /**
