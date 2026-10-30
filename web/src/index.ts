@@ -43,6 +43,8 @@ export {
   type ChartAnimationOptions,
   type ChartEasing,
   type ResolvedAnimation,
+  type BarRealtimeSortOptions,
+  type LineEndLabelOptions,
   type ChartZoomAxis,
   type ChartZoomMode,
   type ZoomHistoryState,

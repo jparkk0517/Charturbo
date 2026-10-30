@@ -41,6 +41,8 @@ mod parallel;
 mod pie;
 mod polar;
 mod pieces;
+mod race;
+mod transition;
 mod radar;
 mod range;
 mod regression;
@@ -69,6 +71,7 @@ mod tidy_tree;
 mod graph2d;
 
 pub use animation::{AnimSnapshot, AnimationOptions, Easing, MAX_ANIMATED_MARKS};
+pub use race::LineEndLabel;
 use area::AreaChart;
 pub use area::{validate_area, AreaMode};
 pub use annotations::{AnnotationKind, AnnotationLabel, AnnotationLayer, ChartAnnotation, LabelPosition};
@@ -1527,6 +1530,8 @@ impl ChartState {
     /// Rebuilds stale CPU staging (LOD follows the camera) and returns the layers to upload.
     pub fn prepare_layers(&mut self, view: &ChartView) -> ChartLayers<'_> {
         self.fill_patches.clear();
+        // Bar race frame first: the data labels and axes below follow it (race.rs)
+        self.prepare_bar_race();
         let mut keep_series_dirty = self.prepare_candles(view);
         self.prepare_box();
         self.prepare_pie(view);

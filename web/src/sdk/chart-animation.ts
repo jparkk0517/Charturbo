@@ -17,6 +17,11 @@ export interface ChartAnimationOptions {
   duration?: number;
   /** Timing curve (default `'ease-out'`) */
   easing?: ChartEasing;
+  /**
+   * Morph into the next chart of the paired kind (`universalTransition`-like): bar <-> pie
+   * (matched by category / slice name), treemap <-> sunburst (matched by node path). Default false
+   */
+  transition?: boolean;
 }
 
 /** `true` = defaults, `false` = off, or the options. */
@@ -25,6 +30,8 @@ export type ChartAnimationInput = ChartAnimationOptions | boolean;
 export interface ResolvedAnimation {
   duration: number;
   easing: ChartEasing;
+  /** Present (true) only when morphing transitions are on */
+  transition?: true;
 }
 
 export const DEFAULT_ANIMATION_MS = 400;
@@ -57,12 +64,14 @@ export function resolveAnimation(input: ChartAnimationInput | undefined | null, 
   }
   const easing = o.easing ?? 'ease-out';
   if (!(easing in EASING_CODES)) throw new Error(`animation: unknown easing '${String(easing)}'`);
+  const transition = o.transition ?? false;
+  if (typeof transition !== 'boolean') throw new Error(`animation: transition must be a boolean (got ${String(transition)})`);
   if (reducedMotion || duration === 0) return null;
-  return { duration, easing };
+  return transition ? { duration, easing, transition } : { duration, easing };
 }
 
 export function sameAnimation(a: ResolvedAnimation | null, b: ResolvedAnimation | null): boolean {
-  return a === b || (!!a && !!b && a.duration === b.duration && a.easing === b.easing);
+  return a === b || (!!a && !!b && a.duration === b.duration && a.easing === b.easing && !!a.transition === !!b.transition);
 }
 
 /** Engine calls the driver needs (optional: older wasm builds have no animations). */
@@ -71,11 +80,14 @@ export interface AnimationBackend {
   chart_animation_tick?(nowMs: number): boolean;
   chart_animating?(): boolean;
   chart_finish_animation?(): void;
+  /** Morphing transitions; `set_chart_animation` resets them to off */
+  set_chart_transition?(on: boolean): void;
 }
 
 /** Sends `anim` to the engine (NaN duration = off). */
 export function applyAnimation(backend: AnimationBackend, anim: ResolvedAnimation | null): void {
   backend.set_chart_animation?.(anim ? anim.duration : NaN, anim ? easingCode(anim.easing) : 1);
+  if (anim?.transition) backend.set_chart_transition?.(true);
 }
 
 /** `requestAnimationFrame`, looked up per frame (`null` scheduler = none available). */

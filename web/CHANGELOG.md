@@ -12,6 +12,14 @@
 - 호버 외곽선 · 툴팁(`ctx.polar`), 범례 강조 / 숨김(다시 쌓고 축을 다시 맞춤, 애니메이션이 켜져 있으면 트윈), 접근성 요약 · 표 · 키보드, CSV / 벡터 SVG 내보내기, React / Vue `type="polar"`, 영어 · 한국어 · 중국어 문구. 잘못된 입력은 현재 차트를 바꾸기 전에 예외를 던집니다.
 - 예제 `business/08-polar-bar` · `09-polar-stacked` · `10-polar-line` · `11-polar-heatmap`, fixture `polar-bar` · `polar-stacked` · `polar-line` · `polar-heatmap`, 문서 `charts/polar`. 극좌표 위 캔들스틱 · 박스 플롯 · 효과 산점, 여러 극좌표계, 축 줌은 아직 없습니다.
 
+### 추가 — 막대 · 선 레이스, 차트 전환 모핑
+
+- 막대 레이스: `renderBarChart`의 `realtimeSort`(`true` 또는 `{ max, valueAnimation }`, 가로 · 세로)는 렌더링마다 값 내림차순으로 정렬하고 상위 `max`개만 남깁니다. 애니메이션이 켜져 있으면 막대가 인덱스가 아니라 라벨(키) 기준으로 이전 자리에서 트윈되고(Rust `chart/race.rs`), 새 라벨은 마지막 자리 다음에서 들어오며 페이드인, 빠진 라벨은 그쪽으로 나가며 페이드아웃합니다. 카테고리 · 값 라벨은 막대와 함께 움직이고 값 라벨은 카운트업합니다(`valueAnimation`, 기본 켬).
+- 선 레이스: `renderLineChart`의 `endLabel`(`true` 또는 `{ format(value, seriesName) }`)이 선 끝에 시리즈 이름과 값을 표시하며, 왼쪽 → 오른쪽 드러내기 동안 드러나는 앞쪽 끝을 따라갑니다. 오른쪽 여백을 라벨 폭만큼 늘립니다. 2D 선 차트 전용.
+- 전환: `animation: { transition: true }`이면 막대 ↔ 파이(카테고리 = 조각 라벨), 트리맵 ↔ 선버스트(노드 경로)로 다시 렌더링할 때 마크 단위로 모핑합니다. 모든 마크를 안쪽 · 바깥쪽 변 24점 폴리곤으로 만들어 Rust에서 점별 보간하므로(`chart/transition.rs`) 프레임마다 리샘플링 · 삼각분할이 없습니다. 짝 없는 마크는 페이드, 마크 2,000개 초과 차트는 enter 애니메이션. 트리맵 · 선버스트에 차트별 `animation` 옵션 추가.
+- 히트 테스트 · 툴팁은 최종 레이아웃, 접근성은 최종 값을 씁니다. `prefers-reduced-motion`이면 트윈 · 카운트업 · 모핑이 꺼집니다. 잘못된 옵션은 현재 차트를 지우기 전에 예외를 던지며, 옵션을 주지 않으면 기존 동작은 그대로입니다. React / Vue 옵션 타입 포함.
+- 예제 `animation/03-bar-race` · `04-line-race` · `05-bar-pie` · `06-treemap-sunburst`, fixture `race-bar-end` · `race-line-end` · `transition-bar-pie-end` · `transition-treemap-sunburst-end`(종료 상태), 문서 `guide/animation`.
+
 ### 추가 — 픽토리얼 막대 (pictorialBar)
 
 - `renderPictorialBarChart(data, options)`: 막대를 심볼로 그리는 2D 막대 차트(ECharts `pictorialBar`). 데이터는 `renderBarChart` 항목 배열 또는 `{ categories, series }`이며, 축 · 가로 방향 · 그룹형 / 누적형 / 백분율 · 레이블 · 범례는 막대 차트를 그대로 씁니다. `background` 트랙이 그림자 막대가 됩니다.

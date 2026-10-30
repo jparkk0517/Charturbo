@@ -54,6 +54,18 @@ import {
 } from './chart-animation';
 export type { AnimationBackend, ChartAnimationInput, ChartAnimationOptions, ChartEasing, ResolvedAnimation } from './chart-animation';
 import {
+  END_LABEL_GAP_PX,
+  LineEndLabelLayer,
+  MarkKeys,
+  countUpValues,
+  hierarchyPaths,
+  raceOrder,
+  resolveRealtimeSort,
+  type BarRealtimeSortOptions,
+  type LineEndLabelOptions,
+} from './chart-race';
+export type { BarRealtimeSortOptions, LineEndLabelOptions } from './chart-race';
+import {
   createZoomController,
   readHistory,
   validateZoomAxis,
@@ -567,10 +579,16 @@ export interface LineChartOptions {
   navigator?: NavigatorOption;
   /** Enter / update animation of this chart (default: the SDK setting, `setAnimation`) */
   animation?: ChartAnimationInput;
+  /**
+   * Line race label (2D line charts): series name + value beside the end of each visible line,
+   * riding the left -> right enter reveal (`animation`). `true` or `{ format }`; reserves room
+   * on the right
+   */
+  endLabel?: boolean | LineEndLabelOptions;
 }
 
 /** Area chart: line options (2D only) plus the stacking mode and fill opacity. */
-export interface AreaChartOptions extends Omit<LineChartOptions, 'viewMode'> {
+export interface AreaChartOptions extends Omit<LineChartOptions, 'viewMode' | 'endLabel'> {
   /**
    * `'overlap'`: every series filled down to zero (default). `'stacked'`: series stacked on each
    * other. `'percent'`: stacked, each x normalized to 100%. Stacked modes need series of equal
@@ -638,6 +656,13 @@ export interface BarChartOptions {
   legend?: ChartLegendOptions | boolean;
   /** Single-series charts: series name of the legend entry (default: `'Value'` in the chart language) */
   seriesName?: string;
+  /**
+   * Bar race (single-series 2D bars): bars are sorted by value (largest first: left, or top when
+   * horizontal) and, re-rendered with new values and `animation` on, slide to their new rank by
+   * `label` while category labels ride along and data labels count up. `{ max }` keeps the
+   * largest `max` bars (bars entering / leaving fade). The value axis takes the new domain at once
+   */
+  realtimeSort?: boolean | BarRealtimeSortOptions;
 }
 
 /** One series of a multi-series bar chart: one value per category (`NaN` = missing). */
@@ -2125,6 +2150,14 @@ export interface WasmCharturboEngineBackend extends AnimationBackend, ZoomBacken
   set_bar_axis_label_rotation?(deg: number): boolean;
   /** `[revision, count, (bar id, x, y, inside) * count]` (CSS px, text box centers) */
   chart_bar_labels?(): Float64Array;
+  /** Stable key per mark by id (bars / pie inputs / hierarchy nodes): races + transitions pair by key */
+  set_chart_mark_keys?(keys: Uint32Array): boolean;
+  /** Bar race (`realtimeSort`) of a single-series 2D bar chart */
+  set_chart_bar_race?(on: boolean): boolean;
+  /** Eased progress of the running chart animation (1 when idle) */
+  chart_animation_progress?(): number;
+  /** Line end label anchors: `[count, (series, x, y, value) * count]` (CSS px) */
+  chart_line_end_labels?(): Float32Array;
   /** Bar background tracks: RGBA (empty = none); 2D bar charts only */
   set_chart_bar_background?(color: Float32Array): boolean;
   /** Pictorial bars (chart-pictorial.ts): `\n`-separated symbols, 19 floats per bar id; call last */
@@ -2265,6 +2298,8 @@ interface ChartOverlay {
   business?: BusinessLabelLayer;
   /** ThemeRiver stream name labels (chart-theme-river.ts) */
   themeRiver?: ThemeRiverLabelLayer;
+  /** Line end labels (chart-race.ts) */
+  endLabels?: LineEndLabelLayer;
 }
 
 /** Overlay content the SDK keeps for the active chart. */
@@ -2289,6 +2324,8 @@ interface ChartPresentation {
   locale?: string;
   /** Chart-level time zone override (`timeZone` option); else the SDK zone */
   timeZone?: CharturboTimeZone;
+  /** Line end labels: custom text and the room they take right of the plot (CSS px) */
+  endLabel?: { format?: LineEndLabelOptions['format']; reserve: number };
 }
 
 /** Display metadata the SDK keeps for tooltips; the data itself lives in the engine. */
@@ -2693,6 +2730,10 @@ export class Charturbo {
   private animationDefault: ResolvedAnimation | null = null;
   /** Animation the engine currently applies to new charts */
   private animationApplied: ResolvedAnimation | null = null;
+  /** Stable mark keys by name (bar races, morph transitions) */
+  private readonly markKeys = new MarkKeys();
+  /** Bar race of the current chart: keys / final values by bar id, count-up start values by key */
+  private barRace: { keys: Uint32Array; values: Float32Array; from: Map<number, number>; counting: boolean } | null = null;
   /** rAF loop while the engine animates (created on first use) */
   private animDriverRef: AnimationDriver | null = null;
   private effectClockRef: EffectClock | null = null;
@@ -3036,6 +3077,7 @@ export class Charturbo {
     }
     this.chartMode = null;
     this.chartMeta = null;
+    this.barRace = null;
     if (!this.sparklineBuilding) {
       this.sparkline = null;
       // The opt-in sparkline tooltip binding (no chart navigation) must not outlive it
@@ -3122,6 +3164,7 @@ export class Charturbo {
   render(): void {
     this.syncChartTimeZone();
     this.backend.sync_and_render();
+    this.syncRaceLabels();
     this.updateChartOverlay();
     // A new chart / data update may have started an animation: drive it (no idle loop)
     if (this.animationApplied) this.animDriver().kick();
@@ -3173,6 +3216,24 @@ export class Charturbo {
 
   private animDriver(): AnimationDriver {
     return (this.animDriverRef ??= new AnimationDriver(this.backend, () => this.render()));
+  }
+
+  /** Bar race data labels: values counted up to the animation progress (final once it ends). */
+  private syncRaceLabels(): void {
+    const r = this.barRace;
+    if (!r?.counting) return;
+    const e = this.backend.chart_animating?.() ? (this.backend.chart_animation_progress?.() ?? 1) : 1;
+    if (e >= 1) r.counting = false;
+    this.syncBarLabels(e < 1 ? countUpValues(r.keys, r.values, r.from, e) : undefined);
+  }
+
+  /** Values the bar race labels show now by key (start of the next race's count-up). */
+  private raceShownValues(): Map<number, number> {
+    const r = this.barRace;
+    if (!r) return new Map();
+    const e = r.counting ? (this.backend.chart_animation_progress?.() ?? 1) : 1;
+    const shown = e < 1 ? countUpValues(r.keys, r.values, r.from, e) : r.values;
+    return new Map(Array.from(r.keys, (k, i) => [k, shown[i]]));
   }
 
   /** Engine animation for the next chart: its own option, else the SDK setting. */
@@ -6191,7 +6252,8 @@ export class Charturbo {
     this.xLabelReserveGrows = rotate !== 0 && overrides?.bottom === undefined;
     const bottom =
       (p.xAxis.show === false ? 12 : 30) + this.xLabelReserve + (p.xAxis.title ? 20 : 0) + (side === 'bottom' ? LEGEND_ROW_PX : 0);
-    const right = (p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16) + (side === 'right' ? column : 0);
+    const right =
+      (p.y2Axis ? (p.y2Axis.show === false ? 12 : 56) + (p.y2Axis.title ? 20 : 0) : 16) + (side === 'right' ? column : 0) + (p.endLabel?.reserve ?? 0);
     const pad = { top, right, bottom, left, ...overrides };
     this.backend.set_chart_padding?.(pad.top, pad.right, pad.bottom, pad.left);
     this.chartPadding = pad;
@@ -6465,6 +6527,9 @@ export class Charturbo {
         meta.kind === 'bar' ? meta.colors[id] : meta.colors[Math.floor(id / n)]
       );
     }
+    if (meta?.kind === 'line' && p.endLabel) {
+      this.chartOverlay.endLabels = new LineEndLabelLayer(root, meta.names, meta.colors, (v) => this.endLabelValueText(v), p.endLabel.format);
+    }
     this.syncLegendState();
     this.updateChartOverlay();
     this.a11y.refresh();
@@ -6503,6 +6568,7 @@ export class Charturbo {
     o.hierarchy?.update(this.backend, this.theme, (v) => this.hierValueText(v), this.chartLocale());
     o.tree?.update(this.backend, this.theme);
     o.bars?.update(this.backend, this.theme);
+    o.endLabels?.update(this.backend, this.theme);
     o.business?.update(this.backend, this.theme, this.chartLocale());
     o.themeRiver?.update(this.backend, this.theme);
 
@@ -7137,6 +7203,17 @@ export class Charturbo {
     const fn = standaloneBands ? 'renderBandChart' : river ? 'renderThemeRiverChart' : area ? 'renderAreaChart' : 'renderLineChart';
     // Unknown zones throw here, not on a later frame
     if (options?.timeZone !== undefined) validateTimeZone(options.timeZone);
+    const endLabelOpt = area ? undefined : options?.endLabel;
+    if (endLabelOpt !== undefined && typeof endLabelOpt !== 'boolean' && (typeof endLabelOpt !== 'object' || endLabelOpt === null)) {
+      throw new Error(`${fn}: endLabel must be a boolean or { format }`);
+    }
+    if (endLabelOpt && endLabelOpt !== true && endLabelOpt.format !== undefined && typeof endLabelOpt.format !== 'function') {
+      throw new Error(`${fn}: endLabel.format must be a function`);
+    }
+    // A user `endLabel.format` first runs here, so a throwing one keeps the current chart
+    const endLabelFormat = endLabelOpt && endLabelOpt !== true ? endLabelOpt.format : undefined;
+    const customEndReserve = endLabelFormat ? this.endLabelReserve(seriesList, endLabelFormat) : undefined;
+    if (options?.animation !== undefined) resolveAnimation(options.animation, true);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7322,6 +7399,9 @@ export class Charturbo {
       locale: options?.locale,
       timeZone: options?.timeZone,
     };
+    if (endLabelOpt && flat) {
+      this.chartPresentation.endLabel = { format: endLabelFormat, reserve: customEndReserve ?? this.endLabelReserve(seriesList, undefined) };
+    }
     if (seriesAxes) this.backend.set_chart_series_axes?.(seriesAxes);
     this.applyAxisScales({ x: xAxisOpt, y: options?.axes?.y, ...(seriesAxes ? { y2: options?.axes?.y2 } : {}) });
     const y = options?.axes?.y;
@@ -7347,6 +7427,11 @@ export class Charturbo {
     items: BarChartItemDescriptor[],
     options?: BarChartOptions
   ): { barCount: number } {
+    // Bad options throw before the current chart is cleared
+    const race = resolveRealtimeSort(options?.realtimeSort);
+    if (options?.animation !== undefined) resolveAnimation(options.animation, true);
+    const raceFrom = race ? this.raceShownValues() : null;
+    if (race) items = raceOrder(items, race.max);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -7445,6 +7530,15 @@ export class Charturbo {
       ...this.barPadding(this.chartPresentation, legendShown, barStyle, items.map((_, i) => category(i))),
       ...options?.padding,
     });
+    // Races / transitions pair bars by label across re-renders
+    if (flat && (race || this.animationApplied?.transition)) {
+      const keys = this.markKeys.keysOf(items.map((item) => item.label));
+      this.backend.set_chart_mark_keys?.(keys);
+      if (race && this.backend.set_chart_bar_race?.(true)) {
+        const counting = race.valueAnimation && !!barStyle?.labels && !!this.animationApplied;
+        this.barRace = { keys, values, from: raceFrom ?? new Map(), counting };
+      }
+    }
     this.rebuildChartOverlay();
     return { barCount: n };
   }
@@ -7538,7 +7632,7 @@ export class Charturbo {
   }
 
   /** Re-formats and re-measures bar data labels (render, visibility toggles, theme). */
-  private syncBarLabels(): void {
+  private syncBarLabels(shownValues?: Float32Array): void {
     const meta = this.chartMeta;
     if (meta?.kind !== 'bar' && meta?.kind !== 'bar-multi') return;
     const st = meta.barStyle;
@@ -7551,7 +7645,7 @@ export class Charturbo {
     st.texts =
       meta.kind === 'bar'
         ? barLabelTexts(st.labels, {
-            values: meta.values ?? [],
+            values: shownValues ?? meta.values ?? [],
             categories: meta.metadata.length,
             seriesCount: 1,
             percent: false,
@@ -8255,6 +8349,7 @@ export class Charturbo {
    * names share a color and one legend entry across rings.
    */
   renderPieChart(data: PieChartData | PieRingsData, options?: PieChartOptions): { sliceCount: number } {
+    if (options?.animation !== undefined) resolveAnimation(options.animation, true);
     this.clearScene();
     this.applyChartAnimation(options?.animation);
     this.clearSelection();
@@ -8264,6 +8359,8 @@ export class Charturbo {
 
     const meta = pieMeta(data, options, this.locale);
     const sliceCount = sendPie(this.backend, data, meta, options);
+    // Transitions pair slices with bars / slices of the same name
+    if (this.animationApplied?.transition) this.backend.set_chart_mark_keys?.(this.markKeys.keysOf(meta.inputLabels));
     sendPieStyle(this.backend, meta, this.theme);
     syncPieSlices(this.backend, meta);
     // No gridlines: leader lines use the frame layer
@@ -8298,6 +8395,27 @@ export class Charturbo {
     return { sliceCount };
   }
 
+  /** Line end label value: the y axis format, else a locale number. */
+  private endLabelValueText(v: number): string {
+    const format = resolveFormat(this.chartPresentation?.yAxis.format, this.chartLocale());
+    return format ? format(v) : formatChartValue(v, this.chartLocale());
+  }
+
+  /** Room for line end labels (CSS px): the widest `name value` estimate, capped. */
+  private endLabelReserve(series: LineSeriesDescriptor[], format: LineEndLabelOptions['format']): number {
+    const font = this.theme.fontFamily;
+    let widest = 0;
+    for (const s of series) {
+      let peak = NaN;
+      const vals = numericSamples(s.values);
+      for (let i = 0; i < vals.length; i++) if (Number.isFinite(vals[i]) && !(Math.abs(vals[i]) <= Math.abs(peak))) peak = vals[i];
+      const value = Number.isFinite(peak) ? peak : 0;
+      const text = format ? format(value, s.name) : `${s.name} ${this.endLabelValueText(value)}`;
+      widest = Math.max(widest, measureLabel(text, font));
+    }
+    return Math.min(180, Math.ceil(widest * 1.1) + END_LABEL_GAP_PX + 4);
+  }
+
   /** Pie value text: the chart `format`, else a locale number. */
   private pieValueText(v: number): string {
     const meta = this.chartMeta;
@@ -8329,13 +8447,17 @@ export class Charturbo {
   }
 
   private renderHierarchy(kind: 'treemap' | 'sunburst', data: HierarchyData, options?: TreemapChartOptions): { nodeCount: number } {
+    if (options?.animation !== undefined) resolveAnimation(options.animation, true);
     this.clearScene();
+    this.applyChartAnimation(options?.animation);
     this.clearSelection();
     this.setRigidPhysics(false);
     this.setGraphVisible(true);
     this.setHelpers({ showGrid: false, showAxes: false });
 
     const meta = sendHierarchy(this.backend, kind, data, options, this.locale);
+    // Transitions pair treemap cells and sunburst arcs by node path
+    if (this.animationApplied?.transition) this.backend.set_chart_mark_keys?.(this.markKeys.keysOf(hierarchyPaths(meta.parents, meta.nodeNames)));
     this.bindHierarchyEngine(meta);
     sendHierarchyStyle(this.backend, meta, this.theme);
     syncHierarchy(this.backend, meta, this.locale);

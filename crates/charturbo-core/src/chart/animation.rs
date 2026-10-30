@@ -66,12 +66,20 @@ impl Easing {
 pub struct AnimationOptions {
     pub duration_ms: f32,
     pub easing: Easing,
+    /// Morph into a re-rendered chart of another family (bar <-> pie, treemap <-> sunburst;
+    /// transition.rs)
+    pub transition: bool,
 }
 
 impl AnimationOptions {
     /// `None` when the duration is not a positive finite number (animations off).
     pub fn new(duration_ms: f32, easing: Easing) -> Option<Self> {
-        (duration_ms.is_finite() && duration_ms > 0.0).then_some(Self { duration_ms: duration_ms.min(60_000.0), easing })
+        (duration_ms.is_finite() && duration_ms > 0.0).then_some(Self { duration_ms: duration_ms.min(60_000.0), easing, transition: false })
+    }
+
+    pub fn with_transition(mut self, on: bool) -> Self {
+        self.transition = on;
+        self
     }
 }
 
@@ -93,6 +101,8 @@ enum Phase {
     Enter,
     /// Interpolate from `Animator::from`; decided against the new layers on the first frame
     Update,
+    /// Morph from the polygons of a chart of another family (transition.rs)
+    Morph,
 }
 
 /// Staged instances of the layers animations touch.
@@ -110,6 +120,11 @@ pub(crate) struct LayerSnapshot {
     pie: Vec<(f32, f32)>,
     /// Pictorial bar segments (symbols are rebuilt per frame from them)
     pictorial: Vec<Option<super::bar::BarSeg>>,
+    /// Keyed bars of a bar race (race.rs)
+    race: Vec<super::race::RaceBar>,
+    /// Morph polygons and family of the marks (transition.rs; only `anim_snapshot_in` fills them)
+    morph: Vec<super::transition::MorphShape>,
+    morph_family: u8,
 }
 
 /// Last frame of a chart that was replaced, so the next chart of the same kind and shape can
@@ -136,6 +151,12 @@ pub(crate) struct Animator {
     out: LayerSnapshot,
     /// Layers the last frame took from `out` (what is on screen mid-animation)
     shown: AnimLayers,
+    /// Mark keys by global id (`set_mark_keys`)
+    pub(crate) keys: Vec<u32>,
+    /// Physical px (from the viewport left) the reveal enter shows up to this frame
+    pub(crate) reveal_front_px: Option<f32>,
+    /// Morph polygons on screen this frame (a re-render mid-morph starts from them)
+    morph_shown: Vec<super::transition::MorphShape>,
 }
 
 /// Which `ChartLayers` slots `prepare_animation` filled from the animator's buffers.
@@ -262,6 +283,18 @@ impl ChartState {
         self.anim.opts
     }
 
+    /// Stable key of each mark by global id (bars, pie inputs, hierarchy nodes): bar races and
+    /// transitions pair marks by key instead of by index. Empty = by index.
+    pub fn set_mark_keys(&mut self, keys: Vec<u32>) {
+        self.anim.keys = keys;
+    }
+
+    /// Source bars and eased progress of a running bar race (`None` otherwise).
+    pub(crate) fn race_source(&self) -> Option<(&[super::race::RaceBar], f32)> {
+        (self.anim.phase == Some(Phase::Update) && !self.anim.from.race.is_empty())
+            .then(|| (self.anim.from.race.as_slice(), self.anim.progress))
+    }
+
     /// First call per chart (the engine calls it before every frame / tick): adopts the engine's
     /// animation options and starts the enter animation, or an update from `prev` when it is the
     /// last frame of a replaced chart of the same kind. Later calls do nothing.
@@ -272,6 +305,15 @@ impl ChartState {
         self.anim.armed = true;
         self.anim.opts = opts;
         if opts.is_none() {
+            return;
+        }
+        // Transition on and the previous chart is the paired family: morph (transition.rs)
+        let family = super::transition::morph_family(&self.kind);
+        if let Some(p) = prev.as_ref().filter(|p| {
+            opts.is_some_and(|o| o.transition) && !p.layers.morph.is_empty() && super::transition::morph_pair(p.layers.morph_family, family)
+        }) {
+            self.anim.from = p.layers.clone();
+            self.start_phase(Phase::Morph);
             return;
         }
         // Gauges / hierarchy charts are angular: an element-wise lerp of segment ends would
@@ -323,7 +365,30 @@ impl ChartState {
                 _ => Vec::new(),
             },
             pictorial: super::pictorial::pictorial_segs(&self.kind),
+            race: match &self.kind {
+                ChartKind::Bar(b) => b.race_snapshot(&self.anim.keys),
+                _ => Vec::new(),
+            },
+            morph: Vec::new(),
+            morph_family: 0,
         }
+    }
+
+    /// `anim_snapshot` plus the morph polygons of the marks on screen (transition.rs; `view` = the
+    /// camera this chart was drawn with).
+    pub fn anim_snapshot_in(&self, view: &ChartView) -> Option<AnimSnapshot> {
+        let mut s = self.anim_snapshot()?;
+        let family = super::transition::morph_family(&self.kind);
+        if family != 0 {
+            s.layers.morph_family = family;
+            s.layers.morph = if self.anim.phase == Some(Phase::Morph) { self.anim.morph_shown.clone() } else { self.morph_shapes(view) };
+        }
+        Some(s)
+    }
+
+    /// The running animation morphs from a chart of another family (transition.rs).
+    pub fn anim_is_morph(&self) -> bool {
+        self.anim.phase == Some(Phase::Morph)
     }
 
     /// Data of the same shape is about to replace the current data: tween from the current frame.
@@ -392,6 +457,9 @@ impl ChartState {
         self.anim.from = LayerSnapshot::default();
         self.anim.shown = AnimLayers::default();
         self.anim.progress = 1.0;
+        self.anim.reveal_front_px = None;
+        self.anim.morph_shown = Vec::new();
+        self.end_bar_race();
         self.dirty.series = true;
         self.dirty.bars = true;
         self.dirty.fills = true;
@@ -434,6 +502,7 @@ impl ChartState {
     /// layers to take from the animator instead of the staging vectors.
     pub(crate) fn prepare_animation(&mut self, view: &ChartView, clip: &mut Option<[u32; 4]>) -> AnimLayers {
         let mut used = AnimLayers::default();
+        self.anim.reveal_front_px = None;
         let Some(phase) = self.anim.phase else {
             return used;
         };
@@ -454,7 +523,9 @@ impl ChartState {
             let pie_match = matches!(&self.kind, ChartKind::Pie(p) if p.len() == f.pie.len() && !f.pie.is_empty());
             let chord_match = matches!(&self.kind, ChartKind::Hierarchy(HierChart::Chord(c)) if c.tween_from.is_some());
             let polar_match = matches!(&self.kind, ChartKind::Hierarchy(HierChart::Polar(p)) if p.tween_from.is_some());
+            let race_match = matches!(&self.kind, ChartKind::Bar(b) if b.race.is_some());
             let matched = pie_match
+                || race_match
                 || super::pictorial::pictorial_matches(&self.kind, &f.pictorial)
                 || chord_match
                 || polar_match
@@ -473,9 +544,29 @@ impl ChartState {
         match phase {
             Phase::Update => self.tween_layers(e, &mut used),
             Phase::Enter => self.enter_layers(view, e, clip, &mut used),
+            Phase::Morph => self.morph_layers(view, e, &mut used),
         }
         self.anim.shown = used;
         used
+    }
+
+    /// Morph frame (transition.rs): the lerped polygons replace every mark layer.
+    fn morph_layers(&mut self, view: &ChartView, e: f32, used: &mut AnimLayers) {
+        let to = self.morph_shapes(view);
+        let Some(screen) = super::hierarchy::FlatScreen::of(view).filter(|_| !to.is_empty()) else {
+            self.finish_animation();
+            return;
+        };
+        let frame = super::transition::morph_frame(&self.anim.from.morph, &to, e);
+        let a = &mut self.anim;
+        super::transition::push_morph_fills(&screen, &frame, &mut a.out.fills);
+        a.morph_shown = frame;
+        a.out.series.clear();
+        a.out.dashed.clear();
+        a.out.markers.clear();
+        a.out.bars.clear();
+        a.out.points.clear();
+        *used = AnimLayers { series: true, series_style: true, bars: true, fills: true, points: true };
     }
 
     fn tween_layers(&mut self, e: f32, used: &mut AnimLayers) {
@@ -545,11 +636,14 @@ impl ChartState {
                 used.series = true;
             }
         }
-        used.bars = tween_into(&a.from.bars, &self.bars, &mut a.out.bars, |p, q| ChartBarRaw {
-            rect: lerp4(p.rect, q.rect, e),
-            color: lerp4(p.color, q.color, e),
-            ..q
-        });
+        // A bar race lays out its own frame (race.rs): the staged bars are already tweened
+        let race = matches!(&self.kind, ChartKind::Bar(b) if b.race.is_some());
+        used.bars = !race
+            && tween_into(&a.from.bars, &self.bars, &mut a.out.bars, |p, q| ChartBarRaw {
+                rect: lerp4(p.rect, q.rect, e),
+                color: lerp4(p.color, q.color, e),
+                ..q
+            });
         let hovered = super::hovered_bar(self.hover.as_ref());
         used.fills = match pictorial {
             // Pictorial bars: the symbols are re-laid out along the tweened bars
@@ -582,6 +676,7 @@ impl ChartState {
         let a = &mut self.anim;
         if style == EnterStyle::Reveal {
             if let Some(rect) = reveal_clip(view, &self.series, &self.fills, &self.bars, e) {
+                a.reveal_front_px = Some((rect[0] + rect[2]) as f32);
                 *clip = Some(match *clip {
                     Some(c) => intersect(c, rect),
                     None => rect,

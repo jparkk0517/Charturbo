@@ -255,6 +255,28 @@ impl SunburstChart {
         }
     }
 
+    /// Drawn arcs for chart transitions (transition.rs): `(node, lo, hi, r_in, r_out, color)` in
+    /// world units around the origin, the center disk (current root) first; culled like `build`.
+    pub(crate) fn morph_arcs(&self, wpp: f32) -> Vec<(u32, f32, f32, f32, f32, [f32; 4])> {
+        let half = 0.5 * SUNBURST_GAP_PX * wpp;
+        let mut out = vec![(self.root, 0.0, TAU, 0.0, self.r0 - half, self.center_color())];
+        let mut stack: Vec<u32> = self.tree.shown_children(self.root).to_vec();
+        while let Some(v) = stack.pop() {
+            let k = self.rel_depth(v);
+            if k == 0 || k > self.levels {
+                continue;
+            }
+            let (lo, hi) = (self.start[v as usize], self.end[v as usize]);
+            let (r_in, r_out) = self.ring_radii(k);
+            if (hi - lo) * r_out / wpp < MIN_ARC_PX {
+                continue;
+            }
+            out.push((v, lo, hi, r_in + half, r_out - half, self.display_color(v, None)));
+            stack.extend_from_slice(self.tree.shown_children(v));
+        }
+        out
+    }
+
     /// Node at world point `(x, y)`: the center is the current root; rings descend by angle.
     pub(crate) fn node_at(&self, x: f32, y: f32) -> Option<u32> {
         let r = x.hypot(y);

@@ -279,6 +279,16 @@ impl TreemapChart {
         }
     }
 
+    /// Fill of a drawn cell as `prepare` draws it (header strips fade toward the surface).
+    pub(crate) fn cell_color(&self, c: &Cell) -> [f32; 4] {
+        let base = self.colors[c.node as usize];
+        if c.kind == CellKind::Header {
+            mix(base, self.style.surface, HEADER_FADE)
+        } else {
+            base
+        }
+    }
+
     /// Fill emphasis tag of node `v`: fades unless its legend group (key = slot + 1) is emphasized.
     fn emphasis_tag(&self, v: usize) -> f32 {
         fill_emphasis_tag(FILL_EMPH_FADE, false, self.legend_slot(v).map_or(0, |k| k as u32 + 1))
