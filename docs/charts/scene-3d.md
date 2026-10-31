@@ -158,15 +158,50 @@ sdk.disposeGltf(house);                      // removes its objects and textures
 | `scene` | `number` | the file's `scene`, else `0` | Scene index |
 | `baseUrl` | `string` | the source URL, else the page URL | Base for relative buffer and image URIs |
 | `signal` | `AbortSignal` | | Aborts fetches and decoding; the promise rejects with an `AbortError` |
+| `animations` | `boolean` | `true` | Keep animated nodes animatable ([glTF animation](#gltf-animation)); `false` bakes the rest pose |
 
-The result is `{ objects, textures, nodes, bounds }`: `nodes` lists the scene's nodes depth first as `{ index, name, objectIds }`, and `bounds` is `{ min, max }` in world space. Each mesh primitive becomes one custom mesh object named after its node (or mesh), with `#<n>` appended when the mesh has several primitives.
+The result is `{ objects, textures, nodes, bounds, animations }`: `nodes` lists the scene's nodes depth first as `{ index, name, objectIds }`, and `bounds` is `{ min, max }` in world space. Each mesh primitive becomes one custom mesh object named after its node (or mesh), with `#<n>` appended when the mesh has several primitives.
 
 - **Supported.** `.gltf` with external or `data:` buffers and images, `.glb` with its binary chunk; every accessor type, including interleaved (`byteStride`), normalized, sparse and accessors without a buffer view; triangles, triangle strips and fans (points and lines are skipped with a warning). The node hierarchy (TRS or `matrix`) is baked into the vertices, with normals transformed by the inverse transpose and the winding flipped for mirrored nodes; missing normals are computed smooth. Extensions `KHR_texture_transform`, `KHR_mesh_quantization` and `KHR_materials_emissive_strength`.
 - **Materials.** `baseColorFactor` is converted from linear to the renderer's gamma space; `baseColorTexture` becomes `map` (`TEXCOORD_0` only; `KHR_texture_transform` offset and scale become `mapOffset` / `mapRepeat`); `metallicFactor` and `roughnessFactor` default to 1 as in glTF; `emissiveFactor` (times the emissive strength) becomes `emissiveColor`, and its largest component `emissive` for classic shading; metallic-roughness, normal, occlusion and emissive textures become the [material maps](#material-maps) (`TEXCOORD_0` only; all textures of a material share one uv transform, others are ignored with a warning). `alphaMode: 'MASK'` sets `alphaTest` to `alphaCutoff` (default 0.5), `'BLEND'` keeps the color alpha and `'OPAQUE'` forces color alpha 1. Images used by several materials are decoded once.
-- **Ignored.** Samplers (textures always repeat with linear filtering). With a warning: texture transform rotation, textures on `TEXCOORD_1` or higher, skins (meshes render in their bind pose), morph targets, animations, cameras and other extensions. A model that lists an unsupported extension in `extensionsRequired` is rejected with `loadGltf: extension X is required but not supported`.
+- **Ignored.** Samplers (textures always repeat with linear filtering). With a warning: texture transform rotation, textures on `TEXCOORD_1` or higher, skins (meshes render in their bind pose), morph targets (and their weight animations), cameras and other extensions. A model that lists an unsupported extension in `extensionsRequired` is rejected with `loadGltf: extension X is required but not supported`.
 - **Limits.** One load creates at most `GLTF_MAX_VERTICES` (8,388,608) vertices and `GLTF_MAX_INDICES` (67,108,864) indices. All objects share one geometry buffer, so several large models can still exceed the GPU's buffer limit. Textures follow the texture limits above.
 - **Errors.** Error messages start with `loadGltf:`. On any failure, including an abort, the objects and textures created so far are removed.
 - All objects of one model use the model origin as pivot, so applying the same `position` / `rotation` with `setObjectTransform` to each of `result.objects` moves the model as a whole.
+
+### glTF animation
+
+```ts
+const arm = await sdk.loadGltf('/models/robot-arm.glb', { scale: 10 });
+console.log(arm.animations);                 // [{ name: 'work', duration: 2 }, ...]
+const anim = sdk.playGltfAnimation(arm, 'work', { loop: 'pingpong', speed: 1.5 });
+anim.pause();
+anim.seek(0.75);                              // deterministic pose, e.g. for tests
+sdk.disposeGltf(arm);                         // also stops its animators
+```
+
+Phase 1 plays node keyframe animations: `translation`, `rotation` and `scale` channels with `LINEAR` (rotations slerp along the shortest path), `STEP` and `CUBICSPLINE` samplers (glTF tangent layout; rotations normalized). Float and normalized-integer keys (`KHR_mesh_quantization`) are read. Skins and morph-target `weights` channels are ignored with a warning, as are channels on nodes given by a `matrix`.
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `playGltfAnimation(model, clip, options?)` | `GltfAnimator` | Play clip `clip` (index or name) on the model's default animator (created on first use; later calls switch the clip) |
+| `createGltfAnimator(model, { autoUpdate? })` | `GltfAnimator` | A separate animator. `autoUpdate: false` never advances on its own |
+| `supportsMeshMatrices` | `boolean` | False on engines without mesh matrices: models load baked and `animations` is empty |
+
+| `GltfAnimator` | Description |
+| --- | --- |
+| `play(clip, { loop, speed, weight, time })` | Start a clip and apply its first pose. `loop`: `'repeat'` (default), `'once'` or `'pingpong'`; `speed` scales time (negative plays backwards; a backwards `'once'` starts at the end); `weight` 0..1 blends from the rest pose |
+| `pause()` / `resume()` / `stop()` | Hold the pose / continue (restarts a finished `'once'`) / back to the rest pose |
+| `seek(time)` / `update(dt)` | Jump to a playback time / advance by `dt` seconds; both apply the pose immediately |
+| `clip`, `time`, `playing`, `animations` | Current clip index (null when stopped), clip time after looping, state, the clips |
+| `loop`, `speed`, `weight`, `autoUpdate` | Settable at any time |
+| `dispose()` | Stop (rest pose) and detach |
+
+- **Model.** Nodes that are animated, or below an animated node, are not baked: their meshes keep node-local vertices and get a mesh matrix (load `scale` × glTF node chain). The rest of the model is baked as before, so unanimated files load exactly as without animation support. The object transform (`position` / `rotation`, `setObjectTransform`) still applies on top: world = transform × mesh matrix. The mesh matrix is a full 4×4 matrix, so non-uniform parent scales (shear) and mirrors stay exact; `getObjectRecord(id).meshMatrix` returns it. `bounds` is the rest pose.
+- **Playback.** A playing animator with `autoUpdate` advances on every `sdk.render()` with the wall clock (steps capped at 0.1 s; the first render after `play` only starts the clock). There is no idle loop: keep calling `render()` from your frame loop. One clip plays per animator; several animators on one model overwrite each other's pose (last write wins).
+- **Cost.** Each pose change evaluates the rig in JavaScript and sends all animated objects' matrices in one engine call (`setObjectMeshMatrices`). Picking keeps its local-space BVH (nothing is rebuilt) and geometry is never re-uploaded; shadows and bounds follow the new matrices. About 200 animated nodes take roughly 0.15 ms per update for the pose.
+- **Export.** `exportScene()` stores the current pose baked into the custom mesh vertices; clips are not exported, and a reloaded scene is static.
+- **Errors.** Animator methods throw `GltfAnimator...` errors for unknown clips, non-finite times or speeds, weights outside 0..1 and calls after `dispose()`. Invalid samplers (unknown interpolation, decreasing times, wrong key counts) skip their channels with a warning; the clip keeps its index.
 
 ### Editing objects
 

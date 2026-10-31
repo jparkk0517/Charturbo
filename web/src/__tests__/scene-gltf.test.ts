@@ -290,7 +290,7 @@ describe('loadGltf containers', () => {
     const result = await sdk.loadGltf(gltfBytes({ asset: { version: '2.0' }, scenes: [{ nodes: [0] }], nodes: [{ name: 'empty' }] }), {
       position: [1, 2, 3],
     });
-    expect(result).toEqual({ objects: [], textures: [], nodes: [{ index: 0, name: 'empty', objectIds: [] }], bounds: { min: [1, 2, 3], max: [1, 2, 3] } });
+    expect(result).toEqual({ objects: [], textures: [], animations: [], nodes: [{ index: 0, name: 'empty', objectIds: [] }], bounds: { min: [1, 2, 3], max: [1, 2, 3] } });
   });
 });
 

@@ -154,6 +154,20 @@ export {
   GLTF_MAX_INDICES,
 } from './sdk/scene-gltf';
 export {
+  GltfAnimator,
+  type GltfAnimationHost,
+  type GltfAnimationInfo,
+  type GltfAnimationPath,
+  type GltfAnimationLoop,
+  type GltfAnimatorOptions,
+  type GltfChannel,
+  type GltfClip,
+  type GltfInterpolation,
+  type GltfPlayOptions,
+  type GltfRig,
+  type GltfSampler,
+} from './sdk/scene-gltf-anim';
+export {
   type SceneShadowMapSize,
   type SceneShadowBounds,
   type ScenePointShadowMapSize,

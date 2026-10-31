@@ -158,15 +158,50 @@ sdk.disposeGltf(house);                      // 객체와 텍스처 제거
 | `scene` | `number` | 파일의 `scene`, 없으면 `0` | 장면 인덱스 |
 | `baseUrl` | `string` | 소스 URL, 없으면 페이지 URL | 상대 버퍼 · 이미지 URI의 기준 |
 | `signal` | `AbortSignal` | | 가져오기와 디코딩을 중단합니다. 프로미스는 `AbortError`로 거부됩니다 |
+| `animations` | `boolean` | `true` | 애니메이션 노드를 재생 가능한 상태로 둡니다([glTF 애니메이션](#gltf-animation)). `false`면 레스트 포즈로 구워 넣습니다 |
 
-결과는 `{ objects, textures, nodes, bounds }`입니다. `nodes`는 장면의 노드를 깊이 우선 순서의 `{ index, name, objectIds }`로 나열하고, `bounds`는 월드 공간의 `{ min, max }`입니다. 메시 프리미티브 하나가 사용자 메시 객체 하나가 되며, 이름은 노드(또는 메시) 이름이고 메시에 프리미티브가 여럿이면 `#<n>`이 붙습니다.
+결과는 `{ objects, textures, nodes, bounds, animations }`입니다. `nodes`는 장면의 노드를 깊이 우선 순서의 `{ index, name, objectIds }`로 나열하고, `bounds`는 월드 공간의 `{ min, max }`입니다. 메시 프리미티브 하나가 사용자 메시 객체 하나가 되며, 이름은 노드(또는 메시) 이름이고 메시에 프리미티브가 여럿이면 `#<n>`이 붙습니다.
 
 - **지원.** 외부 또는 `data:` 버퍼 · 이미지를 쓰는 `.gltf`, 바이너리 청크가 있는 `.glb`. 인터리브(`byteStride`), 정규화, 희소(sparse), 버퍼 뷰 없는 접근자를 포함한 모든 접근자 타입. 삼각형, 삼각형 스트립 · 팬(점과 선은 경고 후 건너뜀). 노드 계층(TRS 또는 `matrix`)은 꼭짓점에 구워 넣으며, 법선은 역전치 행렬로 변환하고 거울상 노드는 감기 순서를 뒤집습니다. 법선이 없으면 부드러운 법선을 계산합니다. 확장 `KHR_texture_transform`, `KHR_mesh_quantization`, `KHR_materials_emissive_strength`.
 - **재질.** `baseColorFactor`는 선형에서 렌더러의 감마 공간으로 변환합니다. `baseColorTexture`는 `map`이 되고(`TEXCOORD_0`만, `KHR_texture_transform`의 offset과 scale은 `mapOffset` / `mapRepeat`), `metallicFactor`와 `roughnessFactor`는 glTF처럼 기본 1입니다. `emissiveFactor`(× 발광 강도)는 `emissiveColor`가 되고, 그 가장 큰 성분은 클래식 셰이딩용 `emissive`가 됩니다. 금속성-거칠기 · 법선 · 차폐 · 발광 텍스처는 [재질 맵](#material-maps)이 됩니다(`TEXCOORD_0`만, 한 재질의 텍스처는 uv 변환 하나를 공유하며 나머지는 경고 후 무시). `alphaMode: 'MASK'`는 `alphaTest`를 `alphaCutoff`(기본 0.5)로, `'BLEND'`는 색상 알파를 유지하고, `'OPAQUE'`는 색상 알파를 1로 고정합니다. 여러 재질이 쓰는 이미지는 한 번만 디코딩합니다.
-- **무시.** 샘플러(텍스처는 항상 반복 · 선형 필터링). 경고와 함께 무시: 텍스처 변환 회전, `TEXCOORD_1` 이상의 텍스처, 스킨(바인드 포즈로 그림), 모프 타깃, 애니메이션, 카메라, 그 밖의 확장. `extensionsRequired`에 지원하지 않는 확장이 있으면 `loadGltf: extension X is required but not supported`로 거부합니다.
+- **무시.** 샘플러(텍스처는 항상 반복 · 선형 필터링). 경고와 함께 무시: 텍스처 변환 회전, `TEXCOORD_1` 이상의 텍스처, 스킨(바인드 포즈로 그림), 모프 타깃(과 그 가중치 애니메이션), 카메라, 그 밖의 확장. `extensionsRequired`에 지원하지 않는 확장이 있으면 `loadGltf: extension X is required but not supported`로 거부합니다.
 - **한도.** 한 번에 불러오는 모델은 꼭짓점 `GLTF_MAX_VERTICES`(8,388,608)개, 인덱스 `GLTF_MAX_INDICES`(67,108,864)개까지입니다. 모든 객체가 지오메트리 버퍼 하나를 공유하므로 큰 모델 여러 개는 GPU 버퍼 한도를 넘을 수 있습니다. 텍스처는 위의 텍스처 한도를 따릅니다.
 - **오류.** 오류 메시지는 `loadGltf:`로 시작합니다. 중단을 포함해 실패하면 그때까지 만든 객체와 텍스처를 제거합니다.
 - 한 모델의 객체는 모두 모델 원점을 피벗으로 쓰므로, `result.objects`의 각 객체에 같은 `position` / `rotation`으로 `setObjectTransform`을 적용하면 모델 전체가 움직입니다.
+
+### glTF 애니메이션 {#gltf-animation}
+
+```ts
+const arm = await sdk.loadGltf('/models/robot-arm.glb', { scale: 10 });
+console.log(arm.animations);                 // [{ name: 'work', duration: 2 }, ...]
+const anim = sdk.playGltfAnimation(arm, 'work', { loop: 'pingpong', speed: 1.5 });
+anim.pause();
+anim.seek(0.75);                              // 결정적인 포즈(테스트 등)
+sdk.disposeGltf(arm);                         // 애니메이터도 멈춤
+```
+
+1단계는 노드 키프레임 애니메이션을 재생합니다. `translation`, `rotation`, `scale` 채널과 `LINEAR`(회전은 최단 경로 slerp), `STEP`, `CUBICSPLINE`(glTF 탄젠트 배치, 회전은 정규화) 샘플러를 지원합니다. 실수 키와 정규화 정수 키(`KHR_mesh_quantization`)를 읽습니다. 스킨과 모프 타깃 `weights` 채널, `matrix`로 지정한 노드의 채널은 경고 후 무시합니다.
+
+| 메서드 | 반환 | 설명 |
+| --- | --- | --- |
+| `playGltfAnimation(model, clip, options?)` | `GltfAnimator` | 모델의 기본 애니메이터(처음 호출 때 생성, 이후 호출은 클립을 바꿈)로 클립 `clip`(인덱스 또는 이름)을 재생합니다 |
+| `createGltfAnimator(model, { autoUpdate? })` | `GltfAnimator` | 별도의 애니메이터. `autoUpdate: false`면 스스로 진행하지 않습니다 |
+| `supportsMeshMatrices` | `boolean` | 메시 행렬이 없는 엔진에서는 false: 모델을 구워서 불러오고 `animations`는 비어 있습니다 |
+
+| `GltfAnimator` | 설명 |
+| --- | --- |
+| `play(clip, { loop, speed, weight, time })` | 클립을 시작하고 첫 포즈를 적용합니다. `loop`: `'repeat'`(기본), `'once'`, `'pingpong'`. `speed`는 시간 배율(음수면 역재생, 역방향 `'once'`는 끝에서 시작). `weight` 0..1은 레스트 포즈와 섞습니다 |
+| `pause()` / `resume()` / `stop()` | 포즈 유지 / 이어서 재생(끝난 `'once'`는 처음부터) / 레스트 포즈로 |
+| `seek(time)` / `update(dt)` | 재생 시간으로 이동 / `dt`초 진행. 둘 다 포즈를 바로 적용합니다 |
+| `clip`, `time`, `playing`, `animations` | 현재 클립 인덱스(멈추면 null), 반복 적용 후 클립 시간, 상태, 클립 목록 |
+| `loop`, `speed`, `weight`, `autoUpdate` | 언제든 바꿀 수 있습니다 |
+| `dispose()` | 멈추고(레스트 포즈) 분리합니다 |
+
+- **모델.** 애니메이션이 있는 노드와 그 아래 노드는 굽지 않습니다. 그 메시는 노드 로컬 꼭짓점을 유지하고 메시 행렬(불러올 때의 `scale` × glTF 노드 체인)을 받습니다. 나머지는 이전처럼 구워 넣으므로 애니메이션이 없는 파일은 이전과 똑같이 불러옵니다. 객체 변환(`position` / `rotation`, `setObjectTransform`)은 그 위에 그대로 적용됩니다: 월드 = 변환 × 메시 행렬. 메시 행렬은 완전한 4×4 행렬이라 비균등 부모 스케일(전단)과 거울상도 정확합니다. `getObjectRecord(id).meshMatrix`로 읽을 수 있습니다. `bounds`는 레스트 포즈 기준입니다.
+- **재생.** `autoUpdate`인 재생 중 애니메이터는 `sdk.render()`마다 실제 시간만큼 진행합니다(한 번에 최대 0.1초, `play` 뒤 첫 렌더는 시계만 시작). 유휴 루프가 없으므로 프레임 루프에서 `render()`를 계속 호출하세요. 애니메이터 하나는 클립 하나를 재생하며, 한 모델에 애니메이터가 여럿이면 마지막에 쓴 포즈가 남습니다.
+- **비용.** 포즈가 바뀔 때마다 JavaScript에서 리그를 계산하고, 애니메이션 객체 전체의 행렬을 엔진 호출 한 번(`setObjectMeshMatrices`)으로 보냅니다. 피킹은 로컬 공간 BVH를 그대로 쓰고(재구축 없음) 지오메트리도 다시 올리지 않습니다. 그림자와 경계는 새 행렬을 따릅니다. 애니메이션 노드 약 200개의 포즈 계산은 업데이트당 약 0.15ms입니다.
+- **내보내기.** `exportScene()`은 현재 포즈를 사용자 메시 꼭짓점에 구워 저장합니다. 클립은 내보내지 않으므로 다시 불러온 장면은 정지 상태입니다.
+- **오류.** 애니메이터 메서드는 없는 클립, 유한하지 않은 시간 · 속도, 0..1 밖의 가중치, `dispose()` 뒤 호출에 `GltfAnimator...` 오류를 던집니다. 잘못된 샘플러(알 수 없는 보간, 감소하는 시간, 틀린 키 개수)는 경고 후 그 채널을 건너뛰며, 클립 인덱스는 유지됩니다.
 
 ### 객체 편집
 

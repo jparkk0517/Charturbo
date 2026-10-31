@@ -3,7 +3,8 @@ import { encodePointCloud3D, encodeSurface3D, prepareCloudAppend, prepareSurface
 export type { PointCloud3DData, PointCloud3DSeries, PointCloud3DAppendOptions, Surface3DGridData, Surface3DSeries, Surface3DUpdate, Scientific3DStyle, Scientific3DColormap, Scientific3DChartOptions, Scientific3DAxisOptions, Scientific3DCameraOptions } from './chart-scientific3d';
 import { createTouchGestures, isGesturePointer, type TouchInteractionOptions } from './chart-gestures';
 import { createCameraControls, resolveCameraControls, type CameraControlOptions } from './camera-controls';
-import { loadGltfModel, disposeGltfModel, type GltfSource, type GltfLoadOptions, type GltfLoadResult } from './scene-gltf';
+import { loadGltfModel, disposeGltfModel, gltfRigOf, bakeTransform, type GltfSource, type GltfLoadOptions, type GltfLoadResult } from './scene-gltf';
+import { GltfAnimator, type GltfAnimatorOptions, type GltfPlayOptions } from './scene-gltf-anim';
 import {
   cloneShadows,
   defaultShadowsState,
@@ -1647,6 +1648,8 @@ export interface SceneObjectRecord {
   castShadow: boolean;
   /** Darkened by other objects' shadows */
   receiveShadow: boolean;
+  /** Mesh matrix applied before the transform (16 column-major floats; null = none). Animated glTF nodes set it */
+  meshMatrix: number[] | null;
 }
 
 /** A texture an exported scene references (`exportScene`); `src` is null for data / canvas textures. */
@@ -1889,6 +1892,7 @@ export interface WasmCharturboEngineBackend
   ): boolean;
   set_object_angular_velocity?(objectId: number, wx: number, wy: number, wz: number): boolean;
   set_object_parent?(objectId: number, parentId: number): boolean;
+  set_object_mesh_matrices?(ids: Uint32Array, matrices: Float32Array): number;
   set_scene_lighting?(
     ambientIntensity: number,
     dirX: number,
@@ -3023,6 +3027,20 @@ function lineSeriesOfId(meta: LineChartMeta, id: number): number {
   return s;
 }
 
+/** A custom record's mesh for `exportScene`: the mesh matrix (current animation pose) baked in. */
+function exportedCustomMesh(rec: SceneObjectRecord): { positions: number[]; normals: number[]; indices: number[] } {
+  const mesh = rec.customMesh;
+  if (!mesh) return { positions: [], normals: [], indices: [] };
+  if (!rec.meshMatrix) return { positions: mesh.positions, normals: mesh.normals, indices: mesh.indices };
+  const normals = mesh.normals.length === mesh.positions.length ? Float32Array.from(mesh.normals) : null;
+  const baked = bakeTransform(Float32Array.from(mesh.positions), normals, Uint32Array.from(mesh.indices), Float64Array.from(rec.meshMatrix));
+  return {
+    positions: Array.from(baked.positions),
+    normals: normals ? Array.from(baked.normals) : mesh.normals,
+    indices: Array.from(baked.indices),
+  };
+}
+
 function rgbaToCss(c: RgbaTuple): string {
   const [r, g, b] = c.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255));
   return `rgb(${r}, ${g}, ${b})`;
@@ -3200,6 +3218,9 @@ export class Charturbo {
   private forceOptions: ForceOptions = { ...DEFAULT_SDK_FORCE_OPTIONS };
   private objectRecords = new Map<number, SceneObjectRecord>();
   private textureRecords = new Map<number, TextureRecord>();
+  /** Live glTF animators (advanced in `render()`) and the `playGltfAnimation` one per model */
+  private gltfAnimators = new Set<GltfAnimator>();
+  private defaultGltfAnimators = new WeakMap<GltfLoadResult, GltfAnimator>();
   /** GPU error checks of HDR environment maps (`environmentReady`) */
   private environmentChecks = new Map<number, Promise<void>>();
   private nodeMetadataMap = new Map<number, NodeMetadata>();
@@ -3765,6 +3786,10 @@ export class Charturbo {
 
   render(): void {
     this.syncChartTimeZone();
+    if (this.gltfAnimators.size > 0) {
+      const now = performance.now();
+      for (const animator of this.gltfAnimators) animator.frame(now);
+    }
     this.backend.sync_and_render();
     this.syncRaceLabels();
     this.updateChartOverlay();
@@ -5768,6 +5793,36 @@ export class Charturbo {
   // Textures (3D scene materials)
   // ---------------------------------------------------------------------------
 
+  /** True when the engine supports per-object mesh matrices (`setObjectMeshMatrices`, glTF animation). */
+  get supportsMeshMatrices(): boolean {
+    return typeof this.backend.set_object_mesh_matrices === 'function';
+  }
+
+  /**
+   * Sets the mesh matrices of several objects in one engine call: `matrices` holds 16 column-major
+   * floats per id, applied to the vertices before the object's transform (world = parent chain x
+   * transform x mesh matrix; children do not inherit it). Identity clears it. Unknown ids are
+   * skipped. Returns false when the engine has no mesh-matrix support.
+   */
+  setObjectMeshMatrices(ids: ArrayLike<number>, matrices: ArrayLike<number>): boolean {
+    if (!this.backend.set_object_mesh_matrices) return false;
+    const idArr = ids instanceof Uint32Array ? ids : Uint32Array.from(ids);
+    const matArr = matrices instanceof Float32Array ? matrices : Float32Array.from(matrices);
+    if (matArr.length < idArr.length * 16) throw new Error('setObjectMeshMatrices: need 16 floats per id');
+    this.backend.set_object_mesh_matrices(idArr, matArr);
+    for (let k = 0; k < idArr.length; k++) {
+      const rec = this.objectRecords.get(idArr[k]);
+      if (!rec) continue;
+      const m = matArr.subarray(k * 16, k * 16 + 16);
+      const identity = m.every((v, i) => v === (i % 5 === 0 ? 1 : 0));
+      const finite = m.every((v) => Number.isFinite(v));
+      if (identity || !finite) rec.meshMatrix = null;
+      else if (rec.meshMatrix) for (let i = 0; i < 16; i++) rec.meshMatrix[i] = m[i];
+      else rec.meshMatrix = Array.from(m);
+    }
+    return true;
+  }
+
   /** Largest texture edge in texels the GPU allows (capped at 4096); 0 when the engine has no texture support. */
   get maxTextureSize(): number {
     return this.backend.max_texture_size?.() ?? 0;
@@ -6086,6 +6141,7 @@ export class Charturbo {
       ...resolveObjectMap(desc),
       ...resolvePbrMaps(desc),
       ...shadowFlags,
+      meshMatrix: null,
     };
 
     this.objectRecords.set(id, record);
@@ -6183,6 +6239,7 @@ export class Charturbo {
       ...resolveObjectMap(desc),
       ...resolvePbrMaps(desc),
       ...shadowFlags,
+      meshMatrix: null,
     };
 
     this.objectRecords.set(id, record);
@@ -6419,15 +6476,51 @@ export class Charturbo {
    * unsupported features are skipped with one `console.warn` per kind. Rejects with an `AbortError`
    * when `signal` fires and with `loadGltf: ...` errors otherwise; objects and textures created
    * before a failure are removed. Free the model with `disposeGltf(result)`.
+   *
+   * Node translation / rotation / scale animations are kept: meshes under animated nodes stay in
+   * node-local space with a mesh matrix (rest pose until played), `result.animations` lists the
+   * clips and `playGltfAnimation` / `createGltfAnimator` play them. Skins and morph targets are
+   * ignored with a warning.
    */
   async loadGltf(source: GltfSource, options: GltfLoadOptions = {}): Promise<GltfLoadResult> {
     if (this.disposed) throw new Error('loadGltf: Charturbo is disposed');
     return loadGltfModel(this, source, options);
   }
 
-  /** Removes the objects and textures a `loadGltf` call created. */
+  /** Removes the objects and textures a `loadGltf` call created and stops / disposes its animators. */
   disposeGltf(result: GltfLoadResult): void {
+    for (const animator of [...this.gltfAnimators]) if (animator.model === result) animator.dispose();
+    this.defaultGltfAnimators.delete(result);
     disposeGltfModel(this, result);
+  }
+
+  /**
+   * Creates an animator for the clips of a `loadGltf` result (one clip at a time). With
+   * `autoUpdate` (default) a playing animator advances on every `render()` with the wall clock;
+   * `seek(time)` / `update(dt)` drive it deterministically. `dispose()` (or `disposeGltf`) stops it.
+   */
+  createGltfAnimator(model: GltfLoadResult, options: GltfAnimatorOptions = {}): GltfAnimator {
+    if (this.disposed) throw new Error('createGltfAnimator: Charturbo is disposed');
+    const animator = new GltfAnimator(this, model, gltfRigOf(model), options, (a) => {
+      this.gltfAnimators.delete(a);
+      if (this.defaultGltfAnimators.get(model) === a) this.defaultGltfAnimators.delete(model);
+    });
+    this.gltfAnimators.add(animator);
+    return animator;
+  }
+
+  /**
+   * Plays clip `clip` (index or name) of a loaded model on its default animator (created on first
+   * use; later calls switch its clip) and returns that animator.
+   */
+  playGltfAnimation(model: GltfLoadResult, clip: number | string, options: GltfPlayOptions = {}): GltfAnimator {
+    let animator = this.defaultGltfAnimators.get(model);
+    if (!animator) {
+      animator = this.createGltfAnimator(model);
+      this.defaultGltfAnimators.set(model, animator);
+    }
+    animator.play(clip, options);
+    return animator;
   }
 
   // ---------------------------------------------------------------------------
@@ -7395,6 +7488,7 @@ export class Charturbo {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const animator of [...this.gltfAnimators]) animator.dispose();
     leaveSyncGroup(this);
     this.stopAutoResize?.();
     this.stopAutoResize = null;
@@ -7951,6 +8045,7 @@ export class Charturbo {
 
   /** Removes every scene object and the active chart. */
   clearScene(): void {
+    for (const animator of [...this.gltfAnimators]) animator.dispose();
     this.chartDecalSwatch = null;
     this.objectRecords.clear();
     this.backend.clear_scene_objects?.();
@@ -8019,7 +8114,7 @@ export class Charturbo {
     const rec = this.objectRecords.get(objectId);
     if (!rec) return null;
     this.syncRecordTransformFromBackend(rec);
-    return { ...rec };
+    return { ...rec, meshMatrix: rec.meshMatrix ? [...rec.meshMatrix] : null };
   }
 
   setLighting(lighting: SceneLightingDescriptor): void {
@@ -8403,7 +8498,8 @@ export class Charturbo {
   /**
    * Exports the current 3D Scene (objects, transforms, materials, physics, lighting, point lights, helpers) as a
    * serializable `SceneDescriptor`. Textures the objects use are listed in `textures` (ids, size and
-   * `src` for fetched images); pixel data is not exported.
+   * `src` for fetched images); pixel data is not exported. Objects with a mesh matrix (animated
+   * glTF nodes) export their current pose baked into the vertices; animation clips are not exported.
    */
   exportScene(): SceneDescriptor {
     const objects = this.getObjects().map((rec) => {
@@ -8428,12 +8524,13 @@ export class Charturbo {
           ...this.exportObjectMap(rec),
         };
       }
+      const mesh = exportedCustomMesh(rec);
       return {
         kind: 'custom' as const,
         name: rec.name,
-        positions: rec.customMesh?.positions ?? [],
-        normals: rec.customMesh?.normals ?? [],
-        indices: rec.customMesh?.indices ?? [],
+        positions: mesh.positions,
+        normals: mesh.normals,
+        indices: mesh.indices,
         position: [...rec.position] as Vec3Tuple,
         rotation: [...rec.rotation] as Vec3Tuple,
         scale: [...rec.scale] as Vec3Tuple,

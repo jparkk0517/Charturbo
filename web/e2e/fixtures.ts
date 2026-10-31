@@ -1811,6 +1811,37 @@ export const FIXTURES: Fixture[] = [
     },
   },
   {
+    // glTF node animation seeked to t = 0.75 s: a robot arm (turret LINEAR yaw, shoulder
+    // CUBICSPLINE pitch, elbow STEP, gripper scale, non-uniform-scaled parent plate) next to the
+    // same arm at rest (left, rotated object transform). The posed arm (right) bends over with its
+    // forearm about horizontal and the widened yellow gripper standing on end; the rest arm stands
+    // upright with a small gripper on top
+    name: 'scene-gltf-anim',
+    theme: 'dark',
+    render: async (ctx) => {
+      const canvas = makeCanvas(ctx.card, FIXTURE_WIDTH, FIXTURE_HEIGHT);
+      const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
+      sdk.setTheme(ctx.theme);
+      sdk.setGraphVisible(false);
+      sdk.setRigidPhysics(false);
+      const file = robotArmGltf();
+      sdk.addPlane({ position: [0, -1, 0], scale: [160, 2, 110], color: [0.3, 0.34, 0.4, 1], roughness: 0.95 });
+      await sdk.loadGltf(file, { position: [-30, 0, 0], rotation: [0, 0.6, 0], scale: 10 });
+      const posed = await sdk.loadGltf(file, { position: [18, 0, 0], scale: 10 });
+      sdk.createGltfAnimator(posed, { autoUpdate: false }).play('work').pause().seek(0.75);
+      sdk.setLighting({
+        ambientIntensity: 0.35,
+        directionalDirection: [-0.4, -1, -0.3],
+        directionalIntensity: 0.9,
+        pointPosition: [30, 40, 40],
+        pointIntensity: 0.6,
+      });
+      sdk.setCameraPose([0, 40, 100], [0, 16, 0]);
+      sdk.render();
+      return { backend: detectBackend(canvas) };
+    },
+  },
+  {
     // Opt-in PBR: spheres with roughness 0..1 (columns) x metallic 0, 0.5, 1 (rows, bottom up)
     // under a procedural equirect sky (mipmapped), a textured box, ACES. Metals mirror the sky
     // and sun, rough ones blur it; no NaN black.
@@ -2412,6 +2443,114 @@ async function houseGlb(): Promise<ArrayBuffer> {
     o += p.byteLength;
   }
   return out.buffer;
+}
+
+/**
+ * An animated robot arm as .gltf JSON (base64 buffer): base -> turret (yaw, LINEAR) -> plate
+ * (static, non-uniform scale [1.6, 0.5, 1.6] with a box) and shoulder (pitch, CUBICSPLINE) ->
+ * upper arm box -> elbow (pitch, STEP) -> forearm box -> gripper (scale, LINEAR). Clip 'work', 1 s.
+ */
+function robotArmGltf(): ArrayBuffer {
+  const parts: number[] = [];
+  const views: Record<string, number>[] = [];
+  const accessors: Record<string, unknown>[] = [];
+  const accessor = (data: Float32Array | Uint16Array, type: string) => {
+    while (parts.length % 4) parts.push(0);
+    views.push({ buffer: 0, byteOffset: parts.length, byteLength: data.byteLength });
+    parts.push(...new Uint8Array(data.buffer));
+    const size = { SCALAR: 1, VEC3: 3, VEC4: 4 }[type]!;
+    accessors.push({ bufferView: views.length - 1, componentType: data instanceof Uint16Array ? 5123 : 5126, count: data.length / size, type });
+    return accessors.length - 1;
+  };
+  /** Box mesh [x0..x1] x [y0..y1] x [z0..z1] with flat normals */
+  const box = (lo: number[], hi: number[], material: number) => {
+    const pos: number[] = [];
+    const nrm: number[] = [];
+    const idx: number[] = [];
+    for (let axis = 0; axis < 3; axis++) {
+      for (const sign of [-1, 1]) {
+        const u = (axis + 1) % 3;
+        const v = (axis + 2) % 3;
+        const b = pos.length / 3;
+        for (const [a, c] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+          const p = [0, 0, 0];
+          p[axis] = sign < 0 ? lo[axis] : hi[axis];
+          p[u] = a ? hi[u] : lo[u];
+          p[v] = c ? hi[v] : lo[v];
+          pos.push(...p);
+          const n = [0, 0, 0];
+          n[axis] = sign;
+          nrm.push(...n);
+        }
+        if (sign > 0) idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+        else idx.push(b, b + 2, b + 1, b, b + 3, b + 2);
+      }
+    }
+    const attributes = { POSITION: accessor(new Float32Array(pos), 'VEC3'), NORMAL: accessor(new Float32Array(nrm), 'VEC3') };
+    return { primitives: [{ attributes, indices: accessor(new Uint16Array(idx), 'SCALAR'), material }] };
+  };
+  const meshes = [
+    box([-1, 0, -1], [1, 0.4, 1], 0), // base
+    box([-0.5, 0, -0.5], [0.5, 0.4, 0.5], 1), // plate (scaled by its node)
+    box([-0.18, 0, -0.18], [0.18, 1.6, 0.18], 2), // upper arm
+    box([-0.14, 0, -0.14], [0.14, 1.2, 0.14], 2), // forearm
+    box([-0.3, -0.05, -0.12], [0.3, 0.3, 0.12], 3), // gripper
+  ];
+  const q = (axis: number, deg: number) => {
+    const out = [0, 0, 0, Math.cos((deg * Math.PI) / 360)];
+    out[axis] = Math.sin((deg * Math.PI) / 360);
+    return out;
+  };
+  const times = accessor(new Float32Array([0, 0.5, 1]), 'SCALAR');
+  const yaw = accessor(new Float32Array([...q(1, 0), ...q(1, -50), ...q(1, -90)]), 'VEC4');
+  // CUBICSPLINE: in-tangent, value, out-tangent per key (zero tangents: eased)
+  const zero = [0, 0, 0, 0];
+  const pitch = accessor(new Float32Array([...zero, ...q(2, 0), ...zero, ...zero, ...q(2, -30), ...zero, ...zero, ...q(2, -55), ...zero]), 'VEC4');
+  const elbow = accessor(new Float32Array([...q(2, 0), ...q(2, -40), ...q(2, -70)]), 'VEC4');
+  const grip = accessor(new Float32Array([1, 1, 1, 1.4, 1, 1.4, 1.8, 1, 1.8]), 'VEC3');
+  const json = {
+    asset: { version: '2.0', generator: 'charturbo e2e fixture' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: 'base', mesh: 0, children: [1] },
+      { name: 'turret', translation: [0, 0.4, 0], children: [2, 3] },
+      { name: 'plate', scale: [1.6, 0.5, 1.6], rotation: q(1, 30), mesh: 1 },
+      { name: 'shoulder', translation: [0, 0.2, 0], children: [4] },
+      { name: 'upper', mesh: 2, children: [5] },
+      { name: 'elbow', translation: [0, 1.6, 0], children: [6] },
+      { name: 'forearm', mesh: 3, children: [7] },
+      { name: 'gripper', translation: [0, 1.2, 0], mesh: 4 },
+    ],
+    meshes,
+    materials: [
+      { pbrMetallicRoughness: { baseColorFactor: [0.2, 0.22, 0.26, 1], metallicFactor: 0, roughnessFactor: 0.8 } },
+      { pbrMetallicRoughness: { baseColorFactor: [0.75, 0.3, 0.12, 1], metallicFactor: 0, roughnessFactor: 0.6 } },
+      { pbrMetallicRoughness: { baseColorFactor: [0.85, 0.85, 0.88, 1], metallicFactor: 0, roughnessFactor: 0.5 } },
+      { pbrMetallicRoughness: { baseColorFactor: [0.95, 0.75, 0.1, 1], metallicFactor: 0, roughnessFactor: 0.5 } },
+    ],
+    animations: [
+      {
+        name: 'work',
+        channels: [
+          { sampler: 0, target: { node: 1, path: 'rotation' } },
+          { sampler: 1, target: { node: 3, path: 'rotation' } },
+          { sampler: 2, target: { node: 5, path: 'rotation' } },
+          { sampler: 3, target: { node: 7, path: 'scale' } },
+        ],
+        samplers: [
+          { input: times, output: yaw },
+          { input: times, output: pitch, interpolation: 'CUBICSPLINE' },
+          { input: times, output: elbow, interpolation: 'STEP' },
+          { input: times, output: grip },
+        ],
+      },
+    ],
+    accessors,
+    bufferViews: views,
+    buffers: [{ byteLength: parts.length, uri: `data:application/octet-stream;base64,${btoa(String.fromCharCode(...parts))}` }],
+  };
+  return new TextEncoder().encode(JSON.stringify(json)).buffer;
 }
 
 function scatterData(): { x: Float32Array; y: Float32Array; clusters: Uint16Array } {

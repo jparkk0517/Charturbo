@@ -9,6 +9,8 @@ mod collision;
 #[cfg(test)]
 mod collision_tests;
 mod dynamics;
+#[cfg(test)]
+mod mesh_matrix_tests;
 mod pick;
 #[cfg(test)]
 mod pick_tests;
@@ -194,6 +196,10 @@ pub struct Transform {
     pub euler_radians: Vec3,
     pub scale: Vec3,
     pub parent_id: Option<u32>,
+    /// Extra matrix applied to the vertices before the object transform (`None` = identity):
+    /// world = parent chain * TRS * mesh matrix. Children do not inherit it. Animated glTF nodes
+    /// keep their (possibly sheared) node chain here, so the user TRS stays editable.
+    pub mesh_matrix: Option<Mat4>,
 }
 
 impl Default for Transform {
@@ -203,6 +209,7 @@ impl Default for Transform {
             euler_radians: Vec3::ZERO,
             scale: Vec3::ONE,
             parent_id: None,
+            mesh_matrix: None,
         }
     }
 }
@@ -219,6 +226,14 @@ impl Transform {
 
     pub fn local_matrix(&self) -> Mat4 {
         Mat4::from_scale_rotation_translation(self.scale, self.rotation_quat(), self.position)
+    }
+
+    /// `world` (the TRS chain) with the mesh matrix applied.
+    fn with_mesh_matrix(&self, world: Mat4) -> Mat4 {
+        match self.mesh_matrix {
+            Some(m) => world * m,
+            None => world,
+        }
     }
 }
 
@@ -610,6 +625,7 @@ impl SceneWorld {
                 euler_radians: Vec3::ZERO,
                 scale: scale.max(Vec3::splat(0.05)),
                 parent_id: None,
+                mesh_matrix: None,
             },
             geometry: SceneGeometry::Primitive(kind),
             material: Material {
@@ -714,6 +730,7 @@ impl SceneWorld {
                 euler_radians: Vec3::ZERO,
                 scale: scale.max(Vec3::splat(0.05)),
                 parent_id: None,
+                mesh_matrix: None,
             },
             geometry: SceneGeometry::Custom {
                 vertices,
@@ -944,6 +961,26 @@ impl SceneWorld {
         }
     }
 
+    /// Sets the mesh matrices of several objects at once: `matrices` holds 16 column-major floats
+    /// per id. An identity or non-finite matrix clears the object's mesh matrix. Returns how many
+    /// ids were found (unknown ids are skipped; a trailing partial matrix ends the batch). Picking
+    /// keeps its local-space BVH (no rebuild); bounds, shadows and picking follow the new world
+    /// matrix.
+    pub fn set_object_mesh_matrices(&mut self, ids: &[u32], matrices: &[f32]) -> usize {
+        let mut applied = 0;
+        for (k, &id) in ids.iter().enumerate() {
+            let Some(cols) = matrices.get(k * 16..k * 16 + 16) else { break };
+            let Some(i) = self.index_of(id) else { continue };
+            let m = Mat4::from_cols_slice(cols);
+            self.objects[i].transform.mesh_matrix = (m.is_finite() && m != Mat4::IDENTITY).then_some(m);
+            applied += 1;
+        }
+        if applied > 0 {
+            self.touch();
+        }
+        applied
+    }
+
     pub fn select_object(&mut self, object_id: Option<u32>) {
         self.touch();
         self.selected_object = object_id;
@@ -954,7 +991,10 @@ impl SceneWorld {
 
     /// Computes world transform matrix for `object_id`, walking up the parent hierarchy.
     pub fn world_matrix_of(&self, object_id: u32) -> Mat4 {
-        let mut mat = Mat4::IDENTITY;
+        let mut mat = self
+            .find_object(object_id)
+            .and_then(|o| o.transform.mesh_matrix)
+            .unwrap_or(Mat4::IDENTITY);
         let mut current_id = Some(object_id);
         let mut depth = 0;
         while let Some(cid) = current_id {
@@ -1166,6 +1206,10 @@ impl SceneWorld {
         let mut done = vec![false; self.objects.len()];
         for i in 0..self.objects.len() {
             self.resolve_world_matrix(i, out, &mut done, 0);
+        }
+        // Mesh matrices last: parents' chains are resolved without them (children don't inherit)
+        for (m, obj) in out.iter_mut().zip(&self.objects) {
+            *m = obj.transform.with_mesh_matrix(*m);
         }
     }
 

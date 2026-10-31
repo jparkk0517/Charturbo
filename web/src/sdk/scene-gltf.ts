@@ -1,8 +1,11 @@
 // glTF 2.0 loader for the 3D scene: parses .gltf (JSON) and .glb (binary) files, bakes the node
 // hierarchy into custom meshes and maps pbrMetallicRoughness materials onto the engine material.
+// Animated subtrees are not baked: their meshes stay node-local and get a mesh matrix that
+// `GltfAnimator` (scene-gltf-anim.ts) recomputes from the keyframes.
 
 import type { CustomMeshObjectDescriptor, LoadTextureOptions, Vec2Tuple, Vec3Tuple } from './charturbo';
 import type { RgbaTuple } from './color';
+import type { GltfAnimationInfo, GltfAnimationPath, GltfChannel, GltfClip, GltfInterpolation, GltfRig, GltfSampler } from './scene-gltf-anim';
 
 /** Model sources `loadGltf` reads (strings and `URL`s are fetched). */
 export type GltfSource = string | URL | ArrayBuffer | Uint8Array | Blob;
@@ -20,6 +23,12 @@ export interface GltfLoadOptions {
   scene?: number;
   /** Base URL for relative buffer / image URIs (default: the source URL, else the page URL) */
   baseUrl?: string;
+  /**
+   * Keep animated node subtrees animatable (default true when the file has animations): their
+   * meshes stay in node-local space with a mesh matrix (`createGltfAnimator` plays the clips).
+   * False bakes every node like an unanimated file (rest pose).
+   */
+  animations?: boolean;
 }
 
 export interface GltfNodeResult {
@@ -37,8 +46,10 @@ export interface GltfLoadResult {
   textures: number[];
   /** The loaded scene's nodes, depth first */
   nodes: GltfNodeResult[];
-  /** World-space bounds of the created meshes (position / rotation / scale applied) */
+  /** World-space bounds of the created meshes (position / rotation / scale applied; rest pose) */
   bounds: { min: Vec3Tuple; max: Vec3Tuple };
+  /** The file's animation clips, in glTF order (empty without animations or with `animations: false`) */
+  animations: GltfAnimationInfo[];
 }
 
 /** The `Charturbo` methods the loader uses. */
@@ -48,6 +59,17 @@ export interface GltfHost {
   disposeTexture(textureId: number): boolean;
   addCustomMesh(desc: CustomMeshObjectDescriptor): number;
   removeObject(objectId: number): boolean;
+  /** True when the engine supports per-object mesh matrices (needed for animations) */
+  readonly supportsMeshMatrices?: boolean;
+  setObjectMeshMatrices?(ids: Uint32Array, matrices: Float32Array): boolean;
+}
+
+/** Animation rigs of loaded models (`createGltfAnimator` looks them up). */
+const rigs = new WeakMap<object, GltfRig>();
+
+/** The animation rig of a `loadGltf` result (null: no animated nodes, or not a loader result). */
+export function gltfRigOf(result: object): GltfRig | null {
+  return rigs.get(result) ?? null;
 }
 
 /**
@@ -134,6 +156,12 @@ interface GltfAccessor {
   };
 }
 
+interface GltfAnimationJson {
+  name?: string;
+  channels?: { sampler: number; target?: { node?: number; path?: string } }[];
+  samplers?: { input: number; output: number; interpolation?: string }[];
+}
+
 interface GltfJson {
   asset?: { version?: string };
   extensionsUsed?: string[];
@@ -148,7 +176,7 @@ interface GltfJson {
   materials?: GltfMaterial[];
   textures?: { source?: number; sampler?: number }[];
   images?: { uri?: string; bufferView?: number; mimeType?: string }[];
-  animations?: unknown[];
+  animations?: GltfAnimationJson[];
   skins?: unknown[];
   cameras?: unknown[];
 }
@@ -198,9 +226,24 @@ interface PreparedMesh {
   uvs: Float32Array | null;
   indices: Uint32Array;
   material: MaterialInfo;
+  /** Mesh matrix (rest pose) of a node-local mesh under an animated node; null = baked */
+  matrix: Mat4 | null;
+  /** Rig node of a node-local mesh */
+  rigNode: number;
 }
 
 type Mat4 = Float64Array;
+
+/** A node of the loaded scene graph, depth first. */
+interface VisitedNode {
+  node: GltfNode;
+  index: number;
+  /** Visit index of the parent (-1 = scene root) */
+  parent: number;
+  world: Mat4;
+}
+
+const INTERPOLATIONS = new Set<GltfInterpolation>(['LINEAR', 'STEP', 'CUBICSPLINE']);
 
 // ---------------------------------------------------------------------------
 // Entry points
@@ -401,32 +444,57 @@ class GltfLoader {
     for (const ext of json.extensionsUsed ?? []) {
       if (!SUPPORTED_EXTENSIONS.has(ext)) this.warn(`ext:${ext}`, `extension ${ext} is not supported and is ignored`);
     }
-    if (json.animations?.length) this.warn('animations', 'animations are not supported and are ignored');
+    const wantAnimations = options.animations !== false && (json.animations?.length ?? 0) > 0;
+    const animate = wantAnimations && this.host.supportsMeshMatrices === true && typeof this.host.setObjectMeshMatrices === 'function';
+    if (wantAnimations && !animate) this.warn('animations', 'animations are not supported and are ignored');
     if (json.cameras?.length) this.warn('cameras', 'cameras are not supported and are ignored');
 
     // Scene graph: world matrices of every node with a mesh
     const nodes: GltfNodeResult[] = [];
-    const jobs: { node: GltfNodeResult; world: Mat4; mesh: number }[] = [];
-    const visited = new Set<number>();
-    const visit = (index: number, parent: Mat4) => {
+    const jobs: { node: GltfNodeResult; world: Mat4; mesh: number; visit: number }[] = [];
+    const visited = new Map<number, number>();
+    const order: VisitedNode[] = [];
+    const visit = (index: number, parent: number) => {
       const node = json.nodes?.[index];
       if (!node) throw new Error(`loadGltf: node ${index} does not exist`);
       if (visited.has(index)) throw new Error(`loadGltf: node ${index} appears twice in the scene graph`);
-      visited.add(index);
-      const world = multiply(parent, nodeMatrix(node));
+      const self = order.length;
+      visited.set(index, self);
+      const world = multiply(parent >= 0 ? order[parent].world : identity(), nodeMatrix(node));
+      order.push({ node, index, parent, world });
       const entry: GltfNodeResult = { index, name: node.name ?? null, objectIds: [] };
       nodes.push(entry);
       if (node.skin !== undefined) this.warn('skins', 'skins are not supported; skinned meshes render in their bind pose');
-      if (node.mesh !== undefined) jobs.push({ node: entry, world, mesh: node.mesh });
-      for (const child of node.children ?? []) visit(child, world);
+      if (node.mesh !== undefined) jobs.push({ node: entry, world, mesh: node.mesh, visit: self });
+      for (const child of node.children ?? []) visit(child, self);
     };
-    for (const root of this.sceneRoots(options.scene)) visit(root, identity());
+    for (const root of this.sceneRoots(options.scene)) visit(root, -1);
 
-    // Geometry first (synchronous parse errors happen before anything is created)
-    await this.loadBuffers(jobs.map((j) => j.mesh));
+    // Geometry and keyframes first (synchronous parse errors happen before anything is created)
+    await this.loadBuffers(jobs.map((j) => j.mesh), animate ? this.animationAccessors(visited) : []);
+    const clips = animate ? this.parseAnimations(visited, order) : [];
+    // Dynamic = animated or below an animated node (parents are visited first)
+    const animated = new Set(clips.flatMap((c) => c.channels.map((ch) => ch.node)));
+    const dynamic = new Uint8Array(order.length);
+    order.forEach((v, i) => {
+      dynamic[i] = animated.has(i) || (v.parent >= 0 && dynamic[v.parent]) ? 1 : 0;
+    });
     const base = scaleMatrix(scale);
     const meshes: PreparedMesh[] = [];
-    for (const job of jobs) meshes.push(...this.prepareMesh(job.mesh, multiply(base, job.world), job.node));
+    for (const job of jobs) {
+      if (dynamic[job.visit]) {
+        // Node-local vertices; the animator moves them with the mesh matrix
+        const local = this.prepareMesh(job.mesh, identity(), job.node);
+        const matrix = multiply(base, job.world);
+        for (const m of local) {
+          m.matrix = matrix;
+          m.rigNode = job.visit;
+        }
+        meshes.push(...local);
+      } else {
+        meshes.push(...this.prepareMesh(job.mesh, multiply(base, job.world), job.node));
+      }
+    }
     const vertexCount = meshes.reduce((n, m) => n + m.positions.length / 3, 0);
     if (vertexCount > GLTF_MAX_VERTICES) {
       throw new Error(`loadGltf: model has ${vertexCount} vertices; the scene geometry buffer holds at most ${GLTF_MAX_VERTICES}`);
@@ -440,6 +508,7 @@ class GltfLoader {
     const textureOf = await this.loadImages(meshes, created);
 
     // Objects
+    const dynamicObjects: { id: number; mesh: PreparedMesh }[] = [];
     const position: Vec3Tuple = options.position ? [...options.position] : [0, 0, 0];
     const rotation: Vec3Tuple = options.rotation ? [...options.rotation] : [0, 0, 0];
     for (const mesh of meshes) {
@@ -475,14 +544,98 @@ class GltfLoader {
       });
       created.objects.push(id);
       mesh.node.objectIds.push(id);
+      if (mesh.matrix) dynamicObjects.push({ id, mesh });
     }
 
-    return {
+    let rig: GltfRig | null = null;
+    if (dynamicObjects.length > 0) {
+      rig = buildRig(order, dynamic, base, clips, dynamicObjects);
+      // Rest pose (the vertices are node-local until the first mesh matrix lands)
+      const mats = new Float32Array(dynamicObjects.length * 16);
+      dynamicObjects.forEach((d, k) => mats.set(d.mesh.matrix!, k * 16));
+      this.host.setObjectMeshMatrices!(rig.targets.ids, mats);
+    }
+
+    const result: GltfLoadResult = {
       objects: [...created.objects],
       textures: [...created.textures],
       nodes,
       bounds: worldBounds(meshes, position, rotation),
+      animations: clips.map((c) => ({ name: c.name, duration: c.duration })),
     };
+    if (rig) rigs.set(result, rig);
+    else if (clips.length > 0) rigs.set(result, { ...emptyRig(), clips });
+    return result;
+  }
+
+  /** Sampler accessors of the channels that target loaded nodes. */
+  private animationAccessors(visited: Map<number, number>): number[] {
+    const out: number[] = [];
+    for (const a of this.json.animations ?? []) {
+      for (const ch of a.channels ?? []) {
+        const node = ch.target?.node;
+        if (node === undefined || !visited.has(node)) continue;
+        const s = a.samplers?.[ch.sampler];
+        if (s) out.push(s.input, s.output);
+      }
+    }
+    return out;
+  }
+
+  /** Clips in glTF order (invalid channels are skipped with a warning; indices stay aligned). */
+  private parseAnimations(visited: Map<number, number>, order: VisitedNode[]): GltfClip[] {
+    return (this.json.animations ?? []).map((a, ai) => {
+      const channels: GltfChannel[] = [];
+      const samplers = new Map<number, GltfSampler | null>();
+      for (const ch of a.channels ?? []) {
+        const target = ch.target;
+        const path = target?.path;
+        if (path === 'weights') {
+          this.warn('morph-animation', 'morph target weight animations are not supported and are ignored');
+          continue;
+        }
+        if (path !== 'translation' && path !== 'rotation' && path !== 'scale') continue;
+        const node = target?.node !== undefined ? visited.get(target.node) : undefined;
+        if (node === undefined) continue; // not in the loaded scene
+        if (order[node].node.matrix) {
+          this.warn('animated-matrix', 'animated nodes given by a matrix are not supported; their channels are ignored');
+          continue;
+        }
+        let sampler = samplers.get(ch.sampler);
+        if (sampler === undefined) {
+          sampler = this.sampler(a, ai, ch.sampler, path);
+          samplers.set(ch.sampler, sampler);
+        }
+        if (sampler && sampler.size === (path === 'rotation' ? 4 : 3)) channels.push({ node, path, sampler });
+        else if (sampler) this.warn('animation-sampler', `animation ${ai}: a ${path} channel has ${sampler.size}-component values and is ignored`);
+      }
+      const duration = channels.reduce((d, ch) => Math.max(d, ch.sampler.input[ch.sampler.input.length - 1]), 0);
+      return { name: a.name ?? `animation ${ai}`, duration, channels };
+    });
+  }
+
+  private sampler(a: GltfAnimationJson, ai: number, index: number, path: GltfAnimationPath): GltfSampler | null {
+    const s = a.samplers?.[index];
+    const skip = (why: string) => {
+      this.warn(`animation-${ai}-${index}`, `animation ${ai} sampler ${index} ${why}; its channels are ignored`);
+      return null;
+    };
+    if (!s) return skip('does not exist');
+    const interpolation = (s.interpolation ?? 'LINEAR') as GltfInterpolation;
+    if (!INTERPOLATIONS.has(interpolation)) return skip(`has an unknown interpolation ${String(s.interpolation)}`);
+    const input = this.readAccessor(s.input, 'float');
+    if (input.size !== 1) return skip('input must be SCALAR');
+    if (input.count === 0) return skip('has no keyframes');
+    const times = input.values as Float32Array;
+    for (let i = 0; i < times.length; i++) {
+      if (!Number.isFinite(times[i]) || (i > 0 && times[i] < times[i - 1])) return skip('input times must be finite and increasing');
+    }
+    const output = this.readAccessor(s.output, 'float');
+    const size = output.size;
+    if (size !== 3 && size !== 4) return skip(`output must be VEC3 or VEC4 (${path})`);
+    const expected = input.count * (interpolation === 'CUBICSPLINE' ? 3 : 1);
+    if (output.count !== expected) return skip(`output has ${output.count} values, expected ${expected}`);
+    return { input: times, output: output.values as Float32Array, interpolation, size };
   }
 
   private warn(kind: string, message: string): void {
@@ -510,8 +663,8 @@ class GltfLoader {
 
   // ---- buffers / accessors ------------------------------------------------
 
-  /** Fetches / decodes the buffers the meshes' accessors and images read. */
-  private async loadBuffers(meshIndices: number[]): Promise<void> {
+  /** Fetches / decodes the buffers the meshes' accessors and images (and `extra` accessors) read. */
+  private async loadBuffers(meshIndices: number[], extra: number[] = []): Promise<void> {
     const { json } = this;
     const views = new Set<number>();
     const addAccessor = (a: number | undefined) => {
@@ -524,6 +677,7 @@ class GltfLoader {
         views.add(acc.sparse.values.bufferView);
       }
     };
+    for (const a of extra) addAccessor(a);
     for (const meshIndex of new Set(meshIndices)) {
       for (const prim of json.meshes?.[meshIndex]?.primitives ?? []) {
         addAccessor(prim.attributes?.POSITION);
@@ -692,6 +846,8 @@ class GltfLoader {
         uvs,
         indices: baked.indices,
         material: mat,
+        matrix: null,
+        rigNode: -1,
       });
     });
     return out;
@@ -858,7 +1014,7 @@ export function toTriangleList(indices: Uint32Array, mode: number): Uint32Array 
 }
 
 /** Applies `matrix` to positions and (inverse-transpose) normals; flips the winding of mirrored meshes. */
-function bakeTransform(
+export function bakeTransform(
   src: Float32Array,
   srcNormals: Float32Array | null,
   srcIndices: Uint32Array,
@@ -952,7 +1108,7 @@ function worldBounds(meshes: PreparedMesh[], position: Vec3Tuple, rotation: Vec3
   const min: Vec3Tuple = [Infinity, Infinity, Infinity];
   const max: Vec3Tuple = [-Infinity, -Infinity, -Infinity];
   for (const mesh of meshes) {
-    const p = mesh.positions;
+    const p = mesh.matrix ? bakeTransform(mesh.positions, null, new Uint32Array(0), mesh.matrix).positions : mesh.positions;
     for (let i = 0; i < p.length; i += 3) {
       for (let k = 0; k < 3; k++) {
         const v = r[k] * p[i] + r[3 + k] * p[i + 1] + r[6 + k] * p[i + 2] + position[k];
@@ -1036,6 +1192,61 @@ function multiply(a: Mat4, b: Mat4): Mat4 {
 
 function cross(a: ArrayLike<number>, b: ArrayLike<number>): [number, number, number] {
   return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+// ---------------------------------------------------------------------------
+// Animation rig
+// ---------------------------------------------------------------------------
+
+function emptyRig(): GltfRig {
+  return {
+    gltfNode: new Int32Array(0),
+    parent: new Int32Array(0),
+    dynamic: new Uint8Array(0),
+    rest: new Float64Array(0),
+    fixed: [],
+    world: new Float64Array(0),
+    base: identity(),
+    targets: { ids: new Uint32Array(0), nodes: new Int32Array(0) },
+    clips: [],
+  };
+}
+
+function buildRig(
+  order: VisitedNode[],
+  dynamic: Uint8Array,
+  base: Mat4,
+  clips: GltfClip[],
+  objects: { id: number; mesh: PreparedMesh }[]
+): GltfRig {
+  const n = order.length;
+  const rig: GltfRig = {
+    gltfNode: new Int32Array(n),
+    parent: new Int32Array(n),
+    dynamic,
+    rest: new Float64Array(n * 10),
+    fixed: new Array<Float64Array | null>(n).fill(null),
+    world: new Float64Array(n * 16),
+    base,
+    targets: { ids: Uint32Array.from(objects.map((o) => o.id)), nodes: Int32Array.from(objects.map((o) => o.mesh.rigNode)) },
+    clips,
+  };
+  order.forEach((v, i) => {
+    rig.parent[i] = v.parent;
+    rig.gltfNode[i] = v.index;
+    rig.world.set(v.world, i * 16);
+    const node = v.node;
+    if (node.matrix) {
+      rig.fixed[i] = nodeMatrix(node);
+      return;
+    }
+    const t = node.translation ?? [0, 0, 0];
+    const r = node.rotation ?? [0, 0, 0, 1];
+    const s = node.scale ?? [1, 1, 1];
+    const len = Math.hypot(r[0], r[1], r[2], r[3]) || 1;
+    rig.rest.set([t[0], t[1], t[2], r[0] / len, r[1] / len, r[2] / len, r[3] / len, s[0], s[1], s[2]], i * 10);
+  });
+  return rig;
 }
 
 // ---------------------------------------------------------------------------

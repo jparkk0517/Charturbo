@@ -393,6 +393,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: '다중 점광원 · addPointLight', description: 'setLighting 점광원과 별도로 최대 8개의 색 점광원을 둡니다. 빨강 · 초록 · 파랑 램프가 흰 구와 기둥이 놓인 바닥 위를 돌며, 빛이 겹치는 곳에서 색이 섞입니다(청록 · 자홍 · 노랑 · 흰색). 각 빛은 range에서 부드럽게 사라지고, PBR 셰이딩은 역제곱 감쇠를, classic은 기존 점광원 감쇠를 씁니다. 빛을 추가하거나 제거하고, range를 넓히거나 셰이딩 모델을 바꿔 보세요.' },
     zh: { title: '多个点光源 · addPointLight', description: '在 setLighting 点光源之外最多再放 8 个彩色点光源：红、绿、蓝三盏灯在摆满白色球体和柱子的地面上方环绕，重叠处混合出青、品红、黄和白色。每盏灯在 range 处平滑衰减为零；PBR 着色使用平方反比衰减，classic 使用原有的点光源衰减。可添加或移除灯光、加大 range，或切换着色模型。' },
   },
+  'scene/12-gltf-animation': {
+    ko: { title: 'glTF 애니메이션 · playGltfAnimation', description: '메모리에서 만든 애니메이션 GLB(translation · rotation · scale 키프레임이 있는 노드 계층, LINEAR · STEP · CUBICSPLINE 샘플러) 로봇 팔을 playGltfAnimation으로 재생합니다. 애니메이션이 있는 노드만 프레임마다 한 번의 묶음 메시 행렬 업데이트로 움직이고, 받침대는 구워진 그대로입니다. 클립을 고르고, 재생 · 일시정지하고, 속도를 바꾸거나(음수는 역재생) 타임라인을 끌어 보세요.' },
+    zh: { title: 'glTF 动画 · playGltfAnimation', description: '在内存中构建一个带动画的 GLB 机械臂（节点层级带 translation / rotation / scale 关键帧，使用 LINEAR、STEP 和 CUBICSPLINE 采样器），并用 playGltfAnimation 播放。只有动画节点移动，每帧一次批量网格矩阵更新；底座保持烘焙状态。可选择片段、播放或暂停、调整速度（负数倒放）或拖动时间轴。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

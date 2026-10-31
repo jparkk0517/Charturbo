@@ -158,15 +158,50 @@ sdk.disposeGltf(house);                      // 移除其对象和纹理
 | `scene` | `number` | 文件的 `scene`，否则为 `0` | 场景索引 |
 | `baseUrl` | `string` | 源 URL，否则为页面 URL | 相对缓冲区和图片 URI 的基准 |
 | `signal` | `AbortSignal` | | 中止获取和解码；Promise 以 `AbortError` 拒绝 |
+| `animations` | `boolean` | `true` | 保留动画节点以便播放（[glTF 动画](#gltf-animation)）；`false` 烘焙静止姿势 |
 
-结果为 `{ objects, textures, nodes, bounds }`：`nodes` 以深度优先顺序列出场景节点 `{ index, name, objectIds }`，`bounds` 是世界空间的 `{ min, max }`。每个网格图元成为一个自定义网格对象，以其节点（或网格）命名；网格有多个图元时追加 `#<n>`。
+结果为 `{ objects, textures, nodes, bounds, animations }`：`nodes` 以深度优先顺序列出场景节点 `{ index, name, objectIds }`，`bounds` 是世界空间的 `{ min, max }`。每个网格图元成为一个自定义网格对象，以其节点（或网格）命名；网格有多个图元时追加 `#<n>`。
 
 - **支持。** 使用外部或 `data:` 缓冲区和图片的 `.gltf`，带二进制块的 `.glb`；所有访问器类型，包括交错（`byteStride`）、归一化、稀疏以及没有缓冲视图的访问器；三角形、三角形带和扇形（点和线会发出警告并跳过）。节点层级（TRS 或 `matrix`）烘焙进顶点，法线用逆转置矩阵变换，镜像节点翻转绕序；缺少法线时计算平滑法线。扩展 `KHR_texture_transform`、`KHR_mesh_quantization` 和 `KHR_materials_emissive_strength`。
 - **材质。** `baseColorFactor` 从线性空间转换到渲染器的伽马空间；`baseColorTexture` 成为 `map`（仅 `TEXCOORD_0`；`KHR_texture_transform` 的 offset 和 scale 成为 `mapOffset` / `mapRepeat`）；`metallicFactor` 和 `roughnessFactor` 与 glTF 一样默认为 1；`emissiveFactor`（乘以自发光强度）成为 `emissiveColor`，其最大分量作为经典着色用的 `emissive`；金属度-粗糙度、法线、遮蔽和自发光纹理成为[材质贴图](#material-maps)（仅 `TEXCOORD_0`；同一材质的纹理共用一个 uv 变换，其余的发出警告并忽略）。`alphaMode: 'MASK'` 将 `alphaTest` 设为 `alphaCutoff`（默认 0.5），`'BLEND'` 保留颜色 alpha，`'OPAQUE'` 将颜色 alpha 固定为 1。多个材质共用的图片只解码一次。
-- **忽略。** 采样器（纹理始终重复并线性过滤）。以下会发出警告并忽略：纹理变换的旋转，`TEXCOORD_1` 及以上的纹理，蒙皮（按绑定姿势渲染），变形目标，动画，相机以及其他扩展。若 `extensionsRequired` 中列出了不支持的扩展，则以 `loadGltf: extension X is required but not supported` 拒绝。
+- **忽略。** 采样器（纹理始终重复并线性过滤）。以下会发出警告并忽略：纹理变换的旋转，`TEXCOORD_1` 及以上的纹理，蒙皮（按绑定姿势渲染），变形目标（及其权重动画），相机以及其他扩展。若 `extensionsRequired` 中列出了不支持的扩展，则以 `loadGltf: extension X is required but not supported` 拒绝。
 - **限制。** 单次加载最多创建 `GLTF_MAX_VERTICES`（8,388,608）个顶点和 `GLTF_MAX_INDICES`（67,108,864）个索引。所有对象共用一个几何缓冲区，因此多个大模型仍可能超出 GPU 缓冲区上限。纹理遵循上文的纹理限制。
 - **错误。** 错误信息以 `loadGltf:` 开头。任何失败（包括中止）都会移除已创建的对象和纹理。
 - 同一模型的所有对象都以模型原点为枢轴，因此对 `result.objects` 中的每个对象用相同的 `position` / `rotation` 调用 `setObjectTransform` 即可整体移动模型。
+
+### glTF 动画 {#gltf-animation}
+
+```ts
+const arm = await sdk.loadGltf('/models/robot-arm.glb', { scale: 10 });
+console.log(arm.animations);                 // [{ name: 'work', duration: 2 }, ...]
+const anim = sdk.playGltfAnimation(arm, 'work', { loop: 'pingpong', speed: 1.5 });
+anim.pause();
+anim.seek(0.75);                              // 确定性的姿势（例如测试）
+sdk.disposeGltf(arm);                         // 同时停止其动画器
+```
+
+第一阶段播放节点关键帧动画：`translation`、`rotation` 和 `scale` 通道，采样器支持 `LINEAR`（旋转沿最短路径 slerp）、`STEP` 和 `CUBICSPLINE`（glTF 切线布局；旋转归一化）。读取浮点和归一化整数关键帧（`KHR_mesh_quantization`）。蒙皮、变形目标的 `weights` 通道以及用 `matrix` 指定的节点上的通道会发出警告并忽略。
+
+| 方法 | 返回值 | 说明 |
+| --- | --- | --- |
+| `playGltfAnimation(model, clip, options?)` | `GltfAnimator` | 在模型的默认动画器上播放片段 `clip`（索引或名称；首次调用时创建，之后的调用切换片段） |
+| `createGltfAnimator(model, { autoUpdate? })` | `GltfAnimator` | 单独的动画器。`autoUpdate: false` 时不会自行推进 |
+| `supportsMeshMatrices` | `boolean` | 在不支持网格矩阵的引擎上为 false：模型按烘焙方式加载，`animations` 为空 |
+
+| `GltfAnimator` | 说明 |
+| --- | --- |
+| `play(clip, { loop, speed, weight, time })` | 开始片段并应用其第一帧姿势。`loop`：`'repeat'`（默认）、`'once'` 或 `'pingpong'`；`speed` 缩放时间（负数倒放；倒放的 `'once'` 从末尾开始）；`weight` 0..1 与静止姿势混合 |
+| `pause()` / `resume()` / `stop()` | 保持姿势 / 继续（已结束的 `'once'` 从头开始）/ 回到静止姿势 |
+| `seek(time)` / `update(dt)` | 跳到播放时间 / 推进 `dt` 秒；两者都立即应用姿势 |
+| `clip`、`time`、`playing`、`animations` | 当前片段索引（停止时为 null）、循环后的片段时间、状态、片段列表 |
+| `loop`、`speed`、`weight`、`autoUpdate` | 可随时修改 |
+| `dispose()` | 停止（静止姿势）并分离 |
+
+- **模型。** 有动画的节点及其下方的节点不会被烘焙：其网格保留节点局部顶点，并获得一个网格矩阵（加载时的 `scale` × glTF 节点链）。模型其余部分照旧烘焙，因此没有动画的文件加载结果与之前完全相同。对象变换（`position` / `rotation`、`setObjectTransform`）仍叠加在上面：世界 = 变换 × 网格矩阵。网格矩阵是完整的 4×4 矩阵，因此非均匀的父级缩放（剪切）和镜像都保持精确；`getObjectRecord(id).meshMatrix` 返回它。`bounds` 为静止姿势。
+- **播放。** 开启 `autoUpdate` 且正在播放的动画器在每次 `sdk.render()` 时按实际时间推进（每步最多 0.1 秒；`play` 之后的第一次渲染只启动时钟）。没有空闲循环：请在帧循环中持续调用 `render()`。每个动画器一次播放一个片段；同一模型上的多个动画器会互相覆盖姿势（最后写入者生效）。
+- **开销。** 每次姿势变化在 JavaScript 中计算骨架，并通过一次引擎调用（`setObjectMeshMatrices`）发送所有动画对象的矩阵。拾取继续使用局部空间 BVH（不重建），几何也不会重新上传；阴影和包围盒跟随新矩阵。约 200 个动画节点的姿势计算每次更新约 0.15 毫秒。
+- **导出。** `exportScene()` 将当前姿势烘焙进自定义网格顶点；不导出片段，重新加载的场景是静态的。
+- **错误。** 对于不存在的片段、非有限的时间或速度、超出 0..1 的权重以及 `dispose()` 之后的调用，动画器方法会抛出 `GltfAnimator...` 错误。无效的采样器（未知插值、递减的时间、错误的关键帧数）会发出警告并跳过其通道；片段保留其索引。
 
 ### 编辑对象
 

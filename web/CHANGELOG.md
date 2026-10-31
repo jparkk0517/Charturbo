@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — glTF 노드 애니메이션 (1단계)
+
+- `loadGltf` 결과에 `animations: { name, duration }[]`가 추가되고, `playGltfAnimation(model, clip, { loop, speed, weight, time })` / `createGltfAnimator(model, { autoUpdate })`가 `GltfAnimator`(`play` · `pause` · `resume` · `stop` · `seek` · `update` · `dispose`, `loop` · `speed` · `weight` 속성)를 반환합니다. 노드 `translation` · `rotation` · `scale` 채널과 `LINEAR`(회전은 최단 경로 slerp) · `STEP` · `CUBICSPLINE`(glTF 탄젠트 배치, 회전 정규화) 샘플러, 정규화 정수 키(`KHR_mesh_quantization`)를 지원합니다. `loop`는 `'repeat'` · `'once'` · `'pingpong'`, 음수 `speed`는 역재생, `weight`는 레스트 포즈와 섞습니다. 스킨 · 모프 타깃 `weights` 채널 · `matrix` 노드 채널은 경고 후 무시합니다.
+- 애니메이션이 있는 노드와 그 아래 노드만 굽지 않고 노드 로컬 꼭짓점 + 메시 행렬(`scale` × 노드 체인)로 만듭니다. 나머지는 이전처럼 구워 넣으므로 애니메이션 없는 파일과 기존 렌더 결과는 그대로입니다. 엔진은 객체마다 선택형 메시 행렬을 받아 월드 = 부모 체인 × TRS × 메시 행렬로 합성합니다(자식은 상속하지 않음). 4×4 행렬이라 비균등 스케일의 전단도 정확하고, 사용자 TRS(`setObjectTransform`)는 그대로 편집할 수 있습니다. 피킹은 로컬 공간 BVH를 재사용하고(재구축 없음) 지오메트리를 다시 올리지 않으며, 그림자 · 경계는 새 행렬을 따릅니다.
+- 포즈가 바뀔 때마다 JavaScript에서 리그를 계산해 `Float32Array` 행렬을 엔진 호출 한 번(`setObjectMeshMatrices`)으로 보냅니다(애니메이션 노드 200개 기준 업데이트당 약 0.15ms). `autoUpdate` 애니메이터는 `render()`마다 실제 시간만큼 진행하고(한 번에 최대 0.1초), `seek` / `update`는 결정적으로 포즈를 적용합니다. `disposeGltf`와 엔진 `dispose()`가 애니메이터를 멈춥니다. `exportScene`은 현재 포즈를 꼭짓점에 구워 저장하고 클립은 내보내지 않습니다. `getObjectRecord`가 `meshMatrix`를, `supportsMeshMatrices`가 엔진 지원 여부를 알려 주며, 지원하지 않는 엔진에서는 이전처럼 굽고 경고합니다. `loadGltf({ animations: false })`는 레스트 포즈로 굽습니다. wasm `set_object_mesh_matrices` / `get_object_mesh_matrix` 추가.
+- 예제 `scene/12-gltf-animation`, fixture `scene-gltf-anim`, 문서 `charts/scene-3d`의 「glTF 애니메이션」 절.
+
 ### 추가 — 다중 점광원
 
 - `addPointLight({ position, color?, intensity?, range? })` → id / `setPointLight(id, partial)` / `removePointLight(id)` / `getPointLights()`: `setLighting` 점광원과 별도로 색이 있는 점광원을 최대 8개(`MAX_POINT_LIGHTS`) 추가합니다. 9번째 추가 · 모르는 id · 잘못된 값은 메서드 이름으로 시작하는 영어 오류를 던집니다. 각 광원은 `saturate(1 - (d / range)⁴)²` 창으로 `range`(기본 100)에서 부드럽게 0이 됩니다. classic은 기존 점광원 감쇠 × `intensity` × 창(`intensity: 1` = `pointIntensity: 1`), PBR은 역제곱 감쇠 `intensity / (d² + 1)` × 창(Karis 2013, `intensity`는 광도)이고 `color`는 sRGB입니다.
