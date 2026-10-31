@@ -1842,6 +1842,37 @@ export const FIXTURES: Fixture[] = [
     },
   },
   {
+    // glTF skin (CPU linear-blend skinning, u8 joints / unorm8 weights, 4 bones, 4 primitives
+    // sharing the skin) seeked to t = 1 s with shadows: the right tentacle curls smoothly to the
+    // left (about 105 deg over its three upper bones, no kinks or gaps between the pink / yellow
+    // segments) and its shadow follows the curl; the left one is the same file at rest (straight)
+    name: 'scene-gltf-skin',
+    theme: 'dark',
+    render: async (ctx) => {
+      const canvas = makeCanvas(ctx.card, FIXTURE_WIDTH, FIXTURE_HEIGHT);
+      const sdk = await Charturbo.create(canvas, { autoResize: false, locale: 'en-US', timeZone: 'UTC', nodeCount: 0, edgeCount: 0 });
+      sdk.setTheme(ctx.theme);
+      sdk.setGraphVisible(false);
+      sdk.setRigidPhysics(false);
+      const file = skinnedTubeGltf();
+      sdk.addPlane({ position: [0, -1, 0], scale: [160, 2, 110], color: [0.42, 0.45, 0.5, 1], roughness: 0.95 });
+      await sdk.loadGltf(file, { position: [-22, -1, 0], scale: 6 });
+      const posed = await sdk.loadGltf(file, { position: [16, -1, 0], scale: 6 });
+      sdk.createGltfAnimator(posed, { autoUpdate: false }).play('curl').pause().seek(1);
+      sdk.setLighting({
+        ambientIntensity: 0.3,
+        directionalDirection: [0.6, 1, 0.4],
+        directionalIntensity: 1,
+        pointPosition: [30, 40, 40],
+        pointIntensity: 0.4,
+      });
+      sdk.setShadows({ enabled: true });
+      sdk.setCameraPose([0, 26, 72], [0, 11, 0]);
+      sdk.render();
+      return { backend: detectBackend(canvas) };
+    },
+  },
+  {
     // Opt-in PBR: spheres with roughness 0..1 (columns) x metallic 0, 0.5, 1 (rows, bottom up)
     // under a procedural equirect sky (mipmapped), a textured box, ACES. Metals mirror the sky
     // and sun, rough ones blur it; no NaN black.
@@ -2549,6 +2580,113 @@ function robotArmGltf(): ArrayBuffer {
     accessors,
     bufferViews: views,
     buffers: [{ byteLength: parts.length, uri: `data:application/octet-stream;base64,${btoa(String.fromCharCode(...parts))}` }],
+  };
+  return new TextEncoder().encode(JSON.stringify(json)).buffer;
+}
+
+/**
+ * A skinned tapered tube (tentacle) as .gltf JSON: height 4 along +Y, bones every 1 unit (root ->
+ * b1 -> b2 -> b3, inverse bind matrices T(0, -k, 0)), one primitive per bone segment (9 rings x
+ * 24 segments, alternating pink / yellow materials, top cap on the last) sharing the skin.
+ * Vertices blend the two nearest bones (u8 JOINTS_0, unorm8 WEIGHTS_0). The mesh node carries a
+ * translation the skin ignores. Clip 'curl' (2 s): b1..b3 rotate 0 -> 35 -> 0 deg about +Z.
+ */
+function skinnedTubeGltf(): ArrayBuffer {
+  const parts: number[] = [];
+  const views: Record<string, number>[] = [];
+  const accessors: Record<string, unknown>[] = [];
+  const accessor = (data: Float32Array | Uint16Array | Uint8Array, type: string, extra: Record<string, unknown> = {}) => {
+    while (parts.length % 4) parts.push(0);
+    views.push({ buffer: 0, byteOffset: parts.length, byteLength: data.byteLength });
+    for (const b of new Uint8Array(data.buffer, data.byteOffset, data.byteLength)) parts.push(b);
+    const size = { SCALAR: 1, VEC3: 3, VEC4: 4, MAT4: 16 }[type]!;
+    const componentType = data instanceof Float32Array ? 5126 : data instanceof Uint16Array ? 5123 : 5121;
+    accessors.push({ bufferView: views.length - 1, componentType, count: data.length / size, type, ...extra });
+    return accessors.length - 1;
+  };
+  const SEG = 24;
+  const BONES = 4;
+  const RINGS_PER_BONE = 8;
+  const influence = (y: number) => {
+    const k = Math.min(BONES - 1, Math.floor(y));
+    const f = k < BONES - 1 ? y - k : 0;
+    return { j: [k, Math.min(BONES - 1, k + 1), 0, 0], w: [1 - f, f, 0, 0] };
+  };
+  // One primitive per bone segment, alternating materials (a ring stripe per bone)
+  const primitives = Array.from({ length: BONES }, (_, k) => {
+    const pos: number[] = [];
+    const nrm: number[] = [];
+    const joints: number[] = [];
+    const weights: number[] = [];
+    const vertex = (p: number[], n: number[], y: number) => {
+      const { j, w } = influence(y);
+      pos.push(...p);
+      nrm.push(...n);
+      joints.push(...j);
+      weights.push(...w);
+    };
+    for (let r = 0; r <= RINGS_PER_BONE; r++) {
+      const y = k + r / RINGS_PER_BONE;
+      const radius = 0.5 - 0.075 * y;
+      for (let s = 0; s < SEG; s++) {
+        const a = (s / SEG) * Math.PI * 2;
+        vertex([Math.cos(a) * radius, y, Math.sin(a) * radius], [Math.cos(a), 0, Math.sin(a)], y);
+      }
+    }
+    const idx: number[] = [];
+    for (let r = 0; r < RINGS_PER_BONE; r++) {
+      for (let s = 0; s < SEG; s++) {
+        const a = r * SEG + s;
+        const b = r * SEG + ((s + 1) % SEG);
+        idx.push(a, a + SEG, b, b, a + SEG, b + SEG);
+      }
+    }
+    if (k === BONES - 1) {
+      const tip = pos.length / 3;
+      vertex([0, BONES, 0], [0, 1, 0], BONES);
+      const top = RINGS_PER_BONE * SEG;
+      for (let s = 0; s < SEG; s++) idx.push(top + s, tip, top + ((s + 1) % SEG));
+    }
+    const attributes = {
+      POSITION: accessor(new Float32Array(pos), 'VEC3', { min: [-0.5, k, -0.5], max: [0.5, k + 1, 0.5] }),
+      NORMAL: accessor(new Float32Array(nrm), 'VEC3'),
+      JOINTS_0: accessor(Uint8Array.from(joints), 'VEC4'),
+      WEIGHTS_0: accessor(Uint8Array.from(weights, (v) => Math.round(v * 255)), 'VEC4', { normalized: true }),
+    };
+    return { attributes, indices: accessor(new Uint16Array(idx), 'SCALAR'), material: k % 2 };
+  });
+  const ibm: number[] = [];
+  for (let k = 0; k < BONES; k++) ibm.push(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -k, 0, 1);
+  const q = (deg: number) => [0, 0, Math.sin((deg * Math.PI) / 360), Math.cos((deg * Math.PI) / 360)];
+  const times = accessor(new Float32Array([0, 1, 2]), 'SCALAR');
+  const curl = accessor(new Float32Array([...q(0), ...q(35), ...q(0)]), 'VEC4');
+  const json = {
+    asset: { version: '2.0', generator: 'charturbo e2e fixture' },
+    scene: 0,
+    scenes: [{ nodes: [0, 1] }],
+    nodes: [
+      { name: 'tentacle', mesh: 0, skin: 0, translation: [50, 0, 0] },
+      { name: 'root', children: [2] },
+      { name: 'b1', translation: [0, 1, 0], children: [3] },
+      { name: 'b2', translation: [0, 1, 0], children: [4] },
+      { name: 'b3', translation: [0, 1, 0] },
+    ],
+    meshes: [{ primitives }],
+    materials: [
+      { pbrMetallicRoughness: { baseColorFactor: [0.85, 0.32, 0.4, 1], metallicFactor: 0, roughnessFactor: 0.55 } },
+      { pbrMetallicRoughness: { baseColorFactor: [0.95, 0.75, 0.35, 1], metallicFactor: 0, roughnessFactor: 0.55 } },
+    ],
+    skins: [{ joints: [1, 2, 3, 4], inverseBindMatrices: accessor(new Float32Array(ibm), 'MAT4'), skeleton: 1 }],
+    animations: [
+      {
+        name: 'curl',
+        channels: [2, 3, 4].map((node) => ({ sampler: 0, target: { node, path: 'rotation' } })),
+        samplers: [{ input: times, output: curl }],
+      },
+    ],
+    accessors,
+    bufferViews: views,
+    buffers: [{ byteLength: parts.length, uri: `data:application/octet-stream;base64,${btoa(parts.map((b) => String.fromCharCode(b)).join(''))}` }],
   };
   return new TextEncoder().encode(JSON.stringify(json)).buffer;
 }

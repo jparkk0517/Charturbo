@@ -1893,6 +1893,10 @@ impl RenderBackend for WgpuRenderBackend {
         self.mesh_indices.upload(&self.device, &self.queue, indices, max);
     }
 
+    fn sync_scene_vertex_ranges(&mut self, vertices: &[MeshVertexRaw], ranges: &[(u32, u32)]) {
+        self.mesh_vertices.write_ranges(&self.queue, vertices, ranges);
+    }
+
     fn sync_scene_instances(&mut self, instances: &[MeshInstanceRaw], draws: &[MeshDraw]) {
         let max = self.max_buffer_bytes;
         self.mesh_instances.upload(&self.device, &self.queue, instances, max);

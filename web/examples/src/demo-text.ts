@@ -397,6 +397,10 @@ const DEMO_TEXT: Record<string, Entry> = {
     ko: { title: 'glTF 애니메이션 · playGltfAnimation', description: '메모리에서 만든 애니메이션 GLB(translation · rotation · scale 키프레임이 있는 노드 계층, LINEAR · STEP · CUBICSPLINE 샘플러) 로봇 팔을 playGltfAnimation으로 재생합니다. 애니메이션이 있는 노드만 프레임마다 한 번의 묶음 메시 행렬 업데이트로 움직이고, 받침대는 구워진 그대로입니다. 클립을 고르고, 재생 · 일시정지하고, 속도를 바꾸거나(음수는 역재생) 타임라인을 끌어 보세요.' },
     zh: { title: 'glTF 动画 · playGltfAnimation', description: '在内存中构建一个带动画的 GLB 机械臂（节点层级带 translation / rotation / scale 关键帧，使用 LINEAR、STEP 和 CUBICSPLINE 采样器），并用 playGltfAnimation 播放。只有动画节点移动，每帧一次批量网格矩阵更新；底座保持烘焙状态。可选择片段、播放或暂停、调整速度（负数倒放）或拖动时间轴。' },
   },
+  'scene/13-gltf-skinning': {
+    ko: { title: 'glTF 스키닝 · 스킨 메시', description: '메모리에서 만든 스킨 GLB 문어입니다. 촉수 8개가 하나의 메시(정점 약 10,000개)로 48개 조인트 스킨(JOINTS_0 / WEIGHTS_0, 정점마다 본 2개)에 묶여 있고, 그 위에 위아래로 움직이는 강체 몸통이 있습니다. loadGltf가 스킨을 유지하고, 애니메이터는 프레임마다 조인트 팔레트 전체를 한 번의 호출로 보내며, 엔진이 CPU에서 정점을 다시 스키닝하므로 그림자와 피킹도 포즈를 따라갑니다. 클립을 고르고, 재생 · 일시정지하고, 속도를 바꿔 보세요. 표시값은 포즈 업데이트 비용입니다.' },
+    zh: { title: 'glTF 蒙皮 · 蒙皮网格', description: '在内存中构建的蒙皮 GLB 章鱼：八条触手合成一个网格（约 10,000 个顶点），绑定到 48 个关节的蒙皮（JOINTS_0 / WEIGHTS_0，每个顶点两根骨骼），上方是上下浮动的刚体身体。loadGltf 保留蒙皮；动画器每帧用一次调用发送整个关节调色板，引擎在 CPU 上重新蒙皮顶点，因此阴影和拾取也跟随姿态。可选择片段、播放或暂停、调整速度；读数显示姿态更新的耗时。' },
+  },
   'scientific3d/01-point-cloud': {
     ko: { title: 'PointCloud3D · 측정된 나선', description: '스칼라 색상과 고정 CSS 픽셀 지름을 가진 독립 XYZ 샘플 12,000개입니다. 드래그로 궤도 회전, 오른쪽 드래그로 이동, 휠로 확대/축소하며, 화살표 키로 원본 좌표를 탐색합니다.' },
     zh: { title: 'PointCloud3D · 测量螺旋线', description: '12,000 个独立 XYZ 样本，采用标量着色和固定的 CSS 像素直径。拖动环绕旋转，右键拖动平移，滚轮缩放；方向键浏览原始坐标。' },

@@ -164,7 +164,7 @@ sdk.disposeGltf(house);                      // 객체와 텍스처 제거
 
 - **지원.** 외부 또는 `data:` 버퍼 · 이미지를 쓰는 `.gltf`, 바이너리 청크가 있는 `.glb`. 인터리브(`byteStride`), 정규화, 희소(sparse), 버퍼 뷰 없는 접근자를 포함한 모든 접근자 타입. 삼각형, 삼각형 스트립 · 팬(점과 선은 경고 후 건너뜀). 노드 계층(TRS 또는 `matrix`)은 꼭짓점에 구워 넣으며, 법선은 역전치 행렬로 변환하고 거울상 노드는 감기 순서를 뒤집습니다. 법선이 없으면 부드러운 법선을 계산합니다. 확장 `KHR_texture_transform`, `KHR_mesh_quantization`, `KHR_materials_emissive_strength`.
 - **재질.** `baseColorFactor`는 선형에서 렌더러의 감마 공간으로 변환합니다. `baseColorTexture`는 `map`이 되고(`TEXCOORD_0`만, `KHR_texture_transform`의 offset과 scale은 `mapOffset` / `mapRepeat`), `metallicFactor`와 `roughnessFactor`는 glTF처럼 기본 1입니다. `emissiveFactor`(× 발광 강도)는 `emissiveColor`가 되고, 그 가장 큰 성분은 클래식 셰이딩용 `emissive`가 됩니다. 금속성-거칠기 · 법선 · 차폐 · 발광 텍스처는 [재질 맵](#material-maps)이 됩니다(`TEXCOORD_0`만, 한 재질의 텍스처는 uv 변환 하나를 공유하며 나머지는 경고 후 무시). `alphaMode: 'MASK'`는 `alphaTest`를 `alphaCutoff`(기본 0.5)로, `'BLEND'`는 색상 알파를 유지하고, `'OPAQUE'`는 색상 알파를 1로 고정합니다. 여러 재질이 쓰는 이미지는 한 번만 디코딩합니다.
-- **무시.** 샘플러(텍스처는 항상 반복 · 선형 필터링). 경고와 함께 무시: 텍스처 변환 회전, `TEXCOORD_1` 이상의 텍스처, 스킨(바인드 포즈로 그림), 모프 타깃(과 그 가중치 애니메이션), 카메라, 그 밖의 확장. `extensionsRequired`에 지원하지 않는 확장이 있으면 `loadGltf: extension X is required but not supported`로 거부합니다.
+- **무시.** 샘플러(텍스처는 항상 반복 · 선형 필터링). 경고와 함께 무시: 텍스처 변환 회전, `TEXCOORD_1` 이상의 텍스처, 모프 타깃(과 그 가중치 애니메이션), 카메라, 그 밖의 확장. `extensionsRequired`에 지원하지 않는 확장이 있으면 `loadGltf: extension X is required but not supported`로 거부합니다.
 - **한도.** 한 번에 불러오는 모델은 꼭짓점 `GLTF_MAX_VERTICES`(8,388,608)개, 인덱스 `GLTF_MAX_INDICES`(67,108,864)개까지입니다. 모든 객체가 지오메트리 버퍼 하나를 공유하므로 큰 모델 여러 개는 GPU 버퍼 한도를 넘을 수 있습니다. 텍스처는 위의 텍스처 한도를 따릅니다.
 - **오류.** 오류 메시지는 `loadGltf:`로 시작합니다. 중단을 포함해 실패하면 그때까지 만든 객체와 텍스처를 제거합니다.
 - 한 모델의 객체는 모두 모델 원점을 피벗으로 쓰므로, `result.objects`의 각 객체에 같은 `position` / `rotation`으로 `setObjectTransform`을 적용하면 모델 전체가 움직입니다.
@@ -180,13 +180,14 @@ anim.seek(0.75);                              // 결정적인 포즈(테스트 �
 sdk.disposeGltf(arm);                         // 애니메이터도 멈춤
 ```
 
-1단계는 노드 키프레임 애니메이션을 재생합니다. `translation`, `rotation`, `scale` 채널과 `LINEAR`(회전은 최단 경로 slerp), `STEP`, `CUBICSPLINE`(glTF 탄젠트 배치, 회전은 정규화) 샘플러를 지원합니다. 실수 키와 정규화 정수 키(`KHR_mesh_quantization`)를 읽습니다. 스킨과 모프 타깃 `weights` 채널, `matrix`로 지정한 노드의 채널은 경고 후 무시합니다.
+1단계는 노드 키프레임 애니메이션을 재생합니다. `translation`, `rotation`, `scale` 채널과 `LINEAR`(회전은 최단 경로 slerp), `STEP`, `CUBICSPLINE`(glTF 탄젠트 배치, 회전은 정규화) 샘플러를 지원합니다. 실수 키와 정규화 정수 키(`KHR_mesh_quantization`)를 읽습니다. 스킨 메시는 조인트를 따라갑니다([스키닝](#gltf-skinning)). 모프 타깃 `weights` 채널과 `matrix`로 지정한 노드의 채널은 경고 후 무시합니다.
 
 | 메서드 | 반환 | 설명 |
 | --- | --- | --- |
 | `playGltfAnimation(model, clip, options?)` | `GltfAnimator` | 모델의 기본 애니메이터(처음 호출 때 생성, 이후 호출은 클립을 바꿈)로 클립 `clip`(인덱스 또는 이름)을 재생합니다 |
 | `createGltfAnimator(model, { autoUpdate? })` | `GltfAnimator` | 별도의 애니메이터. `autoUpdate: false`면 스스로 진행하지 않습니다 |
 | `supportsMeshMatrices` | `boolean` | 메시 행렬이 없는 엔진에서는 false: 모델을 구워서 불러오고 `animations`는 비어 있습니다 |
+| `supportsSkinning` | `boolean` | 스키닝이 없는 엔진에서는 false: 스킨 메시를 바인드 포즈로 구워서 불러옵니다 |
 
 | `GltfAnimator` | 설명 |
 | --- | --- |
@@ -202,6 +203,22 @@ sdk.disposeGltf(arm);                         // 애니메이터도 멈춤
 - **비용.** 포즈가 바뀔 때마다 JavaScript에서 리그를 계산하고, 애니메이션 객체 전체의 행렬을 엔진 호출 한 번(`setObjectMeshMatrices`)으로 보냅니다. 피킹은 로컬 공간 BVH를 그대로 쓰고(재구축 없음) 지오메트리도 다시 올리지 않습니다. 그림자와 경계는 새 행렬을 따릅니다. 애니메이션 노드 약 200개의 포즈 계산은 업데이트당 약 0.15ms입니다.
 - **내보내기.** `exportScene()`은 현재 포즈를 사용자 메시 꼭짓점에 구워 저장합니다. 클립은 내보내지 않으므로 다시 불러온 장면은 정지 상태입니다.
 - **오류.** 애니메이터 메서드는 없는 클립, 유한하지 않은 시간 · 속도, 0..1 밖의 가중치, `dispose()` 뒤 호출에 `GltfAnimator...` 오류를 던집니다. 잘못된 샘플러(알 수 없는 보간, 감소하는 시간, 틀린 키 개수)는 경고 후 그 채널을 건너뛰며, 클립 인덱스는 유지됩니다.
+
+#### 스키닝 {#gltf-skinning}
+
+```ts
+const fox = await sdk.loadGltf('/models/fox.glb', { scale: 0.1 });
+sdk.playGltfAnimation(fox, 'run');            // 스킨이 조인트를 따라갑니다
+```
+
+스킨 메시(`skins`와 `JOINTS_0` / `WEIGHTS_0`)는 스킨이 있는 사용자 메시로 불러오며, 애니메이터가 강체 애니메이션 노드와 함께 조인트로 포즈를 잡습니다.
+
+- **형식.** 조인트는 `UNSIGNED_BYTE` 또는 `UNSIGNED_SHORT`, 가중치는 `FLOAT`, 정규화 `UNSIGNED_BYTE`, 정규화 `UNSIGNED_SHORT`입니다. 가중치는 꼭짓점마다 다시 정규화합니다(가중치가 모두 0이면 바인드 포즈). `inverseBindMatrices`의 기본값은 단위 행렬이고, 스킨 하나에 조인트는 최대 65,536개입니다. glTF 규약대로 스킨 메시 노드 자체의 변환은 무시하며, 위치는 조인트가 정합니다.
+- **제한.** 꼭짓점당 영향은 4개입니다. `JOINTS_1` / `WEIGHTS_1`은 경고 후 무시합니다. 스킨 메시 중 `JOINTS_0`과 `WEIGHTS_0`이 없는 프리미티브는 경고 후 강체로 그립니다. 조인트가 모두 불러온 장면 안에 있지 않은 스킨은 경고 후 바인드 포즈로 그립니다. 모프 타깃은 여전히 지원하지 않습니다. `animations: false`여도 스킨 메시는 스킨을 유지하고 조인트의 레스트 포즈로 그립니다. 스키닝을 지원하지 않는 엔진(`supportsSkinning`이 false)에서는 이전처럼 경고 후 바인드 포즈로 구워 넣습니다.
+- **동작 방식.** 스키닝은 셰이더가 아니라 엔진의 CPU에서 합니다(선형 블렌드 스키닝, 법선은 여인수 행렬). 포즈가 바뀔 때마다 애니메이터가 JavaScript에서 모든 스킨의 조인트 팔레트(불러올 때의 `scale` × 조인트 월드 × 역바인드 행렬, 조인트당 열 우선 16개 실수)를 계산해 엔진 호출 한 번(`setObjectJointMatrices`)으로 보냅니다. 엔진은 그 메시를 다시 스키닝하고 해당 꼭짓점 범위만 올립니다. 파이프라인과 셰이더는 바뀌지 않으므로 스킨 메시는 다른 사용자 메시처럼 그림자를 드리우고 받으며 PBR 기능을 쓰고, WebGPU와 WebGL2에서 똑같이 그려지며, 스킨이 없는 객체는 영향을 받지 않습니다.
+- **경계와 피킹.** 객체 경계, 그림자 맞춤, 외곽선은 포즈를 잡은 꼭짓점을 따릅니다. 피킹은 경계 상자 테스트 뒤 포즈가 적용된 삼각형을 직접 검사합니다(스킨 메시는 BVH를 쓰지 않아 프레임마다 재구축하지 않음). 불러오기 결과의 `bounds`는 레스트 포즈 기준입니다.
+- **비용.** 다시 스키닝하는 비용은 꼭짓점 수에 비례합니다. 꼭짓점 10,000개 · 조인트 48개 메시에서 팔레트를 포함해 업데이트당 네이티브 약 0.2ms, 브라우저 0.4~0.6ms입니다. `exportScene()`은 현재 포즈를 저장합니다.
+- **저수준 API.** `setObjectSkin(id, { joints, weights, jointCount } | null)`은 아무 사용자 메시에 스킨을 붙이고(꼭짓점당 조인트 4개 · 가중치 4개), `setObjectJointMatrices(ids, jointCounts, matrices)`는 여러 메시의 팔레트를 객체 로컬 공간으로 한 번에 설정합니다.
 
 ### 객체 편집
 

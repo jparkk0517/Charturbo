@@ -16,6 +16,10 @@ mod pick;
 mod pick_tests;
 mod shading;
 pub use bvh::PickCache;
+mod skin;
+#[cfg(test)]
+mod skin_tests;
+pub use skin::{normalize_weights, skin_vertices, Skin, MAX_SKIN_JOINTS, SKIN_INFLUENCES};
 mod point_lights;
 mod point_shadows;
 mod post;
@@ -302,11 +306,16 @@ pub struct SceneObject {
     pub cast_shadow: bool,
     /// Darkened by shadows of other objects (default true)
     pub receive_shadow: bool,
+    /// CPU skinning state of a skinned custom mesh (glTF skins; `None` = rigid)
+    pub skin: Option<Box<Skin>>,
 }
 
 impl SceneObject {
-    /// Local-space half extents before scaling.
+    /// Local-space half extents before scaling (skinned meshes: of the current pose).
     pub fn base_half_extents(&self) -> Vec3 {
+        if let Some(skin) = &self.skin {
+            return skin.half_extents;
+        }
         match &self.geometry {
             SceneGeometry::Primitive(PrimitiveKind::Box) => Vec3::splat(0.5),
             SceneGeometry::Primitive(PrimitiveKind::Sphere) => Vec3::splat(0.5),
@@ -325,6 +334,9 @@ impl SceneObject {
 
     /// Local box enclosing everything `intersect_ray` can hit.
     fn pick_half_extents(&self) -> Vec3 {
+        if let Some(skin) = &self.skin {
+            return skin.half_extents;
+        }
         match &self.geometry {
             SceneGeometry::Primitive(_) => Vec3::splat(0.5),
             SceneGeometry::Custom {
@@ -360,6 +372,12 @@ impl SceneObject {
             }
             SceneGeometry::Primitive(PrimitiveKind::Cylinder) => {
                 pick::intersect_local_cylinder(local_origin, local_dir)
+            }
+            SceneGeometry::Custom { indices, .. } if self.skin.is_some() => {
+                // Skinned: the posed triangles, scanned linearly (the bind-pose BVH is unused)
+                let skin = self.skin.as_ref()?;
+                intersect_local_aabb(local_origin, local_dir, skin.half_extents)?;
+                bvh::intersect_triangles_linear(local_origin, local_dir, &skin.posed, indices)
             }
             SceneGeometry::Custom {
                 vertices,
@@ -540,8 +558,10 @@ pub struct SceneWorld {
     geometry_indices: Vec<u32>,
     /// `(first_index, index_count)` of box / sphere / plane / cylinder
     primitive_ranges: [(u32, u32); 4],
-    /// `(object_id, first_index, index_count)` of custom meshes, sorted by id
-    custom_ranges: Vec<(u32, u32, u32)>,
+    /// `(object_id, first_index, index_count, first_vertex)` of custom meshes, sorted by id
+    custom_ranges: Vec<(u32, u32, u32, u32)>,
+    /// Vertex ranges `[start, end)` of re-skinned meshes rewritten by the last pack
+    vertex_updates: Vec<(u32, u32)>,
     /// Bumped when a custom mesh is added / removed; geometry is re-uploaded only then
     geometry_revision: u64,
     packed_geometry_revision: u64,
@@ -582,6 +602,7 @@ impl SceneWorld {
             geometry_indices: Vec::new(),
             primitive_ranges: [(0, 0); 4],
             custom_ranges: Vec::new(),
+            vertex_updates: Vec::new(),
             geometry_revision: next_scene_revision(),
             packed_geometry_revision: 0,
             shadow_bounds: None,
@@ -644,6 +665,7 @@ impl SceneWorld {
             pick_cache: PickCache::default(),
             cast_shadow: true,
             receive_shadow: true,
+            skin: None,
         });
         id
     }
@@ -753,6 +775,7 @@ impl SceneWorld {
             pick_cache: PickCache::default(),
             cast_shadow: true,
             receive_shadow: true,
+            skin: None,
         });
         Ok(id)
     }
@@ -979,6 +1002,74 @@ impl SceneWorld {
             self.touch();
         }
         applied
+    }
+
+    /// Makes a custom mesh skinned (CPU linear-blend skinning): `joints` / `weights` hold 4
+    /// joint indices / weights per vertex (weights are normalized; all-zero vertices stay in the
+    /// bind pose), `joint_count` matrices drive it (identity = bind pose until
+    /// `set_object_joint_matrices`). Empty `joints` and `weights` remove the skin. `Ok(false)`
+    /// when the object is missing or not a custom mesh.
+    pub fn set_object_skin(
+        &mut self,
+        object_id: u32,
+        joints: &[u16],
+        weights: &[f32],
+        joint_count: u32,
+    ) -> Result<bool, &'static str> {
+        let Some(i) = self.index_of(object_id) else {
+            return Ok(false);
+        };
+        let obj = &mut self.objects[i];
+        let SceneGeometry::Custom { vertices, .. } = &obj.geometry else {
+            return Ok(false);
+        };
+        obj.skin = if joints.is_empty() && weights.is_empty() {
+            None
+        } else {
+            Some(Box::new(Skin::new(vertices, joints, weights, joint_count)?))
+        };
+        self.touch();
+        self.bump_geometry();
+        Ok(true)
+    }
+
+    /// Sets the joint matrices of several skinned objects at once and re-skins them: object `k`
+    /// takes `counts[k]` matrices (16 column-major floats each, object space) from `matrices`,
+    /// in order. An object is skipped (pose unchanged) when it is unknown, not skinned, its count
+    /// differs from its skin's joint count, or a matrix is not finite. Returns how many objects
+    /// were re-skinned; a batch running past `matrices` ends early.
+    pub fn set_object_joint_matrices(&mut self, ids: &[u32], counts: &[u32], matrices: &[f32]) -> usize {
+        let mut applied = 0;
+        let mut offset = 0usize;
+        for (&id, &count) in ids.iter().zip(counts) {
+            let len = count as usize * 16;
+            let Some(slice) = matrices.get(offset..offset + len) else { break };
+            offset += len;
+            let Some(i) = self.index_of(id) else { continue };
+            let obj = &mut self.objects[i];
+            let (Some(skin), SceneGeometry::Custom { vertices, .. }) = (obj.skin.as_deref_mut(), &obj.geometry) else {
+                continue;
+            };
+            if skin.joint_count() == count as usize && skin.set_joint_matrices(vertices, slice) {
+                applied += 1;
+            }
+        }
+        if applied > 0 {
+            self.touch();
+        }
+        applied
+    }
+
+    /// Posed positions and normals (6 floats per vertex, object space) of a skinned object;
+    /// `None` when it is missing or not skinned.
+    pub fn skinned_vertices(&self, object_id: u32) -> Option<Vec<f32>> {
+        let skin = self.find_object(object_id)?.skin.as_ref()?;
+        Some(
+            skin.posed
+                .iter()
+                .flat_map(|v| [v.position.x, v.position.y, v.position.z, v.normal.x, v.normal.y, v.normal.z])
+                .collect(),
+        )
     }
 
     pub fn select_object(&mut self, object_id: Option<u32>) {
@@ -1303,8 +1394,11 @@ impl SceneWorld {
     /// since the last call, the combined static geometry is returned too.
     pub fn pack_render_data(&mut self, camera_eye: Vec3) -> PackedScene<'_> {
         let geometry_changed = self.packed_geometry_revision != self.geometry_revision;
+        self.vertex_updates.clear();
         if geometry_changed {
             self.rebuild_geometry();
+        } else {
+            self.rewrite_skinned_vertices();
         }
 
         self.instances.clear();
@@ -1373,6 +1467,8 @@ impl SceneWorld {
                 self.geometry_vertices.as_slice(),
                 self.geometry_indices.as_slice(),
             )),
+            vertex_updates: (!self.vertex_updates.is_empty())
+                .then_some((self.geometry_vertices.as_slice(), self.vertex_updates.as_slice())),
             instances: &self.instances,
             draws: &self.draws,
             helper_lines: &self.helper_lines,
@@ -1389,11 +1485,7 @@ impl SceneWorld {
         let append = |verts: &[LocalVertex], idx: &[u32], gv: &mut Vec<MeshVertexRaw>, gi: &mut Vec<u32>| {
             let base = gv.len() as u32;
             let first = gi.len() as u32;
-            gv.extend(verts.iter().map(|v| MeshVertexRaw {
-                // uv rides in the spare w lanes (u in position.w, v in normal.w)
-                position: [v.position.x, v.position.y, v.position.z, v.uv[0]],
-                normal: [v.normal.x, v.normal.y, v.normal.z, v.uv[1]],
-            }));
+            gv.extend(verts.iter().map(|v| mesh_vertex(v, v)));
             gi.extend(idx.iter().map(|&i| base + i));
             (first, idx.len() as u32)
         };
@@ -1406,13 +1498,42 @@ impl SceneWorld {
             append(&p.plane_mesh.0, &p.plane_mesh.1, gv, gi),
             append(&p.cylinder_mesh.0, &p.cylinder_mesh.1, gv, gi),
         ];
-        for obj in &self.objects {
+        for obj in &mut self.objects {
             if let SceneGeometry::Custom { vertices, indices, .. } = &obj.geometry {
+                let base = gv.len() as u32;
                 let range = append(vertices, indices, gv, gi);
-                self.custom_ranges.push((obj.id, range.0, range.1));
+                if let Some(skin) = obj.skin.as_deref_mut() {
+                    // Posed positions / normals, bind-pose uvs
+                    for (out, (posed, bind)) in gv[base as usize..].iter_mut().zip(skin.posed.iter().zip(vertices)) {
+                        *out = mesh_vertex(posed, bind);
+                    }
+                    skin.dirty = false;
+                }
+                self.custom_ranges.push((obj.id, range.0, range.1, base));
             }
         }
         self.packed_geometry_revision = self.geometry_revision;
+    }
+
+    /// Copies the posed vertices of re-skinned meshes into the combined vertex buffer and lists
+    /// their ranges in `vertex_updates` (partial upload; the geometry is otherwise unchanged).
+    fn rewrite_skinned_vertices(&mut self) {
+        for obj in &mut self.objects {
+            let (Some(skin), SceneGeometry::Custom { vertices, .. }) = (obj.skin.as_deref_mut(), &obj.geometry) else {
+                continue;
+            };
+            if !skin.dirty {
+                continue;
+            }
+            skin.dirty = false;
+            let Ok(r) = self.custom_ranges.binary_search_by_key(&obj.id, |r| r.0) else { continue };
+            let start = self.custom_ranges[r].3 as usize;
+            let Some(dst) = self.geometry_vertices.get_mut(start..start + vertices.len()) else { continue };
+            for (out, (posed, bind)) in dst.iter_mut().zip(skin.posed.iter().zip(vertices)) {
+                *out = mesh_vertex(posed, bind);
+            }
+            self.vertex_updates.push((start as u32, (start + vertices.len()) as u32));
+        }
     }
 
     /// `(first_index, index_count)` of the object's mesh in the combined geometry buffer.
@@ -1575,9 +1696,21 @@ fn highlight_outline_only(obj: &SceneObject, world_mat: &Mat4) -> bool {
 pub struct PackedScene<'a> {
     /// Combined static geometry, present only when meshes were added / removed
     pub geometry: Option<(&'a [MeshVertexRaw], &'a [u32])>,
+    /// Re-skinned vertex ranges `[start, end)` of the (unchanged-size) combined vertex buffer,
+    /// present only when skinned meshes moved and `geometry` is `None`
+    pub vertex_updates: Option<(&'a [MeshVertexRaw], &'a [(u32, u32)])>,
     pub instances: &'a [MeshInstanceRaw],
     pub draws: &'a [MeshDraw],
     pub helper_lines: &'a [EdgeVertexRaw],
+}
+
+/// Packed vertex: position / normal from `pose`, uv (in the spare w lanes: u in position.w, v in
+/// normal.w) from `uv`.
+fn mesh_vertex(pose: &LocalVertex, uv: &LocalVertex) -> MeshVertexRaw {
+    MeshVertexRaw {
+        position: [pose.position.x, pose.position.y, pose.position.z, uv.uv[0]],
+        normal: [pose.normal.x, pose.normal.y, pose.normal.z, uv.uv[1]],
+    }
 }
 
 /// Sequential contact passes per physics step (lets stacks settle without sinking).

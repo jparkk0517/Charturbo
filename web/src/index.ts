@@ -165,7 +165,10 @@ export {
   type GltfInterpolation,
   type GltfPlayOptions,
   type GltfRig,
+  type GltfRigSkin,
   type GltfSampler,
+  computeJointMatrices,
+  skinPositions,
 } from './sdk/scene-gltf-anim';
 export {
   type SceneShadowMapSize,

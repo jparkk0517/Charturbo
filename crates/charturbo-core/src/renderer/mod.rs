@@ -650,6 +650,9 @@ pub trait RenderBackend {
     );
     /// Static scene geometry (all meshes, object space); sent only when meshes are added / removed.
     fn sync_scene_geometry(&mut self, _vertices: &[MeshVertexRaw], _indices: &[u32]) {}
+    /// Rewrites the vertex ranges `[start, end)` of the uploaded scene geometry from `vertices`
+    /// (the full combined buffer, same length as the last `sync_scene_geometry`): re-skinned meshes.
+    fn sync_scene_vertex_ranges(&mut self, _vertices: &[MeshVertexRaw], _ranges: &[(u32, u32)]) {}
     /// Per-object instances and the draw list (opaque draws first, then translucent ones).
     fn sync_scene_instances(&mut self, _instances: &[MeshInstanceRaw], _draws: &[MeshDraw]) {}
     /// Grid / axes / selection wireframe lines.
@@ -742,6 +745,8 @@ pub struct MockRenderBackend {
     pub mesh_uploads: usize,
     /// Number of `sync_scene_geometry` calls
     pub geometry_uploads: usize,
+    /// Every range of the `sync_scene_vertex_ranges` calls (re-skinned meshes)
+    pub vertex_range_uploads: Vec<(u32, u32)>,
     pub synced_instance_count: usize,
     pub synced_draws: Vec<MeshDraw>,
     pub synced_mesh_vertex_count: usize,
@@ -864,6 +869,10 @@ impl RenderBackend for MockRenderBackend {
         self.synced_mesh_vertex_count = vertices.len();
         self.synced_mesh_index_count = indices.len();
         self.geometry_uploads += 1;
+    }
+
+    fn sync_scene_vertex_ranges(&mut self, _vertices: &[MeshVertexRaw], ranges: &[(u32, u32)]) {
+        self.vertex_range_uploads.extend_from_slice(ranges);
     }
 
     fn sync_scene_instances(&mut self, instances: &[MeshInstanceRaw], draws: &[MeshDraw]) {

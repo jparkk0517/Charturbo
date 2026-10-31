@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — glTF 스키닝
+
+- `loadGltf`가 `skins`(`joints` · `inverseBindMatrices`)와 `JOINTS_0` / `WEIGHTS_0`을 읽어 스킨 메시를 스킨이 있는 사용자 메시로 만들고, `GltfAnimator`가 강체 노드와 함께 조인트로 포즈를 잡습니다. 조인트는 `UNSIGNED_BYTE` · `UNSIGNED_SHORT`, 가중치는 `FLOAT` · 정규화 `UNSIGNED_BYTE` · 정규화 `UNSIGNED_SHORT`를 지원하고, 가중치는 꼭짓점마다 다시 정규화합니다. glTF 규약대로 스킨 메시 노드 자체의 변환은 무시합니다. 꼭짓점당 영향은 4개이며 `JOINTS_1` / `WEIGHTS_1`은 경고 후 무시하고, 조인트가 불러온 장면 밖에 있는 스킨은 경고 후 바인드 포즈로 그립니다. 모프 타깃은 계속 경고 후 무시합니다.
+- 스키닝은 셰이더가 아니라 엔진 CPU에서 합니다(선형 블렌드 스키닝, 법선은 여인수 행렬). WebGL2 PBR이 꼭짓점 속성 16개 중 14개를 이미 쓰고 모든 파이프라인에 스킨 변형이 필요해지기 때문이며, 덕분에 셰이더 · 파이프라인 변경이 없어 스킨이 없는 객체의 렌더 결과는 그대로이고 그림자 · PBR · MSAA가 그대로 적용됩니다. 포즈마다 JavaScript가 모든 스킨의 조인트 팔레트(`scale` × 조인트 월드 × 역바인드 행렬, 조인트당 열 우선 16개 실수)를 엔진 호출 한 번(`setObjectJointMatrices`)으로 보내고, 엔진은 해당 메시를 다시 스키닝해 그 꼭짓점 범위만 올립니다(꼭짓점 10,000개 · 조인트 48개 기준 업데이트당 네이티브 약 0.2ms, 브라우저 0.4~0.6ms).
+- 객체 경계 · 그림자 맞춤은 포즈가 적용된 꼭짓점을 따르고, 피킹은 경계 상자 테스트 뒤 포즈가 적용된 삼각형을 직접 검사합니다(스킨 메시는 BVH를 쓰지 않아 프레임마다 재구축 없음). `exportScene`은 현재 포즈를 저장합니다. 저수준 API `setObjectSkin(id, { joints, weights, jointCount } | null)` / `setObjectJointMatrices(ids, jointCounts, matrices)` / `supportsSkinning`과 헬퍼 `computeJointMatrices` / `skinPositions`를 추가했고, 지원하지 않는 엔진에서는 이전처럼 바인드 포즈로 굽고 경고합니다. wasm `set_object_skin` / `set_object_joint_matrices` / `get_object_skinned_vertices` 추가.
+- 예제 `scene/13-gltf-skinning`, fixture `scene-gltf-skin`, 문서 `charts/scene-3d`의 「스키닝」 절.
+
 ### 추가 — glTF 노드 애니메이션 (1단계)
 
 - `loadGltf` 결과에 `animations: { name, duration }[]`가 추가되고, `playGltfAnimation(model, clip, { loop, speed, weight, time })` / `createGltfAnimator(model, { autoUpdate })`가 `GltfAnimator`(`play` · `pause` · `resume` · `stop` · `seek` · `update` · `dispose`, `loop` · `speed` · `weight` 속성)를 반환합니다. 노드 `translation` · `rotation` · `scale` 채널과 `LINEAR`(회전은 최단 경로 slerp) · `STEP` · `CUBICSPLINE`(glTF 탄젠트 배치, 회전 정규화) 샘플러, 정규화 정수 키(`KHR_mesh_quantization`)를 지원합니다. `loop`는 `'repeat'` · `'once'` · `'pingpong'`, 음수 `speed`는 역재생, `weight`는 레스트 포즈와 섞습니다. 스킨 · 모프 타깃 `weights` 채널 · `matrix` 노드 채널은 경고 후 무시합니다.

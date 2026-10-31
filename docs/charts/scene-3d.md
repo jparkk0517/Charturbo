@@ -164,7 +164,7 @@ The result is `{ objects, textures, nodes, bounds, animations }`: `nodes` lists 
 
 - **Supported.** `.gltf` with external or `data:` buffers and images, `.glb` with its binary chunk; every accessor type, including interleaved (`byteStride`), normalized, sparse and accessors without a buffer view; triangles, triangle strips and fans (points and lines are skipped with a warning). The node hierarchy (TRS or `matrix`) is baked into the vertices, with normals transformed by the inverse transpose and the winding flipped for mirrored nodes; missing normals are computed smooth. Extensions `KHR_texture_transform`, `KHR_mesh_quantization` and `KHR_materials_emissive_strength`.
 - **Materials.** `baseColorFactor` is converted from linear to the renderer's gamma space; `baseColorTexture` becomes `map` (`TEXCOORD_0` only; `KHR_texture_transform` offset and scale become `mapOffset` / `mapRepeat`); `metallicFactor` and `roughnessFactor` default to 1 as in glTF; `emissiveFactor` (times the emissive strength) becomes `emissiveColor`, and its largest component `emissive` for classic shading; metallic-roughness, normal, occlusion and emissive textures become the [material maps](#material-maps) (`TEXCOORD_0` only; all textures of a material share one uv transform, others are ignored with a warning). `alphaMode: 'MASK'` sets `alphaTest` to `alphaCutoff` (default 0.5), `'BLEND'` keeps the color alpha and `'OPAQUE'` forces color alpha 1. Images used by several materials are decoded once.
-- **Ignored.** Samplers (textures always repeat with linear filtering). With a warning: texture transform rotation, textures on `TEXCOORD_1` or higher, skins (meshes render in their bind pose), morph targets (and their weight animations), cameras and other extensions. A model that lists an unsupported extension in `extensionsRequired` is rejected with `loadGltf: extension X is required but not supported`.
+- **Ignored.** Samplers (textures always repeat with linear filtering). With a warning: texture transform rotation, textures on `TEXCOORD_1` or higher, morph targets (and their weight animations), cameras and other extensions. A model that lists an unsupported extension in `extensionsRequired` is rejected with `loadGltf: extension X is required but not supported`.
 - **Limits.** One load creates at most `GLTF_MAX_VERTICES` (8,388,608) vertices and `GLTF_MAX_INDICES` (67,108,864) indices. All objects share one geometry buffer, so several large models can still exceed the GPU's buffer limit. Textures follow the texture limits above.
 - **Errors.** Error messages start with `loadGltf:`. On any failure, including an abort, the objects and textures created so far are removed.
 - All objects of one model use the model origin as pivot, so applying the same `position` / `rotation` with `setObjectTransform` to each of `result.objects` moves the model as a whole.
@@ -180,13 +180,14 @@ anim.seek(0.75);                              // deterministic pose, e.g. for te
 sdk.disposeGltf(arm);                         // also stops its animators
 ```
 
-Phase 1 plays node keyframe animations: `translation`, `rotation` and `scale` channels with `LINEAR` (rotations slerp along the shortest path), `STEP` and `CUBICSPLINE` samplers (glTF tangent layout; rotations normalized). Float and normalized-integer keys (`KHR_mesh_quantization`) are read. Skins and morph-target `weights` channels are ignored with a warning, as are channels on nodes given by a `matrix`.
+Phase 1 plays node keyframe animations: `translation`, `rotation` and `scale` channels with `LINEAR` (rotations slerp along the shortest path), `STEP` and `CUBICSPLINE` samplers (glTF tangent layout; rotations normalized). Float and normalized-integer keys (`KHR_mesh_quantization`) are read. Skinned meshes follow their joints ([skinning](#gltf-skinning)). Morph-target `weights` channels are ignored with a warning, as are channels on nodes given by a `matrix`.
 
 | Method | Returns | Description |
 | --- | --- | --- |
 | `playGltfAnimation(model, clip, options?)` | `GltfAnimator` | Play clip `clip` (index or name) on the model's default animator (created on first use; later calls switch the clip) |
 | `createGltfAnimator(model, { autoUpdate? })` | `GltfAnimator` | A separate animator. `autoUpdate: false` never advances on its own |
 | `supportsMeshMatrices` | `boolean` | False on engines without mesh matrices: models load baked and `animations` is empty |
+| `supportsSkinning` | `boolean` | False on engines without skinning: skinned meshes load baked in their bind pose |
 
 | `GltfAnimator` | Description |
 | --- | --- |
@@ -202,6 +203,22 @@ Phase 1 plays node keyframe animations: `translation`, `rotation` and `scale` ch
 - **Cost.** Each pose change evaluates the rig in JavaScript and sends all animated objects' matrices in one engine call (`setObjectMeshMatrices`). Picking keeps its local-space BVH (nothing is rebuilt) and geometry is never re-uploaded; shadows and bounds follow the new matrices. About 200 animated nodes take roughly 0.15 ms per update for the pose.
 - **Export.** `exportScene()` stores the current pose baked into the custom mesh vertices; clips are not exported, and a reloaded scene is static.
 - **Errors.** Animator methods throw `GltfAnimator...` errors for unknown clips, non-finite times or speeds, weights outside 0..1 and calls after `dispose()`. Invalid samplers (unknown interpolation, decreasing times, wrong key counts) skip their channels with a warning; the clip keeps its index.
+
+#### Skinning {#gltf-skinning}
+
+```ts
+const fox = await sdk.loadGltf('/models/fox.glb', { scale: 0.1 });
+sdk.playGltfAnimation(fox, 'run');            // skins follow their joints
+```
+
+Skinned meshes (`skins` with `JOINTS_0` / `WEIGHTS_0`) load as skinned custom meshes and the animator poses them through their joints, together with any rigid animated nodes.
+
+- **Format.** Joints `UNSIGNED_BYTE` or `UNSIGNED_SHORT`; weights `FLOAT`, normalized `UNSIGNED_BYTE` or normalized `UNSIGNED_SHORT`. Weights are renormalized per vertex (all-zero weights keep the bind pose). `inverseBindMatrices` default to identity; up to 65,536 joints per skin. As glTF specifies, the skinned mesh's own node transform is ignored: the joints place it.
+- **Limits.** Four influences per vertex: `JOINTS_1` / `WEIGHTS_1` are ignored with a warning. Primitives of a skinned mesh without `JOINTS_0` and `WEIGHTS_0` are drawn rigidly with a warning. A skin whose joints are not all in the loaded scene renders its meshes in the bind pose with a warning. Morph targets are still not supported. With `animations: false` skinned meshes still load skinned, posed by the rest pose of their joints. On an engine without skinning (`supportsSkinning` false) they are baked in the bind pose with a warning, as before.
+- **How it works.** Skinning runs on the CPU in the engine (linear blend skinning; normals use the cofactor matrix), not in a shader. Each pose update the animator computes every skin's joint palette in JavaScript (load `scale` × joint world × inverse bind matrix, 16 floats per joint, column-major) and sends all of them in one engine call (`setObjectJointMatrices`); the engine re-skins those meshes and uploads only their vertex ranges. No pipeline or shader changes, so skinned meshes render, cast and receive shadows and use the PBR features like any custom mesh, identically on WebGPU and WebGL2, and unskinned objects are unaffected.
+- **Bounds and picking.** Object bounds, shadow fitting and the outline follow the posed vertices. Picking tests the posed triangles directly after the bounding-box test (skinned meshes skip the BVH, so nothing is rebuilt per frame). `bounds` in the load result is the rest pose.
+- **Cost.** The re-skin is linear in vertex count: about 0.2 ms native and 0.4 to 0.6 ms in the browser per update for a 10,000-vertex mesh with 48 joints (palette included). `exportScene()` stores the current pose.
+- **Low level.** `setObjectSkin(id, { joints, weights, jointCount } | null)` skins any custom mesh (4 joints and 4 weights per vertex) and `setObjectJointMatrices(ids, jointCounts, matrices)` sets palettes in object-local space for several meshes at once.
 
 ### Editing objects
 

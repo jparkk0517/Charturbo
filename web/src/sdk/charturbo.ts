@@ -1893,6 +1893,12 @@ export interface WasmCharturboEngineBackend
   set_object_angular_velocity?(objectId: number, wx: number, wy: number, wz: number): boolean;
   set_object_parent?(objectId: number, parentId: number): boolean;
   set_object_mesh_matrices?(ids: Uint32Array, matrices: Float32Array): number;
+  /** 4 joints + 4 weights per vertex; empty arrays remove the skin. Throws on bad lengths / indices */
+  set_object_skin?(objectId: number, joints: Uint16Array, weights: Float32Array, jointCount: number): boolean;
+  /** Object `k` takes `counts[k]` joint matrices (16 floats each) from `matrices`; returns re-skinned count */
+  set_object_joint_matrices?(ids: Uint32Array, counts: Uint32Array, matrices: Float32Array): number;
+  /** Posed positions + normals (6 floats per vertex); empty when not skinned */
+  get_object_skinned_vertices?(objectId: number): Float32Array;
   set_scene_lighting?(
     ambientIntensity: number,
     dirX: number,
@@ -3028,9 +3034,22 @@ function lineSeriesOfId(meta: LineChartMeta, id: number): number {
 }
 
 /** A custom record's mesh for `exportScene`: the mesh matrix (current animation pose) baked in. */
-function exportedCustomMesh(rec: SceneObjectRecord): { positions: number[]; normals: number[]; indices: number[] } {
+function exportedCustomMesh(
+  rec: SceneObjectRecord,
+  skinned: Float32Array | null = null
+): { positions: number[]; normals: number[]; indices: number[] } {
   const mesh = rec.customMesh;
   if (!mesh) return { positions: [], normals: [], indices: [] };
+  if (skinned && skinned.length === mesh.positions.length * 2) {
+    // Skinned meshes export their current pose (they never carry a mesh matrix)
+    const positions: number[] = [];
+    const normals: number[] = [];
+    for (let i = 0; i < skinned.length; i += 6) {
+      positions.push(skinned[i], skinned[i + 1], skinned[i + 2]);
+      normals.push(skinned[i + 3], skinned[i + 4], skinned[i + 5]);
+    }
+    return { positions, normals, indices: mesh.indices };
+  }
   if (!rec.meshMatrix) return { positions: mesh.positions, normals: mesh.normals, indices: mesh.indices };
   const normals = mesh.normals.length === mesh.positions.length ? Float32Array.from(mesh.normals) : null;
   const baked = bakeTransform(Float32Array.from(mesh.positions), normals, Uint32Array.from(mesh.indices), Float64Array.from(rec.meshMatrix));
@@ -3217,6 +3236,8 @@ export class Charturbo {
   private disposed = false;
   private forceOptions: ForceOptions = { ...DEFAULT_SDK_FORCE_OPTIONS };
   private objectRecords = new Map<number, SceneObjectRecord>();
+  /** Custom meshes with a skin (`setObjectSkin`); exported in their current pose */
+  private skinnedObjects = new Set<number>();
   private textureRecords = new Map<number, TextureRecord>();
   /** Live glTF animators (advanced in `render()`) and the `playGltfAnimation` one per model */
   private gltfAnimators = new Set<GltfAnimator>();
@@ -5823,6 +5844,55 @@ export class Charturbo {
     return true;
   }
 
+  /** True when the engine supports CPU-skinned custom meshes (`setObjectSkin`, glTF skins). */
+  get supportsSkinning(): boolean {
+    return typeof this.backend.set_object_skin === 'function' && typeof this.backend.set_object_joint_matrices === 'function';
+  }
+
+  /**
+   * Makes a custom mesh skinned (linear-blend skinning on the CPU, 4 influences per vertex):
+   * `joints` / `weights` hold 4 entries per vertex (weights are normalized; all-zero weights keep
+   * the bind pose) and `jointCount` is the palette size. The mesh shows its bind pose until
+   * `setObjectJointMatrices`. `null` removes the skin. Returns false when the object is missing,
+   * is not a custom mesh, or the engine has no skinning support; throws on mismatched lengths or a
+   * joint index >= `jointCount`.
+   */
+  setObjectSkin(
+    objectId: number,
+    skin: { joints: ArrayLike<number>; weights: ArrayLike<number>; jointCount: number } | null
+  ): boolean {
+    if (!this.backend.set_object_skin) return false;
+    const joints = skin ? (skin.joints instanceof Uint16Array ? skin.joints : Uint16Array.from(skin.joints)) : new Uint16Array(0);
+    const weights = skin ? (skin.weights instanceof Float32Array ? skin.weights : Float32Array.from(skin.weights)) : new Float32Array(0);
+    const ok = this.backend.set_object_skin(objectId, joints, weights, skin ? skin.jointCount : 0);
+    if (ok && skin) this.skinnedObjects.add(objectId);
+    else this.skinnedObjects.delete(objectId);
+    return ok;
+  }
+
+  /**
+   * Poses several skinned objects in one engine call: object `k` takes `jointCounts[k]` joint
+   * matrices (16 column-major floats each, in the object's local space: joint world x inverse
+   * bind matrix) from `matrices`, in order. Objects whose count differs from their skin's joint
+   * count, unknown or unskinned ids, and non-finite matrices are skipped. Returns the number of
+   * re-skinned objects (0 without skinning support).
+   */
+  setObjectJointMatrices(ids: ArrayLike<number>, jointCounts: ArrayLike<number>, matrices: ArrayLike<number>): number {
+    if (!this.backend.set_object_joint_matrices) return 0;
+    const idArr = ids instanceof Uint32Array ? ids : Uint32Array.from(ids);
+    const countArr = jointCounts instanceof Uint32Array ? jointCounts : Uint32Array.from(jointCounts);
+    if (countArr.length !== idArr.length) throw new Error('setObjectJointMatrices: need one joint count per id');
+    const matArr = matrices instanceof Float32Array ? matrices : Float32Array.from(matrices);
+    return this.backend.set_object_joint_matrices(idArr, countArr, matArr);
+  }
+
+  /** Posed positions + normals of a skinned object (6 floats per vertex), or null when not skinned */
+  private skinnedVertices(objectId: number): Float32Array | null {
+    if (!this.skinnedObjects.has(objectId)) return null;
+    const v = this.backend.get_object_skinned_vertices?.(objectId);
+    return v && v.length > 0 ? v : null;
+  }
+
   /** Largest texture edge in texels the GPU allows (capped at 4096); 0 when the engine has no texture support. */
   get maxTextureSize(): number {
     return this.backend.max_texture_size?.() ?? 0;
@@ -6465,6 +6535,7 @@ export class Charturbo {
 
   removeObject(objectId: number): boolean {
     this.objectRecords.delete(objectId);
+    this.skinnedObjects.delete(objectId);
     return this.backend.remove_object?.(objectId) ?? true;
   }
 
@@ -6479,8 +6550,10 @@ export class Charturbo {
    *
    * Node translation / rotation / scale animations are kept: meshes under animated nodes stay in
    * node-local space with a mesh matrix (rest pose until played), `result.animations` lists the
-   * clips and `playGltfAnimation` / `createGltfAnimator` play them. Skins and morph targets are
-   * ignored with a warning.
+   * clips and `playGltfAnimation` / `createGltfAnimator` play them. Skins (`JOINTS_0` /
+   * `WEIGHTS_0`, 4 influences per vertex) are kept too: skinned meshes stay in bind space and the
+   * engine skins them on the CPU from a joint palette the animator updates (rest pose without a
+   * clip). Morph targets are ignored with a warning.
    */
   async loadGltf(source: GltfSource, options: GltfLoadOptions = {}): Promise<GltfLoadResult> {
     if (this.disposed) throw new Error('loadGltf: Charturbo is disposed');
@@ -8048,6 +8121,7 @@ export class Charturbo {
     for (const animator of [...this.gltfAnimators]) animator.dispose();
     this.chartDecalSwatch = null;
     this.objectRecords.clear();
+    this.skinnedObjects.clear();
     this.backend.clear_scene_objects?.();
     this.exitChartMode();
     this.overviewDistance = null;
@@ -8524,7 +8598,7 @@ export class Charturbo {
           ...this.exportObjectMap(rec),
         };
       }
-      const mesh = exportedCustomMesh(rec);
+      const mesh = exportedCustomMesh(rec, this.skinnedVertices(rec.id));
       return {
         kind: 'custom' as const,
         name: rec.name,

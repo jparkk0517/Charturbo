@@ -30,6 +30,7 @@ mod lib_texture;
 mod lib_shading;
 mod lib_shadows;
 mod lib_mesh_matrix;
+mod lib_skin;
 mod lib_point_lights;
 mod lib_post;
 mod lib_antialias;

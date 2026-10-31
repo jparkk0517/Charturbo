@@ -491,6 +491,9 @@ impl VisualizationEngine {
             if let Some((vertices, indices)) = packed.geometry {
                 self.renderer.sync_scene_geometry(vertices, indices);
             }
+            if let Some((vertices, ranges)) = packed.vertex_updates {
+                self.renderer.sync_scene_vertex_ranges(vertices, ranges);
+            }
             self.renderer.sync_scene_instances(packed.instances, packed.draws);
             self.renderer.sync_helper_lines(packed.helper_lines);
             self.scene_pack_key = Some(scene_key);
@@ -1659,6 +1662,10 @@ mod tests {
             self.0.borrow_mut().sync_scene_geometry(vertices, indices);
         }
 
+        fn sync_scene_vertex_ranges(&mut self, vertices: &[crate::renderer::MeshVertexRaw], ranges: &[(u32, u32)]) {
+            self.0.borrow_mut().sync_scene_vertex_ranges(vertices, ranges);
+        }
+
         fn sync_scene_instances(
             &mut self,
             instances: &[crate::renderer::MeshInstanceRaw],
@@ -2370,5 +2377,38 @@ mod tests {
         assert_eq!(state.synced_draws[0].index_count, 36);
         assert_eq!(state.geometry_uploads, 1);
         assert!(state.synced_helper_line_count > 10); // Grid + Axes + hover wireframe
+    }
+
+    #[test]
+    fn engine_uploads_only_reskinned_vertex_ranges() {
+        use crate::scene::BodyType;
+        use glam::Mat4;
+
+        let ds = GraphDataset::default_empty();
+        let sim = Box::new(ForceDirectedSimulator::new(
+            OctreeSpatialIndex::default(),
+            ForceConfig::default(),
+        ));
+        let cam = OrbitCamera::new(100.0, 1.0);
+        let mock_state = Rc::new(RefCell::new(MockRenderBackend::default()));
+        let renderer = Box::new(SharedMockRenderer(Rc::clone(&mock_state)));
+        let mut engine = VisualizationEngine::new(ds, sim, cam, renderer);
+        let positions = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let id = engine
+            .scene_mut()
+            .add_custom_mesh(&positions, &[], &[0, 1, 2], Vec3::ZERO, Vec3::ONE, [1.0; 4], BodyType::Static)
+            .unwrap();
+        let joints = [0u16; 12];
+        let weights = [1.0, 0.0, 0.0, 0.0].repeat(3);
+        engine.scene_mut().set_object_skin(id, &joints, &weights, 1).unwrap();
+        engine.sync_and_render();
+        let lift = Mat4::from_translation(Vec3::Z).to_cols_array();
+        assert_eq!(engine.scene_mut().set_object_joint_matrices(&[id], &[1], &lift), 1);
+        engine.sync_and_render();
+        engine.sync_and_render();
+        let state = mock_state.borrow();
+        assert_eq!(state.geometry_uploads, 1, "a pose change does not re-upload the whole geometry");
+        let n = state.synced_mesh_vertex_count as u32;
+        assert_eq!(state.vertex_range_uploads, vec![(n - 3, n)]);
     }
 }

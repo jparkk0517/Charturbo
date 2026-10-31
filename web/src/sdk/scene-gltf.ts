@@ -1,11 +1,14 @@
 // glTF 2.0 loader for the 3D scene: parses .gltf (JSON) and .glb (binary) files, bakes the node
 // hierarchy into custom meshes and maps pbrMetallicRoughness materials onto the engine material.
 // Animated subtrees are not baked: their meshes stay node-local and get a mesh matrix that
-// `GltfAnimator` (scene-gltf-anim.ts) recomputes from the keyframes.
+// `GltfAnimator` (scene-gltf-anim.ts) recomputes from the keyframes. Skinned meshes stay in bind
+// space (their node transform is ignored, per the spec) and the engine skins them on the CPU with
+// a joint palette the animator recomputes.
 
 import type { CustomMeshObjectDescriptor, LoadTextureOptions, Vec2Tuple, Vec3Tuple } from './charturbo';
 import type { RgbaTuple } from './color';
-import type { GltfAnimationInfo, GltfAnimationPath, GltfChannel, GltfClip, GltfInterpolation, GltfRig, GltfSampler } from './scene-gltf-anim';
+import type { GltfAnimationInfo, GltfAnimationPath, GltfChannel, GltfClip, GltfInterpolation, GltfRig, GltfRigSkin, GltfSampler } from './scene-gltf-anim';
+import { computeJointMatrices, skinPositions } from './scene-gltf-anim';
 
 /** Model sources `loadGltf` reads (strings and `URL`s are fetched). */
 export type GltfSource = string | URL | ArrayBuffer | Uint8Array | Blob;
@@ -62,6 +65,10 @@ export interface GltfHost {
   /** True when the engine supports per-object mesh matrices (needed for animations) */
   readonly supportsMeshMatrices?: boolean;
   setObjectMeshMatrices?(ids: Uint32Array, matrices: Float32Array): boolean;
+  /** True when the engine skins custom meshes (needed for glTF skins) */
+  readonly supportsSkinning?: boolean;
+  setObjectSkin?(objectId: number, skin: { joints: Uint16Array; weights: Float32Array; jointCount: number } | null): boolean;
+  setObjectJointMatrices?(ids: Uint32Array, jointCounts: Uint32Array, matrices: Float32Array): number;
 }
 
 /** Animation rigs of loaded models (`createGltfAnimator` looks them up). */
@@ -162,6 +169,13 @@ interface GltfAnimationJson {
   samplers?: { input: number; output: number; interpolation?: string }[];
 }
 
+interface GltfSkinJson {
+  joints?: number[];
+  inverseBindMatrices?: number;
+  /** Informational (the joint hierarchy root); not needed for skinning */
+  skeleton?: number;
+}
+
 interface GltfJson {
   asset?: { version?: string };
   extensionsUsed?: string[];
@@ -177,7 +191,7 @@ interface GltfJson {
   textures?: { source?: number; sampler?: number }[];
   images?: { uri?: string; bufferView?: number; mimeType?: string }[];
   animations?: GltfAnimationJson[];
-  skins?: unknown[];
+  skins?: GltfSkinJson[];
   cameras?: unknown[];
 }
 
@@ -230,6 +244,17 @@ interface PreparedMesh {
   matrix: Mat4 | null;
   /** Rig node of a node-local mesh */
   rigNode: number;
+  /** Joints / weights (4 per vertex) of a bind-space skinned mesh and its skin slot; null = rigid */
+  skin: { slot: number; joints: Uint16Array; weights: Float32Array } | null;
+  /** Rest-pose positions for the load bounds when they differ from the vertices (skinned meshes) */
+  bounds: Float32Array | null;
+}
+
+/** A skin some loaded mesh uses: joints as visit indices, its inverse bind matrices accessor. */
+interface SkinRef {
+  slot: number;
+  joints: Int32Array;
+  inverseBindAccessor: number | undefined;
 }
 
 type Mat4 = Float64Array;
@@ -448,10 +473,12 @@ class GltfLoader {
     const animate = wantAnimations && this.host.supportsMeshMatrices === true && typeof this.host.setObjectMeshMatrices === 'function';
     if (wantAnimations && !animate) this.warn('animations', 'animations are not supported and are ignored');
     if (json.cameras?.length) this.warn('cameras', 'cameras are not supported and are ignored');
+    const skinning =
+      this.host.supportsSkinning === true && typeof this.host.setObjectSkin === 'function' && typeof this.host.setObjectJointMatrices === 'function';
 
     // Scene graph: world matrices of every node with a mesh
     const nodes: GltfNodeResult[] = [];
-    const jobs: { node: GltfNodeResult; world: Mat4; mesh: number; visit: number }[] = [];
+    const jobs: { node: GltfNodeResult; world: Mat4; mesh: number; visit: number; skin: number | undefined }[] = [];
     const visited = new Map<number, number>();
     const order: VisitedNode[] = [];
     const visit = (index: number, parent: number) => {
@@ -464,14 +491,35 @@ class GltfLoader {
       order.push({ node, index, parent, world });
       const entry: GltfNodeResult = { index, name: node.name ?? null, objectIds: [] };
       nodes.push(entry);
-      if (node.skin !== undefined) this.warn('skins', 'skins are not supported; skinned meshes render in their bind pose');
-      if (node.mesh !== undefined) jobs.push({ node: entry, world, mesh: node.mesh, visit: self });
+      if (node.skin !== undefined && !skinning) this.warn('skins', 'skins are not supported; skinned meshes render in their bind pose');
+      if (node.mesh !== undefined) jobs.push({ node: entry, world, mesh: node.mesh, visit: self, skin: skinning ? node.skin : undefined });
       for (const child of node.children ?? []) visit(child, self);
     };
     for (const root of this.sceneRoots(options.scene)) visit(root, -1);
 
+    // Skins of the loaded meshes (null: unusable, the mesh is baked in its bind pose)
+    const skinRefs = new Map<number, SkinRef | null>();
+    let skinSlots = 0;
+    for (const job of jobs) {
+      if (job.skin === undefined || skinRefs.has(job.skin)) continue;
+      const ref = this.skinRef(job.skin, visited, skinSlots);
+      if (ref) skinSlots++;
+      skinRefs.set(job.skin, ref);
+    }
+    const skinRefOf = (job: (typeof jobs)[number]) => (job.skin !== undefined ? (skinRefs.get(job.skin) ?? null) : null);
+    const skinAccessors: number[] = [];
+    for (const ref of skinRefs.values()) if (ref?.inverseBindAccessor !== undefined) skinAccessors.push(ref.inverseBindAccessor);
+    for (const job of jobs) {
+      if (!skinRefOf(job)) continue;
+      for (const prim of json.meshes?.[job.mesh]?.primitives ?? []) {
+        const { JOINTS_0, WEIGHTS_0 } = prim.attributes ?? {};
+        if (JOINTS_0 !== undefined) skinAccessors.push(JOINTS_0);
+        if (WEIGHTS_0 !== undefined) skinAccessors.push(WEIGHTS_0);
+      }
+    }
+
     // Geometry and keyframes first (synchronous parse errors happen before anything is created)
-    await this.loadBuffers(jobs.map((j) => j.mesh), animate ? this.animationAccessors(visited) : []);
+    await this.loadBuffers(jobs.map((j) => j.mesh), [...(animate ? this.animationAccessors(visited) : []), ...skinAccessors]);
     const clips = animate ? this.parseAnimations(visited, order) : [];
     // Dynamic = animated or below an animated node (parents are visited first)
     const animated = new Set(clips.flatMap((c) => c.channels.map((ch) => ch.node)));
@@ -480,9 +528,41 @@ class GltfLoader {
       dynamic[i] = animated.has(i) || (v.parent >= 0 && dynamic[v.parent]) ? 1 : 0;
     });
     const base = scaleMatrix(scale);
+    // Skins in slot order, with their rest palettes (joint worlds of the unanimated scene)
+    const restWorld = new Float64Array(order.length * 16);
+    order.forEach((v, i) => restWorld.set(v.world, i * 16));
+    const skins: GltfRigSkin[] = [];
+    const restPalettes: Float32Array[] = [];
+    for (const ref of skinRefs.values()) {
+      if (!ref) continue;
+      const skin = { joints: ref.joints, inverseBind: this.inverseBindMatrices(ref) };
+      const palette = new Float32Array(ref.joints.length * 16);
+      computeJointMatrices(skin, base, restWorld, palette, 0);
+      skins.push(skin);
+      restPalettes.push(palette);
+    }
+    const mirrored = scale[0] * scale[1] * scale[2] < 0;
     const meshes: PreparedMesh[] = [];
     for (const job of jobs) {
-      if (dynamic[job.visit]) {
+      const ref = skinRefOf(job);
+      if (ref) {
+        // Bind-space vertices (the node transform is ignored); primitives without joints are rigid
+        for (const m of this.prepareMesh(job.mesh, identity(), job.node, ref)) {
+          if (m.skin) {
+            if (mirrored) flipWinding(m.indices);
+            m.bounds = skinPositions(m.positions, m.skin.joints, m.skin.weights, restPalettes[m.skin.slot]);
+          } else if (dynamic[job.visit]) {
+            m.matrix = multiply(base, job.world);
+            m.rigNode = job.visit;
+          } else {
+            const baked = bakeTransform(m.positions, m.normals, m.indices, multiply(base, job.world));
+            m.positions = baked.positions;
+            m.normals = baked.normals;
+            m.indices = baked.indices;
+          }
+          meshes.push(m);
+        }
+      } else if (dynamic[job.visit]) {
         // Node-local vertices; the animator moves them with the mesh matrix
         const local = this.prepareMesh(job.mesh, identity(), job.node);
         const matrix = multiply(base, job.world);
@@ -509,6 +589,7 @@ class GltfLoader {
 
     // Objects
     const dynamicObjects: { id: number; mesh: PreparedMesh }[] = [];
+    const skinnedObjects: { id: number; slot: number }[] = [];
     const position: Vec3Tuple = options.position ? [...options.position] : [0, 0, 0];
     const rotation: Vec3Tuple = options.rotation ? [...options.rotation] : [0, 0, 0];
     for (const mesh of meshes) {
@@ -545,15 +626,34 @@ class GltfLoader {
       created.objects.push(id);
       mesh.node.objectIds.push(id);
       if (mesh.matrix) dynamicObjects.push({ id, mesh });
+      if (mesh.skin) {
+        const { slot, joints, weights } = mesh.skin;
+        if (!this.host.setObjectSkin!(id, { joints, weights, jointCount: skins[slot].joints.length })) {
+          throw new Error('loadGltf: the engine could not skin a mesh');
+        }
+        skinnedObjects.push({ id, slot });
+      }
     }
 
     let rig: GltfRig | null = null;
-    if (dynamicObjects.length > 0) {
-      rig = buildRig(order, dynamic, base, clips, dynamicObjects);
-      // Rest pose (the vertices are node-local until the first mesh matrix lands)
-      const mats = new Float32Array(dynamicObjects.length * 16);
-      dynamicObjects.forEach((d, k) => mats.set(d.mesh.matrix!, k * 16));
-      this.host.setObjectMeshMatrices!(rig.targets.ids, mats);
+    if (dynamicObjects.length > 0 || skinnedObjects.length > 0) {
+      rig = buildRig(order, dynamic, base, clips, dynamicObjects, skins, skinnedObjects);
+      // Rest pose (the vertices are node-local / bind-space until the first matrices land)
+      if (dynamicObjects.length > 0) {
+        const mats = new Float32Array(dynamicObjects.length * 16);
+        dynamicObjects.forEach((d, k) => mats.set(d.mesh.matrix!, k * 16));
+        this.host.setObjectMeshMatrices!(rig.targets.ids, mats);
+      }
+      if (skinnedObjects.length > 0) {
+        const counts = Uint32Array.from(skinnedObjects, (o) => skins[o.slot].joints.length);
+        const mats = new Float32Array(counts.reduce((a, c) => a + c, 0) * 16);
+        let o = 0;
+        for (const obj of skinnedObjects) {
+          mats.set(restPalettes[obj.slot], o);
+          o += restPalettes[obj.slot].length;
+        }
+        this.host.setObjectJointMatrices!(rig.skinTargets.ids, counts, mats);
+      }
     }
 
     const result: GltfLoadResult = {
@@ -566,6 +666,89 @@ class GltfLoader {
     if (rig) rigs.set(result, rig);
     else if (clips.length > 0) rigs.set(result, { ...emptyRig(), clips });
     return result;
+  }
+
+  /** A skin's joints as visit indices; null (with a warning) when a joint is outside the loaded scene. */
+  private skinRef(index: number, visited: Map<number, number>, slot: number): SkinRef | null {
+    const skin = this.json.skins?.[index];
+    if (!skin) throw new Error(`loadGltf: skin ${index} does not exist`);
+    const joints = skin.joints ?? [];
+    if (joints.length === 0 || joints.length > 65_536) throw new Error(`loadGltf: skin ${index} must have 1 to 65536 joints`);
+    const out = new Int32Array(joints.length);
+    for (let j = 0; j < joints.length; j++) {
+      const v = Number.isInteger(joints[j]) ? visited.get(joints[j]) : undefined;
+      if (v === undefined) {
+        this.warn(`skin-${index}`, `skin ${index} uses joints outside the loaded scene; its meshes render in their bind pose`);
+        return null;
+      }
+      out[j] = v;
+    }
+    return { slot, joints: out, inverseBindAccessor: skin.inverseBindMatrices };
+  }
+
+  /** 16 floats per joint (identity without an accessor). */
+  private inverseBindMatrices(ref: SkinRef): Float32Array {
+    const n = ref.joints.length;
+    if (ref.inverseBindAccessor === undefined) {
+      const out = new Float32Array(n * 16);
+      for (let j = 0; j < n; j++) for (let c = 0; c < 16; c += 5) out[j * 16 + c] = 1;
+      return out;
+    }
+    const a = this.readAccessor(ref.inverseBindAccessor, 'float');
+    if (a.size !== 16 || a.count < n) {
+      throw new Error(`loadGltf: inverseBindMatrices accessor ${ref.inverseBindAccessor} must be MAT4 with ${n} elements`);
+    }
+    return (a.values as Float32Array).subarray(0, n * 16);
+  }
+
+  /** JOINTS_0 (unsigned byte / short) and WEIGHTS_0 (float, unorm byte / short) of a skinned primitive. */
+  private skinAttributes(
+    attributes: Record<string, number>,
+    count: number,
+    ref: SkinRef,
+    where: string
+  ): { slot: number; joints: Uint16Array; weights: Float32Array } | null {
+    if (attributes.JOINTS_1 !== undefined || attributes.WEIGHTS_1 !== undefined) {
+      this.warn('skin-influences', 'only the first 4 joint influences per vertex (JOINTS_0 / WEIGHTS_0) are used');
+    }
+    const ji = attributes.JOINTS_0;
+    const wi = attributes.WEIGHTS_0;
+    if (ji === undefined || wi === undefined) {
+      this.warn('skin-attributes', 'skinned primitives without JOINTS_0 and WEIGHTS_0 are not skinned');
+      return null;
+    }
+    const jacc = this.json.accessors?.[ji];
+    if (jacc && jacc.componentType !== 5121 && jacc.componentType !== 5123) {
+      throw new Error(`loadGltf: JOINTS_0 accessor ${ji} must be unsigned byte or short`);
+    }
+    const wacc = this.json.accessors?.[wi];
+    if (wacc && wacc.componentType !== 5126 && wacc.componentType !== 5121 && wacc.componentType !== 5123) {
+      throw new Error(`loadGltf: WEIGHTS_0 accessor ${wi} must be float or unsigned byte / short`);
+    }
+    const j = this.readAccessor(ji, 'index');
+    if (j.size !== 4) throw new Error(`loadGltf: JOINTS_0 accessor ${ji} must be VEC4`);
+    if (j.count !== count) throw new Error(`loadGltf: JOINTS_0 accessor ${ji} has ${j.count} elements, POSITION has ${count}`);
+    const weights = this.attribute(wi, 4, count, 'WEIGHTS_0');
+    const jointCount = ref.joints.length;
+    const joints = new Uint16Array(count * 4);
+    for (let v = 0; v < count; v++) {
+      // Normalized weights (unorm and float alike); unused influences point at joint 0
+      let sum = 0;
+      for (let k = 0; k < 4; k++) {
+        const w = weights[v * 4 + k];
+        if (!(w > 0 && Number.isFinite(w))) weights[v * 4 + k] = 0;
+        else sum += w;
+      }
+      for (let k = 0; k < 4; k++) {
+        const i = v * 4 + k;
+        if (sum > 1e-12) weights[i] /= sum;
+        else weights[i] = 0;
+        if (weights[i] === 0) continue;
+        if (j.values[i] >= jointCount) throw new Error(`loadGltf: ${where} joint index ${j.values[i]} is out of range (the skin has ${jointCount} joints)`);
+        joints[i] = j.values[i];
+      }
+    }
+    return { slot: ref.slot, joints, weights };
   }
 
   /** Sampler accessors of the channels that target loaded nodes. */
@@ -791,7 +974,7 @@ class GltfLoader {
 
   // ---- meshes -------------------------------------------------------------
 
-  private prepareMesh(meshIndex: number, matrix: Mat4, node: GltfNodeResult): PreparedMesh[] {
+  private prepareMesh(meshIndex: number, matrix: Mat4, node: GltfNodeResult, skin: SkinRef | null = null): PreparedMesh[] {
     const mesh = this.json.meshes?.[meshIndex];
     if (!mesh) throw new Error(`loadGltf: mesh ${meshIndex} does not exist`);
     const out: PreparedMesh[] = [];
@@ -837,6 +1020,7 @@ class GltfLoader {
         this.warn('no-uvs', 'textured primitives without TEXCOORD_0 render untextured');
         mat = { ...mat, image: null, maps: noMaps() };
       }
+      const skinData = skin ? this.skinAttributes(prim.attributes, count, skin, `mesh ${meshIndex} primitive ${p}`) : null;
       const baked = bakeTransform(pos.values as Float32Array, normals, indices, matrix);
       out.push({
         node,
@@ -848,6 +1032,8 @@ class GltfLoader {
         material: mat,
         matrix: null,
         rigNode: -1,
+        skin: skinData,
+        bounds: null,
       });
     });
     return out;
@@ -1108,7 +1294,7 @@ function worldBounds(meshes: PreparedMesh[], position: Vec3Tuple, rotation: Vec3
   const min: Vec3Tuple = [Infinity, Infinity, Infinity];
   const max: Vec3Tuple = [-Infinity, -Infinity, -Infinity];
   for (const mesh of meshes) {
-    const p = mesh.matrix ? bakeTransform(mesh.positions, null, new Uint32Array(0), mesh.matrix).positions : mesh.positions;
+    const p = mesh.bounds ?? (mesh.matrix ? bakeTransform(mesh.positions, null, new Uint32Array(0), mesh.matrix).positions : mesh.positions);
     for (let i = 0; i < p.length; i += 3) {
       for (let k = 0; k < 3; k++) {
         const v = r[k] * p[i] + r[3 + k] * p[i + 1] + r[6 + k] * p[i + 2] + position[k];
@@ -1208,8 +1394,19 @@ function emptyRig(): GltfRig {
     world: new Float64Array(0),
     base: identity(),
     targets: { ids: new Uint32Array(0), nodes: new Int32Array(0) },
+    skins: [],
+    skinTargets: { ids: new Uint32Array(0), skins: new Int32Array(0) },
     clips: [],
   };
+}
+
+/** Reverses the triangle winding in place (mirrored loader scale on bind-space skinned meshes). */
+function flipWinding(indices: Uint32Array): void {
+  for (let t = 0; t + 2 < indices.length; t += 3) {
+    const tmp = indices[t + 1];
+    indices[t + 1] = indices[t + 2];
+    indices[t + 2] = tmp;
+  }
 }
 
 function buildRig(
@@ -1217,7 +1414,9 @@ function buildRig(
   dynamic: Uint8Array,
   base: Mat4,
   clips: GltfClip[],
-  objects: { id: number; mesh: PreparedMesh }[]
+  objects: { id: number; mesh: PreparedMesh }[],
+  skins: GltfRigSkin[],
+  skinned: { id: number; slot: number }[]
 ): GltfRig {
   const n = order.length;
   const rig: GltfRig = {
@@ -1229,6 +1428,8 @@ function buildRig(
     world: new Float64Array(n * 16),
     base,
     targets: { ids: Uint32Array.from(objects.map((o) => o.id)), nodes: Int32Array.from(objects.map((o) => o.mesh.rigNode)) },
+    skins,
+    skinTargets: { ids: Uint32Array.from(skinned.map((o) => o.id)), skins: Int32Array.from(skinned.map((o) => o.slot)) },
     clips,
   };
   order.forEach((v, i) => {

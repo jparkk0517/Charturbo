@@ -164,7 +164,7 @@ sdk.disposeGltf(house);                      // 移除其对象和纹理
 
 - **支持。** 使用外部或 `data:` 缓冲区和图片的 `.gltf`，带二进制块的 `.glb`；所有访问器类型，包括交错（`byteStride`）、归一化、稀疏以及没有缓冲视图的访问器；三角形、三角形带和扇形（点和线会发出警告并跳过）。节点层级（TRS 或 `matrix`）烘焙进顶点，法线用逆转置矩阵变换，镜像节点翻转绕序；缺少法线时计算平滑法线。扩展 `KHR_texture_transform`、`KHR_mesh_quantization` 和 `KHR_materials_emissive_strength`。
 - **材质。** `baseColorFactor` 从线性空间转换到渲染器的伽马空间；`baseColorTexture` 成为 `map`（仅 `TEXCOORD_0`；`KHR_texture_transform` 的 offset 和 scale 成为 `mapOffset` / `mapRepeat`）；`metallicFactor` 和 `roughnessFactor` 与 glTF 一样默认为 1；`emissiveFactor`（乘以自发光强度）成为 `emissiveColor`，其最大分量作为经典着色用的 `emissive`；金属度-粗糙度、法线、遮蔽和自发光纹理成为[材质贴图](#material-maps)（仅 `TEXCOORD_0`；同一材质的纹理共用一个 uv 变换，其余的发出警告并忽略）。`alphaMode: 'MASK'` 将 `alphaTest` 设为 `alphaCutoff`（默认 0.5），`'BLEND'` 保留颜色 alpha，`'OPAQUE'` 将颜色 alpha 固定为 1。多个材质共用的图片只解码一次。
-- **忽略。** 采样器（纹理始终重复并线性过滤）。以下会发出警告并忽略：纹理变换的旋转，`TEXCOORD_1` 及以上的纹理，蒙皮（按绑定姿势渲染），变形目标（及其权重动画），相机以及其他扩展。若 `extensionsRequired` 中列出了不支持的扩展，则以 `loadGltf: extension X is required but not supported` 拒绝。
+- **忽略。** 采样器（纹理始终重复并线性过滤）。以下会发出警告并忽略：纹理变换的旋转，`TEXCOORD_1` 及以上的纹理，变形目标（及其权重动画），相机以及其他扩展。若 `extensionsRequired` 中列出了不支持的扩展，则以 `loadGltf: extension X is required but not supported` 拒绝。
 - **限制。** 单次加载最多创建 `GLTF_MAX_VERTICES`（8,388,608）个顶点和 `GLTF_MAX_INDICES`（67,108,864）个索引。所有对象共用一个几何缓冲区，因此多个大模型仍可能超出 GPU 缓冲区上限。纹理遵循上文的纹理限制。
 - **错误。** 错误信息以 `loadGltf:` 开头。任何失败（包括中止）都会移除已创建的对象和纹理。
 - 同一模型的所有对象都以模型原点为枢轴，因此对 `result.objects` 中的每个对象用相同的 `position` / `rotation` 调用 `setObjectTransform` 即可整体移动模型。
@@ -180,13 +180,14 @@ anim.seek(0.75);                              // 确定性的姿势（例如测�
 sdk.disposeGltf(arm);                         // 同时停止其动画器
 ```
 
-第一阶段播放节点关键帧动画：`translation`、`rotation` 和 `scale` 通道，采样器支持 `LINEAR`（旋转沿最短路径 slerp）、`STEP` 和 `CUBICSPLINE`（glTF 切线布局；旋转归一化）。读取浮点和归一化整数关键帧（`KHR_mesh_quantization`）。蒙皮、变形目标的 `weights` 通道以及用 `matrix` 指定的节点上的通道会发出警告并忽略。
+第一阶段播放节点关键帧动画：`translation`、`rotation` 和 `scale` 通道，采样器支持 `LINEAR`（旋转沿最短路径 slerp）、`STEP` 和 `CUBICSPLINE`（glTF 切线布局；旋转归一化）。读取浮点和归一化整数关键帧（`KHR_mesh_quantization`）。蒙皮网格跟随其关节（[蒙皮](#gltf-skinning)）。变形目标的 `weights` 通道以及用 `matrix` 指定的节点上的通道会发出警告并忽略。
 
 | 方法 | 返回值 | 说明 |
 | --- | --- | --- |
 | `playGltfAnimation(model, clip, options?)` | `GltfAnimator` | 在模型的默认动画器上播放片段 `clip`（索引或名称；首次调用时创建，之后的调用切换片段） |
 | `createGltfAnimator(model, { autoUpdate? })` | `GltfAnimator` | 单独的动画器。`autoUpdate: false` 时不会自行推进 |
 | `supportsMeshMatrices` | `boolean` | 在不支持网格矩阵的引擎上为 false：模型按烘焙方式加载，`animations` 为空 |
+| `supportsSkinning` | `boolean` | 在不支持蒙皮的引擎上为 false：蒙皮网格按绑定姿势烘焙加载 |
 
 | `GltfAnimator` | 说明 |
 | --- | --- |
@@ -202,6 +203,22 @@ sdk.disposeGltf(arm);                         // 同时停止其动画器
 - **开销。** 每次姿势变化在 JavaScript 中计算骨架，并通过一次引擎调用（`setObjectMeshMatrices`）发送所有动画对象的矩阵。拾取继续使用局部空间 BVH（不重建），几何也不会重新上传；阴影和包围盒跟随新矩阵。约 200 个动画节点的姿势计算每次更新约 0.15 毫秒。
 - **导出。** `exportScene()` 将当前姿势烘焙进自定义网格顶点；不导出片段，重新加载的场景是静态的。
 - **错误。** 对于不存在的片段、非有限的时间或速度、超出 0..1 的权重以及 `dispose()` 之后的调用，动画器方法会抛出 `GltfAnimator...` 错误。无效的采样器（未知插值、递减的时间、错误的关键帧数）会发出警告并跳过其通道；片段保留其索引。
+
+#### 蒙皮 {#gltf-skinning}
+
+```ts
+const fox = await sdk.loadGltf('/models/fox.glb', { scale: 0.1 });
+sdk.playGltfAnimation(fox, 'run');            // 蒙皮跟随关节
+```
+
+蒙皮网格（`skins` 及 `JOINTS_0` / `WEIGHTS_0`）加载为带蒙皮的自定义网格，动画器通过关节为其设置姿势，同时驱动刚性动画节点。
+
+- **格式。** 关节为 `UNSIGNED_BYTE` 或 `UNSIGNED_SHORT`；权重为 `FLOAT`、归一化 `UNSIGNED_BYTE` 或归一化 `UNSIGNED_SHORT`。权重按顶点重新归一化（全零权重保持绑定姿势）。`inverseBindMatrices` 默认为单位矩阵；每个蒙皮最多 65,536 个关节。按照 glTF 规范，蒙皮网格自身节点的变换被忽略，由关节决定其位置。
+- **限制。** 每个顶点 4 个影响：`JOINTS_1` / `WEIGHTS_1` 发出警告并忽略。蒙皮网格中没有 `JOINTS_0` 和 `WEIGHTS_0` 的图元发出警告并按刚性绘制。关节不全在已加载场景中的蒙皮发出警告并按绑定姿势渲染。仍不支持变形目标。`animations: false` 时蒙皮网格仍保留蒙皮，按关节的静止姿势渲染。引擎不支持蒙皮（`supportsSkinning` 为 false）时，蒙皮网格照旧发出警告并按绑定姿势烘焙。
+- **工作方式。** 蒙皮在引擎的 CPU 上执行（线性混合蒙皮；法线使用余子式矩阵），而不是在着色器中。每次姿势更新，动画器在 JavaScript 中计算所有蒙皮的关节调色板（加载时的 `scale` × 关节世界矩阵 × 逆绑定矩阵，每个关节 16 个列主序浮点数），并通过一次引擎调用（`setObjectJointMatrices`）发送；引擎重新蒙皮这些网格，只上传它们的顶点范围。管线和着色器不变，因此蒙皮网格与其他自定义网格一样投射和接收阴影、使用 PBR 功能，在 WebGPU 和 WebGL2 上渲染一致，未蒙皮的对象不受影响。
+- **包围盒与拾取。** 对象包围盒、阴影拟合和轮廓跟随设置姿势后的顶点。拾取在包围盒测试之后直接检测设置姿势后的三角形（蒙皮网格不使用 BVH，因此不会每帧重建）。加载结果中的 `bounds` 为静止姿势。
+- **开销。** 重新蒙皮的开销与顶点数成正比：10,000 个顶点、48 个关节的网格每次更新（含调色板）原生约 0.2 毫秒，浏览器中 0.4 到 0.6 毫秒。`exportScene()` 保存当前姿势。
+- **底层 API。** `setObjectSkin(id, { joints, weights, jointCount } | null)` 为任意自定义网格添加蒙皮（每个顶点 4 个关节和 4 个权重），`setObjectJointMatrices(ids, jointCounts, matrices)` 一次为多个网格设置对象局部空间的调色板。
 
 ### 编辑对象
 

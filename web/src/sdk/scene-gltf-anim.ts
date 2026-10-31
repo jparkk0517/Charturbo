@@ -1,7 +1,8 @@
-// glTF keyframe animation (node translation / rotation / scale; phase 1: no skinning, no morph
-// targets). The loader keeps animated subtrees as a rig: meshes under animated nodes stay in
-// node-local space and get a mesh matrix (glTF scale x node chain) that the animator recomputes
-// and pushes to the engine in one batched call per update.
+// glTF keyframe animation (node translation / rotation / scale) and skins (no morph targets).
+// The loader keeps animated subtrees as a rig: meshes under animated nodes stay in node-local
+// space and get a mesh matrix (glTF scale x node chain); skinned meshes stay in bind space and get
+// a joint palette (glTF scale x joint world x inverse bind matrix) that the engine skins on the
+// CPU. The animator recomputes both and pushes each to the engine in one batched call per update.
 
 /** Keyframe interpolation of a glTF animation sampler. */
 export type GltfInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
@@ -77,12 +78,25 @@ export interface GltfRig {
   base: Float64Array;
   /** Objects with a mesh matrix and their rig node */
   targets: { ids: Uint32Array; nodes: Int32Array };
+  /** Skins the loaded meshes use */
+  skins: GltfRigSkin[];
+  /** Skinned objects and their skin (index into `skins`) */
+  skinTargets: { ids: Uint32Array; skins: Int32Array };
   clips: GltfClip[];
 }
 
-/** The engine call the animator uses (`Charturbo.setObjectMeshMatrices`). */
+/** A glTF skin: its joints (rig nodes) and inverse bind matrices. */
+export interface GltfRigSkin {
+  /** Rig node per joint */
+  joints: Int32Array;
+  /** 16 column-major floats per joint (identity when the file has none) */
+  inverseBind: Float32Array;
+}
+
+/** The engine calls the animator uses (`Charturbo.setObjectMeshMatrices` / `setObjectJointMatrices`). */
 export interface GltfAnimationHost {
   setObjectMeshMatrices(ids: Uint32Array, matrices: Float32Array): boolean;
+  setObjectJointMatrices?(ids: Uint32Array, jointCounts: Uint32Array, matrices: Float32Array): number;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,23 +276,99 @@ function mul4(a: ArrayLike<number>, ao: number, b: ArrayLike<number>, bo: number
   }
 }
 
+/**
+ * Joint matrices of `skin` (object space of its skinned meshes): base x joint world x inverse
+ * bind matrix, 16 floats per joint into out[o..]. `world` holds 16 floats per rig node.
+ */
+export function computeJointMatrices(
+  skin: GltfRigSkin,
+  base: ArrayLike<number>,
+  world: ArrayLike<number>,
+  out: Float32Array,
+  o: number,
+  scratch: Float64Array = new Float64Array(16)
+): void {
+  const { joints, inverseBind } = skin;
+  for (let j = 0; j < joints.length; j++) {
+    mul4(base, 0, world, joints[j] * 16, scratch, 0);
+    mul4(scratch, 0, inverseBind, j * 16, out, o + j * 16);
+  }
+}
+
+/** Joint counts per skinned object of `rig` (the `setObjectJointMatrices` layout). */
+export function skinTargetJointCounts(rig: GltfRig): Uint32Array {
+  return Uint32Array.from(rig.skinTargets.skins, (s) => rig.skins[s].joints.length);
+}
+
+/**
+ * Linear-blend skinned positions (the engine's CPU skinning, used for bounds): `joints` /
+ * `weights` hold 4 per vertex, weights are normalized and all-zero weights keep the bind position.
+ */
+export function skinPositions(
+  positions: ArrayLike<number>,
+  joints: ArrayLike<number>,
+  weights: ArrayLike<number>,
+  palette: ArrayLike<number>
+): Float32Array {
+  const n = Math.floor(positions.length / 3);
+  const out = new Float32Array(n * 3);
+  for (let v = 0; v < n; v++) {
+    const x = positions[v * 3], y = positions[v * 3 + 1], z = positions[v * 3 + 2];
+    let sum = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = weights[v * 4 + k];
+      if (w > 0 && Number.isFinite(w)) sum += w;
+    }
+    if (!(sum > 1e-12)) {
+      out[v * 3] = x;
+      out[v * 3 + 1] = y;
+      out[v * 3 + 2] = z;
+      continue;
+    }
+    let ox = 0, oy = 0, oz = 0;
+    for (let k = 0; k < 4; k++) {
+      const w0 = weights[v * 4 + k];
+      if (!(w0 > 0 && Number.isFinite(w0))) continue;
+      const w = w0 / sum;
+      const m = joints[v * 4 + k] * 16;
+      ox += w * (palette[m] * x + palette[m + 4] * y + palette[m + 8] * z + palette[m + 12]);
+      oy += w * (palette[m + 1] * x + palette[m + 5] * y + palette[m + 9] * z + palette[m + 13]);
+      oz += w * (palette[m + 2] * x + palette[m + 6] * y + palette[m + 10] * z + palette[m + 14]);
+    }
+    out[v * 3] = ox;
+    out[v * 3 + 1] = oy;
+    out[v * 3 + 2] = oz;
+  }
+  return out;
+}
+
 /** Reusable buffers for evaluating one rig. */
 class RigPose {
   readonly trs: Float64Array;
   readonly world: Float64Array;
   readonly local = new Float64Array(16);
   readonly sample = new Float64Array(4);
+  readonly scratch = new Float64Array(16);
+  /** Mesh matrices of `rig.targets` (16 floats each) */
   readonly matrices: Float32Array;
+  /** Joint matrices of `rig.skinTargets`, back to back */
+  readonly jointMatrices: Float32Array;
+  readonly jointCounts: Uint32Array;
+  /** Palette of each skin (shared by its objects) */
+  private readonly palettes: Float32Array[];
 
   constructor(readonly rig: GltfRig) {
     const n = rig.parent.length;
     this.trs = new Float64Array(n * 10);
     this.world = Float64Array.from(rig.world);
     this.matrices = new Float32Array(rig.targets.ids.length * 16);
+    this.jointCounts = skinTargetJointCounts(rig);
+    this.jointMatrices = new Float32Array(this.jointCounts.reduce((a, c) => a + c, 0) * 16);
+    this.palettes = rig.skins.map((s) => new Float32Array(s.joints.length * 16));
   }
 
-  /** World matrices of the clip at `time` blended with the rest pose by `weight`; null = rest pose. */
-  evaluate(clip: GltfClip | null, time: number, weight: number): Float32Array {
+  /** Mesh and joint matrices of the clip at `time` blended with the rest pose by `weight` (null clip = rest pose). */
+  evaluate(clip: GltfClip | null, time: number, weight: number): void {
     const { rig, trs, world, local, sample } = this;
     trs.set(rig.rest);
     if (clip && weight > 0) {
@@ -306,7 +396,15 @@ class RigPose {
     }
     const { ids, nodes } = rig.targets;
     for (let k = 0; k < ids.length; k++) mul4(rig.base, 0, world, nodes[k] * 16, this.matrices, k * 16);
-    return this.matrices;
+    const skins = rig.skinTargets.skins;
+    if (skins.length === 0) return;
+    rig.skins.forEach((skin, s) => computeJointMatrices(skin, rig.base, world, this.palettes[s], 0, this.scratch));
+    let o = 0;
+    for (let k = 0; k < skins.length; k++) {
+      const palette = this.palettes[skins[k]];
+      this.jointMatrices.set(palette, o);
+      o += palette.length;
+    }
   }
 }
 
@@ -316,8 +414,8 @@ class RigPose {
 
 /**
  * Plays the clips of one loaded model (`Charturbo.createGltfAnimator`). One clip at a time;
- * `play` switches clips. Every pose change sends all animated objects' matrices in one engine
- * call. With `autoUpdate` (default) a playing animator advances on every `Charturbo.render()`;
+ * `play` switches clips. Every pose change sends all animated objects' mesh matrices in one
+ * engine call and all skinned objects' joint matrices in another. With `autoUpdate` (default) a playing animator advances on every `Charturbo.render()`;
  * `update(dt)` and `seek(time)` drive it manually (deterministic).
  */
 export class GltfAnimator {
@@ -343,7 +441,7 @@ export class GltfAnimator {
     private readonly onDispose: (animator: GltfAnimator) => void
   ) {
     this.autoUpdate = options.autoUpdate ?? true;
-    this.pose = rig && rig.targets.ids.length > 0 ? new RigPose(rig) : null;
+    this.pose = rig && (rig.targets.ids.length > 0 || rig.skinTargets.ids.length > 0) ? new RigPose(rig) : null;
   }
 
   /** The model's clips */
@@ -504,8 +602,11 @@ export class GltfAnimator {
   private apply(): void {
     if (!this.pose) return;
     const clip = this.current();
-    const matrices = this.pose.evaluate(clip, clip ? loopTime(this.elapsed, clip.duration, this.loopMode) : 0, this.blend);
-    this.host.setObjectMeshMatrices(this.rig!.targets.ids, matrices);
+    const pose = this.pose;
+    pose.evaluate(clip, clip ? loopTime(this.elapsed, clip.duration, this.loopMode) : 0, this.blend);
+    const { targets, skinTargets } = pose.rig;
+    if (targets.ids.length > 0) this.host.setObjectMeshMatrices(targets.ids, pose.matrices);
+    if (skinTargets.ids.length > 0) this.host.setObjectJointMatrices?.(skinTargets.ids, pose.jointCounts, pose.jointMatrices);
   }
 
   private resolveClip(clip: string | number): number {
