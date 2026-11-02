@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "title": "model demo (glTF nodes)",
+  "fps": 24,
+  "size": {
+    "width": 640,
+    "height": 360
+  },
+  "background": [
+    0.82,
+    0.86,
+    0.9
+  ],
+  "roles": [
+    {
+      "id": "walker",
+      "label": "walking person",
+      "color": [
+        0.9,
+        0.35,
+        0.15
+      ]
+    },
+    {
+      "id": "mug",
+      "label": "coffee mug (meters)",
+      "color": [
+        0.2,
+        0.45,
+        0.9
+      ]
+    },
+    {
+      "id": "tiny",
+      "label": "coffee mug (authored in mm)",
+      "color": [
+        0.95,
+        0.8,
+        0.15
+      ]
+    },
+    {
+      "id": "tail",
+      "label": "swaying tail",
+      "color": [
+        0.25,
+        0.75,
+        0.35
+      ]
+    },
+    {
+      "id": "table",
+      "label": "table",
+      "color": [
+        0.55,
+        0.5,
+        0.45
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "id": "ground",
+      "shape": "box",
+      "color": [
+        0.68,
+        0.7,
+        0.66
+      ],
+      "position": [
+        0,
+        -0.01,
+        -1
+      ],
+      "size": [
+        14,
+        0.02,
+        8
+      ]
+    },
+    {
+      "rotation": [
+        0,
+        1.5707963267948966,
+        0
+      ],
+      "id": "walker",
+      "shape": "model",
+      "model": {
+        "src": "models/walker.glb",
+        "animation": {
+          "clip": "walk",
+          "loop": "repeat"
+        }
+      },
+      "role": "walker",
+      "color": [
+        0.9,
+        0.35,
+        0.15
+      ],
+      "position": [
+        -3.2,
+        0.875,
+        -3.5
+      ],
+      "size": [
+        0.7,
+        1.75,
+        0.5
+      ],
+      "tracks": {
+        "position": [
+          {
+            "t": 0,
+            "v": [
+              -3.2,
+              0.875,
+              -3.5
+            ]
+          },
+          {
+            "t": 4,
+            "v": [
+              3.2,
+              0.875,
+              -3.5
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "id": "table",
+      "shape": "box",
+      "role": "table",
+      "color": [
+        0.55,
+        0.5,
+        0.45
+      ],
+      "position": [
+        -1,
+        0.375,
+        -2
+      ],
+      "size": [
+        1.6,
+        0.75,
+        0.8
+      ]
+    },
+    {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "id": "mug",
+      "shape": "model",
+      "model": {
+        "src": "models/mug.glb",
+        "fit": "contain"
+      },
+      "role": "mug",
+      "color": [
+        0.2,
+        0.45,
+        0.9
+      ],
+      "position": [
+        -1.3,
+        0.8,
+        -2
+      ],
+      "size": [
+        0.12,
+        0.1,
+        0.1
+      ]
+    },
+    {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "id": "tinyMug",
+      "shape": "model",
+      "model": {
+        "src": "models/tiny-mm.glb",
+        "fit": "contain"
+      },
+      "role": "tiny",
+      "color": [
+        0.95,
+        0.8,
+        0.15
+      ],
+      "position": [
+        -0.7,
+        0.8,
+        -2
+      ],
+      "size": [
+        0.12,
+        0.1,
+        0.1
+      ]
+    },
+    {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "id": "tail",
+      "shape": "model",
+      "model": {
+        "src": "models/tail.glb",
+        "animation": {
+          "clip": "sway",
+          "loop": "repeat",
+          "speed": 1
+        }
+      },
+      "role": "tail",
+      "color": [
+        0.25,
+        0.75,
+        0.35
+      ],
+      "position": [
+        2,
+        0.5,
+        -2
+      ],
+      "size": [
+        0.5,
+        1,
+        0.2
+      ]
+    }
+  ],
+  "shots": [
+    {
+      "id": "wide",
+      "start": 0,
+      "end": 1.6,
+      "camera": {
+        "position": [
+          {
+            "t": 0,
+            "v": [
+              0,
+              1.5,
+              6
+            ]
+          },
+          {
+            "t": 1.6,
+            "v": [
+              0.6,
+              1.5,
+              5.4
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 0,
+              "v": [
+                0,
+                0.9,
+                -0.5
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mugs",
+      "start": 1.6,
+      "end": 3,
+      "camera": {
+        "position": [
+          {
+            "t": 1.6,
+            "v": [
+              -1,
+              1.35,
+              0.4
+            ]
+          },
+          {
+            "t": 3,
+            "v": [
+              -1,
+              1.2,
+              0
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 1.6,
+              "v": [
+                -1,
+                0.85,
+                -2
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "tail",
+      "start": 3,
+      "end": 4,
+      "camera": {
+        "position": [
+          {
+            "t": 3,
+            "v": [
+              2,
+              1.1,
+              1.8
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 3,
+              "v": [
+                2,
+                0.55,
+                -2
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

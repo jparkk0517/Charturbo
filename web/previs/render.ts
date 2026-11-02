@@ -1,6 +1,6 @@
 /**
  * Offline previs render page. `scripts/previs-render.mjs` injects the doc as `window.__previsDoc`
- * (before this module runs), loads `render.html?backend=webgpu|webgl2[&aa=0]`, waits for
+ * (before this module runs, with `window.__previsModels` = model.src -> served URL), loads `render.html?backend=webgpu|webgl2[&aa=0]`, waits for
  * `window.__previs.done` and then pulls frames via `window.previs`:
  *
  *   window.previs.info()      -> { frames, fps, width, height, duration }
@@ -13,7 +13,7 @@
  */
 import { Charturbo } from 'charturbo';
 import { docDuration, frameCount } from '../src/previs/evaluate';
-import { createPrevisPlayer } from '../src/previs/player';
+import { loadPrevisPlayer } from '../src/previs/player';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { Issue, PrevisDoc } from '../src/previs/types';
 import { validateDoc } from '../src/previs/validate';
@@ -38,6 +38,8 @@ interface PrevisState {
 declare global {
   interface Window {
     __previsDoc?: unknown;
+    /** model.src -> URL served by the dev server (relative paths already resolved against the doc file's dir) */
+    __previsModels?: Record<string, string>;
     __previs?: PrevisState;
     previs?: { info(): PrevisInfo; frame(i: number): Promise<string> };
   }
@@ -72,7 +74,10 @@ async function run(): Promise<PrevisState> {
     edgeCount: 0,
     ...(antialias ? { antialias: true } : {}),
   });
-  const player: PrevisPlayer = createPrevisPlayer(sdk, doc);
+  const served = window.__previsModels ?? {};
+  const player: PrevisPlayer = await loadPrevisPlayer(sdk, doc, {
+    resolveModel: (src) => (src in served ? new URL(served[src], location.href).href : src),
+  });
   const frames = frameCount(doc);
   const info: PrevisInfo = { frames, fps: doc.fps, width, height, duration: docDuration(doc) };
 

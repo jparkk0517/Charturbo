@@ -178,7 +178,36 @@ export function validateDoc(
     const p = `nodes[${i}]`;
     if (!isObj(n)) return add(p, 'node must be an object');
     if (typeof n.id !== 'string' || !n.id) add(`${p}.id`, 'node id must be a non-empty string matching [A-Za-z0-9_.-]+');
-    if (!['box', 'sphere', 'cylinder'].includes(n.shape as string)) add(`${p}.shape`, `shape must be box, sphere or cylinder; got ${JSON.stringify(n.shape)}`);
+    if (!['box', 'sphere', 'cylinder', 'model'].includes(n.shape as string)) add(`${p}.shape`, `shape must be box, sphere, cylinder or model; got ${JSON.stringify(n.shape)}`);
+    if (n.shape === 'model' && n.model === undefined) {
+      add(`${p}.model`, 'shape "model" requires a model object { src, fit?, animation? }, e.g. "model": { "src": "robot.glb" }');
+    } else if (n.model !== undefined && n.shape !== 'model') {
+      add(`${p}.model`, `model is only allowed when shape is "model"; got shape ${JSON.stringify(n.shape)}. Remove "model" or set "shape": "model"`);
+    } else if (n.model !== undefined) {
+      const mp = `${p}.model`;
+      const m = n.model;
+      if (!isObj(m)) add(mp, 'model must be an object { src, fit?, animation? }');
+      else {
+        if (typeof m.src !== 'string' || !m.src) add(`${mp}.src`, `model src must be a non-empty string (relative path or http(s)/data URL); got ${JSON.stringify(m.src)}`);
+        if (m.fit !== undefined && m.fit !== 'contain' && m.fit !== 'stretch') {
+          add(`${mp}.fit`, `fit must be contain or stretch; got ${JSON.stringify(m.fit)}`);
+        }
+        if (m.animation !== undefined) {
+          const ap = `${mp}.animation`;
+          const a = m.animation;
+          if (!isObj(a)) add(ap, 'animation must be an object { clip, start?, speed?, loop? }');
+          else {
+            const clipOk = (typeof a.clip === 'string' && a.clip !== '') || (typeof a.clip === 'number' && Number.isInteger(a.clip) && a.clip >= 0);
+            if (!clipOk) add(`${ap}.clip`, `clip must be a non-empty clip name or a non-negative integer clip index; got ${JSON.stringify(a.clip)}`);
+            if (a.start !== undefined && !isNum(a.start)) add(`${ap}.start`, `start must be a finite number of seconds; got ${JSON.stringify(a.start)}`);
+            if (a.speed !== undefined && !(isNum(a.speed) && a.speed > 0)) add(`${ap}.speed`, `speed must be a finite number > 0; got ${JSON.stringify(a.speed)}`);
+            if (a.loop !== undefined && !['repeat', 'once', 'pingpong'].includes(a.loop as string)) {
+              add(`${ap}.loop`, `loop must be repeat, once or pingpong; got ${JSON.stringify(a.loop)}`);
+            }
+          }
+        }
+      }
+    }
     rgb(n.color, `${p}.color`);
     vec3(n.position, `${p}.position`);
     vec3(n.rotation, `${p}.rotation`);

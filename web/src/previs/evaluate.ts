@@ -110,12 +110,15 @@ function pickShot(doc: PrevisDoc, time: number): Shot {
 
 function nodeStateAt(node: PrevisNode, time: number): NodeState {
   const tr = node.tracks;
-  return {
+  const state: NodeState = {
     position: evalTrack(tr?.position, time, node.position),
     rotation: evalTrack(tr?.rotation, time, node.rotation),
     size: evalTrack(tr?.size, time, node.size),
     visible: evalTrack(tr?.visible, time, node.visible ?? true),
   };
+  const anim = node.model?.animation;
+  if (anim) state.clipTime = Math.max(0, time - (anim.start ?? 0)) * (anim.speed ?? 1);
+  return state;
 }
 
 /** Rotate `v` by R = Ry * Rx * Rz (engine glam EulerRot::YXZ). */

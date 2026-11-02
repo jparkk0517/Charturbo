@@ -28,12 +28,52 @@ export interface Keyframe<T> {
 /** Keyframes sorted by strictly increasing `t`. Before the first key and after the last the value is held. */
 export type Track<T> = Keyframe<T>[];
 
-export type PrevisShape = 'box' | 'sphere' | 'cylinder';
+export type PrevisShape = 'box' | 'sphere' | 'cylinder' | 'model';
+
+/** How a model's rest-pose bounds map onto the node `size`. */
+export type PrevisModelFit =
+  /** Uniform scale so the bounds fit inside `size` (proportions kept). Default. */
+  | 'contain'
+  /** Per-axis scale so the bounds match `size` exactly. */
+  | 'stretch';
+
+/**
+ * Plays one glTF animation clip on the global clock:
+ * clipTime(t) = max(0, t - start) * speed, wrapped per `loop` (GltfAnimator semantics).
+ */
+export interface PrevisModelAnimation {
+  /** Clip name or index in the glTF file. */
+  clip: string | number;
+  /** Global time in seconds at which clip time 0 plays; before it the clip's first pose is held. Default 0. */
+  start?: number;
+  /** Clip seconds per global second, > 0. Default 1. */
+  speed?: number;
+  /** Default `'repeat'`. */
+  loop?: 'repeat' | 'once' | 'pingpong';
+}
+
+/**
+ * A glTF 2.0 model (`.glb` / `.gltf`) used as a node's shape. It is drawn in the node's flat
+ * `color` (textures and material colors are ignored) so role colors stay exact. Its rest-pose
+ * bounds are centered on the node origin and scaled to `size` per `fit`, like the primitives.
+ */
+export interface PrevisModel {
+  /**
+   * Relative path (resolved against the doc's location by the renderer / viewer), or an
+   * absolute `http(s):` / `data:` URL.
+   */
+  src: string;
+  /** Default `'contain'`. */
+  fit?: PrevisModelFit;
+  animation?: PrevisModelAnimation;
+}
 
 export interface PrevisNode {
   /** Unique, stable, `[A-Za-z0-9_.-]+`. Tracks, `parent`, `follow` and `role` refer to it. */
   id: string;
   shape: PrevisShape;
+  /** Required when `shape` is `'model'`, forbidden otherwise. */
+  model?: PrevisModel;
   /**
    * Id of another node; position and rotation are local to the parent. The parent's `size` does
    * NOT scale this node or its offset (see `size`).
@@ -116,6 +156,11 @@ export interface NodeState {
   rotation: Vec3;
   size: Vec3;
   visible: boolean;
+  /**
+   * Clip time in seconds BEFORE loop wrapping (max(0, t - start) * speed); present only for model
+   * nodes with an `animation`. The player passes it to `GltfAnimator.seek`, which wraps it.
+   */
+  clipTime?: number;
 }
 
 /** Everything the player needs to draw one frame. */

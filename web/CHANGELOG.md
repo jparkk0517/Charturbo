@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — Previs glTF 모델 노드
+
+- previs 노드에 `shape: 'model'` + `model: { src, fit?, animation? }`을 추가했습니다. glTF(`.glb` / `.gltf`)를 노드의 단색 역할 색으로 그리고(텍스처 · 재질 색 무시), 레스트 포즈 경계를 노드 원점에 맞춰 `fit`(`'contain'` 기본 · `'stretch'`)대로 `size`에 맞춥니다. 애니메이션 클립은 레스트 포즈 기준 맞춤이라 `size` 상자 밖으로 나갈 수 있습니다.
+- `animation: { clip, start?, speed?, loop? }`: `clip`은 이름 또는 인덱스이고, 클립 시간 = `max(0, t - start) * speed`를 `loop`(`'repeat'` · `'once'` · `'pingpong'`)로 감습니다(`NodeState.clipTime`). 모르는 클립은 사용 가능한 클립을 나열하며 로드가 실패합니다. `validateDoc`은 `model` 필수/금지, `fit` · `clip` · `start` · `speed` · `loop` 값을 검사합니다.
+- `loadPrevisPlayer(sdk, doc, { resolveModel?, signal? })`가 모델을 불러온 뒤 `createPrevisPlayer`처럼 동작합니다(`createPrevisPlayer`는 모델 문서에서 오류). `npm run previs:render`는 상대 `src`를 문서 폴더 기준으로 해석하고, 브라우저 뷰어는 모델 파일을 함께 올리거나 끌어 놓으면 상대 경로, 파일 이름 순으로 매칭합니다. 절대 http(s) · data URL은 그대로 씁니다.
+- 예제 `web/previs/examples/model-demo.json`(모델 `web/previs/examples/models/`, 생성기 `models.gen.ts`), 문서 `docs/previs/guide.md`의 「Model nodes (glTF)」 절과 `web/previs/SKILL.md`.
+
 ### 추가 — glTF 스키닝
 
 - `loadGltf`가 `skins`(`joints` · `inverseBindMatrices`)와 `JOINTS_0` / `WEIGHTS_0`을 읽어 스킨 메시를 스킨이 있는 사용자 메시로 만들고, `GltfAnimator`가 강체 노드와 함께 조인트로 포즈를 잡습니다. 조인트는 `UNSIGNED_BYTE` · `UNSIGNED_SHORT`, 가중치는 `FLOAT` · 정규화 `UNSIGNED_BYTE` · 정규화 `UNSIGNED_SHORT`를 지원하고, 가중치는 꼭짓점마다 다시 정규화합니다. glTF 규약대로 스킨 메시 노드 자체의 변환은 무시합니다. 꼭짓점당 영향은 4개이며 `JOINTS_1` / `WEIGHTS_1`은 경고 후 무시하고, 조인트가 불러온 장면 밖에 있는 스킨은 경고 후 바인드 포즈로 그립니다. 모프 타깃은 계속 경고 후 무시합니다.

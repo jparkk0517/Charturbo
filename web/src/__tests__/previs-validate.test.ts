@@ -217,6 +217,83 @@ describe('validateDoc', () => {
   });
 });
 
+describe('validateDoc model nodes', () => {
+  const modelNode = (extra: any = {}): any => ({
+    id: 'm', shape: 'model', model: { src: 'robot.glb' }, color: [1, 0.88, 0], position: [0, 0, 0], rotation: [0, 0, 0], size: [1, 1, 1], ...extra,
+  });
+  const withModel = (model?: any, shape = 'model'): any => {
+    const d = base();
+    const n = modelNode({ shape });
+    if (model === undefined) delete n.model;
+    else n.model = model;
+    d.nodes.push(n);
+    return d; // index 2
+  };
+  const P = 'nodes[2].model';
+
+  it('accepts a valid model doc and keeps model in the result', () => {
+    const model = { src: 'robot.glb', fit: 'stretch', animation: { clip: 'walk', start: 1, speed: 2, loop: 'pingpong' } };
+    const r = validateDoc(withModel(model));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.doc.nodes[2].model).toEqual(model);
+    expect(validateDoc(withModel({ src: 'a.glb', animation: { clip: 0 } })).ok).toBe(true);
+  });
+
+  it('shape must be a known shape', () => {
+    const d = withModel({ src: 'a.glb' }, 'cube');
+    expect(has(d, 'nodes[2].shape')).toBe(true);
+  });
+
+  it('shape model requires model', () => {
+    expect(has(withModel(undefined), P)).toBe(true);
+  });
+
+  it('model forbidden on other shapes', () => {
+    expect(has(withModel({ src: 'a.glb' }, 'box'), P)).toBe(true);
+  });
+
+  it('model must be an object', () => {
+    for (const v of ['a.glb', 5, null, []]) expect(has(withModel(v), P)).toBe(true);
+  });
+
+  it('src', () => {
+    for (const v of [undefined, '', 5]) expect(has(withModel({ src: v }), `${P}.src`)).toBe(true);
+  });
+
+  it('fit', () => {
+    expect(has(withModel({ src: 'a', fit: 'cover' }), `${P}.fit`)).toBe(true);
+    expect(has(withModel({ src: 'a', fit: 'contain' }), `${P}.fit`)).toBe(false);
+  });
+
+  it('animation clip', () => {
+    for (const v of [undefined, '', -1, 1.5, NaN, true]) {
+      expect(has(withModel({ src: 'a', animation: { clip: v } }), `${P}.animation.clip`)).toBe(true);
+    }
+    for (const v of ['walk', 0, 3]) {
+      expect(has(withModel({ src: 'a', animation: { clip: v } }), `${P}.animation.clip`)).toBe(false);
+    }
+  });
+
+  it('animation start', () => {
+    for (const v of ['1', Infinity, NaN]) expect(has(withModel({ src: 'a', animation: { clip: 0, start: v } }), `${P}.animation.start`)).toBe(true);
+    expect(has(withModel({ src: 'a', animation: { clip: 0, start: -1 } }), `${P}.animation.start`)).toBe(false);
+  });
+
+  it('animation speed', () => {
+    for (const v of [0, -1, Infinity, NaN, '2']) expect(has(withModel({ src: 'a', animation: { clip: 0, speed: v } }), `${P}.animation.speed`)).toBe(true);
+    expect(has(withModel({ src: 'a', animation: { clip: 0, speed: 0.5 } }), `${P}.animation.speed`)).toBe(false);
+  });
+
+  it('animation loop', () => {
+    expect(has(withModel({ src: 'a', animation: { clip: 0, loop: 'bounce' } }), `${P}.animation.loop`)).toBe(true);
+    for (const v of ['repeat', 'once', 'pingpong']) expect(has(withModel({ src: 'a', animation: { clip: 0, loop: v } }), `${P}.animation.loop`)).toBe(false);
+  });
+
+  it('animation must be an object', () => {
+    expect(has(withModel({ src: 'a', animation: 'walk' }), `${P}.animation`)).toBe(true);
+  });
+});
+
 describe('colorDistance', () => {
   it('zero for same, large for different', () => {
     expect(colorDistance([1, 0, 0], [1, 0, 0])).toBe(0);

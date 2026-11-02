@@ -8,9 +8,10 @@
   </head>
   <body>
     <div id="drop">
-      <p>previs JSON 파일을 여기에 끌어다 놓거나</p>
-      <label class="btn">파일 선택<input id="file" type="file" accept=".json,application/json" hidden /></label>
+      <p>previs JSON 파일(과 glTF 모델 .glb 파일들)을 여기에 끌어다 놓거나 (폴더도 가능)</p>
+      <label class="btn">파일 선택<input id="file" type="file" multiple hidden /></label>
     </div>
+    <div id="picker" hidden></div>
     <ul id="issues" hidden></ul>
     <div id="msg" hidden></div>
     <div id="stage"></div>
@@ -26,7 +27,7 @@
         <option value="1" selected>1x</option>
         <option value="2">2x</option>
       </select>
-      <label class="btn small">다른 파일<input id="file2" type="file" accept=".json,application/json" hidden /></label>
+      <label class="btn small">파일 추가/교체<input id="file2" type="file" multiple hidden /></label>
     </div>
     <script type="module" src="./viewer.ts"></script>
   </body>

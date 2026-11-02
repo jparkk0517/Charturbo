@@ -26,6 +26,16 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 - Color-code. One unique flat color per swappable subject, so the model knows which block becomes which reference. Never use colors close to the real look of the final video (skin, outfit, set), or the color leaks into the result. Get colors from `suggestRoleColors(count, avoidColors)`; put real-look colors in `avoidColors`. `validateDoc` rejects Lab distance < 25.
 - Divide. The previs carries where/angle/when ONLY. Faces and clothes come from reference images (link with `role.reference` = reference `name`). Hands, expression, texture, lighting mood go in `textOnly`.
 
+## Model nodes (glTF)
+
+- Use `shape: 'model'` where silhouette, contact or pose matters: props held in hand, vehicles, furniture, human motion via an animated clip. Keep box/sphere/cylinder and the 3-block mannequin for blockout volumes; rule 1 (subtract) still applies, so do not use a detailed model where a box is enough.
+- Fields: `model: { src, fit?: 'contain'|'stretch', animation?: { clip, start?, speed?, loop? } }`. `src` is relative to the doc file (or an http(s)/data URL). `fit` default `contain` (uniform, inside `size`); `stretch` matches `size` per axis. `clip` is a name or index; `start` in global seconds; `speed > 0`; `loop` `repeat`|`once`|`pingpong`.
+- Drawn in the node's flat role `color`; textures/material colors are ignored. Give it a unique role color like any other subject. The video model gets the exact silhouette and pose; look still comes from references.
+- Set `size` to the real-world extent. Bounds come from the rest pose, so an animated clip may extend beyond the box.
+- Unknown clip fails the load and lists the available clips. Check with `--still` at key times.
+- Render resolves `src` against the doc's directory. Browser viewer: drop the `.glb` files with the doc.
+- Programmatic playback needs `loadPrevisPlayer`; `createPrevisPlayer` throws for model docs.
+
 ## Pitfalls
 
 - Prop sizes are real-world meters. A wrong-size box makes the model resize the object.

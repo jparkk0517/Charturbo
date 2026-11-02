@@ -293,3 +293,25 @@ describe('worldPosition (engine convention)', () => {
     close(worldPosition(dd, f.nodes, 'c'), [10, 5, -1]);
   });
 });
+
+describe('clipTime', () => {
+  const mn = (animation?: { clip: string | number; start?: number; speed?: number }) =>
+    node('m', { shape: 'model', model: { src: 'x.glb', ...(animation ? { animation } : {}) } });
+  const at = (n: PrevisNode, t: number) => evaluateFrame(doc([n], [shot('s', 0, 10)]), t).nodes.m;
+
+  it('absent for non-model and model without animation', () => {
+    expect('clipTime' in at(node('m'), 1)).toBe(false);
+    expect('clipTime' in at(mn(), 1)).toBe(false);
+  });
+
+  it('defaults: start 0, speed 1', () => {
+    expect(at(mn({ clip: 0 }), 2.5).clipTime).toBeCloseTo(2.5, 9);
+  });
+
+  it('before, at and after start with speed', () => {
+    const n = mn({ clip: 'walk', start: 2, speed: 1.5 });
+    expect(at(n, 1).clipTime).toBe(0);
+    expect(at(n, 2).clipTime).toBe(0);
+    expect(at(n, 4).clipTime).toBeCloseTo(3, 9);
+  });
+});

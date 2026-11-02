@@ -16,3 +16,6 @@ body.loaded #drop { display: none; }
 #time { font-variant-numeric: tabular-nums; min-width: 9em; }
 #shot { color: #8cf; min-width: 6em; }
 button, select { background: #2a2a2a; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 10px; }
+#picker { margin: 8px; padding: 8px; background: #14202a; border: 1px solid #378; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#picker p { margin: 0; flex-basis: 100%; }
+#picker[hidden] { display: none; }

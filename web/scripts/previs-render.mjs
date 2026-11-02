@@ -12,6 +12,11 @@
 // --no-aa     disable the 4x MSAA of the main pass
 // --chrome    Chrome binary (or CHROME_PATH)
 //
+// glTF models (`shape: 'model'`): a relative `model.src` resolves against the DOC FILE's directory and is served by the
+// local vite server (any size) under opaque `/__previs_models/<index>/<basename>` URLs (only collected model files; a .gltf
+// may also load siblings of its own directory); http(s)/data URLs pass through. A missing model file fails with exit 1
+// before Chrome starts (after the doc is validated).
+//
 // Exit codes: 0 ok, 1 render / Chrome / ffmpeg failure, 2 usage error or invalid doc (issues are
 // printed one per line as `path: message`). Progress goes to stderr; the last stdout line is
 // `frames=.. fps=.. size=WxH out=..`.
@@ -22,6 +27,18 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const MODEL_PREFIX = '/__previs_models/';
+const MIME = {
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ktx2': 'image/ktx2',
+};
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PREVIS = path.join(WEB, 'previs');
@@ -58,6 +75,101 @@ function findChrome() {
       '/usr/bin/chromium-browser',
     ].find((p) => fs.existsSync(p)) ?? null
   );
+}
+
+/**
+ * glTF model sources of the doc: relative paths (and file: URLs / absolute fs paths) resolve against the DOC FILE's
+ * directory and are served by the vite plugin `previsModels` as `/__previs_models/<index>/<basename>` (no /@fs, no
+ * base64 through CDP, 20+ MB models are fine). http(s): / data: / blob: URLs pass through. Nodes that never show a shape
+ * (visible === false, no visible key with v: true; see hasShape in src/previs/player.ts) are skipped.
+ * Returns { urls: src -> served URL, missing: [{src, file}], files: index -> { file, dir } }.
+ */
+function collectModels(doc, docPath) {
+  const urls = {};
+  const missing = [];
+  const files = new Map();
+  if (!doc || !Array.isArray(doc.nodes)) return { urls, missing, files };
+  const docDir = path.dirname(path.resolve(docPath));
+  for (const node of doc.nodes) {
+    if (node?.visible === false && !(Array.isArray(node.tracks?.visible) && node.tracks.visible.some((k) => k?.v === true))) continue;
+    const src = node?.model?.src;
+    if (typeof src !== 'string' || src === '' || src in urls || missing.some((m) => m.src === src)) continue;
+    if (/^(https?|data|blob):/i.test(src)) continue;
+    let file;
+    try {
+      file = /^file:/i.test(src) ? fileURLToPath(src) : path.resolve(docDir, decodeRelative(src));
+    } catch {
+      missing.push({ src, file: src });
+      continue;
+    }
+    let ok = false;
+    try {
+      ok = fs.statSync(file).isFile();
+    } catch {
+      // missing
+    }
+    if (!ok) missing.push({ src, file });
+    else {
+      const index = files.size;
+      files.set(index, { file, dir: path.dirname(file) });
+      urls[src] = `${MODEL_PREFIX}${index}/${encodeURIComponent(path.basename(file))}`;
+    }
+  }
+  return { urls, missing, files };
+}
+
+/** Vite plugin: serves ONLY the collected model files (and, for .gltf, files inside the model's own directory). */
+function previsModels(files) {
+  return {
+    name: 'previs-models',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const raw = (req.url ?? '').split('?')[0];
+        if (!raw.startsWith(MODEL_PREFIX)) return next();
+        const fail = (code) => {
+          res.statusCode = code;
+          res.end();
+        };
+        let rel;
+        try {
+          rel = decodeURIComponent(raw.slice(MODEL_PREFIX.length));
+        } catch {
+          return fail(400);
+        }
+        const slash = rel.indexOf('/');
+        const entry = slash < 0 ? undefined : files.get(Number(rel.slice(0, slash)));
+        const sub = slash < 0 ? '' : rel.slice(slash + 1);
+        if (!entry || !sub || sub.includes('\\') || sub.includes('\0') || sub.split('/').some((p) => p === '..' || p === '')) return fail(404);
+        const isGltf = /\.gltf$/i.test(entry.file);
+        const target = path.resolve(entry.dir, ...sub.split('/'));
+        // .glb: only the model itself; .gltf: anything inside its directory
+        if (target !== entry.file && !(isGltf && target.startsWith(entry.dir + path.sep))) return fail(404);
+        let st;
+        try {
+          st = fs.statSync(target);
+        } catch {
+          return fail(404);
+        }
+        if (!st.isFile()) return fail(404);
+        res.setHeader('Content-Type', MIME[path.extname(target).toLowerCase()] ?? 'application/octet-stream');
+        res.setHeader('Content-Length', st.size);
+        if (req.method === 'HEAD') return res.end();
+        fs.createReadStream(target)
+          .on('error', () => res.destroy())
+          .pipe(res);
+      });
+    },
+  };
+}
+
+// `src` is a URL-ish relative reference: strip ?query / #hash, decode %XX when it looks encoded
+function decodeRelative(src) {
+  const bare = src.replace(/[?#].*$/, '');
+  try {
+    return decodeURIComponent(bare);
+  } catch {
+    return bare;
+  }
 }
 
 function freePort() {
@@ -253,16 +365,8 @@ async function main() {
     throw new Failure(`invalid JSON in ${docPath}: ${err.message}`, 2);
   }
 
-  const chromePath = findChrome();
-  if (!chromePath) throw new Failure('Chrome not found (set CHROME_PATH or --chrome=<path>)');
-  if (still === undefined) {
-    const probe = spawn('ffmpeg', ['-version'], { stdio: 'ignore' });
-    const ok = await new Promise((resolve) => {
-      probe.on('error', () => resolve(false));
-      probe.on('close', (c) => resolve(c === 0));
-    });
-    if (!ok) throw new Failure('ffmpeg not found on PATH');
-  }
+  const models = collectModels(doc, docPath);
+  const missingText = models.missing.map((m) => `model file not found: ${m.src} (looked for ${m.file})`).join('\n');
 
   const cleanups = [];
   const cleanup = async () => {
@@ -284,6 +388,7 @@ async function main() {
     const vite = await createServer({
       root: PREVIS,
       configFile: path.join(PREVIS, 'vite.config.ts'),
+      plugins: [previsModels(models.files)],
       logLevel: 'warn',
       clearScreen: false,
       optimizeDeps: { noDiscovery: true, include: [] },
@@ -291,6 +396,29 @@ async function main() {
     });
     cleanups.push(() => vite.close());
     await vite.listen();
+
+    // Validation wins over every other failure: an invalid doc exits 2 with its issues
+    const { validateDoc } = await vite.ssrLoadModule(path.join(WEB, 'src/previs/validate.ts'));
+    const checkedDoc = validateDoc(doc);
+    if (!checkedDoc.ok) {
+      for (const i of checkedDoc.issues) console.error(`${i.path}: ${i.message}`);
+      throw new Failure(`invalid previs document (${checkedDoc.issues.length} issue${checkedDoc.issues.length === 1 ? '' : 's'})`, 2);
+    }
+    // Fail fast (exit 1) on a missing model file, before Chrome starts
+    if (models.missing.length) {
+      console.error(missingText);
+      throw new Failure(`${models.missing.length} model file${models.missing.length === 1 ? '' : 's'} not found (paths resolve against ${path.dirname(path.resolve(docPath))})`);
+    }
+    const chromePath = findChrome();
+    if (!chromePath) throw new Failure('Chrome not found (set CHROME_PATH or --chrome=<path>)');
+    if (still === undefined) {
+      const probe = spawn('ffmpeg', ['-version'], { stdio: 'ignore' });
+      const ok = await new Promise((resolve) => {
+        probe.on('error', () => resolve(false));
+        probe.on('close', (c) => resolve(c === 0));
+      });
+      if (!ok) throw new Failure('ffmpeg not found on PATH');
+    }
 
     const cdpPort = await freePort();
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'charturbo-previs-'));
@@ -347,7 +475,9 @@ async function main() {
         pageErrors.push(`${p.type}: ${p.args.map((a) => a.value ?? a.description ?? '').join(' ')}`);
       }
     });
-    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__previsDoc = ${docText};` });
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: `window.__previsDoc = ${docText};window.__previsModels = ${JSON.stringify(models.urls)};`,
+    });
 
     const q = new URLSearchParams({ backend });
     if (flag('no-aa')) q.set('aa', '0');
