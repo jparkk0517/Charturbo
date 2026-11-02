@@ -17,6 +17,7 @@ import { loadPrevisPlayer } from '../src/previs/player';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { Issue, PrevisDoc } from '../src/previs/types';
 import { validateDoc } from '../src/previs/validate';
+import { gltfExtensions, loadDecodersFor } from './decoders';
 
 interface PrevisInfo {
   frames: number;
@@ -75,8 +76,27 @@ async function run(): Promise<PrevisState> {
     ...(antialias ? { antialias: true } : {}),
   });
   const served = window.__previsModels ?? {};
+  // Fetch each model once: its extensionsUsed pick the decoders (loaded only when needed); .glb bytes are reused
+  const bytes = new Map<string, Uint8Array>();
+  const exts = new Set<string>();
+  for (const n of doc.nodes) {
+    const src = n.model?.src;
+    if (!src || bytes.has(src)) continue;
+    const url = src in served ? new URL(served[src], location.href).href : src;
+    const res = await fetch(url);
+    if (!res.ok) {
+      bytes.set(src, new Uint8Array(0)); // not served (pure-pivot node): the player never loads it
+      continue;
+    }
+    const b = new Uint8Array(await res.arrayBuffer());
+    gltfExtensions(b).forEach((e) => exts.add(e));
+    if (b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46) bytes.set(src, b); // .gltf may load siblings: keep the URL
+    else bytes.set(src, new Uint8Array(0));
+  }
+  const decoders = await loadDecodersFor(exts);
   const player: PrevisPlayer = await loadPrevisPlayer(sdk, doc, {
-    resolveModel: (src) => (src in served ? new URL(served[src], location.href).href : src),
+    resolveModel: (src) => (bytes.get(src)?.length ? bytes.get(src)! : src in served ? new URL(served[src], location.href).href : src),
+    decoders,
   });
   const frames = frameCount(doc);
   const info: PrevisInfo = { frames, fps: doc.fps, width, height, duration: docDuration(doc) };

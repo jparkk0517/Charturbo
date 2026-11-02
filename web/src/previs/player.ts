@@ -41,6 +41,7 @@
  * FIT scale would be clamped at 0.05, so after a first load at scale 1 the player computes the
  * smallest factor any axis can need (rest size and every size key; eases never overshoot) and, if
  * it is below 0.05, disposes that load and reloads with it baked in via `loadGltf({ scale })`;
+ * `PrevisLoadOptions.decoders` goes to every `loadGltf` call (both loads), for compressed models;
  * then every FIT factor is >= 1. Only an axis whose size reaches 0 still hits the clamp.
  * Clips run on a `GltfAnimator` without auto update. `animation` is one segment or an array of
  * segments (see `PrevisModelAnimation`: clip, start, speed, loop, blendIn); the object form is
@@ -67,7 +68,7 @@
  * loaded at all.
  */
 import type { Charturbo, ObjectMaterialDescriptor, PrimitiveShape } from '../sdk/charturbo';
-import type { GltfSource, GltfLoadResult } from '../sdk/scene-gltf';
+import type { GltfSource, GltfLoadResult, GltfDecoders } from '../sdk/scene-gltf';
 import type { GltfAnimator, GltfClipWeight } from '../sdk/scene-gltf-anim';
 import { clipWeightsAt, evaluateFrame } from './evaluate';
 import type { ClipWeight, FrameState, PrevisDoc, PrevisModelAnimation, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
@@ -82,6 +83,8 @@ export interface PrevisPlayer {
 export interface PrevisLoadOptions {
   /** Maps a node's model.src to what sdk.loadGltf accepts. Default: the src string itself (URL). */
   resolveModel?: (src: string) => GltfSource | Promise<GltfSource>;
+  /** Passed to every `sdk.loadGltf` call (Draco / meshopt compressed models; see `GltfLoadOptions.decoders`). */
+  decoders?: GltfDecoders;
   signal?: AbortSignal;
 }
 
@@ -459,6 +462,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
       const r = await sdk.loadGltf(source, {
         signal: ctl.signal,
         animations: anim !== undefined,
+        ...(options.decoders ? { decoders: options.decoders } : {}),
         ...(scale !== undefined ? { scale } : {}),
       });
       loaded.add(r);

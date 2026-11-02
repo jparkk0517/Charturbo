@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createPrevisPlayer, loadPrevisPlayer } from '../previs/player';
 import type { PrevisDoc, PrevisModel, PrevisNode, Vec3 } from '../previs/types';
 import type { Charturbo } from '../sdk/charturbo';
+import type { GltfDecoders } from '../sdk/scene-gltf';
 
 type Call = [string, ...unknown[]];
 
@@ -521,6 +522,23 @@ describe('loadPrevisPlayer', () => {
     const last = m.named('setObjectTransform').filter((c) => c[1] === fit.id).at(-1)![2] as { scale: number[] };
     last.scale.forEach((k) => expect(k).toBeGreaterThanOrEqual(1 - 1e-12));
     expect(last.scale.map((k, i) => k * baked[i])).toEqual([5, 10, 2.5].map((v) => expect.closeTo(v, 9)));
+  });
+
+  it('forwards options.decoders to every loadGltf call, including the tiny-scale reload', async () => {
+    const m = mockSdk({ 'mm.glb': { bounds: { min: [0, 0, 0], max: [1000, 1000, 1000] } }, 'big.glb': {} });
+    const decoders = { meshopt: { ready: Promise.resolve() } } as unknown as GltfDecoders;
+    await loadPrevisPlayer(
+      m.sdk,
+      doc([modelNode('a', { src: 'mm.glb' }, { size: [0.5, 0.5, 0.5] }), modelNode('b', { src: 'big.glb' })]),
+      { decoders },
+    );
+    const loads = m.named('loadGltf');
+    expect(loads.length).toBe(3); // a (scale 1), a (reload), b
+    for (const l of loads) expect((l[2] as { decoders?: unknown }).decoders).toBe(decoders);
+    // omitted when not given
+    const m2 = mockSdk();
+    await loadPrevisPlayer(m2.sdk, doc([modelNode('a', { src: 'x.glb' })]));
+    expect('decoders' in (m2.named('loadGltf')[0][2] as object)).toBe(false);
   });
 
   it('does not reload models whose factor is above the clamp', async () => {

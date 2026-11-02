@@ -150,6 +150,12 @@ export {
   type GltfLoadOptions,
   type GltfLoadResult,
   type GltfNodeResult,
+  type GltfDecoders,
+  type GltfMeshoptDecoder,
+  type GltfDracoDecoder,
+  type GltfDracoDecoderInstance,
+  type GltfDracoMesh,
+  type GltfDracoAttribute,
   GLTF_MAX_VERTICES,
   GLTF_MAX_INDICES,
 } from './sdk/scene-gltf';

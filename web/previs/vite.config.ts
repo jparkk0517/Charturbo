@@ -12,6 +12,8 @@ export default defineConfig({
   resolve: {
     alias: [{ find: /^charturbo$/, replacement: resolve(src, 'index.ts') }],
   },
+  // draco3d's decoder is a CommonJS file: pre-bundle it so `import()` gets its module.exports (see decoders.ts)
+  optimizeDeps: { include: ['draco3d/draco_decoder_nodejs.js'] },
   // wasm-pkg may be a symlink to another checkout: do not restrict file serving to the repo
   server: { fs: { strict: false } },
 });

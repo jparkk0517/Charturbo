@@ -32,6 +32,72 @@ export interface GltfLoadOptions {
    * False bakes every node like an unanimated file (rest pose).
    */
   animations?: boolean;
+  /**
+   * Geometry decoders for compressed files. The SDK ships none: pass the libraries' own objects.
+   * Without the matching decoder, files that require `EXT_meshopt_compression` /
+   * `KHR_draco_mesh_compression` are rejected (files that only use them load their uncompressed
+   * fallback data).
+   */
+  decoders?: GltfDecoders;
+}
+
+/** Decoders `loadGltf` uses for compressed geometry (see `GltfLoadOptions.decoders`). */
+export interface GltfDecoders {
+  /** `EXT_meshopt_compression`: the `MeshoptDecoder` export of `meshoptimizer`, as is */
+  meshopt?: GltfMeshoptDecoder;
+  /** `KHR_draco_mesh_compression`: the module `createDecoderModule()` of `draco3d` resolves to, as is */
+  draco?: GltfDracoDecoder;
+}
+
+/** The `MeshoptDecoder` members the loader calls (`import { MeshoptDecoder } from 'meshoptimizer'`). */
+export interface GltfMeshoptDecoder {
+  /** Resolves once the decoder is usable (awaited by the loader) */
+  readonly ready: Promise<void>;
+  /** Decodes `count` elements of `size` bytes from `source` into `target` (glTF mode / filter names) */
+  decodeGltfBuffer(target: Uint8Array, count: number, size: number, source: Uint8Array, mode: string, filter?: string): void;
+}
+
+/** The Draco decoder module members the loader calls (`await createDecoderModule()` from `draco3d`). */
+export interface GltfDracoDecoder {
+  Decoder: new () => GltfDracoDecoderInstance;
+  Mesh: new () => GltfDracoMesh;
+  /** Frees an object created with `new` (decoders and meshes) */
+  destroy(object: unknown): void;
+  _malloc(byteLength: number): number;
+  _free(pointer: number): void;
+  /** The module heap (re-read after every decoder call: it is replaced when the heap grows) */
+  readonly HEAPU8: Uint8Array;
+  readonly DT_INT8: number;
+  readonly DT_UINT8: number;
+  readonly DT_INT16: number;
+  readonly DT_UINT16: number;
+  readonly DT_UINT32: number;
+  readonly DT_FLOAT32: number;
+}
+
+/** A `draco3d` `Decoder` instance (only the members the loader calls). */
+export interface GltfDracoDecoderInstance {
+  DecodeArrayToMesh(data: Int8Array, byteLength: number, mesh: GltfDracoMesh): { ok(): boolean; error_msg(): string };
+  GetAttributeByUniqueId(mesh: GltfDracoMesh, uniqueId: number): GltfDracoAttribute;
+  /** Returns false on failure (draco3d 1.5 returns a boolean) */
+  GetAttributeDataArrayForAllPoints(mesh: GltfDracoMesh, attribute: GltfDracoAttribute, dataType: number, byteLength: number, pointer: number): unknown;
+  GetTrianglesUInt16Array(mesh: GltfDracoMesh, byteLength: number, pointer: number): unknown;
+  GetTrianglesUInt32Array(mesh: GltfDracoMesh, byteLength: number, pointer: number): unknown;
+}
+
+/** A `draco3d` `Mesh` (only the members the loader calls). */
+export interface GltfDracoMesh {
+  /** Heap address (0 = null) */
+  readonly ptr: number;
+  num_points(): number;
+  num_faces(): number;
+}
+
+/** A `draco3d` `PointAttribute` (only the members the loader calls). */
+export interface GltfDracoAttribute {
+  /** Heap address (0 = no such attribute) */
+  readonly ptr: number;
+  num_components(): number;
 }
 
 export interface GltfNodeResult {
@@ -90,6 +156,20 @@ export const GLTF_MAX_INDICES = 67_108_864;
 /** Extensions the loader understands; others in `extensionsRequired` reject the file. */
 const SUPPORTED_EXTENSIONS = new Set(['KHR_texture_transform', 'KHR_mesh_quantization', 'KHR_materials_emissive_strength']);
 
+const EXT_MESHOPT = 'EXT_meshopt_compression';
+const KHR_DRACO = 'KHR_draco_mesh_compression';
+const MESHOPT_MODES = new Set(['ATTRIBUTES', 'TRIANGLES', 'INDICES']);
+/** EXT_meshopt_compression filters (spec: NONE, OCTAHEDRAL, QUATERNION, EXPONENTIAL) */
+const MESHOPT_FILTERS = new Set(['NONE', 'OCTAHEDRAL', 'QUATERNION', 'EXPONENTIAL']);
+
+function missingDecoderError(ext: string): Error {
+  return new Error(
+    ext === EXT_MESHOPT
+      ? `loadGltf: ${EXT_MESHOPT} is required; pass options.decoders.meshopt (MeshoptDecoder from 'meshoptimizer')`
+      : `loadGltf: ${KHR_DRACO} is required; pass options.decoders.draco (the module createDecoderModule() from 'draco3d' resolves to)`
+  );
+}
+
 const GLB_MAGIC = 0x46546c67; // 'glTF'
 const CHUNK_JSON = 0x4e4f534a;
 const CHUNK_BIN = 0x004e4942;
@@ -135,6 +215,7 @@ interface GltfPrimitive {
   material?: number;
   mode?: number;
   targets?: unknown[];
+  extensions?: { KHR_draco_mesh_compression?: { bufferView?: number; attributes?: Record<string, number> } };
 }
 
 interface GltfNode {
@@ -176,6 +257,16 @@ interface GltfSkinJson {
   skeleton?: number;
 }
 
+interface GltfBufferView {
+  buffer: number;
+  byteOffset?: number;
+  byteLength: number;
+  byteStride?: number;
+  extensions?: {
+    EXT_meshopt_compression?: { buffer: number; byteOffset?: number; byteLength: number; byteStride: number; count: number; mode: string; filter?: string };
+  };
+}
+
 interface GltfJson {
   asset?: { version?: string };
   extensionsUsed?: string[];
@@ -185,8 +276,8 @@ interface GltfJson {
   nodes?: GltfNode[];
   meshes?: { name?: string; primitives: GltfPrimitive[] }[];
   accessors?: GltfAccessor[];
-  bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
-  buffers?: { uri?: string; byteLength: number }[];
+  bufferViews?: GltfBufferView[];
+  buffers?: { uri?: string; byteLength: number; extensions?: { EXT_meshopt_compression?: { fallback?: boolean } } }[];
   materials?: GltfMaterial[];
   textures?: { source?: number; sampler?: number }[];
   images?: { uri?: string; bufferView?: number; mimeType?: string }[];
@@ -285,7 +376,7 @@ export async function loadGltfModel(host: GltfHost, source: GltfSource, options:
     checkAbort(signal);
     const scale = resolveScale(options.scale);
     const { json, bin, base } = await readContainer(source, options.baseUrl, signal);
-    const loader = new GltfLoader(host, json, bin, base, signal);
+    const loader = new GltfLoader(host, json, bin, base, signal, checkDecoders(options.decoders));
     return await loader.load(options, scale, created);
   } catch (e) {
     for (const id of created.objects) host.removeObject(id);
@@ -444,13 +535,20 @@ class GltfLoader {
   private readonly buffers = new Map<number, Uint8Array>();
   private readonly materials = new Map<number, MaterialInfo>();
   private readonly warned = new Set<string>();
+  /** EXT_meshopt_compression bufferViews, decoded (bufferView index -> bytes) */
+  private readonly decodedViews = new Map<number, Uint8Array>();
+  /** Accessors of KHR_draco_mesh_compression primitives, decoded in their componentType (tightly packed) */
+  private readonly dracoAccessors = new Map<number, Uint8Array>();
+  /** Decoded triangles of Draco primitives without an `indices` accessor */
+  private readonly dracoIndices = new Map<GltfPrimitive, Uint32Array>();
 
   constructor(
     private readonly host: GltfHost,
     private readonly json: GltfJson,
     private readonly bin: Uint8Array | null,
     private readonly base: string | undefined,
-    private readonly signal: AbortSignal | undefined
+    private readonly signal: AbortSignal | undefined,
+    private readonly decoders: GltfDecoders
   ) {}
 
   async load(
@@ -463,11 +561,22 @@ class GltfLoader {
     if (typeof version !== 'string' || version.split('.')[0] !== '2') {
       throw new Error(`loadGltf: unsupported glTF version ${version ?? '(missing)'} (2.0 required)`);
     }
+    const supported = new Set(SUPPORTED_EXTENSIONS);
+    if (this.decoders.meshopt) supported.add(EXT_MESHOPT);
+    if (this.decoders.draco) supported.add(KHR_DRACO);
     for (const ext of json.extensionsRequired ?? []) {
-      if (!SUPPORTED_EXTENSIONS.has(ext)) throw new Error(`loadGltf: extension ${ext} is required but not supported`);
+      if (supported.has(ext)) continue;
+      if (ext === EXT_MESHOPT || ext === KHR_DRACO) throw missingDecoderError(ext);
+      throw new Error(`loadGltf: extension ${ext} is required but not supported`);
     }
     for (const ext of json.extensionsUsed ?? []) {
-      if (!SUPPORTED_EXTENSIONS.has(ext)) this.warn(`ext:${ext}`, `extension ${ext} is not supported and is ignored`);
+      if (supported.has(ext)) continue;
+      if (ext === EXT_MESHOPT || ext === KHR_DRACO) {
+        const option = ext === EXT_MESHOPT ? 'meshopt' : 'draco';
+        this.warn(`ext:${ext}`, `extension ${ext} is used without options.decoders.${option}; the uncompressed fallback data is read`);
+      } else {
+        this.warn(`ext:${ext}`, `extension ${ext} is not supported and is ignored`);
+      }
     }
     const wantAnimations = options.animations !== false && (json.animations?.length ?? 0) > 0;
     const animate = wantAnimations && this.host.supportsMeshMatrices === true && typeof this.host.setObjectMeshMatrices === 'function';
@@ -850,8 +959,31 @@ class GltfLoader {
   private async loadBuffers(meshIndices: number[], extra: number[] = []): Promise<void> {
     const { json } = this;
     const views = new Set<number>();
+    // Draco primitives: their compressed bufferView replaces the accessors the extension maps
+    const dracoPrims: { prim: GltfPrimitive; where: string }[] = [];
+    const dracoCovered = new Set<number>();
+    for (const meshIndex of new Set(meshIndices)) {
+      (json.meshes?.[meshIndex]?.primitives ?? []).forEach((prim, p) => {
+        const ext = prim.extensions?.KHR_draco_mesh_compression;
+        const mode = prim.mode ?? 4;
+        if (!ext || mode <= 3 || mode > 6) return;
+        const where = `mesh ${meshIndex} primitive ${p}`;
+        if (!this.decoders.draco) {
+          // Fallback data only: the accessors must have their own bufferViews
+          const pos = prim.attributes?.POSITION;
+          if (pos !== undefined && json.accessors?.[pos] && json.accessors[pos].bufferView === undefined) throw missingDecoderError(KHR_DRACO);
+          return;
+        }
+        if (mode !== 4) throw new Error(`loadGltf: ${where}: ${KHR_DRACO} primitives must be TRIANGLES (mode 4)`);
+        if (ext.bufferView === undefined) throw new Error(`loadGltf: ${where}: ${KHR_DRACO} has no bufferView`);
+        views.add(ext.bufferView);
+        for (const [name, a] of Object.entries(prim.attributes ?? {})) if (ext.attributes?.[name] !== undefined) dracoCovered.add(a);
+        if (prim.indices !== undefined) dracoCovered.add(prim.indices);
+        dracoPrims.push({ prim, where });
+      });
+    }
     const addAccessor = (a: number | undefined) => {
-      if (a === undefined) return;
+      if (a === undefined || dracoCovered.has(a)) return;
       const acc = json.accessors?.[a];
       if (!acc) return;
       if (acc.bufferView !== undefined) views.add(acc.bufferView);
@@ -875,13 +1007,152 @@ class GltfLoader {
       }
     }
     const buffers = new Set<number>();
+    const meshoptViews: number[] = [];
     for (const v of views) {
       const view = json.bufferViews?.[v];
       if (!view) throw new Error(`loadGltf: bufferView ${v} does not exist`);
-      buffers.add(view.buffer);
+      const compressed = view.extensions?.EXT_meshopt_compression;
+      if (compressed && this.decoders.meshopt) {
+        buffers.add(compressed.buffer);
+        meshoptViews.push(v);
+      } else if (!this.isEmptyFallback(view.buffer)) {
+        buffers.add(view.buffer);
+      }
+      // (an empty fallback buffer is never loaded; reading its views fails in `bufferView`)
     }
     await Promise.all([...buffers].map(async (b) => this.buffers.set(b, await this.loadBuffer(b))));
     checkAbort(this.signal);
+    if (meshoptViews.length > 0) await this.decodeMeshopt(meshoptViews);
+    if (dracoPrims.length > 0) this.decodeDraco(dracoPrims);
+  }
+
+  /** A buffer marked `EXT_meshopt_compression.fallback` without a uri (it holds no data). */
+  private isEmptyFallback(index: number): boolean {
+    const buffer = this.json.buffers?.[index];
+    return buffer?.extensions?.EXT_meshopt_compression?.fallback === true && buffer.uri === undefined;
+  }
+
+  /** Decodes `EXT_meshopt_compression` bufferViews into `decodedViews`. */
+  private async decodeMeshopt(views: number[]): Promise<void> {
+    const meshopt = this.decoders.meshopt!;
+    await meshopt.ready;
+    checkAbort(this.signal);
+    for (const v of views) {
+      const ext = this.json.bufferViews![v].extensions!.EXT_meshopt_compression!;
+      const { count, byteStride, mode, filter } = ext;
+      if (!Number.isInteger(count) || count < 0 || !Number.isInteger(byteStride) || byteStride <= 0) {
+        throw new Error(`loadGltf: bufferView ${v}: ${EXT_MESHOPT} needs an integer count and a positive byteStride`);
+      }
+      if (!MESHOPT_MODES.has(mode)) throw new Error(`loadGltf: bufferView ${v}: unknown ${EXT_MESHOPT} mode ${String(mode)}`);
+      const bad = (reason: string) => new Error(`loadGltf: bufferView ${v}: ${EXT_MESHOPT} ${reason}`);
+      const viewLength = this.json.bufferViews![v].byteLength;
+      const filterName = filter ?? 'NONE';
+      if (!MESHOPT_FILTERS.has(filterName)) throw bad(`has an unknown filter ${String(filter)}`);
+      // Caps before any allocation (the decoder's wasm memory grows permanently)
+      if (count > (mode === 'ATTRIBUTES' ? GLTF_MAX_VERTICES : GLTF_MAX_INDICES)) {
+        throw bad(`count ${count} exceeds the limit of ${mode === 'ATTRIBUTES' ? GLTF_MAX_VERTICES : GLTF_MAX_INDICES}`);
+      }
+      if (mode === 'ATTRIBUTES') {
+        if (byteStride % 4 !== 0 || byteStride > 256) throw bad(`byteStride ${byteStride} must be divisible by 4 and at most 256 in ATTRIBUTES mode`);
+      } else {
+        if (byteStride !== 2 && byteStride !== 4) throw bad(`byteStride ${byteStride} must be 2 or 4 in ${mode} mode`);
+        if (filterName !== 'NONE') throw bad(`filter ${filterName} is not allowed in ${mode} mode`);
+        if (mode === 'TRIANGLES' && count % 3 !== 0) throw bad(`count ${count} must be divisible by 3 in TRIANGLES mode`);
+      }
+      if (filterName === 'OCTAHEDRAL' && byteStride !== 4 && byteStride !== 8) throw bad(`byteStride ${byteStride} must be 4 or 8 with filter OCTAHEDRAL`);
+      if (filterName === 'QUATERNION' && byteStride !== 8) throw bad(`byteStride ${byteStride} must be 8 with filter QUATERNION`);
+      if (filterName === 'EXPONENTIAL' && byteStride % 4 !== 0) throw bad(`byteStride ${byteStride} must be divisible by 4 with filter EXPONENTIAL`);
+      if (count * byteStride !== viewLength) throw bad(`count ${count} * byteStride ${byteStride} must equal the bufferView byteLength ${viewLength}`);
+      const source = this.buffers.get(ext.buffer)!;
+      const offset = ext.byteOffset ?? 0;
+      if (offset + ext.byteLength > source.byteLength) throw new Error(`loadGltf: bufferView ${v}: ${EXT_MESHOPT} data exceeds buffer ${ext.buffer}`);
+      const target = new Uint8Array(count * byteStride);
+      try {
+        meshopt.decodeGltfBuffer(target, count, byteStride, source.subarray(offset, offset + ext.byteLength), mode, filter);
+      } catch (e) {
+        throw new Error(`loadGltf: bufferView ${v}: meshopt decoding failed (${e instanceof Error ? e.message : String(e)})`);
+      }
+      this.decodedViews.set(v, target);
+    }
+  }
+
+  /** Decodes `KHR_draco_mesh_compression` primitives into `dracoAccessors` / `dracoIndices`. */
+  private decodeDraco(prims: { prim: GltfPrimitive; where: string }[]): void {
+    const draco = this.decoders.draco!;
+    const decoder = new draco.Decoder();
+    try {
+      for (const { prim, where } of prims) this.decodeDracoPrimitive(draco, decoder, prim, where);
+    } finally {
+      draco.destroy(decoder);
+    }
+  }
+
+  private decodeDracoPrimitive(draco: GltfDracoDecoder, decoder: GltfDracoDecoderInstance, prim: GltfPrimitive, where: string): void {
+    const ext = prim.extensions!.KHR_draco_mesh_compression!;
+    const { data } = this.bufferView(ext.bufferView!);
+    const mesh = new draco.Mesh();
+    try {
+      const status = decoder.DecodeArrayToMesh(new Int8Array(data.buffer, data.byteOffset, data.byteLength), data.byteLength, mesh);
+      if (!status.ok() || mesh.ptr === 0) throw new Error(`loadGltf: ${where}: Draco decoding failed (${status.error_msg()})`);
+      const points = mesh.num_points();
+      if (points > GLTF_MAX_VERTICES) throw new Error(`loadGltf: ${where}: Draco mesh has ${points} points; the limit is ${GLTF_MAX_VERTICES}`);
+      if (mesh.num_faces() * 3 > GLTF_MAX_INDICES) throw new Error(`loadGltf: ${where}: Draco mesh has ${mesh.num_faces() * 3} indices; the limit is ${GLTF_MAX_INDICES}`);
+      for (const [name, accessorIndex] of Object.entries(prim.attributes ?? {})) {
+        const id = ext.attributes?.[name];
+        if (id === undefined) continue;
+        const acc = this.json.accessors?.[accessorIndex];
+        if (!acc) throw new Error(`loadGltf: accessor ${accessorIndex} does not exist`);
+        const size = TYPE_SIZE[acc.type];
+        const csize = COMPONENT_SIZE[acc.componentType];
+        const dataType = dracoDataType(draco, acc.componentType);
+        if (!size || !csize || dataType === undefined) throw new Error(`loadGltf: accessor ${accessorIndex} has an invalid type or componentType`);
+        if (acc.count !== points) throw new Error(`loadGltf: ${where}: Draco ${name} has ${points} points, accessor ${accessorIndex} declares ${acc.count}`);
+        const attribute = decoder.GetAttributeByUniqueId(mesh, id);
+        if (!attribute || attribute.ptr === 0) throw new Error(`loadGltf: ${where}: Draco attribute ${id} (${name}) does not exist`);
+        if (attribute.num_components() !== size) {
+          throw new Error(`loadGltf: ${where}: Draco ${name} has ${attribute.num_components()} components, accessor ${accessorIndex} is ${acc.type}`);
+        }
+        const byteLength = points * size * csize;
+        this.dracoAccessors.set(
+          accessorIndex,
+          dracoRead(draco, byteLength, (ptr) => decoder.GetAttributeDataArrayForAllPoints(mesh, attribute, dataType, byteLength, ptr), `${where}: Draco ${name}`)
+        );
+      }
+      const n = mesh.num_faces() * 3;
+      const readTriangles = (wide: boolean) =>
+        dracoRead(
+          draco,
+          n * (wide ? 4 : 2),
+          (ptr) => (wide ? decoder.GetTrianglesUInt32Array(mesh, n * 4, ptr) : decoder.GetTrianglesUInt16Array(mesh, n * 2, ptr)),
+          `${where}: Draco indices`
+        );
+      if (prim.indices === undefined) {
+        const bytes = readTriangles(true);
+        this.dracoIndices.set(prim, new Uint32Array(bytes.buffer, bytes.byteOffset, n));
+        return;
+      }
+      const acc = this.json.accessors?.[prim.indices];
+      if (!acc) throw new Error(`loadGltf: accessor ${prim.indices} does not exist`);
+      if (acc.count !== n) throw new Error(`loadGltf: ${where}: Draco has ${n} indices, accessor ${prim.indices} declares ${acc.count}`);
+      if (acc.componentType === 5123) {
+        this.dracoAccessors.set(prim.indices, readTriangles(false));
+      } else if (acc.componentType === 5125) {
+        this.dracoAccessors.set(prim.indices, readTriangles(true));
+      } else if (acc.componentType === 5121) {
+        const bytes = readTriangles(true);
+        const wide = new Uint32Array(bytes.buffer, bytes.byteOffset, n);
+        const narrow = new Uint8Array(n);
+        for (let i = 0; i < n; i++) {
+          if (wide[i] > 255) throw new Error(`loadGltf: ${where}: Draco index ${wide[i]} does not fit accessor ${prim.indices} (unsigned byte)`);
+          narrow[i] = wide[i];
+        }
+        this.dracoAccessors.set(prim.indices, narrow);
+      } else {
+        throw new Error(`loadGltf: index accessor ${prim.indices} must be unsigned byte, short or int`);
+      }
+    } finally {
+      draco.destroy(mesh);
+    }
   }
 
   private async loadBuffer(index: number): Promise<Uint8Array> {
@@ -905,8 +1176,13 @@ class GltfLoader {
   private bufferView(index: number): { data: DataView; stride: number | undefined } {
     const view = this.json.bufferViews?.[index];
     if (!view) throw new Error(`loadGltf: bufferView ${index} does not exist`);
+    const decoded = this.decodedViews.get(index);
+    if (decoded) return { data: new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength), stride: view.byteStride };
     const buffer = this.buffers.get(view.buffer);
-    if (!buffer) throw new Error(`loadGltf: buffer ${view.buffer} is not loaded`);
+    if (!buffer) {
+      if (view.extensions?.EXT_meshopt_compression || this.isEmptyFallback(view.buffer)) throw missingDecoderError(EXT_MESHOPT);
+      throw new Error(`loadGltf: buffer ${view.buffer} is not loaded`);
+    }
     const offset = view.byteOffset ?? 0;
     if (offset + view.byteLength > buffer.byteLength) throw new Error(`loadGltf: bufferView ${index} exceeds its buffer`);
     return { data: new DataView(buffer.buffer, buffer.byteOffset + offset, view.byteLength), stride: view.byteStride };
@@ -927,13 +1203,17 @@ class GltfLoader {
     const values = kind === 'index' ? new Uint32Array(count * size) : new Float32Array(count * size);
     const read = componentReader(acc.componentType, kind === 'float' && acc.normalized === true);
 
-    if (acc.bufferView !== undefined) {
-      const { data, stride: viewStride } = this.bufferView(acc.bufferView);
+    const decoded = this.dracoAccessors.get(index);
+    if (decoded || acc.bufferView !== undefined) {
+      // Draco-decoded accessors are tightly packed from offset 0
+      const { data, stride: viewStride } = decoded
+        ? { data: new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength), stride: undefined }
+        : this.bufferView(acc.bufferView!);
       const elem = csize * size;
       const stride = viewStride || elem;
-      const start = acc.byteOffset ?? 0;
+      const start = decoded ? 0 : (acc.byteOffset ?? 0);
       if (count > 0 && start + stride * (count - 1) + elem > data.byteLength) {
-        throw new Error(`loadGltf: accessor ${index} reads past the end of bufferView ${acc.bufferView}`);
+        throw new Error(`loadGltf: accessor ${index} reads past the end of ${decoded ? 'its Draco data' : `bufferView ${acc.bufferView}`}`);
       }
       for (let i = 0; i < count; i++) {
         const o = start + i * stride;
@@ -1001,7 +1281,13 @@ class GltfLoader {
       const uvs = prim.attributes.TEXCOORD_0 !== undefined ? this.attribute(prim.attributes.TEXCOORD_0, 2, count, 'TEXCOORD_0') : null;
 
       let indices: Uint32Array;
-      if (prim.indices !== undefined) {
+      const dracoIndices = this.dracoIndices.get(prim);
+      if (dracoIndices) {
+        indices = new Uint32Array(dracoIndices);
+        for (let i = 0; i < indices.length; i++) {
+          if (indices[i] >= count) throw new Error(`loadGltf: mesh ${meshIndex} primitive ${p} index ${indices[i]} is out of range`);
+        }
+      } else if (prim.indices !== undefined) {
         const read = this.readAccessor(prim.indices, 'index');
         if (read.size !== 1) throw new Error(`loadGltf: index accessor ${prim.indices} must be SCALAR`);
         indices = read.values as Uint32Array;
@@ -1161,6 +1447,59 @@ class GltfLoader {
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
+
+/** Draco data type of a glTF componentType (undefined: none). */
+function dracoDataType(draco: GltfDracoDecoder, componentType: number): number | undefined {
+  switch (componentType) {
+    case 5120:
+      return draco.DT_INT8;
+    case 5121:
+      return draco.DT_UINT8;
+    case 5122:
+      return draco.DT_INT16;
+    case 5123:
+      return draco.DT_UINT16;
+    case 5125:
+      return draco.DT_UINT32;
+    case 5126:
+      return draco.DT_FLOAT32;
+    default:
+      return undefined;
+  }
+}
+
+/** Copies `byteLength` bytes `fill` writes into a temporary heap allocation (freed afterwards). */
+function dracoRead(draco: GltfDracoDecoder, byteLength: number, fill: (pointer: number) => unknown, what: string): Uint8Array {
+  if (byteLength === 0) return new Uint8Array(0);
+  const ptr = draco._malloc(byteLength);
+  if (ptr === 0) throw new Error(`loadGltf: ${what}: Draco decoder out of memory (${byteLength} bytes)`);
+  try {
+    if (fill(ptr) === false) throw new Error(`loadGltf: ${what}: Draco decoding failed`);
+    // HEAPU8 is re-read: the heap may have grown during the call
+    return draco.HEAPU8.slice(ptr, ptr + byteLength);
+  } finally {
+    draco._free(ptr);
+  }
+}
+
+/** Validates `options.decoders` (null / undefined entries mean none). */
+function checkDecoders(decoders: GltfDecoders | undefined): GltfDecoders {
+  const out: GltfDecoders = {};
+  if (decoders?.meshopt != null) {
+    if (typeof decoders.meshopt.decodeGltfBuffer !== 'function') {
+      throw new Error("loadGltf: options.decoders.meshopt must be the MeshoptDecoder from 'meshoptimizer'");
+    }
+    out.meshopt = decoders.meshopt;
+  }
+  if (decoders?.draco != null) {
+    const d = decoders.draco;
+    if (typeof d.Decoder !== 'function' || typeof d.Mesh !== 'function' || typeof d.destroy !== 'function' || typeof d._malloc !== 'function') {
+      throw new Error("loadGltf: options.decoders.draco must be the module createDecoderModule() from 'draco3d' resolves to");
+    }
+    out.draco = d;
+  }
+  return out;
+}
 
 function componentReader(componentType: number, normalized: boolean): (view: DataView, offset: number) => number {
   switch (componentType) {

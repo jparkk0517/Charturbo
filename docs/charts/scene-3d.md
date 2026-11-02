@@ -220,6 +220,21 @@ Skinned meshes (`skins` with `JOINTS_0` / `WEIGHTS_0`) load as skinned custom me
 - **Cost.** The re-skin is linear in vertex count: about 0.2 ms native and 0.4 to 0.6 ms in the browser per update for a 10,000-vertex mesh with 48 joints (palette included). `exportScene()` stores the current pose.
 - **Low level.** `setObjectSkin(id, { joints, weights, jointCount } | null)` skins any custom mesh (4 joints and 4 weights per vertex) and `setObjectJointMatrices(ids, jointCounts, matrices)` sets palettes in object-local space for several meshes at once.
 
+### Compressed glTF (Draco, meshopt) {#compressed-gltf}
+
+`loadGltf` reads `KHR_draco_mesh_compression` and `EXT_meshopt_compression` when you pass their decoders. The SDK bundles no decoder and has no runtime dependency, so you supply them:
+
+```ts
+import { MeshoptDecoder } from 'meshoptimizer';
+import createDecoderModule from 'draco3d/draco_decoder_nodejs.js'; // or your bundler's draco3d entry
+const draco = await createDecoderModule({});
+const model = await sdk.loadGltf('/models/robot.glb', { decoders: { meshopt: MeshoptDecoder, draco } });
+```
+
+- **Decoders.** `decoders.meshopt` takes `MeshoptDecoder` from `meshoptimizer` as-is. `decoders.draco` takes the module that `await createDecoderModule()` from `draco3d` resolves to; its `@types/draco3d` type does not match, so cast if you type it. Exported types: `GltfDecoders`, `GltfMeshoptDecoder`, `GltfDracoDecoder`.
+- **Errors.** A file that requires an extension without its decoder rejects with `loadGltf: EXT_meshopt_compression is required; pass options.decoders.meshopt (MeshoptDecoder from 'meshoptimizer')` (or the Draco equivalent). If the file only uses the extension without requiring it, the uncompressed fallback data is read with a warning.
+- **Not supported.** `KHR_meshopt_compression`, Draco point clouds, and Draco on triangle strips and fans (modes 5 and 6).
+
 ### Editing objects
 
 | Method | Returns | Description |

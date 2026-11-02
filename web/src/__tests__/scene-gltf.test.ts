@@ -692,7 +692,9 @@ describe('loadGltf failures and disposal', () => {
   it('rejects required unsupported extensions before creating anything', async () => {
     const { sdk, calls } = gltfBackend();
     const { json, bin } = triangleModel({ extensionsUsed: ['KHR_draco_mesh_compression'], extensionsRequired: ['KHR_draco_mesh_compression'] });
-    await expect(sdk.loadGltf(writeGlb(json, bin))).rejects.toThrow('loadGltf: extension KHR_draco_mesh_compression is required but not supported');
+    await expect(sdk.loadGltf(writeGlb(json, bin))).rejects.toThrow(
+      "loadGltf: KHR_draco_mesh_compression is required; pass options.decoders.draco (the module createDecoderModule() from 'draco3d' resolves to)"
+    );
     expect(calls.add_custom_mesh).toBeUndefined();
     // Supported required extensions pass
     stubBitmaps();

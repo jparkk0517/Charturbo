@@ -34,6 +34,7 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 - Set `size` to the real-world extent. Bounds come from the rest pose, so an animated clip may extend beyond the box.
 - Unknown clip fails the load and lists the available clips. Check with `--still` at key times.
 - Render resolves `src` against the doc's directory. Browser viewer: drop the `.glb` files with the doc.
+- Draco / meshopt compressed `.glb` files work as-is in `previs:render` and the viewer (decoders are detected and loaded automatically).
 - Programmatic playback needs `loadPrevisPlayer`; `createPrevisPlayer` throws for model docs.
 - Clip segments: `animation` may be an array sorted by strictly increasing `start` (`start` required after the first entry). `blendIn` (seconds, default 0, must be 0 on the first entry and at most the gap to the next segment start) cross-fades from the previous segment, which keeps advancing. Example: walk, stop the position track at 2.6 s, blend into wave:
 

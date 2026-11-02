@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 추가 — 압축 glTF (Draco · meshopt)
+
+- `loadGltf(source, { decoders: { meshopt?, draco? } })`로 압축 모델을 읽습니다. `EXT_meshopt_compression`에는 `meshoptimizer`의 `MeshoptDecoder`를, `KHR_draco_mesh_compression`에는 `await createDecoderModule()`(`draco3d`)이 resolve하는 모듈을 그대로 넘깁니다. SDK는 디코더를 번들하지 않으며 런타임 의존성도 없습니다. 파일이 확장을 필수로 요구하는데 디코더가 없으면 `loadGltf: ... is required; pass options.decoders ...` 오류로 로드가 거부되고, 필수가 아니면 비압축 대체 데이터를 경고와 함께 읽습니다.
+- previs(`loadPrevisPlayer`의 `decoders` 전달, `npm run previs:render`와 브라우저 뷰어)는 모델 파일의 확장을 감지해 필요한 디코더만 자동으로 불러옵니다(`draco3d` · `meshoptimizer`는 devDependency). 미지원: `KHR_meshopt_compression`, Draco 포인트 클라우드, Draco triangle strip/fan(mode 5/6).
+
 ### 추가 — 정확한 카메라 뷰 (setCameraView · roll)
 
 - `setCameraView({ eye, target, up?, roll? }): boolean`을 추가했습니다. 거리 · pitch 제한 없이 정확한 look-at으로 카메라를 놓고 roll을 지원합니다. eye == target이거나 백엔드가 지원하지 않으면 `false`를 반환하며(지원하지 않을 때는 `setCameraPose`로 대체), 이후 궤도 조작은 클램프된 궤도 카메라로 돌아가 roll을 버립니다. previs `camera.roll?: Track<number>`(라디안, 기본 0, `fov`와 같은 트랙 규칙)을 추가했고, 0.5 m 클로즈업 · 82° 탑뷰 제한을 제거했습니다. 0.2 m 클로즈업은 작성한 대로 렌더링되며, 검증기는 위치와 목표가 각각 키프레임 하나씩이고 값이 같으면(eye == target) 샷을 거부합니다.

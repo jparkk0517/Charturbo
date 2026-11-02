@@ -10,6 +10,7 @@
 import { Charturbo } from 'charturbo';
 import { docDuration } from '../src/previs/evaluate';
 import { loadPrevisPlayer } from '../src/previs/player';
+import { gltfExtensions, loadDecodersFor } from './decoders';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { PrevisDoc } from '../src/previs/types';
 import { validateDoc } from '../src/previs/validate';
@@ -275,8 +276,38 @@ async function load(file: File): Promise<void> {
     const duration = docDuration(doc);
     let player: PrevisPlayer;
     try {
+      // Read each model file once: its extensionsUsed pick the decoders (loaded only when needed)
+      const bytes = new Map<string, Uint8Array>();
+      const exts = new Set<string>();
+      const urlSeen = new Set<string>();
+      for (const n of doc.nodes) {
+        const src = n.model?.src;
+        if (!src || bytes.has(src) || urlSeen.has(src)) continue;
+        if (isUrl(src)) {
+          // Fetched once for the extension sniff; a GLB's bytes are reused, a .gltf is loaded by URL (sibling files)
+          urlSeen.add(src);
+          let res: Response;
+          try {
+            res = await fetch(src);
+          } catch (err) {
+            throw new Error(`모델을 가져오지 못했습니다: ${src} (${(err as Error).message})`);
+          }
+          if (!res.ok) throw new Error(`모델을 가져오지 못했습니다: ${src} (HTTP ${res.status})`);
+          const b = new Uint8Array(await res.arrayBuffer());
+          gltfExtensions(b).forEach((e) => exts.add(e));
+          if (b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46) bytes.set(src, b);
+          continue;
+        }
+        const f = findModelFile(src);
+        if (!f) continue;
+        const b = new Uint8Array(await f.arrayBuffer());
+        gltfExtensions(b).forEach((e) => exts.add(e));
+        bytes.set(src, b);
+      }
+      const decoders = await loadDecodersFor(exts);
       player = await loadPrevisPlayer(sdk, doc, {
-        resolveModel: (src) => (isUrl(src) ? src : (findModelFile(src) ?? Promise.reject(new Error(`model file not found: ${src}`)))),
+        resolveModel: (src) => bytes.get(src) ?? (isUrl(src) ? src : (findModelFile(src) ?? Promise.reject(new Error(`model file not found: ${src}`)))),
+        decoders,
       });
     } catch (err) {
       sdk.dispose();
