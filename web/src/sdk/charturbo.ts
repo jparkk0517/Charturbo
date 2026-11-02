@@ -6596,7 +6596,8 @@ export class Charturbo {
    * and texture, metallic / roughness factors, emissive and alpha modes map onto the scene material;
    * unsupported features are skipped with one `console.warn` per kind. Rejects with an `AbortError`
    * when `signal` fires and with `loadGltf: ...` errors otherwise; objects and textures created
-   * before a failure are removed. Free the model with `disposeGltf(result)`.
+   * before a failure are removed. `posable` (node names, glTF node indices or `true`) keeps those nodes' meshes
+   * movable so `GltfAnimator.setNodeRotations` can pose them. Free the model with `disposeGltf(result)`.
    *
    * Node translation / rotation / scale animations are kept: meshes under animated nodes stay in
    * node-local space with a mesh matrix (rest pose until played), `result.animations` lists the

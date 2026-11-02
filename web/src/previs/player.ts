@@ -50,6 +50,18 @@
  * `animator.setBlend([{ clip, time, weight, loop }])` with loop defaulting to 'repeat' per segment
  * (the animator wraps each time per its loop); it is called only when a segment, time or weight
  * changed since the last call. The frame-0 clips are applied at load as the initial pose.
+ * JOINTS (`tracks.joints`): every `sdk.loadGltf` of the node (also the tiny-scale reload) gets
+ * `posable: [...joint names]` so static nodes can be posed. The animator exists when the node has an
+ * animation OR joints (joints only: rest pose + offsets, deterministic). Unknown joint names are
+ * rejected by `loadGltf` itself (`posable node "x" not found`); the check against
+ * `animator.nodeNames` only matters on engines without mesh matrices (posable ignored). Each frame maps
+ * `NodeState.joints` (Euler [rx, ry, rz], YXZ) to the quaternion q = qY * qX * qZ (the engine's
+ * R = Ry * Rx * Rz, see evaluate.ts `rotateYXZ`) and calls
+ * `animator.setNodeRotations([{ node, rotation: [x, y, z, w] }], 'additive')` for ALL joints of the
+ * node, only when some value changed (the frame-0 values are applied at load). The animator re-applies
+ * the whole pose on every call of setNodeRotations and setBlend, and offers no way to defer one: a
+ * frame where clips AND joints both changed costs two applies (rotations first, then setBlend);
+ * a frame where only one changed costs exactly one call.
  *
  * CAMERA
  * Each frame calls `sdk.setCameraView({ eye, target, roll })` (meters * worldScale, roll in radians): an
@@ -70,7 +82,7 @@
 import type { Charturbo, ObjectMaterialDescriptor, PrimitiveShape } from '../sdk/charturbo';
 import type { GltfSource, GltfLoadResult, GltfDecoders } from '../sdk/scene-gltf';
 import type { GltfAnimator, GltfClipWeight } from '../sdk/scene-gltf-anim';
-import { clipWeightsAt, evaluateFrame } from './evaluate';
+import { clipWeightsAt, evalTrack, evaluateFrame } from './evaluate';
 import type { ClipWeight, FrameState, PrevisDoc, PrevisModelAnimation, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
 
 export interface PrevisPlayer {
@@ -116,6 +128,10 @@ interface ModelObjects {
   center: Vec3;
   extent: Vec3;
   animator: GltfAnimator | null;
+  /** Joint names of `tracks.joints` (document order); empty without joints. */
+  jointNames: string[];
+  /** Joint values last sent to the animator, by `jointNames` order. */
+  joints: Vec3[];
   /** Segments of the node's animation (object form = one segment). */
   segments: PrevisModelAnimation[];
   /** Clip weights last sent to the animator. */
@@ -290,13 +306,28 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
   let segments: PrevisModelAnimation[] = [];
   let clips: ClipWeight[] = [];
   const anim = n.model?.animation;
-  if (anim) {
-    animator = sdk.createGltfAnimator(result, { autoUpdate: false });
-    segments = normalizeAnimation(anim);
-    clips = clipWeightsAt(anim, 0);
+  const jointTracks = n.tracks?.joints;
+  const jointNames = jointTracks ? Object.keys(jointTracks) : [];
+  if (anim || jointNames.length > 0) animator = sdk.createGltfAnimator(result, { autoUpdate: false });
+  if (animator && jointNames.length > 0) {
+    const known = animator.nodeNames;
+    for (const name of jointNames) {
+      if (!known.includes(name)) {
+        const list = known.filter((s): s is string => s !== null);
+        const shown = list.slice(0, 50).map((s) => JSON.stringify(s)).join(', ');
+        throw new Error(`unknown joint ${JSON.stringify(name)} (joints: ${list.length > 0 ? shown + (list.length > 50 ? ', ...' : '') : 'none'})`);
+      }
+    }
+  }
+  const joints = jointNames.map((name) => evalTrack(jointTracks![name], 0, [0, 0, 0] as Vec3));
+  const model: ModelObjects = { result, fitId, fit, center, extent, animator, jointNames, joints, segments, clips };
+  if (animator && jointNames.length > 0) sendJoints(model, joints); // initial offsets = frame 0
+  if (anim && animator) {
+    model.segments = segments = normalizeAnimation(anim);
+    model.clips = clips = clipWeightsAt(anim, 0);
     animator.setBlend(toBlend(segments, clips)); // initial pose = frame 0
   }
-  o.model = { result, fitId, fit, center, extent, animator, segments, clips };
+  o.model = model;
 }
 
 function normalizeAnimation(anim: PrevisModelAnimation | PrevisModelAnimation[]): PrevisModelAnimation[] {
@@ -312,6 +343,26 @@ function toBlend(segments: PrevisModelAnimation[], clips: ClipWeight[]): GltfCli
 
 function sameClips(a: ClipWeight[], b: ClipWeight[]): boolean {
   return a.length === b.length && a.every((c, i) => c.segment === b[i].segment && c.time === b[i].time && c.weight === b[i].weight);
+}
+
+/** Quaternion [x, y, z, w] of Euler [rx, ry, rz] in order YXZ: q = qY * qX * qZ (R = Ry * Rx * Rz). */
+export function eulerYXZToQuat(rot: Vec3): [number, number, number, number] {
+  const hx = rot[0] / 2, hy = rot[1] / 2, hz = rot[2] / 2;
+  const sx = Math.sin(hx), cx = Math.cos(hx);
+  const sy = Math.sin(hy), cy = Math.cos(hy);
+  const sz = Math.sin(hz), cz = Math.cos(hz);
+  // qY * qX
+  const ax = cy * sx, ay = sy * cx, az = -sy * sx, aw = cy * cx;
+  // (qY * qX) * qZ with qZ = (0, 0, sz, cz)
+  return [ax * cz + ay * sz, ay * cz - ax * sz, az * cz + aw * sz, aw * cz - az * sz];
+}
+
+function sendJoints(m: ModelObjects, values: Vec3[]): void {
+  m.animator!.setNodeRotations(
+    m.jointNames.map((node, i) => ({ node, rotation: eulerYXZToQuat(values[i]) })),
+    'additive',
+  );
+  m.joints = values;
 }
 
 function makePlayer(
@@ -363,6 +414,11 @@ function makePlayer(
           o.meshVisible = st.visible;
         }
         if (m?.animator) {
+          // Rotations first: setBlend then re-applies the pose with the new offsets
+          if (st.joints && m.jointNames.length > 0) {
+            const next = m.jointNames.map((name) => st.joints![name]);
+            if (next.some((v, i) => !eqVec(v, m.joints[i]))) sendJoints(m, next);
+          }
           // evaluate.ts sets clips on every model node with an animation
           const cl = st.clips ?? m.clips;
           if (!sameClips(cl, m.clips)) {
@@ -453,6 +509,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
     const n = o.node;
     const model = n.model!;
     const anim = model.animation;
+    const jointNames = n.tracks?.joints ? Object.keys(n.tracks.joints) : [];
     const check = (): void => {
       if (ctl.signal.aborted) throw abortError(ctl.signal);
     };
@@ -462,6 +519,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
       const r = await sdk.loadGltf(source, {
         signal: ctl.signal,
         animations: anim !== undefined,
+        ...(jointNames.length > 0 ? { posable: jointNames } : {}),
         ...(options.decoders ? { decoders: options.decoders } : {}),
         ...(scale !== undefined ? { scale } : {}),
       });

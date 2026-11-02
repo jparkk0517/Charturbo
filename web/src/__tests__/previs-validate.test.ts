@@ -262,6 +262,46 @@ describe('validateDoc model nodes', () => {
   };
   const P = 'nodes[2].model';
 
+  describe('tracks.joints', () => {
+    const withJoints = (joints: any, extra: any = {}): any => {
+      const d = withModel({ src: 'robot.glb' });
+      d.nodes[2].tracks = { joints, ...extra };
+      return d;
+    };
+    const J = 'nodes[2].tracks.joints';
+    const ok = [{ t: 0, v: [0, 0, 0] }, { t: 1, v: [-1.2, 0, 0.5], ease: 'ease-in' }];
+
+    it('accepts joint tracks and keeps them', () => {
+      const r = validateDoc(withJoints({ leftArm: ok, hips: [{ t: 0, v: [0, 1, 0] }] }));
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.doc.nodes[2].tracks?.joints?.leftArm).toEqual(ok);
+    });
+
+    it('only on model nodes', () => {
+      const d = base();
+      d.nodes[0].tracks = { joints: { x: ok } };
+      expect(has(d, 'nodes[0].tracks.joints')).toBe(true);
+    });
+
+    it('joints must be an object', () => {
+      expect(has(withJoints([ok]), J)).toBe(true);
+      expect(has(withJoints('x'), J)).toBe(true);
+    });
+
+    it('rejects an empty joint name', () => {
+      expect(has(withJoints({ '': ok }), J)).toBe(true);
+    });
+
+    it('applies the track rules with paths like nodes[2].tracks.joints.leftArm[1].v', () => {
+      expect(has(withJoints({ leftArm: [] }), `${J}.leftArm`)).toBe(true);
+      expect(has(withJoints({ leftArm: 'x' }), `${J}.leftArm`)).toBe(true);
+      expect(has(withJoints({ leftArm: [{ t: 0, v: [0, 0, 0] }, { t: 1, v: [1, 2] }] }), `${J}.leftArm[1].v`)).toBe(true);
+      expect(has(withJoints({ leftArm: [{ t: 0, v: [0, NaN, 0] }] }), `${J}.leftArm[0].v`)).toBe(true);
+      expect(has(withJoints({ leftArm: [{ t: 0, v: [0, 0, 0] }, { t: 0, v: [0, 0, 0] }] }), `${J}.leftArm[1].t`)).toBe(true);
+      expect(has(withJoints({ leftArm: [{ t: 0, v: [0, 0, 0], ease: 'bounce' }] }), `${J}.leftArm[0].ease`)).toBe(true);
+    });
+  });
+
   it('accepts a valid model doc and keeps model in the result', () => {
     const model = { src: 'robot.glb', fit: 'stretch', animation: { clip: 'walk', start: 1, speed: 2, loop: 'pingpong' } };
     const r = validateDoc(withModel(model));

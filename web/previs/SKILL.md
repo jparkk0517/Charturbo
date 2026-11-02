@@ -45,6 +45,7 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 ] },
 "tracks": { "position": [{ "t": 0, "v": [-3.2, 0.875, -3.5] }, { "t": 2.6, "v": [0.96, 0.875, -3.5] }] }
 ```
+- For hand-posed tweaks on top of clips (raise an arm, turn the head), use `tracks.joints` on the model node: joint name → track of Euler `[rx, ry, rz]` radians, additive in the joint's local frame. Joint names are the glTF node names; list them from the `unknown joint` error message or the SDK's `GltfAnimator.nodeNames`.
 
 ## Pitfalls
 

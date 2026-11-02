@@ -33,6 +33,13 @@ export interface GltfLoadOptions {
    */
   animations?: boolean;
   /**
+   * Nodes the animator may rotate by hand (`GltfAnimator.setNodeRotations`): node names (unique) or glTF
+   * node indices, or `true` for every node. Their meshes (and everything below) stay in node-local space
+   * with a mesh matrix, like animated nodes, also with `animations: false` or a file without clips.
+   * Unknown or ambiguous names reject the load. Ignored (with a warning) when the engine has no mesh matrices.
+   */
+  posable?: readonly (string | number)[] | true;
+  /**
    * Geometry decoders for compressed files. The SDK ships none: pass the libraries' own objects.
    * Without the matching decoder, files that require `EXT_meshopt_compression` /
    * `KHR_draco_mesh_compression` are rejected (files that only use them load their uncompressed
@@ -627,14 +634,44 @@ class GltfLoader {
       }
     }
 
+    // Posable nodes (visit indices); validated before anything is created
+    const posable = new Set<number>();
+    if (options.posable === true) order.forEach((_, i) => posable.add(i));
+    else if (options.posable !== undefined) {
+      if (!Array.isArray(options.posable)) throw new Error('loadGltf: posable must be an array of node names / glTF node indices, or true');
+      for (const ref of options.posable as readonly unknown[]) {
+        if (typeof ref === 'number' && Number.isInteger(ref) && ref >= 0) {
+          const at = visited.get(ref);
+          if (at === undefined) throw new Error(`loadGltf: posable glTF node ${ref} is not in the loaded scene`);
+          posable.add(at);
+        } else if (typeof ref === 'string') {
+          const hits = order.flatMap((v, i) => (v.node.name === ref ? [i] : []));
+          if (hits.length === 0) {
+            const named = order.map((v) => v.node.name).filter((n): n is string => typeof n === 'string');
+            const shown = named.slice(0, 8).map((n) => `"${n}"`).join(', ');
+            throw new Error(`loadGltf: posable node "${ref}" not found (${named.length > 0 ? `nodes: ${shown}${named.length > 8 ? `, ... ${named.length - 8} more` : ''}` : 'the model has no named nodes'})`);
+          }
+          if (hits.length > 1) {
+            throw new Error(`loadGltf: posable node name "${ref}" is ambiguous (glTF nodes ${hits.map((i) => order[i].index).join(', ')}); use the glTF node index`);
+          }
+          posable.add(hits[0]);
+        } else {
+          throw new Error(`loadGltf: posable entries must be node names or glTF node indices (got ${String(ref)})`);
+        }
+      }
+    }
+    const canPose = this.host.supportsMeshMatrices === true && typeof this.host.setObjectMeshMatrices === 'function';
+    if (posable.size > 0 && !canPose) this.warn('posable', 'posable nodes are not supported by this engine and are ignored');
+    const posed = canPose ? posable : new Set<number>();
+
     // Geometry and keyframes first (synchronous parse errors happen before anything is created)
     await this.loadBuffers(jobs.map((j) => j.mesh), [...(animate ? this.animationAccessors(visited) : []), ...skinAccessors]);
     const clips = animate ? this.parseAnimations(visited, order) : [];
-    // Dynamic = animated or below an animated node (parents are visited first)
+    // Dynamic = animated, posable or below such a node (parents are visited first)
     const animated = new Set(clips.flatMap((c) => c.channels.map((ch) => ch.node)));
     const dynamic = new Uint8Array(order.length);
     order.forEach((v, i) => {
-      dynamic[i] = animated.has(i) || (v.parent >= 0 && dynamic[v.parent]) ? 1 : 0;
+      dynamic[i] = animated.has(i) || posed.has(i) || (v.parent >= 0 && dynamic[v.parent]) ? 1 : 0;
     });
     const base = scaleMatrix(scale);
     // Skins in slot order, with their rest palettes (joint worlds of the unanimated scene)

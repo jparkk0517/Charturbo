@@ -171,6 +171,8 @@ export {
   type GltfInterpolation,
   type GltfPlayOptions,
   type GltfClipWeight,
+  type GltfNodeRotation,
+  type GltfNodeRotationMode,
   type GltfRig,
   type GltfRigSkin,
   type GltfSampler,

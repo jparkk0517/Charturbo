@@ -123,6 +123,14 @@ export interface PrevisNode {
     size?: Track<Vec3>;
     /** Boolean tracks are step-wise regardless of `ease`. */
     visible?: Track<boolean>;
+    /**
+     * Model nodes only: per-joint rotation offsets keyed by glTF node name (unique in the model).
+     * Each value is an Euler `[rx, ry, rz]` (radians, order YXZ like `rotation`) applied ADDITIVELY
+     * in the joint's local frame on top of the current clip pose (the rest pose without a clip):
+     * local rotation = pose * offset. `[0, 0, 0]` leaves the joint as the clip / rest pose.
+     * Unknown joint names fail the load.
+     */
+    joints?: Record<string, Track<Vec3>>;
   };
 }
 
@@ -196,6 +204,8 @@ export interface NodeState {
    * `[{ segment: 0, time: clipTime, weight: 1 }]`; `clipTime` is kept for that form only.
    */
   clips?: ClipWeight[];
+  /** Joint rotation offsets (Euler YXZ radians) of this frame; present only when `tracks.joints` is. */
+  joints?: Record<string, Vec3>;
 }
 
 /** Everything the player needs to draw one frame. */

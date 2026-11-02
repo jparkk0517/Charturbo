@@ -259,6 +259,19 @@ export function validateDoc(
       if (t.position !== undefined) vecTrack(t.position, `${p}.tracks.position`);
       if (t.rotation !== undefined) vecTrack(t.rotation, `${p}.tracks.rotation`);
       if (t.size !== undefined) vecTrack(t.size, `${p}.tracks.size`);
+      if (t.joints !== undefined) {
+        const jp = `${p}.tracks.joints`;
+        if (n.shape !== 'model') {
+          add(jp, `joints are only allowed on shape "model" nodes; got shape ${JSON.stringify(n.shape)}. Remove "joints" or set "shape": "model"`);
+        } else if (!isObj(t.joints)) {
+          add(jp, 'joints must be an object of joint name -> track, e.g. { "leftArm": [{ "t": 0, "v": [0, 0, 0] }] }');
+        } else {
+          for (const [name, jt] of Object.entries(t.joints)) {
+            if (name === '') add(jp, 'joint name must be a non-empty string (the glTF node name)');
+            else vecTrack(jt, `${jp}.${name}`);
+          }
+        }
+      }
       if (t.visible !== undefined) {
         track(t.visible, `${p}.tracks.visible`, (v, pp) => {
           if (typeof v === 'boolean') return true;

@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 추가 — 관절 포즈 (setNodeRotations · posable · previs joints)
+
+- `GltfAnimator.setNodeRotations(rotations, mode = 'additive')`로 노드별 회전 오버라이드를 지정합니다. `mode`는 `'additive'`(기본, 현재 포즈 위에 곱함) 또는 `'absolute'`이며, rest · seek · update · setBlend 등 모든 포즈 갱신에 적용됩니다. `[]`를 넘기면 해제되고, `GltfAnimator.nodeNames`로 리그의 노드 이름을 볼 수 있습니다. 정적 지오메트리로 구운 노드는 `loadGltf(src, { posable: ['nodeName', ...] })`(또는 `posable: true`)로 불러와야 하며, 스키닝 관절은 항상 포즈를 바꿀 수 있고 `matrix` 노드는 오버라이드할 수 없습니다.
+- previs 모델 노드에 `tracks.joints?: Record<노드 이름, Track<Vec3>>`를 추가했습니다. 값은 Euler `[rx, ry, rz]`(라디안, 순서 YXZ)이며 클립 포즈 위에 관절 로컬 프레임 기준으로 더해집니다(`[0, 0, 0]`은 변화 없음). 알 수 없는 관절 이름은 `loadPrevisPlayer` 로드를 실패시키고 사용 가능한 관절을 나열하며, 플레이어가 애니메이션하는 관절에는 `posable`이 자동으로 적용됩니다.
+
 ### 추가 — 압축 glTF (Draco · meshopt)
 
 - `loadGltf(source, { decoders: { meshopt?, draco? } })`로 압축 모델을 읽습니다. `EXT_meshopt_compression`에는 `meshoptimizer`의 `MeshoptDecoder`를, `KHR_draco_mesh_compression`에는 `await createDecoderModule()`(`draco3d`)이 resolve하는 모듈을 그대로 넘깁니다. SDK는 디코더를 번들하지 않으며 런타임 의존성도 없습니다. 파일이 확장을 필수로 요구하는데 디코더가 없으면 `loadGltf: ... is required; pass options.decoders ...` 오류로 로드가 거부되고, 필수가 아니면 비압축 대체 데이터를 경고와 함께 읽습니다.

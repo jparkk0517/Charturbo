@@ -11,6 +11,8 @@ interface FakeModel {
   objects?: number;
   bounds?: { min: Vec3; max: Vec3 };
   animations?: string[];
+  /** glTF node names the animator reports (default hips, leftArm, rightArm). */
+  nodeNames?: (string | null)[];
   /** Rejects with this instead of loading. */
   error?: Error;
   /** Resolves only after this promise does (abort tests). */
@@ -23,6 +25,7 @@ interface FakeResult {
   nodes: unknown[];
   bounds: { min: Vec3; max: Vec3 };
   animations: { name: string; duration: number }[];
+  nodeNames: (string | null)[];
 }
 
 /** Recording stand-in for the Charturbo methods the player uses. */
@@ -77,6 +80,7 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
         nodes: [],
         bounds: { min: b.min.map((v) => v * k) as Vec3, max: b.max.map((v) => v * k) as Vec3 },
         animations: (fm.animations ?? []).map((name) => ({ name, duration: 1 })),
+        nodeNames: fm.nodeNames ?? ['hips', 'leftArm', 'rightArm'],
       };
     },
     disposeGltf: (r: FakeResult) => {
@@ -86,6 +90,11 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
       const a = nextAnimator++;
       calls.push(['createGltfAnimator', model.objects, opts, a]);
       const animator = {
+        nodeNames: model.nodeNames,
+        setNodeRotations: (rotations: unknown, mode: unknown) => {
+          calls.push(['animator.setNodeRotations', a, rotations, mode]);
+          return animator;
+        },
         setBlend: (entries: unknown) => {
           calls.push(['animator.setBlend', a, entries]);
           return animator;
@@ -697,6 +706,126 @@ describe('loadPrevisPlayer', () => {
     p.frame(1);
     p.frame(4);
     expect(blends(m)).toHaveLength(1);
+  });
+
+  describe('joints', () => {
+    const j = (...keys: [number, Vec3][]) => keys.map(([t, v]) => ({ t, v }));
+    const rots = (m: ReturnType<typeof mockSdk>) => m.named('animator.setNodeRotations').map((c) => c[2] as { node: string; rotation: number[] }[]);
+    const sends = (m: ReturnType<typeof mockSdk>) => m.calls.filter((c) => c[0] === 'animator.setNodeRotations' || c[0] === 'animator.setBlend');
+    const close = (a: number[], b: number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 9));
+    const S = Math.SQRT1_2;
+
+    it('forwards posable to every load (also the tiny-scale reload) and creates an animator for joints only', async () => {
+      const m = mockSdk({ 'mm.glb': { bounds: { min: [-500, -500, -500], max: [500, 500, 500] } } });
+      await loadPrevisPlayer(
+        m.sdk,
+        doc([modelNode('a', { src: 'mm.glb' }, { size: [1, 1, 1], tracks: { joints: { leftArm: j([0, [0, 0, 0]]), hips: j([0, [0, 0, 0]]) } } })]),
+      );
+      const loads = m.named('loadGltf');
+      expect(loads).toHaveLength(2);
+      for (const l of loads) expect(l[2]).toMatchObject({ posable: ['leftArm', 'hips'], animations: false });
+      expect(m.named('createGltfAnimator')).toHaveLength(1);
+      expect(m.named('animator.setBlend')).toEqual([]);
+    });
+
+    it('no posable option and no animator without joints and animation', async () => {
+      const m = mockSdk();
+      await loadPrevisPlayer(m.sdk, doc([modelNode('a', { src: 'w.glb' })]));
+      expect('posable' in (m.named('loadGltf')[0][2] as object)).toBe(false);
+      expect(m.named('createGltfAnimator')).toEqual([]);
+    });
+
+    it('sends additive quaternions of the Euler YXZ values (hand computed)', async () => {
+      const m = mockSdk();
+      const p = await loadPrevisPlayer(
+        m.sdk,
+        doc([
+          modelNode('a', { src: 'w.glb' }, {
+            tracks: {
+              joints: {
+                leftArm: j([0, [0, 0, 0]], [1, [Math.PI / 2, 0, 0]], [2, [Math.PI / 2, Math.PI / 2, 0]], [3, [Math.PI / 2, 0, Math.PI / 2]]),
+                hips: j([0, [0, Math.PI, 0]]),
+              },
+            },
+          }),
+        ]),
+      );
+      // initial offsets (frame 0): identity and ry = pi -> (0, 1, 0, 0)
+      const r0 = rots(m)[0];
+      expect(r0.map((e) => e.node)).toEqual(['leftArm', 'hips']);
+      expect(m.named('animator.setNodeRotations')[0][3]).toBe('additive');
+      close(r0[0].rotation, [0, 0, 0, 1]);
+      close(r0[1].rotation, [0, 1, 0, 0]);
+      p.frame(1); // rx = 90 deg
+      close(rots(m)[1][0].rotation, [S, 0, 0, S]);
+      p.frame(2); // YXZ: qY * qX = (c sx, s cx, -s sx, c cx) with both 45 deg half angles -> (0.5, 0.5, -0.5, 0.5)
+      close(rots(m)[2][0].rotation, [0.5, 0.5, -0.5, 0.5]);
+      p.frame(3); // qX * qZ (ry = 0) = (sx cz, -sx sz, cx sz, cx cz) -> (0.5, -0.5, 0.5, 0.5)
+      close(rots(m)[3][0].rotation, [0.5, -0.5, 0.5, 0.5]);
+    });
+
+    it('calls setNodeRotations only when a joint value changed', async () => {
+      const m = mockSdk();
+      const p = await loadPrevisPlayer(
+        m.sdk,
+        doc([modelNode('a', { src: 'w.glb' }, { tracks: { joints: { leftArm: j([0, [0, 0, 0]], [1, [1, 0, 0]]) } } })]),
+      );
+      expect(rots(m)).toHaveLength(1); // initial
+      p.frame(0);
+      p.frame(0);
+      expect(rots(m)).toHaveLength(1);
+      p.frame(0.5);
+      p.frame(0.5);
+      expect(rots(m)).toHaveLength(2);
+      p.frame(1);
+      p.frame(2);
+      p.frame(3);
+      expect(rots(m)).toHaveLength(3); // held after the last key
+    });
+
+    it('with clip segments: one pose send per frame unless both change', async () => {
+      const m = mockSdk({ 'w.glb': { animations: ['idle', 'walk'] } });
+      const d = doc([
+        modelNode('a', { src: 'w.glb', animation: [{ clip: 'idle' }, { clip: 'walk', start: 2, blendIn: 1 }] }, {
+          tracks: { joints: { leftArm: j([0, [0, 0, 0]], [1, [1, 0, 0]], [1.5, [1, 0, 0]]) } },
+        }),
+      ]);
+      const p = await loadPrevisPlayer(m.sdk, d);
+      const per = (t: number) => {
+        const before = sends(m).length;
+        p.frame(t);
+        return sends(m).length - before;
+      };
+      expect(sends(m)).toHaveLength(2); // initial joints + initial clip
+      expect(per(0)).toBe(0);
+      expect(per(0.5)).toBe(2); // joint moves AND idle time moves: setBlend + setNodeRotations
+      expect(per(0.5)).toBe(0);
+      expect(per(1.5)).toBe(2); // joint reaches its held value, clip time moves
+      expect(per(1.7)).toBe(1); // joints held (>= 1.5), clip time moves: setBlend only
+    });
+
+    it('joints only change: no setBlend', async () => {
+      const m = mockSdk({ 'w.glb': { animations: ['idle'] } });
+      const p = await loadPrevisPlayer(
+        m.sdk,
+        doc([modelNode('a', { src: 'w.glb', animation: { clip: 'idle', start: 9 } }, { tracks: { joints: { leftArm: j([0, [0, 0, 0]], [1, [1, 0, 0]]) } } })]),
+      );
+      const blendsBefore = m.named('animator.setBlend').length;
+      p.frame(0.5);
+      expect(m.named('animator.setBlend')).toHaveLength(blendsBefore);
+      expect(rots(m)).toHaveLength(2);
+    });
+
+    it('rejects an unknown joint listing the model joints, and cleans up', async () => {
+      const m = mockSdk({ 'w.glb': { nodeNames: ['hips', null, 'head'] } });
+      const d = doc([modelNode('cup', { src: 'w.glb' }, { tracks: { joints: { elbow: j([0, [0, 0, 0]]) } } })]);
+      await expect(loadPrevisPlayer(m.sdk, d)).rejects.toThrow(
+        'loadPrevisPlayer: node "cup" (w.glb): unknown joint "elbow" (joints: "hips", "head")',
+      );
+      expect(m.named('disposeGltf')).toHaveLength(1);
+      expect(m.named('removeObject').map((c) => c[1])).toEqual(prims(m).map((x) => x.id).reverse());
+      expect(m.named('setTheme').at(-1)![1]).toBe(m.theme);
+    });
   });
 
   it('rejects an unknown clip in a later segment and cleans up', async () => {

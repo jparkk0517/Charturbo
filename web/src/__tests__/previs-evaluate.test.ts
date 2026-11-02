@@ -430,3 +430,33 @@ describe('clips / clipWeightsAt', () => {
     expect(c[1].weight).toBeCloseTo(0.25, 9);
   });
 });
+
+describe('joints', () => {
+  const mn = (joints?: Record<string, { t: number; v: Vec3; ease?: 'ease-in' | 'step' }[]>) =>
+    node('m', { shape: 'model', model: { src: 'x.glb' }, ...(joints ? { tracks: { joints } } : {}) });
+  const at = (n: PrevisNode, t: number) => evaluateFrame(doc([n], [shot('s', 0, 10)]), t).nodes.m;
+
+  it('a joint named "__proto__" stays an own key', () => {
+    const joints = JSON.parse('{"__proto__": [{"t": 0, "v": [1, 2, 3]}]}');
+    const j = at(mn(joints), 0).joints!;
+    expect(Object.keys(j)).toEqual(['__proto__']);
+    expect(Object.getOwnPropertyDescriptor(j, '__proto__')?.value).toEqual([1, 2, 3]);
+  });
+
+  it('absent without tracks.joints', () => {
+    expect('joints' in at(mn(), 1)).toBe(false);
+  });
+
+  it('evaluates each joint with the track machinery (lerp, ease, hold, step)', () => {
+    const n = mn({
+      a: [{ t: 1, v: [0, 0, 0] }, { t: 3, v: [2, 4, -2] }],
+      b: [{ t: 0, v: [1, 1, 1], ease: 'step' }, { t: 2, v: [5, 5, 5] }],
+      c: [{ t: 0, v: [0, 0, 0], ease: 'ease-in' }, { t: 2, v: [4, 0, 0] }],
+    });
+    expect(at(n, 0).joints).toEqual({ a: [0, 0, 0], b: [1, 1, 1], c: [0, 0, 0] });
+    expect(at(n, 2).joints).toEqual({ a: [1, 2, -1], b: [5, 5, 5], c: [4, 0, 0] });
+    expect(at(n, 1).joints!.b).toEqual([1, 1, 1]);
+    expect(at(n, 1).joints!.c).toEqual([1, 0, 0]);
+    expect(at(n, 9).joints).toEqual({ a: [2, 4, -2], b: [5, 5, 5], c: [4, 0, 0] });
+  });
+});

@@ -446,3 +446,90 @@ describe('glTF skins: clip blending (setBlend)', () => {
     close(palette(), blended, 6);
   });
 });
+
+describe('glTF skins: joint rotation overrides (setNodeRotations)', () => {
+  type Quat = [number, number, number, number];
+  const q = (v: number[]) => v as Quat;
+  /** Quaternion of `deg` degrees about +X */
+  const qx = (deg: number) => q([Math.sin((deg * Math.PI) / 360), 0, 0, Math.cos((deg * Math.PI) / 360)]);
+  const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  /** Column-major Rz(90) */
+  const RZ90 = [0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+  async function setup(load: { animations?: boolean } = {}) {
+    const env = skinBackend();
+    const model = await env.sdk.loadGltf(stripModel(), load);
+    const id = model.objects[0];
+    const anim = env.sdk.createGltfAnimator(model, { autoUpdate: false });
+    const palette = () => Array.from(env.skins.get(id)!.palette);
+    return { ...env, model, id, anim, palette };
+  }
+
+  it('poses a static (unanimated) joint: absolute Rz(90) on root turns the whole skeleton', async () => {
+    const { anim, id, posed, palette, jointBatches, meshBatches } = await setup();
+    expect(anim.nodeNames).toEqual(['skinned', 'root', 'bend']);
+    jointBatches.length = 0;
+    anim.setNodeRotations([{ node: 'root', rotation: q(qz(90)) }], 'absolute');
+    expect(jointBatches).toEqual([{ ids: [id], counts: [2], floats: 32 }]);
+    expect(meshBatches).toEqual([]);
+    // Joint 0 = Rz90; joint 1 = Rz90 x T(0,1,0) x IBM T(0,-1,0) = Rz90
+    close(palette(), [...RZ90, ...RZ90], 6);
+    // (x, y) -> (-y, x)
+    close(posed(id), [0, 0, 0, 0, 1, 0, -1, 0, 0, -1, 1, 0, -2, 0, 0, -2, 1, 0], 6);
+  });
+
+  it('works without clips (no dynamic nodes): every joint is posable via the palette', async () => {
+    const { anim, id, posed } = await setup({ animations: false });
+    anim.setNodeRotations([{ node: 'bend', rotation: q(qz(90)) }], 'absolute');
+    close(posed(id), BENT, 6);
+    anim.setNodeRotations([]);
+    close(posed(id), STRIP, 6);
+  });
+
+  it('additive on a joint = clip x override; only that joint subtree moves', async () => {
+    const { anim, id, posed, palette } = await setup();
+    anim.play('bend').pause().seek(0.5); // bend: 45 deg about Z
+    const clip = palette();
+    anim.setNodeRotations([{ node: 'bend', rotation: q(qz(45)) }]);
+    // 45 + 45 deg about the same axis = the clip end pose
+    close(posed(id), BENT, 6);
+    // The root joint (outside bend's subtree) is bit-identical
+    expect(palette().slice(0, 16)).toEqual(clip.slice(0, 16));
+    // Non-commuting: bend local = Rz(90) (clip @ 1 s) x Rx(90) (override)
+    anim.seek(1);
+    anim.setNodeRotations([{ node: 'bend', rotation: qx(90) }]);
+    // Joint 1 = T(0,1,0) Rz90 Rx90 T(0,-1,0): (0,2,0) -> (0,1,1); (1,2,0) -> (0,2,1); row 1 averages with root
+    close(posed(id), [0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 1.5, 0, 0, 1, 1, 0, 2, 1], 6);
+    close(palette().slice(0, 16), IDENTITY, 12);
+    // Absolute ignores the clip rotation
+    anim.setNodeRotations([{ node: 'bend', rotation: q(qz(90)) }], 'absolute');
+    anim.seek(0.1);
+    close(posed(id), BENT, 6);
+  });
+
+  it('[] restores the clip palette bit for bit; overrides persist across seek / setBlend', async () => {
+    const { anim, palette } = await setup();
+    anim.play('bend').pause().seek(0.7);
+    const clip = palette();
+    anim.setNodeRotations([
+      { node: 'root', rotation: qx(30) },
+      { node: 'bend', rotation: qx(-20) },
+    ]);
+    const posedAt07 = palette();
+    expect(posedAt07).not.toEqual(clip);
+    anim.seek(0.2).seek(0.7);
+    expect(palette()).toEqual(posedAt07);
+    anim.setBlend([{ clip: 'bend', time: 0.7, weight: 1 }]);
+    expect(palette()).toEqual(posedAt07);
+    anim.setNodeRotations([]);
+    expect(palette()).toEqual(clip);
+  });
+
+  it('the skinned mesh node itself is accepted but has no effect (skinning ignores its transform)', async () => {
+    const { anim, id, posed, palette } = await setup();
+    const rest = palette();
+    anim.setNodeRotations([{ node: 'skinned', rotation: q(qz(90)) }], 'absolute');
+    expect(palette()).toEqual(rest);
+    close(posed(id), STRIP, 6);
+  });
+});

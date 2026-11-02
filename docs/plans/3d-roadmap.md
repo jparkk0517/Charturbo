@@ -1,6 +1,6 @@
 # 3D scene / previs roadmap (delegation plan)
 
-Status 2026-11-02. Baseline: `fc04160` (previs glTF model nodes). Each task below is sized for ONE subagent run
+Status 2026-11-02: Epics 1-4 DONE (`fe48f62` clip segments, `a56ca8e` exact camera, `b9080f8` compressed glTF, Epic 4 joint poses); Epic 5 deferred. Baseline was `fc04160` (previs glTF model nodes). Each task below is sized for ONE subagent run
 (about 30 min to 2 h) and lists everything its brief needs. The supervisor writes contracts, runs waves,
 verifies, commits and pushes to `main`.
 
@@ -33,7 +33,7 @@ A task is promoted one tier when its contract has an open design question.
 
 ---
 
-## Epic 1. Clip sequences per model node (walk → stop → wave) — PRIORITY 1
+## Epic 1. Clip sequences per model node (walk → stop → wave) — DONE `fe48f62`
 
 Problem: `model.animation` plays one clip per node.
 
@@ -53,7 +53,7 @@ cross-fade from the previous segment's pose. `NodeState` gains
 
 Parallel: 1.1 and 1.2 together; then 1.3; then 1.4. Estimate: half a day wall clock.
 
-## Epic 2. Camera freedom (close-ups, top-down, roll) — PRIORITY 2
+## Epic 2. Camera freedom (close-ups, top-down, roll) — DONE `a56ca8e`
 
 Problem (engine `crates/charturbo-core/src/camera/mod.rs:139-148`): `set_pose` clamps distance to
 5..5000 units and pitch to |dir.y| <= 0.99 (about 82 deg); there is no roll. Previs pushes close-ups back to 0.5 m.
@@ -71,7 +71,7 @@ Contract: new SDK `setCameraView({ eye, target, up?, roll? })` = exact look-at, 
 Sequential. Runs in parallel with Epic 1 (disjoint files except `types.ts`, which the supervisor edits).
 Estimate: 1-2 days.
 
-## Epic 3. Compressed glTF (Draco, meshopt) — PRIORITY 3, needs a user decision
+## Epic 3. Compressed glTF (Draco, meshopt) — DONE `b9080f8` (decision: option (a), injected decoders)
 
 Problem: `web/src/sdk/scene-gltf.ts:466` rejects files whose `extensionsRequired` lists
 `KHR_draco_mesh_compression` or `EXT_meshopt_compression`, which many downloaded models use.
@@ -90,12 +90,12 @@ or (b) bundle the decoders. Recommended: (a).
 
 Estimate: 1 day after the decision.
 
-## Epic 4. Per-joint pose keyframes — PRIORITY 4
+## Epic 4. Per-joint pose keyframes — DONE (loader option `posable` added as task 4.1b)
 
 Problem: motion comes only from clips; no hand-posed adjustments (raise an arm, turn the head).
 
 Contract: `tracks.joints?: Record<string, Track<Vec3>>` — Euler YXZ rotation per glTF node name, applied
-ADDITIVELY on top of the current clip pose (absolute when the node has no clip). Unknown joint name fails the load.
+ADDITIVELY on top of the current clip pose (on top of the rest pose when the node has no clip; `[0,0,0]` = unchanged). Unknown joint name fails the load.
 
 | ID | Tier | Task | Files | Depends | Done when |
 | --- | --- | --- | --- | --- | --- |

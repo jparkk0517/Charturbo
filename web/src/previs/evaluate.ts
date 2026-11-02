@@ -142,6 +142,11 @@ function nodeStateAt(node: PrevisNode, time: number): NodeState {
     size: evalTrack(tr?.size, time, node.size),
     visible: evalTrack(tr?.visible, time, node.visible ?? true),
   };
+  if (tr?.joints) {
+    // Null prototype: a joint literally named "__proto__" stays an own key
+    state.joints = Object.create(null) as Record<string, Vec3>;
+    for (const [name, jt] of Object.entries(tr.joints)) state.joints[name] = evalTrack(jt, time, [0, 0, 0]);
+  }
   const anim = node.model?.animation;
   if (anim) {
     state.clips = clipWeightsAt(anim, time);

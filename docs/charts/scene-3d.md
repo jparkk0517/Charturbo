@@ -204,6 +204,16 @@ Phase 1 plays node keyframe animations: `translation`, `rotation` and `scale` ch
 - **Export.** `exportScene()` stores the current pose baked into the custom mesh vertices; clips are not exported, and a reloaded scene is static.
 - **Errors.** Animator methods throw `GltfAnimator...` errors for unknown clips, non-finite times or speeds, weights outside 0..1 and calls after `dispose()`. Invalid samplers (unknown interpolation, decreasing times, wrong key counts) skip their channels with a warning; the clip keeps its index.
 
+#### Posing nodes
+
+`setNodeRotations(rotations, mode = 'additive')` sets persistent per-node rotation overrides (`rotations: { node, rotation: [x, y, z, w] }[]`). They apply on every pose update (rest, `seek`, `update`, `setBlend`). `mode` is `'additive'` (multiplied onto the current clip pose) or `'absolute'`; `[]` clears them. Node names come from `anim.nodeNames`. Nodes whose meshes are baked into static geometry must be loaded with `posable: ['nodeName', ...]` (or `posable: true`); skinned joints are always posable, and `matrix`-transform nodes cannot be overridden. The previs player sets `posable` for the joints it animates.
+
+```ts
+const rig = await sdk.loadGltf('/models/walker.glb', { posable: ['upperArm.R'] });
+const anim = sdk.createGltfAnimator(rig, { autoUpdate: false });
+anim.setNodeRotations([{ node: 'upperArm.R', rotation: [0, 0, 0.3827, 0.9239] }]); // ~45 deg about z
+```
+
 #### Skinning {#gltf-skinning}
 
 ```ts

@@ -41,6 +41,23 @@ export interface GltfClipWeight {
   loop?: GltfAnimationLoop;
 }
 
+/** One hand-posed joint rotation (`GltfAnimator.setNodeRotations`). */
+export interface GltfNodeRotation {
+  /** glTF node name (must be unique among the model's nodes) or glTF node index */
+  node: string | number;
+  /** Unit quaternion [x, y, z, w] in the node's local frame */
+  rotation: readonly [number, number, number, number];
+}
+
+/** How `GltfAnimator.setNodeRotations` combines an override with the clip / rest rotation. */
+export type GltfNodeRotationMode = 'additive' | 'absolute';
+
+/** Loader option the baked-node error points to (`GltfLoadOptions.posable`). */
+const POSABLE_LOAD_HINT = 'loadGltf(..., { posable: [<node names>] })';
+
+/** Quaternions within this distance of unit length are normalized; others are rejected. */
+const UNIT_QUAT_TOLERANCE = 1e-3;
+
 /** Most clips `GltfAnimator.setBlend` blends at once. */
 const GLTF_MAX_BLEND_CLIPS = 4;
 
@@ -235,6 +252,23 @@ function copy(src: ArrayLike<number>, so: number, dst: Float64Array | number[], 
   for (let c = 0; c < n; c++) dst[o + c] = src[so + c];
 }
 
+/** Hamilton product out[o..] = a[ao..] x b[bo..] of [x, y, z, w] quaternions (out may alias a or b). */
+function quatMultiplyInto(
+  a: ArrayLike<number>,
+  ao: number,
+  b: ArrayLike<number>,
+  bo: number,
+  out: Float64Array | number[],
+  o: number
+): void {
+  const ax = a[ao], ay = a[ao + 1], az = a[ao + 2], aw = a[ao + 3];
+  const bx = b[bo], by = b[bo + 1], bz = b[bo + 2], bw = b[bo + 3];
+  out[o] = aw * bx + ax * bw + ay * bz - az * by;
+  out[o + 1] = aw * by - ax * bz + ay * bw + az * bx;
+  out[o + 2] = aw * bz + ax * by - ay * bx + az * bw;
+  out[o + 3] = aw * bw - ax * bx - ay * by - az * bz;
+}
+
 /** Clip time for the elapsed playback time `elapsed` (seconds) under `loop`. */
 export function loopTime(elapsed: number, duration: number, loop: GltfAnimationLoop): number {
   if (!(duration > 0)) return 0;
@@ -373,6 +407,12 @@ class RigPose {
   private readonly palettes: Float32Array[];
   /** Second TRS buffer for blending (allocated on the first multi-clip blend) */
   private other: Float64Array | null = null;
+  /** Rotation overrides: rig node per entry and its unit quaternion (4 floats per entry) */
+  private overrideNodes: Int32Array = new Int32Array(0);
+  private overrideQuats: Float64Array = new Float64Array(0);
+  private overrideAbsolute = false;
+  /** Nodes `compose` recomputes: `rig.dynamic` plus the subtrees of overridden nodes */
+  private active: Uint8Array;
 
   constructor(readonly rig: GltfRig) {
     const n = rig.parent.length;
@@ -382,11 +422,42 @@ class RigPose {
     this.jointCounts = skinTargetJointCounts(rig);
     this.jointMatrices = new Float32Array(this.jointCounts.reduce((a, c) => a + c, 0) * 16);
     this.palettes = rig.skins.map((s) => new Float32Array(s.joints.length * 16));
+    this.active = rig.dynamic;
+  }
+
+  /**
+   * Replaces the rotation overrides (validated: TRS rig nodes, unit quaternions). Static nodes in
+   * an overridden subtree become recomputed; static nodes that leave it get their load-time world
+   * matrix back, so an empty set restores the exact clip pose.
+   */
+  setOverrides(nodes: Int32Array, quats: Float64Array, absolute: boolean): void {
+    const { rig, world } = this;
+    const n = rig.parent.length;
+    let active = rig.dynamic;
+    if (nodes.length > 0) {
+      const sub = new Uint8Array(n);
+      for (const r of nodes) sub[r] = 1;
+      active = Uint8Array.from(rig.dynamic);
+      // Parents come before children (depth first)
+      for (let i = 0; i < n; i++) {
+        const p = rig.parent[i];
+        if (p >= 0 && sub[p]) sub[i] = 1;
+        if (sub[i]) active[i] = 1;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      if (this.active[i] && !active[i]) world.set(rig.world.subarray(i * 16, i * 16 + 16), i * 16);
+    }
+    this.active = active;
+    this.overrideNodes = nodes;
+    this.overrideQuats = quats;
+    this.overrideAbsolute = absolute;
   }
 
   /** Mesh and joint matrices of the clip at `time` blended with the rest pose by `weight` (null clip = rest pose). */
   evaluate(clip: GltfClip | null, time: number, weight: number): void {
     this.sampleInto(this.trs, clip, time, weight);
+    this.applyOverrides();
     this.compose();
   }
 
@@ -429,7 +500,22 @@ class RigPose {
         }
       }
     }
+    this.applyOverrides();
     this.compose();
+  }
+
+  /** Local rotation of each overridden node: pose x override (additive) or the override (absolute). */
+  private applyOverrides(): void {
+    const { trs, overrideNodes: nodes, overrideQuats: q } = this;
+    for (let k = 0; k < nodes.length; k++) {
+      const o = nodes[k] * 10 + 3;
+      const qo = k * 4;
+      if (this.overrideAbsolute) {
+        copy(q, qo, trs, o, 4);
+      } else {
+        quatMultiplyInto(trs, o, q, qo, trs, o);
+      }
+    }
   }
 
   /** Local TRS of every rig node into `out`: the rest pose, with `clip` at `time` mixed in by `weight`. */
@@ -453,10 +539,10 @@ class RigPose {
 
   /** World matrices of the dynamic nodes from `trs`, then the mesh matrices and joint palettes. */
   private compose(): void {
-    const { rig, trs, world, local } = this;
+    const { rig, trs, world, local, active } = this;
     const n = rig.parent.length;
     for (let i = 0; i < n; i++) {
-      if (!rig.dynamic[i]) continue;
+      if (!active[i]) continue;
       const fixed = rig.fixed[i];
       const p = rig.parent[i];
       if (fixed) local.set(fixed);
@@ -504,6 +590,17 @@ export class GltfAnimator {
   private readonly blendClips: GltfClip[] = [];
   private readonly blendTimes = new Float64Array(GLTF_MAX_BLEND_CLIPS);
   private readonly blendWeights = new Float64Array(GLTF_MAX_BLEND_CLIPS);
+  // The blend the current pose shows (count 0: the single-clip / rest pose of `apply`)
+  private poseBlendCount = 0;
+  private readonly poseBlendClips: GltfClip[] = [];
+  private readonly poseBlendTimes = new Float64Array(GLTF_MAX_BLEND_CLIPS);
+  private readonly poseBlendWeights = new Float64Array(GLTF_MAX_BLEND_CLIPS);
+  /**
+   * glTF node names of the loaded scene, depth first (the order of `GltfLoadResult.nodes` and of
+   * the rig); null for unnamed nodes. `GltfLoadResult.nodes[i].index` is the glTF node index.
+   */
+  readonly nodeNames: readonly (string | null)[];
+  private readonly nodes: NodeTable;
 
   /** @internal Created by `Charturbo.createGltfAnimator` */
   constructor(
@@ -516,6 +613,8 @@ export class GltfAnimator {
   ) {
     this.autoUpdate = options.autoUpdate ?? true;
     this.pose = rig && (rig.targets.ids.length > 0 || rig.skinTargets.ids.length > 0) ? new RigPose(rig) : null;
+    this.nodes = nodeTable(model, this.pose ? rig : null);
+    this.nodeNames = Object.freeze(this.nodes.names.slice());
   }
 
   /** The model's clips */
@@ -644,10 +743,52 @@ export class GltfAnimator {
     this.elapsed = main.time;
     this.running = false;
     this.lastFrame = null;
-    if (this.pose) {
-      this.pose.evaluateBlend(this.blendClips, this.blendTimes, this.blendWeights, count);
-      this.send();
+    // Kept so setNodeRotations can re-apply this blend (the scratch above is overwritten by a failed call)
+    this.poseBlendCount = count;
+    for (let k = 0; k < count; k++) {
+      this.poseBlendClips[k] = this.blendClips[k];
+      this.poseBlendTimes[k] = this.blendTimes[k];
+      this.poseBlendWeights[k] = this.blendWeights[k];
     }
+    this.applyBlend();
+    return this;
+  }
+
+  /**
+   * Persistent per-node rotation overrides (hand-posed joints: raise an arm, turn the head),
+   * applied on every pose update (rest, `play`, `seek`, `update`, render frames, `setBlend`).
+   * After the clip / blend / rest local TRS is computed: `'additive'` (default) sets the node's
+   * local rotation to clipRotation x override (the override turns the node in its own local
+   * frame, on top of the clip); `'absolute'` replaces the local rotation with the override.
+   * Children follow. Replaces the previous set (`[]` clears it, restoring the exact clip pose)
+   * and re-applies the current pose immediately in one batched call.
+   *
+   * Every joint of a skinned mesh is posable. Rigid meshes are posable when they sit below an
+   * animated node (they keep a mesh matrix); a node whose subtree holds a mesh the loader baked
+   * into static vertices throws. Nodes given by a `matrix` cannot be overridden. All entries are
+   * validated before anything changes.
+   */
+  setNodeRotations(rotations: readonly GltfNodeRotation[], mode: GltfNodeRotationMode = 'additive'): this {
+    this.checkAlive('setNodeRotations');
+    if (mode !== 'additive' && mode !== 'absolute') failNode(`mode must be 'additive' or 'absolute' (got ${String(mode)})`);
+    if (!Array.isArray(rotations)) failNode('rotations must be an array');
+    const count = rotations.length;
+    const rigNodes = new Int32Array(count);
+    const quats = new Float64Array(count * 4);
+    const seen = new Set<number>();
+    for (let k = 0; k < count; k++) {
+      const e = rotations[k];
+      if (e === null || typeof e !== 'object') failNode(`entry ${k} must be an object`);
+      const slot = this.resolveNode(e.node, k);
+      const label = this.nodes.label(slot);
+      if (seen.has(slot)) failNode(`${label} is listed twice`);
+      seen.add(slot);
+      readUnitQuat(e.rotation, label, quats, k * 4);
+      rigNodes[k] = this.posableRigNode(slot);
+    }
+    this.pose?.setOverrides(rigNodes, quats, mode === 'absolute');
+    if (this.poseBlendCount > 0) this.applyBlend();
+    else this.apply();
     return this;
   }
 
@@ -709,6 +850,8 @@ export class GltfAnimator {
   /** Stops (rest pose) and detaches from the render loop; `disposeGltf` disposes the model's animators. */
   dispose(): void {
     if (this.disposed) return;
+    // The model is left in its plain rest pose (no overrides)
+    this.pose?.setOverrides(new Int32Array(0), new Float64Array(0), false);
     this.stop();
     this.disposed = true;
     this.onDispose(this);
@@ -731,10 +874,61 @@ export class GltfAnimator {
   }
 
   private apply(): void {
+    this.poseBlendCount = 0;
     if (!this.pose) return;
     const clip = this.current();
     this.pose.evaluate(clip, clip ? loopTime(this.elapsed, clip.duration, this.loopMode) : 0, this.blend);
     this.send();
+  }
+
+  /** Re-evaluates and sends the last `setBlend` blend. */
+  private applyBlend(): void {
+    if (!this.pose) return;
+    this.pose.evaluateBlend(this.poseBlendClips, this.poseBlendTimes, this.poseBlendWeights, this.poseBlendCount);
+    this.send();
+  }
+
+  /** Slot (index into `nodeNames`) of a node name or glTF node index. */
+  private resolveNode(node: unknown, k: number): number {
+    const t = this.nodes;
+    if (typeof node === 'string') {
+      const slots = t.byName.get(node);
+      if (!slots) {
+        const named = t.names.filter((n): n is string => n !== null);
+        const shown = named.slice(0, 8).map((n) => `"${n}"`).join(', ');
+        const more = named.length > 8 ? `, ... ${named.length - 8} more` : '';
+        failNode(`no node named "${node}" (${named.length > 0 ? `nodes: ${shown}${more}` : 'the model has no named nodes'})`);
+      }
+      if (slots.length > 1) {
+        failNode(`node name "${node}" is ambiguous (${slots.length} nodes have it: glTF nodes ${slots.map((s) => t.gltf[s]).join(', ')}); use the glTF node index`);
+      }
+      return slots[0];
+    }
+    if (typeof node === 'number' && Number.isInteger(node) && node >= 0) {
+      const slot = t.byIndex.get(node);
+      if (slot === undefined) failNode(`glTF node ${node} is not in the loaded scene (it has ${t.names.length} nodes)`);
+      return slot;
+    }
+    return failNode(`entry ${k} node must be a node name or a glTF node index (got ${String(node)})`);
+  }
+
+  /** Rig node of a slot, or throws when the node cannot be posed. */
+  private posableRigNode(slot: number): number {
+    const t = this.nodes;
+    const label = t.label(slot);
+    const r = t.rigNode[slot];
+    if (r < 0) {
+      // No rig: no animated, skinned or posable mesh exists (posable nodes without meshes below them add none)
+      failNode(`${label} cannot move any mesh: the model has no animated, skinned or posable meshes (a posable node needs a mesh in its subtree); load the model with ${POSABLE_LOAD_HINT} naming a node above a mesh`);
+    }
+    const rig = this.rig!;
+    if (rig.fixed[r]) failNode(`${label} has a matrix transform; rotation overrides need a translation / rotation / scale node`);
+    const baked = t.bakedBelow ? t.bakedBelow[r] : -1;
+    if (baked >= 0) {
+      const where = baked === r ? '' : ` (via the baked mesh of ${t.rigLabel(baked)} in its subtree)`;
+      failNode(`${label} is baked into static geometry${where}; load the model with ${POSABLE_LOAD_HINT} to animate it`);
+    }
+    return r;
   }
 
   /** Sends the evaluated pose: all mesh matrices in one call, all joint palettes in another. */
@@ -762,6 +956,97 @@ export class GltfAnimator {
 
 function fail(message: string): never {
   throw new Error(`GltfAnimator.setBlend: ${message}`);
+}
+
+function failNode(message: string): never {
+  throw new Error(`GltfAnimator.setNodeRotations: ${message}`);
+}
+
+/** Node lookup of one animator: slots follow `GltfLoadResult.nodes` (depth first, = rig order). */
+interface NodeTable {
+  /** Name per slot (null = unnamed) */
+  names: (string | null)[];
+  /** glTF node index per slot */
+  gltf: number[];
+  byName: Map<string, number[]>;
+  byIndex: Map<number, number>;
+  /** Rig node per slot (-1: the model has no posable rig) */
+  rigNode: Int32Array;
+  /** Per rig node: a rig node of its subtree whose meshes were baked into static vertices, else -1 (null: unknown) */
+  bakedBelow: Int32Array | null;
+  label(slot: number): string;
+  /** `label` of a rig node */
+  rigLabel(r: number): string;
+}
+
+/** `GltfLoadResult.nodes` of a loader result, else null. */
+function loadedNodes(model: object): { index: number; name: string | null; objectIds: number[] }[] | null {
+  const nodes = (model as { nodes?: unknown }).nodes;
+  if (!Array.isArray(nodes)) return null;
+  for (const n of nodes) {
+    if (n === null || typeof n !== 'object' || !Number.isInteger(n.index) || !Array.isArray(n.objectIds)) return null;
+    if (n.name !== null && typeof n.name !== 'string') return null;
+  }
+  return nodes;
+}
+
+/** Node names and posability of `model` (`rig` null: nothing is posable). */
+function nodeTable(model: object, rig: GltfRig | null): NodeTable {
+  const loaded = loadedNodes(model);
+  const gltf = loaded ? loaded.map((n) => n.index) : Array.from(rig?.gltfNode ?? []);
+  const names = loaded ? loaded.map((n) => n.name) : gltf.map(() => null);
+  const byName = new Map<string, number[]>();
+  const byIndex = new Map<number, number>();
+  names.forEach((name, slot) => {
+    if (name !== null) {
+      const list = byName.get(name);
+      if (list) list.push(slot);
+      else byName.set(name, [slot]);
+    }
+    byIndex.set(gltf[slot], slot);
+  });
+  const rigOf = new Map<number, number>();
+  rig?.gltfNode.forEach((g, r) => rigOf.set(g, r));
+  const rigNode = Int32Array.from(gltf, (g) => rigOf.get(g) ?? -1);
+  let bakedBelow: Int32Array | null = null;
+  if (rig && loaded) {
+    const live = new Set<number>([...rig.targets.ids, ...rig.skinTargets.ids]);
+    const n = rig.parent.length;
+    bakedBelow = new Int32Array(n).fill(-1);
+    loaded.forEach((node, slot) => {
+      const r = rigNode[slot];
+      if (r >= 0 && node.objectIds.some((id) => !live.has(id))) bakedBelow![r] = r;
+    });
+    // Children come after their parents (depth first): fold each subtree into its parent
+    for (let i = n - 1; i >= 0; i--) {
+      const p = rig.parent[i];
+      if (p >= 0 && bakedBelow[i] >= 0 && bakedBelow[p] < 0) bakedBelow[p] = bakedBelow[i];
+    }
+  }
+  const slotOfRig = new Map<number, number>();
+  rigNode.forEach((r, slot) => slotOfRig.set(r, slot));
+  const label = (slot: number) => (names[slot] !== null ? `node "${names[slot]}"` : `node ${gltf[slot]}`);
+  const rigLabel = (r: number) => {
+    const slot = slotOfRig.get(r);
+    return slot !== undefined ? label(slot) : `node ${rig?.gltfNode[r] ?? r}`;
+  };
+  return { names, gltf, byName, byIndex, rigNode, bakedBelow, label, rigLabel };
+}
+
+/** Validates `[x, y, z, w]` into out[o..], normalized (within UNIT_QUAT_TOLERANCE of unit length). */
+function readUnitQuat(q: unknown, label: string, out: Float64Array, o: number): void {
+  if (!isQuatLike(q)) failNode(`rotation of ${label} must be 4 finite numbers [x, y, z, w] (got ${String(q)})`);
+  const len = Math.hypot(q[0], q[1], q[2], q[3]);
+  if (!(Math.abs(len - 1) <= UNIT_QUAT_TOLERANCE)) failNode(`rotation of ${label} must be a unit quaternion (length ${len})`);
+  for (let c = 0; c < 4; c++) out[o + c] = q[c] / len;
+}
+
+function isQuatLike(q: unknown): q is ArrayLike<number> {
+  if (!Array.isArray(q) && !ArrayBuffer.isView(q)) return false;
+  const a = q as ArrayLike<unknown>;
+  if (a.length !== 4) return false;
+  for (let c = 0; c < 4; c++) if (typeof a[c] !== 'number' || !Number.isFinite(a[c])) return false;
+  return true;
 }
 
 function checkLoop(loop: GltfAnimationLoop): GltfAnimationLoop {
