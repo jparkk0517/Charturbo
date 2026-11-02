@@ -407,3 +407,42 @@ describe('glTF skins: animator', () => {
     expect(perFrame).toBeLessThan(5);
   });
 });
+
+describe('glTF skins: clip blending (setBlend)', () => {
+  it('blends the joint palette and sends it in one batched call', async () => {
+    const { sdk, posed, skins, jointBatches, meshBatches } = skinBackend();
+    const model = await sdk.loadGltf(stripModel());
+    const id = model.objects[0];
+    const anim = sdk.createGltfAnimator(model, { autoUpdate: false });
+    const palette = () => Array.from(skins.get(id)!.palette);
+    // Single entry: bit-identical palette to play + seek
+    anim.play('bend', { loop: 'once' }).seek(0.7);
+    const single = palette();
+    jointBatches.length = 0;
+    anim.setBlend([{ clip: 'bend', time: 0.7, weight: 1, loop: 'once' }]);
+    expect(palette()).toEqual(single);
+    expect(jointBatches).toEqual([{ ids: [id], counts: [2], floats: 32 }]);
+    expect(meshBatches).toEqual([]);
+    // Weights 0 / 1: exactly the second clip
+    anim.play('bend').seek(1);
+    const bent = palette();
+    anim.setBlend([
+      { clip: 'bend', time: 0.2, weight: 0 },
+      { clip: 'bend', time: 1, weight: 1 },
+    ]);
+    expect(palette()).toEqual(bent);
+    close(posed(id), BENT);
+    // 0 deg and 90 deg at 0.5 / 0.5: the bend joint at 45 deg about (0, 1, 0)
+    anim.setBlend([
+      { clip: 'bend', time: 0, weight: 0.5 },
+      { clip: 'bend', time: 1, weight: 0.5 },
+    ]);
+    const s = Math.SQRT1_2;
+    // Row 0 follows root; row 1 is 50/50 root / bend; row 2 follows bend
+    close(posed(id), [0, 0, 0, 1, 0, 0, 0, 1, 0, (1 + s) / 2, (1 + 1 + s) / 2, 0, -s, 1 + s, 0, 0, 1 + 2 * s, 0], 5);
+    // Same pose as the LINEAR clip sampled halfway
+    const blended = palette();
+    anim.play('bend').seek(0.5);
+    close(palette(), blended, 6);
+  });
+});

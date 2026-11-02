@@ -195,16 +195,43 @@ export function validateDoc(
         if (m.animation !== undefined) {
           const ap = `${mp}.animation`;
           const a = m.animation;
-          if (!isObj(a)) add(ap, 'animation must be an object { clip, start?, speed?, loop? }');
-          else {
-            const clipOk = (typeof a.clip === 'string' && a.clip !== '') || (typeof a.clip === 'number' && Number.isInteger(a.clip) && a.clip >= 0);
-            if (!clipOk) add(`${ap}.clip`, `clip must be a non-empty clip name or a non-negative integer clip index; got ${JSON.stringify(a.clip)}`);
-            if (a.start !== undefined && !isNum(a.start)) add(`${ap}.start`, `start must be a finite number of seconds; got ${JSON.stringify(a.start)}`);
-            if (a.speed !== undefined && !(isNum(a.speed) && a.speed > 0)) add(`${ap}.speed`, `speed must be a finite number > 0; got ${JSON.stringify(a.speed)}`);
-            if (a.loop !== undefined && !['repeat', 'once', 'pingpong'].includes(a.loop as string)) {
-              add(`${ap}.loop`, `loop must be repeat, once or pingpong; got ${JSON.stringify(a.loop)}`);
+          const checkAnim = (e: unknown, ep: string, index: number | null) => {
+            if (!isObj(e)) return add(ep, 'animation must be an object { clip, start?, speed?, loop?, blendIn? }');
+            const clipOk = (typeof e.clip === 'string' && e.clip !== '') || (typeof e.clip === 'number' && Number.isInteger(e.clip) && e.clip >= 0);
+            if (!clipOk) add(`${ep}.clip`, `clip must be a non-empty clip name or a non-negative integer clip index; got ${JSON.stringify(e.clip)}`);
+            if (e.start !== undefined && !isNum(e.start)) add(`${ep}.start`, `start must be a finite number of seconds; got ${JSON.stringify(e.start)}`);
+            if (e.speed !== undefined && !(isNum(e.speed) && e.speed > 0)) add(`${ep}.speed`, `speed must be a finite number > 0; got ${JSON.stringify(e.speed)}`);
+            if (e.loop !== undefined && !['repeat', 'once', 'pingpong'].includes(e.loop as string)) {
+              add(`${ep}.loop`, `loop must be repeat, once or pingpong; got ${JSON.stringify(e.loop)}`);
             }
-          }
+            if (e.blendIn !== undefined) {
+              if (!(isNum(e.blendIn) && e.blendIn >= 0)) add(`${ep}.blendIn`, `blendIn must be a finite number of seconds >= 0; got ${JSON.stringify(e.blendIn)}`);
+              else if (e.blendIn !== 0 && (index === null || index === 0)) {
+                add(`${ep}.blendIn`, 'blendIn needs a previous segment to cross-fade from; remove it or set 0 on the first segment');
+              }
+            }
+          };
+          if (Array.isArray(a)) {
+            if (a.length === 0) add(ap, 'animation array must not be empty; give at least one segment { clip, start?, ... } or remove "animation"');
+            let prevStart = -Infinity;
+            let prevBlend: unknown;
+            a.forEach((e, k) => {
+              const ep = `${ap}[${k}]`;
+              checkAnim(e, ep, k);
+              if (!isObj(e)) return;
+              if (k > 0 && e.start === undefined) add(`${ep}.start`, 'start is required on every segment after the first');
+              const st = e.start === undefined ? (k === 0 ? 0 : undefined) : e.start;
+              if (isNum(st)) {
+                if (k > 0 && st <= prevStart) add(`${ep}.start`, `start must be strictly greater than the previous segment start (${prevStart}); got ${st}`);
+                // A fade cut short by the next segment would drop the outgoing pose in one frame
+                else if (k > 1 && isNum(prevBlend) && prevBlend > st - prevStart) {
+                  add(`${ap}[${k - 1}].blendIn`, `blendIn (${prevBlend}) must not exceed the time to the next segment start (${st - prevStart}); shorten it or start the next segment later`);
+                }
+                prevStart = st;
+              }
+              prevBlend = e.blendIn;
+            });
+          } else checkAnim(a, ap, null);
         }
       }
     }

@@ -164,6 +164,7 @@ export {
   type GltfClip,
   type GltfInterpolation,
   type GltfPlayOptions,
+  type GltfClipWeight,
   type GltfRig,
   type GltfRigSkin,
   type GltfSampler,

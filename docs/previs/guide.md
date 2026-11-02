@@ -86,11 +86,21 @@ Use a glTF model (`.glb` / `.gltf`) where silhouette, contact or pose matters (a
 | --- | --- |
 | `model.src` | Relative path or absolute `http(s):` / `data:` URL; non-empty |
 | `model.fit?` | `'contain'` (default): uniform scale so the rest-pose bounds fit inside `size`. `'stretch'`: per-axis, bounds match `size` exactly |
-| `model.animation?` | `{ clip, start?, speed?, loop? }`: one clip per node |
+| `model.animation?` | `{ clip, start?, speed?, loop?, blendIn? }` or an array of such segments (see below) |
 | `animation.clip` | Clip name or non-negative integer index |
 | `animation.start?` | Global seconds at which clip time 0 plays, default `0`; before it the first pose is held |
 | `animation.speed?` | Clip seconds per global second, `> 0`, default `1` |
 | `animation.loop?` | `'repeat'` (default), `'once'`, `'pingpong'` |
+| `animation.blendIn?` | Array form only. Seconds to cross-fade in from the previous segment, `>= 0`, default `0` (hard cut). Must be `0` or absent on the first segment, and at most the time to the next segment's `start` |
+
+Clip segments: `animation` may be an array. Segments are sorted by strictly increasing `start` (`start` is required on every entry after the first). Segment `i` is active on `[start_i, start_{i+1})`. During `[start_i, start_i + blendIn_i)` the pose cross-fades from segment `i-1` to segment `i` with weight `(t - start_i) / blendIn_i`. The previous segment keeps advancing during the fade, and each segment's clip time counts from its own `start`. The example below walks for 2.6 s, then blends into a wave over 0.4 s:
+
+```json
+"animation": [
+  { "clip": "walk", "loop": "repeat" },
+  { "clip": "wave", "start": 2.6, "blendIn": 0.4, "loop": "repeat" }
+]
+```
 
 Behavior:
 
@@ -135,7 +145,7 @@ A node renders as exactly its `color`. The player uses shading model `pbr` with 
 - No camera roll.
 - `fov` is vertical. In portrait output (height > width) the horizontal view is narrow; raise `fov` or move the camera back, and verify with `--still`.
 - No per-object visibility API: hiding = alpha 0.
-- Model nodes: one animation clip per node; textures and material colors are dropped; only the rest pose drives `fit`.
+- Model nodes: clip segments with cross-fade are supported (array form above); textures and material colors are dropped; only the rest pose drives `fit`.
 - Motions on the same node and property must not overlap in time; `applyMotion` does not detect it and interleaves keys. Sequence them (for example two `walk`s on one root, back to back).
 
 ## Minimal example

@@ -446,3 +446,200 @@ describe('glTF animation playback', () => {
     expect(perFrame).toBeLessThan(5);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Weighted multi-clip blending (setBlend)
+// ---------------------------------------------------------------------------
+
+describe('glTF clip blending (setBlend)', () => {
+  /** Tip origin with the arm rotated `deg` about +Y and translated by `ty` (armModel, scale 1) */
+  const tipAt = (deg: number, ty = 0) => {
+    const r = (deg * Math.PI) / 180;
+    return [2 * Math.cos(r), 1 + ty, -2 * Math.sin(r)];
+  };
+
+  async function setup() {
+    const env = animBackend();
+    const model = await env.sdk.loadGltf(armModel());
+    const anim = env.sdk.createGltfAnimator(model, { autoUpdate: false });
+    const tip = model.objects[0];
+    const mat = () => Array.from(env.matrices.get(tip)!);
+    return { ...env, model, anim, tip, mat };
+  }
+
+  it('one entry equals play(clip, { loop }) + seek(time) bit for bit', async () => {
+    const { anim, mat, batches, tip } = await setup();
+    for (const loop of ['repeat', 'once', 'pingpong'] as const) {
+      for (const time of [0, 0.3, 1, 1.25, -0.4, 2.7]) {
+        for (const clip of ['spin', 'lift', 0] as const) {
+          anim.play(clip, { loop }).seek(time);
+          const expected = mat();
+          const n = batches.length;
+          // Any positive weight normalizes to 1
+          anim.setBlend([{ clip, time, weight: 0.3, loop }]);
+          expect(batches.length).toBe(n + 1); // one batched call
+          expect(batches.at(-1)).toEqual({ ids: [tip], floats: 16 });
+          expect(mat()).toEqual(expected);
+        }
+      }
+    }
+  });
+
+  it('two entries with weights 0 / 1 equal each clip exactly', async () => {
+    const { anim, mat } = await setup();
+    anim.play('lift').seek(1);
+    const lift = mat();
+    anim.play('spin').seek(0.5);
+    const spin = mat();
+    anim.setBlend([
+      { clip: 'spin', time: 0.5, weight: 0 },
+      { clip: 'lift', time: 1, weight: 1 },
+    ]);
+    expect(mat()).toEqual(lift);
+    anim.setBlend([
+      { clip: 'spin', time: 0.5, weight: 1 },
+      { clip: 'lift', time: 1, weight: 0 },
+    ]);
+    expect(mat()).toEqual(spin);
+    // Zero-weight entries in front of a later clip
+    anim.setBlend([
+      { clip: 'lift', time: 1, weight: 0 },
+      { clip: 'lift', time: 0, weight: 0 },
+      { clip: 'spin', time: 0.5, weight: 2 },
+    ]);
+    expect(mat()).toEqual(spin);
+  });
+
+  it('0.5 blend matches hand-computed slerp (rotation) and lerp (translation)', async () => {
+    const { anim, mat } = await setup();
+    // spin@1 = 90 deg, rest translation; lift@1 = (0, 3, 0), rest rotation
+    // -> rotation slerp(90 deg, identity, 0.5) = 45 deg, translation lerp(0, 3, 0.5) = 1.5
+    anim.setBlend([
+      { clip: 'spin', time: 1, weight: 0.5 },
+      { clip: 'lift', time: 1, weight: 0.5 },
+    ]);
+    close(apply(mat(), [0, 0, 0]), tipAt(45, 1.5), 6);
+    // Two rotations of the same channel: slerp(45 deg, 90 deg, 0.5) = 67.5 deg
+    anim.setBlend([
+      { clip: 'spin', time: 0.5, weight: 0.5 },
+      { clip: 'spin', time: 1, weight: 0.5 },
+    ]);
+    close(apply(mat(), [0, 0, 0]), tipAt(67.5), 6);
+    close(apply(mat(), [1, 0, 0]), [3 * Math.cos((67.5 * Math.PI) / 180), 1, -3 * Math.sin((67.5 * Math.PI) / 180)], 6);
+    // Successive slerp of three equal weights: 0, 45, 90 deg -> slerp(slerp(0, 45, 1/2), 90, 1/3) = 45 deg
+    anim.setBlend([
+      { clip: 'spin', time: 0, weight: 1 },
+      { clip: 'spin', time: 0.5, weight: 1 },
+      { clip: 'spin', time: 1, weight: 1 },
+    ]);
+    close(apply(mat(), [0, 0, 0]), tipAt(45), 6);
+  });
+
+  it('normalizes the weights by their sum', async () => {
+    const { anim, mat } = await setup();
+    // 1 : 3 -> 45 deg + 0.75 x 45 deg = 78.75 deg
+    anim.setBlend([
+      { clip: 'spin', time: 0.5, weight: 1 },
+      { clip: 'spin', time: 1, weight: 3 },
+    ]);
+    const a = mat();
+    close(apply(a, [0, 0, 0]), tipAt(78.75), 6);
+    anim.setBlend([
+      { clip: 'spin', time: 0.5, weight: 0.25 },
+      { clip: 'spin', time: 1, weight: 0.75 },
+    ]);
+    close(mat(), a, 12);
+    // 1 : 3 translation: 0.75 x 3
+    anim.setBlend([
+      { clip: 'lift', time: 0, weight: 10 },
+      { clip: 'lift', time: 1, weight: 30 },
+    ]);
+    close(apply(mat(), [0, 0, 0]), tipAt(0, 2.25), 6);
+  });
+
+  it('wraps each entry time with its own loop mode', async () => {
+    const { anim, mat } = await setup();
+    // 1.25 s: repeat -> 0.25 s (22.5 deg), once -> 1 s (90 deg), pingpong -> 0.75 s (67.5 deg)
+    const cases = [
+      ['repeat', 22.5],
+      ['once', 90],
+      ['pingpong', 67.5],
+      [undefined, 22.5],
+    ] as const;
+    for (const [loop, deg] of cases) {
+      anim.setBlend([{ clip: 'spin', time: 1.25, weight: 1, ...(loop ? { loop } : {}) }]);
+      close(apply(mat(), [0, 0, 0]), tipAt(deg), 6);
+    }
+    // Mixed: once (90 deg) and pingpong (67.5 deg) at 0.5 / 0.5 -> 78.75 deg
+    anim.setBlend([
+      { clip: 'spin', time: 1.25, weight: 1, loop: 'once' },
+      { clip: 'spin', time: 1.25, weight: 1, loop: 'pingpong' },
+    ]);
+    close(apply(mat(), [0, 0, 0]), tipAt(78.75), 6);
+  });
+
+  it('stops wall-clock playback; clip / time / loop report the heaviest entry', async () => {
+    const { sdk, model, batches } = await setup();
+    const now = vi.spyOn(performance, 'now');
+    const anim = sdk.playGltfAnimation(model, 'spin', { speed: 2, weight: 0.7 });
+    now.mockReturnValue(1000);
+    sdk.render();
+    anim.setBlend([
+      { clip: 'spin', time: 0.25, weight: 0.4 },
+      { clip: 'lift', time: 2.5, weight: 0.6, loop: 'pingpong' },
+    ]);
+    expect(anim.playing).toBe(false);
+    expect(anim.clip).toBe(1);
+    expect(anim.loop).toBe('pingpong');
+    expect(anim.time).toBeCloseTo(0.5);
+    expect(anim.speed).toBe(2);
+    expect(anim.weight).toBe(0.7);
+    const n = batches.length;
+    now.mockReturnValue(1050);
+    sdk.render();
+    now.mockReturnValue(1100);
+    sdk.render();
+    expect(batches.length).toBe(n); // no wall-clock advance
+    // Ties: the first entry
+    anim.setBlend([
+      { clip: 'lift', time: 0.25, weight: 1 },
+      { clip: 'spin', time: 0.75, weight: 1 },
+    ]);
+    expect(anim.clip).toBe(1);
+    expect(anim.time).toBeCloseTo(0.25);
+    expect(anim.loop).toBe('repeat');
+    // resume continues the heaviest clip as a single clip
+    anim.resume();
+    expect(anim.playing).toBe(true);
+  });
+
+  it('validates the entries with GltfAnimator.setBlend messages and keeps the state on error', async () => {
+    const { anim, batches, mat } = await setup();
+    anim.play('spin').seek(0.5);
+    const before = mat();
+    const n = batches.length;
+    const e = (over: Record<string, unknown> = {}) => ({ clip: 'spin', time: 0, weight: 1, ...over }) as never;
+    expect(() => anim.setBlend([])).toThrow('GltfAnimator.setBlend: expected 1 to 4 entries (got 0)');
+    expect(() => anim.setBlend([e(), e(), e(), e(), e()])).toThrow('GltfAnimator.setBlend: expected 1 to 4 entries (got 5)');
+    expect(() => anim.setBlend(null as never)).toThrow('GltfAnimator.setBlend: entries must be an array');
+    expect(() => anim.setBlend([null as never])).toThrow('GltfAnimator.setBlend: entry 0 must be an object');
+    expect(() => anim.setBlend([e(), e({ clip: 'nope' })])).toThrow("GltfAnimator.setBlend: no animation named 'nope'");
+    expect(() => anim.setBlend([e({ clip: 7 })])).toThrow('GltfAnimator.setBlend: animation 7 does not exist (the model has 2)');
+    expect(() => anim.setBlend([e({ clip: 0.5 })])).toThrow(/GltfAnimator\.setBlend: animation 0\.5 does not exist/);
+    expect(() => anim.setBlend([e({ time: NaN })])).toThrow('GltfAnimator.setBlend: entry 0 time must be a finite number (got NaN)');
+    expect(() => anim.setBlend([e(), e({ time: Infinity })])).toThrow('GltfAnimator.setBlend: entry 1 time must be a finite number (got Infinity)');
+    expect(() => anim.setBlend([e({ weight: NaN })])).toThrow('GltfAnimator.setBlend: entry 0 weight must be a finite number >= 0 (got NaN)');
+    expect(() => anim.setBlend([e({ weight: Infinity })])).toThrow('GltfAnimator.setBlend: entry 0 weight must be a finite number >= 0 (got Infinity)');
+    expect(() => anim.setBlend([e(), e({ weight: -0.1 })])).toThrow('GltfAnimator.setBlend: entry 1 weight must be a finite number >= 0 (got -0.1)');
+    expect(() => anim.setBlend([e({ weight: 0 }), e({ weight: 0 })])).toThrow('GltfAnimator.setBlend: the weights must sum to a finite number > 0 (got 0)');
+    expect(() => anim.setBlend([e({ weight: 1e308 }), e({ weight: 1e308 })])).toThrow(/GltfAnimator\.setBlend: the weights must sum to a finite number > 0/);
+    expect(() => anim.setBlend([e({ loop: 'bounce' })])).toThrow("GltfAnimator.setBlend: entry 0 loop must be 'repeat', 'once' or 'pingpong' (got bounce)");
+    // Nothing changed or was sent
+    expect(batches.length).toBe(n);
+    expect(mat()).toEqual(before);
+    expect(anim.playing).toBe(true);
+    expect(anim.clip).toBe(0);
+    anim.dispose();
+    expect(() => anim.setBlend([e()])).toThrow('GltfAnimator.setBlend: the animator is disposed');
+  });
+});

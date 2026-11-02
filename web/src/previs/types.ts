@@ -40,6 +40,13 @@ export type PrevisModelFit =
 /**
  * Plays one glTF animation clip on the global clock:
  * clipTime(t) = max(0, t - start) * speed, wrapped per `loop` (GltfAnimator semantics).
+ *
+ * SEGMENTS: `PrevisModel.animation` may be an array of these, sorted by strictly increasing `start`
+ * (`start` is required on every entry after the first). Segment i is active on
+ * [start_i, start_{i+1}); before the first start the first segment holds clip time 0. Each segment's
+ * clip time counts from its own start. During [start_i, start_i + blendIn_i) (i > 0) the pose
+ * cross-fades from segment i-1 (which keeps advancing) to segment i with weight
+ * w = (t - start_i) / blendIn_i.
  */
 export interface PrevisModelAnimation {
   /** Clip name or index in the glTF file. */
@@ -50,6 +57,22 @@ export interface PrevisModelAnimation {
   speed?: number;
   /** Default `'repeat'`. */
   loop?: 'repeat' | 'once' | 'pingpong';
+  /**
+   * Seconds to cross-fade in from the previous segment (array form only; must be 0 or absent on
+   * the first segment). Finite, >= 0, and at most the time to the next segment's start (a fade
+   * may not be cut short). Default 0 (hard cut).
+   */
+  blendIn?: number;
+}
+
+/** One weighted clip of a node's pose at a frame; `segment` indexes the normalized segment array. */
+export interface ClipWeight {
+  /** Index into the node's segments (a single-object `animation` is segment 0). */
+  segment: number;
+  /** Clip time in seconds BEFORE loop wrapping: (t - start) * speed, >= 0. */
+  time: number;
+  /** 0..1; the weights of one frame's entries sum to 1. */
+  weight: number;
 }
 
 /**
@@ -65,7 +88,8 @@ export interface PrevisModel {
   src: string;
   /** Default `'contain'`. */
   fit?: PrevisModelFit;
-  animation?: PrevisModelAnimation;
+  /** One clip, or clip segments (see `PrevisModelAnimation`). */
+  animation?: PrevisModelAnimation | PrevisModelAnimation[];
 }
 
 export interface PrevisNode {
@@ -161,6 +185,12 @@ export interface NodeState {
    * nodes with an `animation`. The player passes it to `GltfAnimator.seek`, which wraps it.
    */
   clipTime?: number;
+  /**
+   * Weighted clips of this frame (1 entry, or 2 while cross-fading: previous segment first);
+   * present only for model nodes with an `animation`. For a single-object `animation` it is
+   * `[{ segment: 0, time: clipTime, weight: 1 }]`; `clipTime` is kept for that form only.
+   */
+  clips?: ClipWeight[];
 }
 
 /** Everything the player needs to draw one frame. */

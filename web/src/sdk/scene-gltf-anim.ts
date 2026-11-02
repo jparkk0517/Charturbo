@@ -29,6 +29,21 @@ export interface GltfPlayOptions {
   time?: number;
 }
 
+/** One clip of a weighted pose blend (`GltfAnimator.setBlend`). */
+export interface GltfClipWeight {
+  /** Clip name or index */
+  clip: string | number;
+  /** Seconds, wrapped per `loop` with the same `loopTime()` semantics as `play` / `seek` */
+  time: number;
+  /** >= 0; the entries are normalized by their sum (the sum must be > 0) */
+  weight: number;
+  /** Default `'repeat'` */
+  loop?: GltfAnimationLoop;
+}
+
+/** Most clips `GltfAnimator.setBlend` blends at once. */
+const GLTF_MAX_BLEND_CLIPS = 4;
+
 export interface GltfAnimatorOptions {
   /** Advance on every `Charturbo.render()` with the wall clock (default true). False: call `update(dt)` / `seek(t)` yourself */
   autoUpdate?: boolean;
@@ -356,6 +371,8 @@ class RigPose {
   readonly jointCounts: Uint32Array;
   /** Palette of each skin (shared by its objects) */
   private readonly palettes: Float32Array[];
+  /** Second TRS buffer for blending (allocated on the first multi-clip blend) */
+  private other: Float64Array | null = null;
 
   constructor(readonly rig: GltfRig) {
     const n = rig.parent.length;
@@ -369,21 +386,74 @@ class RigPose {
 
   /** Mesh and joint matrices of the clip at `time` blended with the rest pose by `weight` (null clip = rest pose). */
   evaluate(clip: GltfClip | null, time: number, weight: number): void {
-    const { rig, trs, world, local, sample } = this;
-    trs.set(rig.rest);
+    this.sampleInto(this.trs, clip, time, weight);
+    this.compose();
+  }
+
+  /**
+   * Mesh and joint matrices of the weighted blend of `count` clips (`weights` >= 0, summing to 1;
+   * `times` already looped). Each clip's local TRS (rest TRS for nodes it does not animate) is
+   * folded in by successive interpolation: pose = clip 0, then for k >= 1
+   * pose = mix(pose, clip k, w_k / (w_0 + .. + w_k)) with lerp for translation / scale and
+   * shortest-arc slerp for rotation. A fraction of 1 replaces the pose with clip k exactly, so a
+   * single clip (or weights 0 / 1) matches `evaluate(clip, time, 1)` bit for bit.
+   */
+  evaluateBlend(clips: ArrayLike<GltfClip>, times: ArrayLike<number>, weights: ArrayLike<number>, count: number): void {
+    const { rig, trs } = this;
+    this.sampleInto(trs, clips[0], times[0], 1);
+    let sum = weights[0];
+    for (let k = 1; k < count; k++) {
+      const w = weights[k];
+      if (!(w > 0)) continue;
+      sum += w;
+      const u = w / sum;
+      if (u >= 1) {
+        this.sampleInto(trs, clips[k], times[k], 1);
+        continue;
+      }
+      const other = (this.other ??= new Float64Array(trs.length));
+      this.sampleInto(other, clips[k], times[k], 1);
+      const n = rig.parent.length;
+      for (let i = 0; i < n; i++) {
+        // Static and matrix nodes never read their TRS
+        if (!rig.dynamic[i] || rig.fixed[i]) continue;
+        const o = i * 10;
+        for (let c = 0; c < 3; c++) {
+          trs[o + c] += (other[o + c] - trs[o + c]) * u;
+          trs[o + 7 + c] += (other[o + 7 + c] - trs[o + 7 + c]) * u;
+        }
+        const r = o + 3;
+        // Equal rotations (e.g. both at rest) stay bit-exact instead of going through slerp
+        if (trs[r] !== other[r] || trs[r + 1] !== other[r + 1] || trs[r + 2] !== other[r + 2] || trs[r + 3] !== other[r + 3]) {
+          slerpInto(trs, r, other, r, u, trs, r);
+        }
+      }
+    }
+    this.compose();
+  }
+
+  /** Local TRS of every rig node into `out`: the rest pose, with `clip` at `time` mixed in by `weight`. */
+  private sampleInto(out: Float64Array, clip: GltfClip | null, time: number, weight: number): void {
+    const { rig, sample } = this;
+    out.set(rig.rest);
     if (clip && weight > 0) {
       for (const ch of clip.channels) {
         const o = ch.node * 10 + (ch.path === 'translation' ? 0 : ch.path === 'rotation' ? 3 : 7);
         sampleGltfSampler(ch.sampler, time, sample, 0);
         if (weight >= 1) {
-          copy(sample, 0, trs, o, ch.sampler.size);
+          copy(sample, 0, out, o, ch.sampler.size);
         } else if (ch.path === 'rotation') {
-          slerpInto(rig.rest, o, sample, 0, weight, trs, o);
+          slerpInto(rig.rest, o, sample, 0, weight, out, o);
         } else {
-          for (let c = 0; c < 3; c++) trs[o + c] = rig.rest[o + c] + (sample[c] - rig.rest[o + c]) * weight;
+          for (let c = 0; c < 3; c++) out[o + c] = rig.rest[o + c] + (sample[c] - rig.rest[o + c]) * weight;
         }
       }
     }
+  }
+
+  /** World matrices of the dynamic nodes from `trs`, then the mesh matrices and joint palettes. */
+  private compose(): void {
+    const { rig, trs, world, local } = this;
     const n = rig.parent.length;
     for (let i = 0; i < n; i++) {
       if (!rig.dynamic[i]) continue;
@@ -414,7 +484,7 @@ class RigPose {
 
 /**
  * Plays the clips of one loaded model (`Charturbo.createGltfAnimator`). One clip at a time;
- * `play` switches clips. Every pose change sends all animated objects' mesh matrices in one
+ * `play` switches clips; `setBlend` poses a weighted mix of up to 4 clips. Every pose change sends all animated objects' mesh matrices in one
  * engine call and all skinned objects' joint matrices in another. With `autoUpdate` (default) a playing animator advances on every `Charturbo.render()`;
  * `update(dt)` and `seek(time)` drive it manually (deterministic).
  */
@@ -430,6 +500,10 @@ export class GltfAnimator {
   private blend = 1;
   private lastFrame: number | null = null;
   private disposed = false;
+  // setBlend scratch (validated entries; no per-call allocation)
+  private readonly blendClips: GltfClip[] = [];
+  private readonly blendTimes = new Float64Array(GLTF_MAX_BLEND_CLIPS);
+  private readonly blendWeights = new Float64Array(GLTF_MAX_BLEND_CLIPS);
 
   /** @internal Created by `Charturbo.createGltfAnimator` */
   constructor(
@@ -520,6 +594,63 @@ export class GltfAnimator {
     return this;
   }
 
+  /**
+   * Applies the weighted blend of 1 to 4 clips immediately: per rig node the clips' local
+   * translation / scale are lerped and rotations slerped (shortest arc) by the normalized weights;
+   * nodes a clip does not animate count with their rest TRS for that clip. Deterministic (no wall
+   * clock): stops wall-clock playback (`playing` becomes false). Afterwards `clip`, `time` and
+   * `loop` report the entry with the largest weight (the first one on ties), which `resume`,
+   * `seek`, `update` and the `loop` / `weight` setters continue as a single clip; `speed` and
+   * `weight` keep their values and do not affect the blend. One entry with weight > 0 gives
+   * exactly the pose of `play(clip, { loop }).seek(time)`.
+   */
+  setBlend(entries: readonly GltfClipWeight[]): this {
+    this.checkAlive('setBlend');
+    if (!Array.isArray(entries)) fail('entries must be an array');
+    const count = entries.length;
+    if (count < 1 || count > GLTF_MAX_BLEND_CLIPS) fail(`expected 1 to ${GLTF_MAX_BLEND_CLIPS} entries (got ${count})`);
+    const clips = this.rig?.clips ?? [];
+    let sum = 0;
+    let top = 0;
+    let topIndex = 0;
+    for (let k = 0; k < count; k++) {
+      const e = entries[k];
+      if (e === null || typeof e !== 'object') fail(`entry ${k} must be an object`);
+      const index = this.resolveClip(e.clip, 'setBlend');
+      const { time, weight } = e;
+      if (typeof time !== 'number' || !Number.isFinite(time)) fail(`entry ${k} time must be a finite number (got ${String(time)})`);
+      if (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0) {
+        fail(`entry ${k} weight must be a finite number >= 0 (got ${String(weight)})`);
+      }
+      const loop = e.loop ?? 'repeat';
+      if (loop !== 'repeat' && loop !== 'once' && loop !== 'pingpong') {
+        fail(`entry ${k} loop must be 'repeat', 'once' or 'pingpong' (got ${String(loop)})`);
+      }
+      const clip = clips[index];
+      this.blendClips[k] = clip;
+      this.blendTimes[k] = loopTime(time, clip.duration, loop);
+      this.blendWeights[k] = weight;
+      sum += weight;
+      if (k === 0 || weight > entries[top].weight) {
+        top = k;
+        topIndex = index;
+      }
+    }
+    if (!(sum > 0) || !Number.isFinite(sum)) fail(`the weights must sum to a finite number > 0 (got ${sum})`);
+    for (let k = 0; k < count; k++) this.blendWeights[k] /= sum;
+    const main = entries[top];
+    this.clipIndex = topIndex;
+    this.loopMode = main.loop ?? 'repeat';
+    this.elapsed = main.time;
+    this.running = false;
+    this.lastFrame = null;
+    if (this.pose) {
+      this.pose.evaluateBlend(this.blendClips, this.blendTimes, this.blendWeights, count);
+      this.send();
+    }
+    return this;
+  }
+
   /** Holds the current pose. */
   pause(): this {
     this.running = false;
@@ -602,27 +733,35 @@ export class GltfAnimator {
   private apply(): void {
     if (!this.pose) return;
     const clip = this.current();
-    const pose = this.pose;
-    pose.evaluate(clip, clip ? loopTime(this.elapsed, clip.duration, this.loopMode) : 0, this.blend);
+    this.pose.evaluate(clip, clip ? loopTime(this.elapsed, clip.duration, this.loopMode) : 0, this.blend);
+    this.send();
+  }
+
+  /** Sends the evaluated pose: all mesh matrices in one call, all joint palettes in another. */
+  private send(): void {
+    const pose = this.pose!;
     const { targets, skinTargets } = pose.rig;
     if (targets.ids.length > 0) this.host.setObjectMeshMatrices(targets.ids, pose.matrices);
     if (skinTargets.ids.length > 0) this.host.setObjectJointMatrices?.(skinTargets.ids, pose.jointCounts, pose.jointMatrices);
   }
 
-  private resolveClip(clip: string | number): number {
+  private resolveClip(clip: string | number, method = 'play'): number {
     const clips = this.rig?.clips ?? [];
     if (typeof clip === 'number') {
       if (Number.isInteger(clip) && clip >= 0 && clip < clips.length) return clip;
-      throw new Error(`GltfAnimator.play: animation ${clip} does not exist (the model has ${clips.length})`);
+      throw new Error(`GltfAnimator.${method}: animation ${clip} does not exist (the model has ${clips.length})`);
     }
-    const index = clips.findIndex((c) => c.name === clip);
-    if (index < 0) throw new Error(`GltfAnimator.play: no animation named '${clip}'`);
-    return index;
+    for (let i = 0; i < clips.length; i++) if (clips[i].name === clip) return i;
+    throw new Error(`GltfAnimator.${method}: no animation named '${String(clip)}'`);
   }
 
   private checkAlive(method: string): void {
     if (this.disposed) throw new Error(`GltfAnimator.${method}: the animator is disposed`);
   }
+}
+
+function fail(message: string): never {
+  throw new Error(`GltfAnimator.setBlend: ${message}`);
 }
 
 function checkLoop(loop: GltfAnimationLoop): GltfAnimationLoop {

@@ -11,6 +11,7 @@
 - `animation: { clip, start?, speed?, loop? }`: `clip`은 이름 또는 인덱스이고, 클립 시간 = `max(0, t - start) * speed`를 `loop`(`'repeat'` · `'once'` · `'pingpong'`)로 감습니다(`NodeState.clipTime`). 모르는 클립은 사용 가능한 클립을 나열하며 로드가 실패합니다. `validateDoc`은 `model` 필수/금지, `fit` · `clip` · `start` · `speed` · `loop` 값을 검사합니다.
 - `loadPrevisPlayer(sdk, doc, { resolveModel?, signal? })`가 모델을 불러온 뒤 `createPrevisPlayer`처럼 동작합니다(`createPrevisPlayer`는 모델 문서에서 오류). `npm run previs:render`는 상대 `src`를 문서 폴더 기준으로 해석하고, 브라우저 뷰어는 모델 파일을 함께 올리거나 끌어 놓으면 상대 경로, 파일 이름 순으로 매칭합니다. 절대 http(s) · data URL은 그대로 씁니다.
 - 예제 `web/previs/examples/model-demo.json`(모델 `web/previs/examples/models/`, 생성기 `models.gen.ts`), 문서 `docs/previs/guide.md`의 「Model nodes (glTF)」 절과 `web/previs/SKILL.md`.
+- `model.animation`을 클립 구간 배열로 쓸 수 있습니다. 구간은 `start`가 엄격히 증가해야 하고(첫 항목 이후 `start` 필수), `blendIn`(초, 기본 0)으로 이전 구간에서 cross-fade합니다(이전 구간은 계속 진행). `GltfAnimator.setBlend`로 1~4개 클립을 가중 블렌드할 수 있습니다.
 
 ### 추가 — glTF 스키닝
 

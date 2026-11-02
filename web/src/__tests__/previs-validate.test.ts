@@ -289,8 +289,70 @@ describe('validateDoc model nodes', () => {
     for (const v of ['repeat', 'once', 'pingpong']) expect(has(withModel({ src: 'a', animation: { clip: 0, loop: v } }), `${P}.animation.loop`)).toBe(false);
   });
 
-  it('animation must be an object', () => {
-    expect(has(withModel({ src: 'a', animation: 'walk' }), `${P}.animation`)).toBe(true);
+  it('animation must be an object or array', () => {
+    expect(has(withModel({ src: 'a', animation: 5 }), `${P}.animation`)).toBe(true);
+  });
+
+  describe('animation array / blendIn', () => {
+    const A = `${P}.animation`;
+    const ok = (animation: unknown) => validateDoc(withModel({ src: 'a', animation })).ok;
+    const seg = (clip: string, extra: object = {}) => ({ clip, ...extra });
+
+    it('accepts a valid array', () => {
+      expect(ok([seg('a'), seg('b', { start: 2, blendIn: 0.5 }), seg('c', { start: 3 })])).toBe(true);
+      expect(ok([seg('a', { start: -1 }), seg('b', { start: 0 })])).toBe(true);
+      expect(ok([seg('a')])).toBe(true);
+    });
+
+    it('rejects empty array', () => {
+      expect(has(withModel({ src: 'a', animation: [] }), A)).toBe(true);
+    });
+
+    it('applies per-entry field rules with indexed paths', () => {
+      expect(has(withModel({ src: 'a', animation: [seg('a'), { clip: '', start: 1 }] }), `${A}[1].clip`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a', { speed: 0 })] }), `${A}[0].speed`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a', { loop: 'x' })] }), `${A}[0].loop`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b', { start: 'x' })] }), `${A}[1].start`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a'), 'walk'] }), `${A}[1]`)).toBe(true);
+    });
+
+    it('start required on entries after the first', () => {
+      expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b')] }), `${A}[1].start`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b', { start: 1 }), seg('c')] }), `${A}[2].start`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b', { start: 1 })] }), `${A}[1].start`)).toBe(false);
+    });
+
+    it('starts strictly increasing (entry 0 defaults to 0)', () => {
+      expect(has(withModel({ src: 'a', animation: [seg('a', { start: 2 }), seg('b', { start: 2 })] }), `${A}[1].start`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a', { start: 2 }), seg('b', { start: 1 })] }), `${A}[1].start`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b', { start: 0 })] }), `${A}[1].start`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b', { start: -1 })] }), `${A}[1].start`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a', { start: 1 }), seg('b', { start: 3 }), seg('c', { start: 2 })] }), `${A}[2].start`)).toBe(true);
+    });
+
+    it('blendIn finite >= 0', () => {
+      for (const v of [-1, Infinity, NaN, '1']) {
+        expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b', { start: 1, blendIn: v })] }), `${A}[1].blendIn`)).toBe(true);
+      }
+      expect(has(withModel({ src: 'a', animation: [seg('a'), seg('b', { start: 1, blendIn: 0 })] }), `${A}[1].blendIn`)).toBe(false);
+    });
+
+    it('blendIn must not run past the next segment start', () => {
+      const anim = (b: number) => [seg('a'), seg('b', { start: 1, blendIn: b }), seg('c', { start: 2, blendIn: 0.5 })];
+      expect(has(withModel({ src: 'a', animation: anim(2) }), `${A}[1].blendIn`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: anim(1) }), `${A}[1].blendIn`)).toBe(false);
+      expect(ok(anim(1))).toBe(true);
+      // The last segment's fade has no next segment to collide with
+      expect(ok([seg('a'), seg('b', { start: 1, blendIn: 5 })])).toBe(true);
+    });
+
+    it('blendIn must be 0/absent on the first entry and on the object form', () => {
+      expect(has(withModel({ src: 'a', animation: [seg('a', { blendIn: 1 })] }), `${A}[0].blendIn`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: [seg('a', { blendIn: 0 })] }), `${A}[0].blendIn`)).toBe(false);
+      expect(has(withModel({ src: 'a', animation: { clip: 0, blendIn: 1 } }), `${A}.blendIn`)).toBe(true);
+      expect(has(withModel({ src: 'a', animation: { clip: 0, blendIn: 0 } }), `${A}.blendIn`)).toBe(false);
+      expect(has(withModel({ src: 'a', animation: { clip: 0, blendIn: -1 } }), `${A}.blendIn`)).toBe(true);
+    });
   });
 });
 

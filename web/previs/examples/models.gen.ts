@@ -586,13 +586,22 @@ function buildDoc() {
       node({
         id: 'walker',
         shape: 'model',
-        model: { src: 'models/walker.glb', animation: { clip: 'walk', loop: 'repeat' } },
+        model: {
+          src: 'models/walker.glb',
+          animation: [
+            { clip: 'walk', loop: 'repeat' },
+            { clip: 'wave', start: 2.6, blendIn: 0.4, loop: 'repeat' },
+          ],
+        },
         role: 'walker',
         color: cWalker,
         position: [-3.2, 0.875, -3.5],
         rotation: [0, Math.PI / 2, 0],
         size: [0.7, 1.75, 0.5],
-        tracks: { position: [key(0, [-3.2, 0.875, -3.5]), key(4, [3.2, 0.875, -3.5])] },
+        tracks: {
+          position: [key(0, [-3.2, 0.875, -3.5]), key(2.6, [0.96, 0.875, -3.5])],
+          rotation: [key(2.6, [0, Math.PI / 2, 0]), key(3.0, [0, 0, 0])],
+        },
       }),
       node({ id: 'table', shape: 'box', role: 'table', color: cTable, position: [-1, 0.375, -2], size: [1.6, 0.75, 0.8] }),
       node({

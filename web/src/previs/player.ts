@@ -42,8 +42,13 @@
  * smallest factor any axis can need (rest size and every size key; eases never overshoot) and, if
  * it is below 0.05, disposes that load and reloads with it baked in via `loadGltf({ scale })`;
  * then every FIT factor is >= 1. Only an axis whose size reaches 0 still hits the clamp.
- * Clips play on a `GltfAnimator` without auto update; `frame` seeks it to `NodeState.clipTime`
- * (which the animator wraps per `loop`), only when that changed.
+ * Clips run on a `GltfAnimator` without auto update. `animation` is one segment or an array of
+ * segments (see `PrevisModelAnimation`: clip, start, speed, loop, blendIn); the object form is
+ * segment 0. Every segment's clip is validated against the model's animations at load. Each frame
+ * maps `NodeState.clips` (1 entry, or 2 while cross-fading: previous segment first) to
+ * `animator.setBlend([{ clip, time, weight, loop }])` with loop defaulting to 'repeat' per segment
+ * (the animator wraps each time per its loop); it is called only when a segment, time or weight
+ * changed since the last call. The frame-0 clips are applied at load as the initial pose.
  *
  * INVISIBLE OBJECTS
  * The engine has no per-object visibility flag in its API, so invisible = color alpha 0: pivots
@@ -55,9 +60,9 @@
  */
 import type { Charturbo, ObjectMaterialDescriptor, PrimitiveShape } from '../sdk/charturbo';
 import type { GltfSource, GltfLoadResult } from '../sdk/scene-gltf';
-import type { GltfAnimator } from '../sdk/scene-gltf-anim';
-import { evaluateFrame } from './evaluate';
-import type { FrameState, PrevisDoc, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
+import type { GltfAnimator, GltfClipWeight } from '../sdk/scene-gltf-anim';
+import { clipWeightsAt, evaluateFrame } from './evaluate';
+import type { ClipWeight, FrameState, PrevisDoc, PrevisModelAnimation, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
 
 export interface PrevisPlayer {
   /** Applies the doc at `time` seconds to the scene (call `sdk.render()` afterwards). */
@@ -100,8 +105,10 @@ interface ModelObjects {
   center: Vec3;
   extent: Vec3;
   animator: GltfAnimator | null;
-  /** Last clip time sent to the animator. */
-  clipTime: number;
+  /** Segments of the node's animation (object form = one segment). */
+  segments: PrevisModelAnimation[];
+  /** Clip weights last sent to the animator. */
+  clips: ClipWeight[];
 }
 
 interface NodeObjects {
@@ -269,12 +276,31 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
     sdk.setObjectMaterial(id, { ...FLAT_GLTF_MATERIAL, color: rgba(n.color, o.meshVisible) });
   }
   let animator: GltfAnimator | null = null;
+  let segments: PrevisModelAnimation[] = [];
+  let clips: ClipWeight[] = [];
   const anim = n.model?.animation;
   if (anim) {
     animator = sdk.createGltfAnimator(result, { autoUpdate: false });
-    animator.play(anim.clip, { loop: anim.loop ?? 'repeat' }); // applies clip time 0
+    segments = normalizeAnimation(anim);
+    clips = clipWeightsAt(anim, 0);
+    animator.setBlend(toBlend(segments, clips)); // initial pose = frame 0
   }
-  o.model = { result, fitId, fit, center, extent, animator, clipTime: 0 };
+  o.model = { result, fitId, fit, center, extent, animator, segments, clips };
+}
+
+function normalizeAnimation(anim: PrevisModelAnimation | PrevisModelAnimation[]): PrevisModelAnimation[] {
+  return Array.isArray(anim) ? anim : [anim];
+}
+
+function toBlend(segments: PrevisModelAnimation[], clips: ClipWeight[]): GltfClipWeight[] {
+  return clips.map((c) => {
+    const seg = segments[c.segment];
+    return { clip: seg.clip, time: c.time, weight: c.weight, loop: seg.loop ?? 'repeat' };
+  });
+}
+
+function sameClips(a: ClipWeight[], b: ClipWeight[]): boolean {
+  return a.length === b.length && a.every((c, i) => c.segment === b[i].segment && c.time === b[i].time && c.weight === b[i].weight);
 }
 
 function makePlayer(
@@ -325,11 +351,11 @@ function makePlayer(
           o.meshVisible = st.visible;
         }
         if (m?.animator) {
-          // evaluate.ts sets clipTime on every model node with an animation
-          const ct = st.clipTime ?? 0;
-          if (ct !== m.clipTime) {
-            m.animator.seek(ct);
-            m.clipTime = ct;
+          // evaluate.ts sets clips on every model node with an animation
+          const cl = st.clips ?? m.clips;
+          if (!sameClips(cl, m.clips)) {
+            m.animator.setBlend(toBlend(m.segments, cl));
+            m.clips = cl;
           }
         }
       }
@@ -439,11 +465,12 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
       }
       if (anim) {
         const names = r.animations.map((a) => a.name);
-        const ok =
-          typeof anim.clip === 'number' ? Number.isInteger(anim.clip) && anim.clip >= 0 && anim.clip < names.length : names.includes(anim.clip);
-        if (!ok) {
-          const list = names.length > 0 ? names.map((s, i) => `${i} ${JSON.stringify(s)}`).join(', ') : 'none';
-          throw new Error(`unknown animation clip ${JSON.stringify(anim.clip)} (available: ${list})`);
+        for (const { clip } of normalizeAnimation(anim)) {
+          const ok = typeof clip === 'number' ? Number.isInteger(clip) && clip >= 0 && clip < names.length : names.includes(clip);
+          if (!ok) {
+            const list = names.length > 0 ? names.map((s, i) => `${i} ${JSON.stringify(s)}`).join(', ') : 'none';
+            throw new Error(`unknown animation clip ${JSON.stringify(clip)} (available: ${list})`);
+          }
         }
       }
       results.set(o, r);

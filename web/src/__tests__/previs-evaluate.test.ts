@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clipWeightsAt,
   docDuration,
   evalTrack,
   evaluateFrame,
   frameCount,
   worldPosition,
 } from '../previs/evaluate';
-import type { Easing, PrevisDoc, PrevisNode, Shot, Track, Vec3 } from '../previs/types';
+import type { Easing, PrevisModelAnimation, PrevisDoc, PrevisNode, Shot, Track, Vec3 } from '../previs/types';
 
 const close = (a: number[], b: number[]) => {
   expect(a.length).toBe(b.length);
@@ -295,7 +296,7 @@ describe('worldPosition (engine convention)', () => {
 });
 
 describe('clipTime', () => {
-  const mn = (animation?: { clip: string | number; start?: number; speed?: number }) =>
+  const mn = (animation?: PrevisModelAnimation | PrevisModelAnimation[]) =>
     node('m', { shape: 'model', model: { src: 'x.glb', ...(animation ? { animation } : {}) } });
   const at = (n: PrevisNode, t: number) => evaluateFrame(doc([n], [shot('s', 0, 10)]), t).nodes.m;
 
@@ -313,5 +314,99 @@ describe('clipTime', () => {
     expect(at(n, 1).clipTime).toBe(0);
     expect(at(n, 2).clipTime).toBe(0);
     expect(at(n, 4).clipTime).toBeCloseTo(3, 9);
+  });
+});
+
+describe('clips / clipWeightsAt', () => {
+  const mn = (animation?: PrevisModelAnimation | PrevisModelAnimation[]) =>
+    node('m', { shape: 'model', model: { src: 'x.glb', ...(animation ? { animation } : {}) } });
+  const at = (n: PrevisNode, t: number) => evaluateFrame(doc([n], [shot('s', 0, 10)]), t).nodes.m;
+
+  it('absent for non-model and model without animation', () => {
+    expect('clips' in at(node('m'), 1)).toBe(false);
+    expect('clips' in at(mn(), 1)).toBe(false);
+  });
+
+  it('object form: clips mirror clipTime', () => {
+    const n = mn({ clip: 'walk', start: 2, speed: 1.5 });
+    expect(at(n, 1).clips).toEqual([{ segment: 0, time: 0, weight: 1 }]);
+    expect(at(n, 4).clips).toEqual([{ segment: 0, time: 3, weight: 1 }]);
+    expect(at(n, 4).clipTime).toBe(3);
+    expect(at(mn({ clip: 0 }), 2.5).clips).toEqual([{ segment: 0, time: 2.5, weight: 1 }]);
+  });
+
+  it('single-element array: clips set, no clipTime', () => {
+    const s = at(mn([{ clip: 0 }]), 2);
+    expect(s.clips).toEqual([{ segment: 0, time: 2, weight: 1 }]);
+    expect('clipTime' in s).toBe(false);
+  });
+
+  const segs: PrevisModelAnimation[] = [
+    { clip: 'a', start: 1, speed: 2 },
+    { clip: 'b', start: 4 },
+    { clip: 'c', start: 8, speed: 0.5 },
+  ];
+
+  it('array: before first start holds segment 0 at time 0', () => {
+    const s = at(mn(segs), 0.5);
+    expect(s.clips).toEqual([{ segment: 0, time: 0, weight: 1 }]);
+    expect('clipTime' in s).toBe(false);
+  });
+
+  it('array: inside segments and exact boundaries (hard cut)', () => {
+    expect(at(mn(segs), 1).clips).toEqual([{ segment: 0, time: 0, weight: 1 }]);
+    expect(at(mn(segs), 3).clips).toEqual([{ segment: 0, time: 4, weight: 1 }]);
+    expect(at(mn(segs), 4).clips).toEqual([{ segment: 1, time: 0, weight: 1 }]);
+    expect(at(mn(segs), 6).clips).toEqual([{ segment: 1, time: 2, weight: 1 }]);
+    expect(at(mn(segs), 8).clips).toEqual([{ segment: 2, time: 0, weight: 1 }]);
+    expect(at(mn(segs), 10).clips).toEqual([{ segment: 2, time: 1, weight: 1 }]);
+  });
+
+  it('array: mid-blend weights; previous segment keeps advancing', () => {
+    const a: PrevisModelAnimation[] = [{ clip: 'a' }, { clip: 'b', start: 4, blendIn: 2 }];
+    const c = clipWeightsAt(a, 5);
+    expect(c).toHaveLength(2);
+    expect(c[0].segment).toBe(0);
+    expect(c[0].time).toBeCloseTo(5, 9);
+    expect(c[0].weight).toBeCloseTo(0.5, 9);
+    expect(c[1].segment).toBe(1);
+    expect(c[1].time).toBeCloseTo(1, 9);
+    expect(c[1].weight).toBeCloseTo(0.5, 9);
+    const q = clipWeightsAt(a, 4.5);
+    expect(q[0].weight).toBeCloseTo(0.75, 9);
+    expect(q[1].weight).toBeCloseTo(0.25, 9);
+  });
+
+  it('array: blend start emits only previous at weight 1; blend end emits only the new segment', () => {
+    const a: PrevisModelAnimation[] = [{ clip: 'a' }, { clip: 'b', start: 4, blendIn: 2 }];
+    expect(clipWeightsAt(a, 4)).toEqual([{ segment: 0, time: 4, weight: 1 }]);
+    expect(clipWeightsAt(a, 6)).toEqual([{ segment: 1, time: 2, weight: 1 }]);
+    expect(clipWeightsAt(a, 7)).toEqual([{ segment: 1, time: 3, weight: 1 }]);
+  });
+
+  it('array: blend with different speeds', () => {
+    const a: PrevisModelAnimation[] = [{ clip: 'a', speed: 2 }, { clip: 'b', start: 3, speed: 0.5, blendIn: 1 }];
+    const c = clipWeightsAt(a, 3.5);
+    expect(c[0]).toEqual({ segment: 0, time: 7, weight: 0.5 });
+    expect(c[1]).toEqual({ segment: 1, time: 0.25, weight: 0.5 });
+    expect(c[0].weight + c[1].weight).toBeCloseTo(1, 9);
+  });
+
+  it('array: blendIn 0 or absent is a hard cut; never a weight-0 entry', () => {
+    const a: PrevisModelAnimation[] = [{ clip: 'a' }, { clip: 'b', start: 2, blendIn: 0 }];
+    expect(clipWeightsAt(a, 2)).toEqual([{ segment: 1, time: 0, weight: 1 }]);
+    expect(clipWeightsAt(a, 1.999)).toEqual([{ segment: 0, time: 1.999, weight: 1 }]);
+    for (const t of [0, 1, 2, 3, 4, 5]) {
+      for (const e of clipWeightsAt([{ clip: 'a' }, { clip: 'b', start: 2, blendIn: 2 }], t)) expect(e.weight).toBeGreaterThan(0);
+    }
+  });
+
+  it('array: blend of segment 2 fades from segment 1', () => {
+    const a: PrevisModelAnimation[] = [{ clip: 'a' }, { clip: 'b', start: 2 }, { clip: 'c', start: 5, blendIn: 1 }];
+    const c = clipWeightsAt(a, 5.25);
+    expect(c.map((e) => e.segment)).toEqual([1, 2]);
+    expect(c[0].time).toBeCloseTo(3.25, 9);
+    expect(c[1].time).toBeCloseTo(0.25, 9);
+    expect(c[1].weight).toBeCloseTo(0.25, 9);
   });
 });

@@ -12,10 +12,12 @@
  * - The engine caps the chain at MAX_HIERARCHY_DEPTH and then treats the node as a root; we do too.
  */
 import type {
+  ClipWeight,
   Easing,
   FrameState,
   NodeState,
   PrevisDoc,
+  PrevisModelAnimation,
   PrevisNode,
   Shot,
   Track,
@@ -108,6 +110,30 @@ function pickShot(doc: PrevisDoc, time: number): Shot {
   return time < first.start ? first : last;
 }
 
+/**
+ * Weighted clips of a model's animation at global time `t` (see `PrevisModelAnimation` SEGMENTS).
+ * Never emits a zero-weight entry; weights sum to 1.
+ */
+export function clipWeightsAt(animation: PrevisModelAnimation | PrevisModelAnimation[], t: number): ClipWeight[] {
+  const segs = Array.isArray(animation) ? animation : [animation];
+  const start = (i: number) => segs[i].start ?? 0;
+  const timeOf = (i: number) => Math.max(0, t - start(i)) * (segs[i].speed ?? 1);
+  let i = 0;
+  for (let k = 0; k < segs.length; k++) if (start(k) <= t) i = k;
+  const blend = segs[i].blendIn ?? 0;
+  if (i > 0 && blend > 0 && t < start(i) + blend) {
+    const w = (t - start(i)) / blend;
+    if (w > 0) {
+      return [
+        { segment: i - 1, time: timeOf(i - 1), weight: 1 - w },
+        { segment: i, time: timeOf(i), weight: w },
+      ];
+    }
+    return [{ segment: i - 1, time: timeOf(i - 1), weight: 1 }];
+  }
+  return [{ segment: i, time: timeOf(i), weight: 1 }];
+}
+
 function nodeStateAt(node: PrevisNode, time: number): NodeState {
   const tr = node.tracks;
   const state: NodeState = {
@@ -117,7 +143,10 @@ function nodeStateAt(node: PrevisNode, time: number): NodeState {
     visible: evalTrack(tr?.visible, time, node.visible ?? true),
   };
   const anim = node.model?.animation;
-  if (anim) state.clipTime = Math.max(0, time - (anim.start ?? 0)) * (anim.speed ?? 1);
+  if (anim) {
+    state.clips = clipWeightsAt(anim, time);
+    if (!Array.isArray(anim)) state.clipTime = state.clips[0].time;
+  }
   return state;
 }
 

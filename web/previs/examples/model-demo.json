@@ -93,10 +93,18 @@
       "shape": "model",
       "model": {
         "src": "models/walker.glb",
-        "animation": {
-          "clip": "walk",
-          "loop": "repeat"
-        }
+        "animation": [
+          {
+            "clip": "walk",
+            "loop": "repeat"
+          },
+          {
+            "clip": "wave",
+            "start": 2.6,
+            "blendIn": 0.4,
+            "loop": "repeat"
+          }
+        ]
       },
       "role": "walker",
       "color": [
@@ -125,11 +133,29 @@
             ]
           },
           {
-            "t": 4,
+            "t": 2.6,
             "v": [
-              3.2,
+              0.96,
               0.875,
               -3.5
+            ]
+          }
+        ],
+        "rotation": [
+          {
+            "t": 2.6,
+            "v": [
+              0,
+              1.5707963267948966,
+              0
+            ]
+          },
+          {
+            "t": 3,
+            "v": [
+              0,
+              0,
+              0
             ]
           }
         ]

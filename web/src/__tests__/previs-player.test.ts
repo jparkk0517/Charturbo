@@ -80,12 +80,8 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
       const a = nextAnimator++;
       calls.push(['createGltfAnimator', model.objects, opts, a]);
       const animator = {
-        play: (clip: unknown, o: unknown) => {
-          calls.push(['animator.play', a, clip, o]);
-          return animator;
-        },
-        seek: (t: number) => {
-          calls.push(['animator.seek', a, t]);
+        setBlend: (entries: unknown) => {
+          calls.push(['animator.setBlend', a, entries]);
           return animator;
         },
         dispose: () => {
@@ -551,33 +547,82 @@ describe('loadPrevisPlayer', () => {
     expect(prims(m).map((d) => d.name)).toEqual(['previs:a']);
   });
 
-  it('plays the clip on a manual animator and seeks it to clipTime only when it changes', async () => {
+  const blends = (m: ReturnType<typeof mockSdk>) => m.named('animator.setBlend').map((c) => c[2]);
+
+  it('object form: one weight-1 entry, setBlend only when the clip time changes', async () => {
     const m = mockSdk({ 'w.glb': { animations: ['idle', 'walk'] } });
     const p = await loadPrevisPlayer(
       m.sdk,
       doc([modelNode('a', { src: 'w.glb', animation: { clip: 'walk', start: 1, speed: 2, loop: 'pingpong' } })]),
     );
     expect(m.named('loadGltf')[0][2]).toMatchObject({ animations: true });
-    const [created] = m.named('createGltfAnimator');
-    expect(created[2]).toEqual({ autoUpdate: false });
-    expect(m.named('animator.play')).toEqual([['animator.play', 1, 'walk', { loop: 'pingpong' }]]);
-    const seeks = () => m.named('animator.seek').map((c) => c[2]);
-    p.frame(0); // before start: clip time 0, already applied by play
+    expect(m.named('createGltfAnimator')[0][2]).toEqual({ autoUpdate: false });
+    const e = (time: number) => [{ clip: 'walk', time, weight: 1, loop: 'pingpong' }];
+    expect(blends(m)).toEqual([e(0)]); // initial pose
+    p.frame(0);
     p.frame(1);
-    expect(seeks()).toEqual([]);
+    expect(blends(m)).toEqual([e(0)]);
     p.frame(1.5);
     p.frame(1.5);
     p.frame(3);
     p.frame(0.5);
-    expect(seeks()).toEqual([1, 4, 0]);
+    expect(blends(m)).toEqual([e(0), e(1), e(4), e(0)]);
   });
 
   it('accepts a clip index and defaults loop to repeat', async () => {
     const m = mockSdk({ 'w.glb': { animations: ['idle', 'walk'] } });
     const p = await loadPrevisPlayer(m.sdk, doc([modelNode('a', { src: 'w.glb', animation: { clip: 1 } })]));
-    expect(m.named('animator.play')).toEqual([['animator.play', 1, 1, { loop: 'repeat' }]]);
     p.frame(2.5);
-    expect(m.named('animator.seek').map((c) => c[2])).toEqual([2.5]);
+    expect(blends(m)).toEqual([[{ clip: 1, time: 0, weight: 1, loop: 'repeat' }], [{ clip: 1, time: 2.5, weight: 1, loop: 'repeat' }]]);
+  });
+
+  it('array segments: hard cut switches the clip, loop defaults per segment', async () => {
+    const m = mockSdk({ 'w.glb': { animations: ['idle', 'walk'] } });
+    const p = await loadPrevisPlayer(
+      m.sdk,
+      doc([modelNode('a', { src: 'w.glb', animation: [{ clip: 'idle', loop: 'once' }, { clip: 'walk', start: 2 }] })]),
+    );
+    p.frame(1);
+    p.frame(2.5);
+    expect(blends(m)).toEqual([
+      [{ clip: 'idle', time: 0, weight: 1, loop: 'once' }],
+      [{ clip: 'idle', time: 1, weight: 1, loop: 'once' }],
+      [{ clip: 'walk', time: 0.5, weight: 1, loop: 'repeat' }],
+    ]);
+  });
+
+  it('cross-fade sends previous segment first with both weights', async () => {
+    const m = mockSdk({ 'w.glb': { animations: ['idle', 'walk'] } });
+    const p = await loadPrevisPlayer(
+      m.sdk,
+      doc([modelNode('a', { src: 'w.glb', animation: [{ clip: 'idle' }, { clip: 'walk', start: 2, blendIn: 1 }] })]),
+    );
+    p.frame(2.5);
+    expect(blends(m).at(-1)).toEqual([
+      { clip: 'idle', time: 2.5, weight: 0.5, loop: 'repeat' },
+      { clip: 'walk', time: 0.5, weight: 0.5, loop: 'repeat' },
+    ]);
+    p.frame(3.5); // fade finished: single entry
+    expect(blends(m).at(-1)).toEqual([{ clip: 'walk', time: 1.5, weight: 1, loop: 'repeat' }]);
+  });
+
+  it('does not call setBlend again when clips are unchanged', async () => {
+    const m = mockSdk({ 'w.glb': { animations: ['idle'] } });
+    const p = await loadPrevisPlayer(m.sdk, doc([modelNode('a', { src: 'w.glb', animation: { clip: 'idle', start: 5 } })]));
+    p.frame(0);
+    p.frame(1);
+    p.frame(4);
+    expect(blends(m)).toHaveLength(1);
+  });
+
+  it('rejects an unknown clip in a later segment and cleans up', async () => {
+    const m = mockSdk({ 'w.glb': { animations: ['idle', 'walk'] } });
+    const d = doc([modelNode('cup', { src: 'w.glb', animation: [{ clip: 'idle' }, { clip: 'jump', start: 1 }] })]);
+    await expect(loadPrevisPlayer(m.sdk, d)).rejects.toThrow(
+      'loadPrevisPlayer: node "cup" (w.glb): unknown animation clip "jump" (available: 0 "idle", 1 "walk")',
+    );
+    expectCleanedUp(m, 1);
+    expect(m.named('createGltfAnimator')).toEqual([]);
   });
 
   it('resolves each src once and loads it per node', async () => {
