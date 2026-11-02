@@ -208,6 +208,7 @@ export function evaluateFrame(doc: PrevisDoc, time: number): FrameState {
     target = evalTrack<Vec3>(cam.target.track, time, [0, 0, 0]);
   }
   const fovDeg = evalTrack<number>(cam.fov, time, DEFAULT_FOV_DEG);
+  const roll = evalTrack<number>(cam.roll, time, 0);
 
-  return { time, shotId: shot.id, camera: { eye, target, fovDeg }, nodes };
+  return { time, shotId: shot.id, camera: { eye, target, fovDeg, roll }, nodes };
 }

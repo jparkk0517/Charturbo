@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 추가 — 정확한 카메라 뷰 (setCameraView · roll)
+
+- `setCameraView({ eye, target, up?, roll? }): boolean`을 추가했습니다. 거리 · pitch 제한 없이 정확한 look-at으로 카메라를 놓고 roll을 지원합니다. eye == target이거나 백엔드가 지원하지 않으면 `false`를 반환하며(지원하지 않을 때는 `setCameraPose`로 대체), 이후 궤도 조작은 클램프된 궤도 카메라로 돌아가 roll을 버립니다. previs `camera.roll?: Track<number>`(라디안, 기본 0, `fov`와 같은 트랙 규칙)을 추가했고, 0.5 m 클로즈업 · 82° 탑뷰 제한을 제거했습니다. 0.2 m 클로즈업은 작성한 대로 렌더링되며, 검증기는 위치와 목표가 각각 키프레임 하나씩이고 값이 같으면(eye == target) 샷을 거부합니다.
+
 ### 추가 — Previs glTF 모델 노드
 
 - previs 노드에 `shape: 'model'` + `model: { src, fit?, animation? }`을 추가했습니다. glTF(`.glb` / `.gltf`)를 노드의 단색 역할 색으로 그리고(텍스처 · 재질 색 무시), 레스트 포즈 경계를 노드 원점에 맞춰 `fit`(`'contain'` 기본 · `'stretch'`)대로 `size`에 맞춥니다. 애니메이션 클립은 레스트 포즈 기준 맞춤이라 `size` 상자 밖으로 나갈 수 있습니다.

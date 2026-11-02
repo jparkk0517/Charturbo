@@ -50,6 +50,14 @@
  * (the animator wraps each time per its loop); it is called only when a segment, time or weight
  * changed since the last call. The frame-0 clips are applied at load as the initial pose.
  *
+ * CAMERA
+ * Each frame calls `sdk.setCameraView({ eye, target, roll })` (meters * worldScale, roll in radians): an
+ * exact look-at with no distance or pitch clamp (close-ups and straight-down shots render as authored;
+ * straight down / up uses the engine's up fallback). The call is skipped while eye, target and roll are
+ * unchanged. When it returns false nothing throws and the call is retried next frame: for eye == target
+ * the previous camera stays; an engine build without the binding gets the clamped `setCameraPose`
+ * fallback instead. The far plane is the engine's orbit far (2000 units unless a fit widened it).
+ *
  * INVISIBLE OBJECTS
  * The engine has no per-object visibility flag in its API, so invisible = color alpha 0: pivots
  * and FIT objects are unit boxes with alpha 0; they go through the translucent pipeline
@@ -314,6 +322,7 @@ function makePlayer(
   let camEye: Vec3 | null = null;
   let camTarget: Vec3 | null = null;
   let camFov: number | null = null;
+  let camRoll = 0;
   let disposed = false;
 
   return {
@@ -362,10 +371,14 @@ function makePlayer(
 
       const eye = scaled(fs.camera.eye, ws);
       const target = scaled(fs.camera.target, ws);
-      if (!camEye || !camTarget || !eqVec(eye, camEye) || !eqVec(target, camTarget)) {
-        sdk.setCameraPose(eye, target);
-        camEye = eye;
-        camTarget = target;
+      const roll = fs.camera.roll;
+      if (!camEye || !camTarget || !eqVec(eye, camEye) || !eqVec(target, camTarget) || roll !== camRoll) {
+        // Exact look-at: no distance / pitch clamp. false (eye == target) keeps the previous camera.
+        if (sdk.setCameraView({ eye, target, roll })) {
+          camEye = eye;
+          camTarget = target;
+          camRoll = roll;
+        }
       }
       if (fs.camera.fovDeg !== camFov) {
         sdk.setCameraFov(fs.camera.fovDeg);

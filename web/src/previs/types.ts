@@ -154,6 +154,11 @@ export interface Shot {
     target: CameraTarget;
     /** Vertical field of view in degrees over time; default constant 45. */
     fov?: Track<number>;
+    /**
+     * Roll in radians about the view direction over time; default constant 0. Positive tilts the
+     * camera's up toward screen right (the scene appears to turn counterclockwise).
+     */
+    roll?: Track<number>;
   };
 }
 
@@ -165,7 +170,7 @@ export interface PrevisDoc {
   size: { width: number; height: number };
   /** Background (clear) color. */
   background: Rgb;
-  /** Engine units per meter, default 10 (the engine camera cannot come closer than 5 units to its target). */
+  /** Engine units per meter, default 10. */
   worldScale?: number;
   /** Real-world colors to keep roles away from (skin, outfit, set), see the handoff. */
   avoidColors?: Rgb[];
@@ -197,7 +202,8 @@ export interface NodeState {
 export interface FrameState {
   time: number;
   shotId: string;
-  camera: { eye: Vec3; target: Vec3; fovDeg: number };
+  /** `roll` in radians (see `Shot.camera.roll`). */
+  camera: { eye: Vec3; target: Vec3; fovDeg: number; roll: number };
   /** Local (parent-relative) states keyed by node id. */
   nodes: Record<string, NodeState>;
 }

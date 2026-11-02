@@ -1501,6 +1501,34 @@ impl WasmCharturboEngine {
         );
     }
 
+    /// Exact look-at camera: no distance or pitch clamp. `up` (0, 0, 0 = default +Y) is rotated
+    /// by `roll` radians about the view direction (positive = camera banks clockwise as seen by
+    /// the viewer). Looking straight down / up with up parallel to the view falls back to -Z / +Z.
+    /// Orbit gestures continue from this pose (clamped then); pan keeps it. Returns false
+    /// (camera unchanged) when eye == target or eye / target / roll is non-finite.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_camera_view(
+        &mut self,
+        eye_x: f32,
+        eye_y: f32,
+        eye_z: f32,
+        target_x: f32,
+        target_y: f32,
+        target_z: f32,
+        up_x: f32,
+        up_y: f32,
+        up_z: f32,
+        roll: f32,
+    ) -> bool {
+        let up = Vec3::new(up_x, up_y, up_z);
+        self.inner.set_camera_view(
+            Vec3::new(eye_x, eye_y, eye_z),
+            Vec3::new(target_x, target_y, target_z),
+            (up != Vec3::ZERO).then_some(up),
+            roll,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_primitive(
         &mut self,

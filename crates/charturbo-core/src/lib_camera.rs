@@ -7,7 +7,8 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 impl WasmCharturboEngine {
     /// `[target_x, target_y, target_z, distance, yaw, pitch, fov_y, aspect, ortho_size]` (radians).
-    /// ortho_size is zero in perspective mode.
+    /// ortho_size is zero in perspective mode. After `set_camera_view` (exact mode) distance / yaw /
+    /// pitch describe the exact eye, unclamped (pitch +-pi/2 straight down / up); roll is not reported.
     pub fn camera_state(&self) -> Vec<f32> {
         let c = self.inner.camera();
         let t = c.target();

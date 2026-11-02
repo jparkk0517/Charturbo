@@ -27,6 +27,7 @@ interface FakeResult {
 /** Recording stand-in for the Charturbo methods the player uses. */
 function mockSdk(models: Record<string, FakeModel> = {}) {
   const calls: Call[] = [];
+  const view = { reject: false };
   let nextId = 100;
   let nextAnimator = 1;
   const theme = { surface: [0.1, 0.1, 0.1, 1], marker: 'theme' };
@@ -53,6 +54,10 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
     setObjectTransform: rec('setObjectTransform', true),
     setObjectMaterial: rec('setObjectMaterial', true),
     setCameraPose: rec('setCameraPose'),
+    setCameraView: (v: unknown) => {
+      calls.push(['setCameraView', v]);
+      return !view.reject;
+    },
     setCameraFov: rec('setCameraFov'),
     removeObject: rec('removeObject', true),
     setObjectParent: rec('setObjectParent', true),
@@ -92,7 +97,7 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
     },
   };
   const named = (n: string) => calls.filter((c) => c[0] === n);
-  return { sdk: sdk as unknown as Charturbo, calls, named, theme };
+  return { sdk: sdk as unknown as Charturbo, calls, named, theme, view };
 }
 
 const node = (id: string, extra: Partial<PrevisNode> = {}): PrevisNode => ({
@@ -261,7 +266,8 @@ describe('frame', () => {
       ['setObjectTransform', aPivot, { position: [10, 0, 0], rotation: [0, 0, 0] }],
       ['setObjectTransform', aMesh, { scale: [20, 10, 10] }],
     ]);
-    expect(m.named('setCameraPose')).toEqual([['setCameraPose', [0, 10, 50], [0, 10, 0]]]);
+    expect(m.named('setCameraView')).toEqual([['setCameraView', { eye: [0, 10, 50], target: [0, 10, 0], roll: 0 }]]);
+    expect(m.named('setCameraPose')).toEqual([]);
     expect(m.named('setCameraFov')).toEqual([['setCameraFov', 45]]);
   });
 
@@ -276,6 +282,66 @@ describe('frame', () => {
     p.frame(2);
     const later = m.calls.slice(before).map((c) => c[0]);
     expect(later).toEqual(['setObjectTransform', 'setObjectTransform', 'setCameraFov']);
+  });
+
+  it('passes roll and exact scaled values (no clamping), calls again only on change', () => {
+    const m = mockSdk();
+    const d = doc([], {
+      worldScale: 10,
+      shots: [
+        {
+          id: 's',
+          start: 0,
+          end: 4,
+          camera: {
+            position: [{ t: 0, v: [0, 0.1, 0.2] }],
+            target: { track: [{ t: 0, v: [0, 0.1, 0] }] },
+            roll: [
+              { t: 0, v: 0 },
+              { t: 2, v: 1 },
+            ],
+          },
+        },
+      ],
+    });
+    const p = createPrevisPlayer(m.sdk, d);
+    p.frame(0);
+    expect(m.named('setCameraView')).toEqual([['setCameraView', { eye: [0, 1, 2], target: [0, 1, 0], roll: 0 }]]);
+    p.frame(0);
+    expect(m.named('setCameraView').length).toBe(1);
+    p.frame(1);
+    expect(m.named('setCameraView')[1]).toEqual(['setCameraView', { eye: [0, 1, 2], target: [0, 1, 0], roll: 0.5 }]);
+    p.frame(1);
+    expect(m.named('setCameraView').length).toBe(2);
+  });
+
+  it('keeps the previous camera and does not throw when setCameraView returns false', () => {
+    const m = mockSdk();
+    const d = doc([], {
+      shots: [
+        {
+          id: 's',
+          start: 0,
+          end: 4,
+          camera: {
+            position: [
+              { t: 0, v: [0, 0, 5] },
+              { t: 4, v: [0, 0, 1] },
+            ],
+            target: { track: [{ t: 0, v: [0, 0, 0] }] },
+          },
+        },
+      ],
+    });
+    const p = createPrevisPlayer(m.sdk, d);
+    p.frame(0);
+    m.view.reject = true;
+    expect(() => p.frame(1)).not.toThrow();
+    m.view.reject = false;
+    p.frame(1); // not recorded as applied while rejected: sent again
+    expect(m.named('setCameraView').length).toBe(3);
+    p.frame(1);
+    expect(m.named('setCameraView').length).toBe(3);
   });
 
   it('hides the mesh through color alpha 0 when the visible track turns false', () => {

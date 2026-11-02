@@ -1785,6 +1785,18 @@ export interface WasmCharturboEngineBackend
     targetZ: number
   ): void;
   set_camera_fov?(degrees: number): void;
+  set_camera_view?(
+    eyeX: number,
+    eyeY: number,
+    eyeZ: number,
+    targetX: number,
+    targetY: number,
+    targetZ: number,
+    upX: number,
+    upY: number,
+    upZ: number,
+    roll: number
+  ): boolean;
   add_primitive?(
     kind: number,
     px: number,
@@ -3955,6 +3967,42 @@ export class Charturbo {
   }
 
   /**
+   * Exact look-at camera: places the eye at `eye` looking at `target` with no distance or pitch
+   * clamp (unlike `setCameraPose`, which goes through the clamped orbit model).
+   * - `up`: world up hint, default `[0, 0, 0]` = engine default +Y. When the view is straight
+   *   up/down (parallel to `up`) the engine falls back to -Z (looking down) / +Z (looking up).
+   * - `roll`: radians around the view axis, default 0; positive tilts up toward screen right.
+   * - Orbit interaction (drag / zoom / `setCameraPose`) leaves exact mode: roll is dropped and
+   *   distance is clamped to 5..5000 again. `getCameraState` in exact mode reports the unclamped
+   *   distance / pitch (roll is not reported).
+   * @returns `true` if applied; `false` if the camera was left unchanged (`eye` equals `target`),
+   *   or the engine build lacks `set_camera_view`, in which case it falls back to
+   *   `setCameraPose(eye, target)` (clamped, `up` / `roll` ignored).
+   * @throws if a vector is not a 3-tuple of finite numbers or `roll` is not finite.
+   */
+  setCameraView(view: { eye: Vec3Tuple; target: Vec3Tuple; up?: Vec3Tuple; roll?: number }): boolean {
+    const vec = (name: string, v: unknown): Vec3Tuple => {
+      if (!Array.isArray(v) || v.length !== 3 || !v.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+        throw new Error(`setCameraView: ${name} must be a 3-tuple of finite numbers, got ${JSON.stringify(v)}`);
+      }
+      return v as Vec3Tuple;
+    };
+    if (view === null || typeof view !== 'object') throw new Error('setCameraView: view must be an object');
+    const eye = vec('eye', view.eye);
+    const target = vec('target', view.target);
+    const up = view.up === undefined ? ([0, 0, 0] as Vec3Tuple) : vec('up', view.up);
+    const roll = view.roll ?? 0;
+    if (typeof roll !== 'number' || !Number.isFinite(roll)) throw new Error(`setCameraView: roll must be a finite number, got ${String(roll)}`);
+    if (!this.backend.set_camera_view) {
+      this.setCameraPose(eye, target);
+      return false;
+    }
+    const ok = this.backend.set_camera_view(eye[0], eye[1], eye[2], target[0], target[1], target[2], up[0], up[1], up[2], roll);
+    if (ok) this.overviewDistance = this.getCameraState()?.distance ?? null;
+    return ok;
+  }
+
+  /**
    * Sets the camera's vertical field of view in degrees (the engine clamps it to 10..120;
    * default 45). Takes effect on the next frame; call `fitToView` to re-frame for the new angle.
    * No-op on engine builds without the `set_camera_fov` binding.
@@ -3988,7 +4036,9 @@ export class Charturbo {
     this.overviewDistance ??= before.distance;
     const want = options?.distance;
     const goal = typeof want === 'number' ? want : Math.min(before.distance, this.overviewDistance * FOCUS_DISTANCE_RATIO);
-    if (Number.isFinite(goal) && goal > 0 && goal !== before.distance) this.backend.zoom_camera(goal - before.distance);
+    // Re-read: focusing leaves an exact view (setCameraView) and clamps its distance to the orbit range
+    const now = this.getCameraState()?.distance ?? before.distance;
+    if (Number.isFinite(goal) && goal > 0 && goal !== now) this.backend.zoom_camera(goal - now);
     return true;
   }
 

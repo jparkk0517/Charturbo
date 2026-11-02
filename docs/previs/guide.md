@@ -41,7 +41,7 @@ Source of truth: `web/src/previs/types.ts`. Units: meters, radians, sRGB colors 
 
 **Node:** `id` (`[A-Za-z0-9_.-]+`, unique), `shape` (`box`/`sphere`/`cylinder`/`model`), `model` (required for `model`, forbidden otherwise), `color`, `position`, `rotation`, `size`, optional `parent`, `role`, `visible`, `tracks` (`position`, `rotation`, `size`, `visible`).
 
-**Shot:** `id`, `start`, `end`, `camera: { position: Track, target, fov? }`. `target` is `{ track }` (look-at points) or `{ follow: nodeId, offset? }`. `fov` is a vertical angle in degrees, default 45.
+**Shot:** `id`, `start`, `end`, `camera: { position: Track, target, fov?, roll? }`. `target` is `{ track }` (look-at points) or `{ follow: nodeId, offset? }`. `fov` is a vertical angle in degrees, default 45. `roll?` is a `Track<number>` in radians, default 0; positive tilts the camera's up toward screen right, so the scene appears to turn counterclockwise. Same track rules as `fov`.
 
 **Track:** `[{ t, v, ease? }]`, `t` strictly increasing; the value is held before the first and after the last key. `ease` applies to the segment starting at that key: `linear` (default), `ease-in`, `ease-out`, `ease-in-out`, `step`. Boolean tracks are always step-wise.
 
@@ -137,12 +137,9 @@ A node renders as exactly its `color`. The player uses shading model `pbr` with 
 ## Limits
 
 - The engine clamps object scale to >= 0.05 units: a mesh thinner than `0.05 / worldScale` m per axis is drawn at 0.05 units.
-- The camera cannot come closer than 5 units to its target (0.5 m at `worldScale` 10).
-- Close-ups: an eye closer than 0.5 m to its target is pushed back to 0.5 m, so the framing differs from the doc. Use a narrower `fov` instead of moving closer.
-- Top-down: the camera pitch is capped near 82° (`dir.y` clamped to ±0.99), so a straight-down eye is tilted and offset. Keep shots below that angle.
+- Looking straight down, screen-up is world -Z; looking straight up, screen-up is world +Z.
 - `fov` outside 10..120 is rejected by `validateDoc` (the engine clamps to that range).
 - `jump()` without `base` moves the root to the origin; always pass `base` (the node's rest position).
-- No camera roll.
 - `fov` is vertical. In portrait output (height > width) the horizontal view is narrow; raise `fov` or move the camera back, and verify with `--still`.
 - No per-object visibility API: hiding = alpha 0.
 - Model nodes: clip segments with cross-fade are supported (array form above); textures and material colors are dropped; only the rest pose drives `fit`.

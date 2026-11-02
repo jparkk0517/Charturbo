@@ -54,6 +54,7 @@ describe('previs pipeline integration', () => {
     expect(early.shotId).toBe('a');
     expect(evaluateFrame(doc, 2.2).shotId).toBe('b');
     expect(evaluateFrame(doc, 3.0).camera.fovDeg).toBe(60);
+    expect(evaluateFrame(doc, 3.0).camera.roll).toBe(0);
     // follow target tracks the walker toward -z
     expect(late.camera.target[2]).toBeLessThan(early.camera.target[2] - 1);
     // the hand prop rides with the right hand

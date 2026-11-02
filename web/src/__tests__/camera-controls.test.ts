@@ -309,6 +309,21 @@ describe('camera state / framing', () => {
     expect(sdk.focusNode(9)).toBe(false);
   });
 
+  it('focusNode zooms from the distance after focusing (an exact view is clamped on focus)', () => {
+    const { backend, cam } = graphBackend();
+    const sdk = Charturbo.fromBackend(backend);
+    // An exact close-up (setCameraView) 2 units away; focusing leaves it and clamps to the orbit minimum 5
+    cam.distance = 2;
+    const focus = backend.focus_on_node.bind(backend);
+    backend.focus_on_node = (id: number) => {
+      const ok = focus(id);
+      cam.distance = Math.max(5, cam.distance);
+      return ok;
+    };
+    sdk.focusNode(1, { distance: 10 });
+    expect(cam.distance).toBeCloseTo(10);
+  });
+
   it('new data drops the overview: the next first focus measures it again', () => {
     const { backend, cam } = graphBackend();
     const sdk = Charturbo.fromBackend(backend);

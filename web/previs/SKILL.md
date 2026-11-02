@@ -52,7 +52,7 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 - `size` does not scale children. Do not try to scale a parent to resize a group.
 - Rotation is Euler YXZ; mannequins face +z at rotation 0.
 - Portrait output: `fov` is vertical, so horizontal view is narrow. Raise `fov` or pull the camera back; verify with `--still`.
-- Camera must stay >= 5 units (0.5 m at `worldScale` 10) from its target; no roll.
+- `camera.roll` (radians, track, default 0) tilts the frame; positive turns the scene counterclockwise.
 - Shapes thinner than 0.05 units are drawn at 0.05 units.
 - Hiding = `visible: false` or a `visible` track (alpha 0); there is no other visibility API.
 - Motions on the same node+property must not overlap in time; chain them with non-overlapping `start`/`end`.

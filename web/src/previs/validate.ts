@@ -331,6 +331,21 @@ export function validateDoc(
         if (c.target.offset !== undefined) vec3(c.target.offset, `${p}.camera.target.offset`);
       } else if (c.target.track !== undefined) vecTrack(c.target.track, `${p}.camera.target.track`);
       else add(`${p}.camera.target`, 'target needs either "track" (look-at keyframes) or "follow" (node id)');
+      if (c.roll !== undefined) {
+        track(c.roll, `${p}.camera.roll`, (v, pp) => {
+          if (isNum(v)) return true;
+          add(pp, `roll must be a finite number of radians; got ${JSON.stringify(v)}`);
+          return false;
+        });
+      }
+      // eye == target is undefined for a look-at; checked only when both tracks are constant (1 keyframe)
+      if (Array.isArray(c.position) && c.position.length === 1 && isObj(c.target) && Array.isArray(c.target.track) && c.target.track.length === 1) {
+        const a = (c.position[0] as { v?: unknown }).v;
+        const b = (c.target.track[0] as { v?: unknown }).v;
+        if (Array.isArray(a) && Array.isArray(b) && a.length === 3 && b.length === 3 && a.every((x, k) => x === b[k])) {
+          add(`${p}.camera`, 'camera position equals target (constant tracks); move position away from target so the camera has a view direction');
+        }
+      }
       if (c.fov !== undefined) {
         track(c.fov, `${p}.camera.fov`, (v, pp) => {
           if (isNum(v) && v >= 10 && v <= 120) return true;

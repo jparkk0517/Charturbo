@@ -74,6 +74,37 @@ describe('validateDoc', () => {
     expect(validateDoc(d).ok).toBe(true);
   });
 
+  it('camera roll: finite radians, same track rules as fov', () => {
+    const ok = base();
+    ok.shots[0].camera.roll = [{ t: 0, v: 0 }, { t: 1, v: -7 }];
+    expect(validateDoc(ok).ok).toBe(true);
+    const bad = base();
+    bad.shots[0].camera.roll = [{ t: 0, v: 'x' }];
+    expect(has(bad, 'shots[0].camera.roll[0].v')).toBe(true);
+    const nan = base();
+    nan.shots[0].camera.roll = [{ t: 0, v: NaN }];
+    expect(has(nan, 'shots[0].camera.roll[0].v')).toBe(true);
+    const unsorted = base();
+    unsorted.shots[0].camera.roll = [{ t: 1, v: 0 }, { t: 0.5, v: 1 }];
+    expect(has(unsorted, 'shots[0].camera.roll[1].t')).toBe(true);
+    const empty = base();
+    empty.shots[0].camera.roll = [];
+    expect(has(empty, 'shots[0].camera.roll')).toBe(true);
+  });
+
+  it('no distance or pitch caveats: 0.2 m close-up and straight-down are valid', () => {
+    const d = base();
+    d.shots[0].camera = { position: [{ t: 0, v: [0, 0.3, 0.2] }], target: { track: [{ t: 0, v: [0, 0.1, 0] }] } };
+    d.shots[1].camera = { position: [{ t: 2, v: [0, 5, 0] }], target: { track: [{ t: 2, v: [0, 0, 0] }] } };
+    expect(validateDoc(d).ok).toBe(true);
+  });
+
+  it('rejects constant camera position equal to target', () => {
+    const d = base();
+    d.shots[0].camera = { position: [{ t: 0, v: [1, 2, 3] }], target: { track: [{ t: 0, v: [1, 2, 3] }] } };
+    expect(has(d, 'shots[0].camera')).toBe(true);
+  });
+
   it('colors in 0..1', () => {
     const d = base();
     d.background = [0, 2, 0];

@@ -566,6 +566,12 @@ impl VisualizationEngine {
         self.camera.set_pose(eye, target);
     }
 
+    /// Exact look-at (no distance / pitch clamp, optional up, roll in radians); see
+    /// `OrbitCamera::set_view`. False (camera unchanged) when `eye == target` or input is non-finite.
+    pub fn set_camera_view(&mut self, eye: Vec3, target: Vec3, up: Option<Vec3>, roll: f32) -> bool {
+        self.camera.set_view(eye, target, up, roll)
+    }
+
     pub fn set_camera_fov(&mut self, degrees: f32) {
         self.camera.set_fov_y_degrees(degrees);
     }
@@ -1794,6 +1800,25 @@ mod tests {
         let mut engine = VisualizationEngine::new(ds, sim, cam, renderer);
         engine.resize(1600, 900);
         (engine, state)
+    }
+
+    #[test]
+    fn set_camera_view_drives_render_uniforms_and_orbit_resumes() {
+        let ds = GraphDataset::generate_seeded(&DatasetConfig { node_count: 0, edge_count: 0, ..Default::default() });
+        let (mut engine, _) = mock_engine(ds);
+        let (eye, target) = (Vec3::new(0.0, 0.2, 0.0), Vec3::ZERO);
+        assert!(!engine.set_camera_view(target, target, None, 0.0));
+        assert!(engine.set_camera_view(eye, target, None, 0.5));
+        assert_eq!(engine.camera().eye_position(), eye);
+        let cam = InstancePacker::pack_camera(engine.camera(), engine.viewport_px, 1.0);
+        assert_eq!(cam.view_proj, engine.camera().view_proj_matrix().to_cols_array_2d());
+        let (right, up) = engine.camera().billboard_axes();
+        assert_eq!(cam.camera_right[..3], right.to_array());
+        assert_eq!(cam.camera_up[..3], up.to_array());
+        engine.rotate_camera(0.0, 0.0);
+        assert!(!engine.camera().is_exact_view());
+        assert!((engine.camera().distance() - 5.0).abs() < 1e-5);
+        assert_eq!(engine.camera().target(), target);
     }
 
     #[test]

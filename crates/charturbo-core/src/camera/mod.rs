@@ -1,7 +1,34 @@
 use crate::spatial::{Frustum, Plane, Ray};
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Quat, Vec3, Vec4};
+
+/// Pitch limit of the orbit pose (rad): keeps the view direction off the world up axis.
+const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.05;
+/// Orbit distance range (world units).
+const MIN_DISTANCE: f32 = 5.0;
+const MAX_DISTANCE: f32 = 5000.0;
+/// Exact-view near plane (world units). Fixed and small: with the reverse-Z Depth32Float buffer
+/// (renderer/wgpu_backend.rs) depth precision is nearly independent of the near distance
+/// (N. Reed, "Depth Precision Visualized", NVIDIA 2015), so close-ups need no adaptive near.
+const EXACT_NEAR: f32 = 0.01;
+
+/// Exact look-at pose set by `set_view`: `eye` and the unit `up` (orthogonal to the view
+/// direction, roll applied). The look-at point is `OrbitCamera::target`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ExactView {
+    eye: Vec3,
+    up: Vec3,
+}
 
 /// Spherical orbit camera managing 3D viewpoint, projection, billboard axes, and screen-to-ray picking.
+///
+/// Two pose modes:
+/// - orbit (default): `target` + yaw / pitch / distance, distance clamped to 5..5000 and pitch to
+///   about +-87 deg, no roll.
+/// - exact (`set_view`): an unclamped look-at with up vector and roll. Every derived quantity
+///   (view / projection, eye, billboard axes, frustum, picking rays) uses it. Orbit gestures
+///   (`rotate`, `zoom`, `rotate_look`, `set_distance`, `set_target`, fits) first convert the exact
+///   pose back to yaw / pitch / distance (clamping only then, roll dropped); `pan` and
+///   `move_local` translate the exact pose and keep it; `set_pose` replaces it.
 #[derive(Debug, Clone)]
 pub struct OrbitCamera {
     target: Vec3,
@@ -13,6 +40,7 @@ pub struct OrbitCamera {
     z_near: f32,
     z_far: f32,
     ortho_size: Option<f32>,
+    exact: Option<ExactView>,
 }
 
 impl OrbitCamera {
@@ -27,6 +55,7 @@ impl OrbitCamera {
             z_near: 0.5,
             z_far: 2000.0,
             ortho_size: None,
+            exact: None,
         }
     }
 
@@ -35,24 +64,137 @@ impl OrbitCamera {
         self.target
     }
 
+    /// Moves the look-at point keeping the orbit angles and distance (an exact pose is first
+    /// converted to orbit).
     #[inline]
     pub fn set_target(&mut self, target: Vec3) {
+        self.leave_exact(false);
         self.target = target;
     }
 
+    /// Eye-target distance (unclamped in exact mode).
     #[inline]
     pub fn distance(&self) -> f32 {
-        self.distance
+        match self.exact {
+            Some(ex) => (ex.eye - self.target).length(),
+            None => self.distance,
+        }
     }
 
+    /// Orbit yaw (rad); in exact mode derived from the view direction (see `orbit_angles`).
     #[inline]
     pub fn yaw(&self) -> f32 {
-        self.yaw
+        match self.exact {
+            Some(ex) => Self::orbit_angles(ex, self.target).0,
+            None => self.yaw,
+        }
     }
 
+    /// Orbit pitch (rad); in exact mode derived from the view direction, unclamped (+-pi/2 for
+    /// straight down / up).
     #[inline]
     pub fn pitch(&self) -> f32 {
-        self.pitch
+        match self.exact {
+            Some(ex) => Self::orbit_angles(ex, self.target).1,
+            None => self.pitch,
+        }
+    }
+
+    /// True while an exact `set_view` pose is active.
+    #[inline]
+    pub fn is_exact_view(&self) -> bool {
+        self.exact.is_some()
+    }
+
+    /// Exact look-at: the view is `look_at(eye, target, up')` with no distance or pitch clamp.
+    ///
+    /// `up'` is `up` (default +Y) made orthogonal to the view direction, then rotated by `roll`
+    /// radians about the view direction (right-hand rule about the forward axis: positive roll
+    /// banks the camera clockwise as the viewer sees it, so the up vector tilts toward screen
+    /// right and the scene turns counterclockwise on screen). When the view direction is
+    /// parallel to `up` (within 1e-6), the up falls back deterministically: looking down
+    /// (forward.y < 0) uses -Z, looking up uses +Z (the screen-up an orbit camera at yaw 0 has
+    /// at pitch +-90 deg); for a non-vertical forward it falls back to +Y.
+    ///
+    /// The near plane is a fixed 0.01 units (see `EXACT_NEAR`) so close-ups are not clipped; the
+    /// far plane is the orbit `z_far`.
+    ///
+    /// Returns false and leaves the camera unchanged when `eye == target` (distance <= 1e-6) or any
+    /// input is non-finite. A zero or non-finite `up` means +Y.
+    pub fn set_view(&mut self, eye: Vec3, target: Vec3, up: Option<Vec3>, roll: f32) -> bool {
+        if !eye.is_finite() || !target.is_finite() || !roll.is_finite() {
+            return false;
+        }
+        let offset = target - eye;
+        let len = offset.length();
+        if len <= 1e-6 {
+            return false;
+        }
+        let forward = offset / len;
+        let up = up.filter(|u| u.is_finite()).and_then(|u| u.try_normalize()).unwrap_or(Vec3::Y);
+        let up = if forward.cross(up).length() > 1e-6 {
+            up
+        } else if forward.y.abs() >= 0.5 {
+            Vec3::Z * forward.y.signum()
+        } else {
+            Vec3::Y
+        };
+        let right = forward.cross(up).normalize();
+        let up = right.cross(forward).normalize();
+        let up = (Quat::from_axis_angle(forward, roll) * up).normalize();
+        self.target = target;
+        self.exact = Some(ExactView { eye, up });
+        true
+    }
+
+    /// Orbit `(yaw, pitch)` of an exact pose, pitch unclamped. Yaw comes from the horizontal
+    /// part of the target-to-eye direction; when that is (nearly) vertical, from the screen-up
+    /// vector so the image keeps its on-screen orientation (an orbit camera's screen-up points
+    /// horizontally away from the eye when looking down, toward it when looking up).
+    fn orbit_angles(ex: ExactView, target: Vec3) -> (f32, f32) {
+        let d = (ex.eye - target).normalize_or_zero();
+        let pitch = d.y.clamp(-1.0, 1.0).asin();
+        let (hx, hz) = if d.x.hypot(d.z) > 1e-4 {
+            (d.x, d.z)
+        } else {
+            let s = if d.y >= 0.0 { -1.0 } else { 1.0 };
+            (ex.up.x * s, ex.up.z * s)
+        };
+        (hx.atan2(hz), pitch)
+    }
+
+    /// Converts an exact pose to orbit yaw / pitch / distance, clamping pitch and distance to the
+    /// orbit ranges (roll is dropped). `keep_eye` keeps the eye in place and moves the target
+    /// (fly look); otherwise the target stays and the eye moves by at most the clamp.
+    fn leave_exact(&mut self, keep_eye: bool) {
+        let Some(ex) = self.exact.take() else { return };
+        let (yaw, pitch) = Self::orbit_angles(ex, self.target);
+        self.yaw = yaw;
+        self.pitch = pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT);
+        self.distance = (ex.eye - self.target).length().clamp(MIN_DISTANCE, MAX_DISTANCE);
+        if keep_eye {
+            self.target = ex.eye - self.orbit_offset();
+        }
+    }
+
+    /// Target-to-eye offset of the orbit pose.
+    fn orbit_offset(&self) -> Vec3 {
+        let (sin_p, cos_p) = self.pitch.sin_cos();
+        let (sin_y, cos_y) = self.yaw.sin_cos();
+        Vec3::new(
+            self.distance * cos_p * sin_y,
+            self.distance * sin_p,
+            self.distance * cos_p * cos_y,
+        )
+    }
+
+    /// Near / far planes: orbit uses `z_near` / `z_far`; an exact pose uses `EXACT_NEAR` (never
+    /// above the orbit near) and the same `z_far`.
+    fn clip_planes(&self) -> (f32, f32) {
+        match self.exact {
+            Some(_) => (EXACT_NEAR.min(self.z_near), self.z_far),
+            None => (self.z_near, self.z_far),
+        }
     }
 
     #[inline]
@@ -69,31 +211,26 @@ impl OrbitCamera {
 
     #[inline]
     pub fn set_distance(&mut self, distance: f32) {
-        self.distance = distance.clamp(5.0, 5000.0);
+        self.leave_exact(false);
+        self.distance = distance.clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
 
     pub fn eye_position(&self) -> Vec3 {
-        let cos_p = self.pitch.cos();
-        let sin_p = self.pitch.sin();
-        let cos_y = self.yaw.cos();
-        let sin_y = self.yaw.sin();
-
-        let offset = Vec3::new(
-            self.distance * cos_p * sin_y,
-            self.distance * sin_p,
-            self.distance * cos_p * cos_y,
-        );
-        self.target + offset
+        match self.exact {
+            Some(ex) => ex.eye,
+            None => self.target + self.orbit_offset(),
+        }
     }
 
     pub fn rotate(&mut self, delta_yaw: f32, delta_pitch: f32) {
+        self.leave_exact(false);
         self.yaw += delta_yaw;
-        let limit = std::f32::consts::FRAC_PI_2 - 0.05;
-        self.pitch = (self.pitch + delta_pitch).clamp(-limit, limit);
+        self.pitch = (self.pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
 
     pub fn zoom(&mut self, delta: f32) {
-        let next = (self.distance + delta).clamp(5.0, 5000.0);
+        self.leave_exact(false);
+        let next = (self.distance + delta).clamp(MIN_DISTANCE, MAX_DISTANCE);
         if let Some(size) = &mut self.ortho_size { *size *= next / self.distance; }
         self.distance = next;
     }
@@ -104,53 +241,59 @@ impl OrbitCamera {
     }
     pub fn orthographic_size(&self) -> Option<f32> { self.ortho_size }
 
-    /// Translates `target` along the camera's local right and up axes.
+    /// Translates `target` along the camera's local right and up axes (an exact pose moves as a
+    /// whole and stays exact).
     pub fn pan(&mut self, delta_right: f32, delta_up: f32) {
         let (right, up) = self.billboard_axes();
-        self.target += right * delta_right + up * delta_up;
+        let delta = right * delta_right + up * delta_up;
+        self.target += delta;
+        if let Some(ex) = &mut self.exact {
+            ex.eye += delta;
+        }
     }
 
     /// Moves both camera eye and target in camera-relative directions (WASD / Fly navigation).
+    /// An exact pose moves as a whole (right = its screen right) and stays exact.
     pub fn move_local(&mut self, forward_delta: f32, right_delta: f32, up_delta: f32) {
         let eye = self.eye_position();
         let forward = (self.target - eye).normalize_or_zero();
-        let right = forward.cross(Vec3::Y).normalize_or_zero();
-        self.target += forward * forward_delta + right * right_delta + Vec3::Y * up_delta;
+        let right = match self.exact {
+            Some(ex) => forward.cross(ex.up).normalize_or_zero(),
+            None => forward.cross(Vec3::Y).normalize_or_zero(),
+        };
+        let delta = forward * forward_delta + right * right_delta + Vec3::Y * up_delta;
+        self.target += delta;
+        if let Some(ex) = &mut self.exact {
+            ex.eye += delta;
+        }
     }
 
     /// Rotates camera look direction around the current `eye_position` (First-Person / Fly mouse look).
+    /// An exact pose is first converted to orbit keeping the eye in place.
     pub fn rotate_look(&mut self, delta_yaw: f32, delta_pitch: f32) {
+        self.leave_exact(true);
         let eye = self.eye_position();
         self.yaw += delta_yaw;
-        let limit = std::f32::consts::FRAC_PI_2 - 0.05;
-        self.pitch = (self.pitch + delta_pitch).clamp(-limit, limit);
-
-        let cos_p = self.pitch.cos();
-        let sin_p = self.pitch.sin();
-        let cos_y = self.yaw.cos();
-        let sin_y = self.yaw.sin();
-        let offset = Vec3::new(
-            self.distance * cos_p * sin_y,
-            self.distance * sin_p,
-            self.distance * cos_p * cos_y,
-        );
-        self.target = eye - offset;
+        self.pitch = (self.pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+        self.target = eye - self.orbit_offset();
     }
 
-    /// Explicitly positions the camera at `eye` looking at `target`.
+    /// Explicitly positions the camera at `eye` looking at `target` (orbit pose: distance and
+    /// pitch clamped; replaces an exact `set_view` pose).
     pub fn set_pose(&mut self, eye: Vec3, target: Vec3) {
+        self.exact = None;
         self.target = target;
         let offset = eye - target;
-        let dist = offset.length().clamp(5.0, 5000.0);
+        let dist = offset.length().clamp(MIN_DISTANCE, MAX_DISTANCE);
         self.distance = dist;
         let dir = offset / dist;
-        let limit = std::f32::consts::FRAC_PI_2 - 0.05;
-        self.pitch = dir.y.clamp(-0.99, 0.99).asin().clamp(-limit, limit);
+        self.pitch = dir.y.clamp(-0.99, 0.99).asin().clamp(-PITCH_LIMIT, PITCH_LIMIT);
         self.yaw = dir.x.atan2(dir.z);
     }
 
     /// Centers camera on `center` and adjusts distance so a bounding sphere of `radius` fits in view.
     pub fn fit_to_bounds(&mut self, center: Vec3, radius: f32) {
+        self.leave_exact(false);
         self.target = center;
         let half_fov = (self.fov_y_radians * 0.5).max(0.1);
         let required_dist = (radius.max(1.0) / half_fov.sin()) * 1.18;
@@ -165,6 +308,7 @@ impl OrbitCamera {
     /// and tall viewports alike (a bounding-sphere fit leaves wide views mostly empty).
     /// `radius` (bounding sphere) only sizes the far plane. No points: `fit_to_bounds`.
     pub fn fit_to_points(&mut self, center: Vec3, points: impl IntoIterator<Item = Vec3>, radius: f32, margin: f32) {
+        self.leave_exact(false);
         self.target = center;
         let (right, up) = self.billboard_axes();
         let back = (self.eye_position() - center).normalize_or_zero();
@@ -216,16 +360,20 @@ impl OrbitCamera {
     }
 
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at_rh(self.eye_position(), self.target, Vec3::Y)
+        match self.exact {
+            Some(ex) => Mat4::look_at_rh(ex.eye, self.target, ex.up),
+            None => Mat4::look_at_rh(self.eye_position(), self.target, Vec3::Y),
+        }
     }
 
     pub fn projection_matrix(&self) -> Mat4 {
+        let (near, far) = self.clip_planes();
         if let Some(h) = self.ortho_size {
-            return Mat4::orthographic_rh(-h * self.aspect, h * self.aspect, -h, h, self.z_far, self.z_near);
+            return Mat4::orthographic_rh(-h * self.aspect, h * self.aspect, -h, h, far, near);
         }
         // Reversed-Z (near -> 1, far -> 0): with a float depth buffer this spreads precision
         // evenly over distance and removes z-fighting on large scenes
-        Mat4::perspective_rh(self.fov_y_radians, self.aspect, self.z_far, self.z_near)
+        Mat4::perspective_rh(self.fov_y_radians, self.aspect, far, near)
     }
 
     pub fn view_proj_matrix(&self) -> Mat4 {
@@ -286,6 +434,9 @@ impl OrbitCamera {
     /// Returns unit `(right, up)` vectors in world space for spherical billboard impostor rendering.
     pub fn billboard_axes(&self) -> (Vec3, Vec3) {
         let forward = (self.target - self.eye_position()).normalize_or_zero();
+        if let Some(ex) = self.exact {
+            return (forward.cross(ex.up).normalize_or_zero(), ex.up);
+        }
         let right = forward.cross(Vec3::Y).normalize_or_zero();
         let up = right.cross(forward).normalize_or_zero();
         (right, up)
@@ -307,6 +458,9 @@ impl OrbitCamera {
         Ray::new(if self.ortho_size.is_some() { near_world } else { self.eye_position() }, far_world - near_world)
     }
 }
+
+#[cfg(test)]
+mod exact_view_tests;
 
 #[cfg(test)]
 mod tests {

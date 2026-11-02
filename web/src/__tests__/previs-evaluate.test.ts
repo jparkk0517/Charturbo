@@ -190,6 +190,26 @@ describe('evaluateFrame', () => {
     expect(evaluateFrame(dd, 1).camera.fovDeg).toBeCloseTo(40);
   });
 
+  it('roll defaults to 0 and interpolates (radians)', () => {
+    expect(evaluateFrame(d, 0).camera.roll).toBe(0);
+    const dd = doc(
+      [],
+      [
+        shot('r', 0, 2, {
+          roll: [
+            { t: 0, v: 0 },
+            { t: 2, v: 1 },
+          ],
+        }),
+      ],
+    );
+    expect(evaluateFrame(dd, 1).camera.roll).toBeCloseTo(0.5);
+    expect(evaluateFrame(dd, 5).camera.roll).toBe(1);
+    const ss = doc([], [shot('r', 0, 2, { roll: [{ t: 0, v: 0, ease: 'step' }, { t: 1, v: 0.7 }] })]);
+    expect(evaluateFrame(ss, 0.9).camera.roll).toBe(0);
+    expect(evaluateFrame(ss, 1.5).camera.roll).toBe(0.7);
+  });
+
   it('target from track', () => {
     const dd = doc(
       [],
