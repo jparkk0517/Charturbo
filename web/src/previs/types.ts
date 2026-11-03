@@ -140,7 +140,36 @@ export interface PrevisNode {
      * Unknown joint names fail the load.
      */
     joints?: Record<string, Track<Vec3>>;
+    /**
+     * Re-parenting over time (pick up, hand off, throw). Always step-wise regardless of `ease`.
+     * Before the first key the static `parent` / `parentJoint` apply. `null` = world (no parent).
+     *
+     * At each key time t_k the node's WORLD transform (position + rotation, joint pose included)
+     * is kept: the player captures it under the old parent at t_k and expresses it in the new
+     * parent's frame (`capture`). After the switch, position / rotation tracks act as DELTAS from
+     * their own value at t_k, applied in the new parent's frame:
+     *   local position = capture.position + (P(t) - P(t_k))
+     *   local rotation = capture.rotation * (R(t_k)^-1 * R(t))        (quaternions)
+     * so an unchanged track keeps the node exactly where the switch left it (no pop), and a throw
+     * arc after `null` is authored relative to the release point. With `snap: true` the capture is
+     * skipped and the tracks are absolute in the new parent's frame again (a pop is the author's
+     * choice). `size` and `visible` are not affected.
+     * "Under the old parent at t_k" is the left limit: when several nodes switch at the same t_k (a
+     * hand-off swap), every capture uses the configuration just before t_k. Parent cycles are invalid
+     * at every key time, and a camera cannot `follow` a node that hangs from a joint at any time.
+     */
+    parent?: Track<PrevisParentRef | null>;
   };
+}
+
+/** A parent assignment of `tracks.parent`. */
+export interface PrevisParentRef {
+  /** Id of the new parent node. */
+  node: string;
+  /** glTF node name in `node` (a `shape: 'model'` node), like `parentJoint`. */
+  joint?: string;
+  /** Default false: keep the world transform at the switch (see `tracks.parent`). */
+  snap?: boolean;
 }
 
 /** What a color stands for in the final generation (drives the handoff prompt). */
@@ -232,6 +261,13 @@ export interface NodeState {
   clips?: ClipWeight[];
   /** Joint rotation offsets (Euler YXZ radians) of this frame; present only when `tracks.joints` is. */
   joints?: Record<string, Vec3>;
+  /**
+   * Present only when `tracks.parent` is: the active parent of this frame (`null` = world) and the
+   * index of the active `tracks.parent` key (-1 before the first key, when the static fields apply).
+   * `position` / `rotation` above are then the RAW track values; the player combines them with
+   * the capture of that key (see `tracks.parent`).
+   */
+  parentRef?: { ref: PrevisParentRef | null; key: number };
 }
 
 /** Everything the player needs to draw one frame. */

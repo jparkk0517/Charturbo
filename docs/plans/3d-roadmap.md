@@ -162,7 +162,7 @@ Epic 8 → Epic 9 → Epic 10. Within an epic, tasks on disjoint files run in pa
 
 | ID | Tier | Task | Files | Depends | Done when |
 | --- | --- | --- | --- | --- | --- |
-| 9.1 | opus | Pick-up / hand-off / throw: `tracks.parent?: Track<{ node, joint? } | null>` (step), world transform kept at each switch; evaluate exports `worldTransform` (rotation too, joint-aware via the player) | `types.ts` (contract), `evaluate.ts`, `player.ts`, `validate.ts` + tests | Epic 7, 8.2 | bottle picked from a crate, carried, thrown with no pop in stills |
+| 9.1 DONE | opus | Pick-up / hand-off / throw: `tracks.parent?: Track<{ node, joint? } | null>` (step), world transform kept at each switch; evaluate exports `worldTransform` (rotation too, joint-aware via the player) | `types.ts` (contract), `evaluate.ts`, `player.ts`, `validate.ts` + tests | Epic 7, 8.2 | bottle picked from a crate, carried, thrown with no pop in stills |
 | 9.2 | opus | `model.groundLock?: boolean`: keep the posed model's lowest point on y = 0 (posed bounds from mesh matrices / CPU skin positions) | `player.ts`, `scene-gltf-anim.ts` (bounds read-back) + tests | 9.1 (player.ts) | walker crouch via tracks.joints keeps feet on the floor |
 | 9.3 | sonnet | Smooth interpolation `ease: 'smooth'` (Catmull-Rom through keys) and `shortest` angle unwrap for rotation tracks | `evaluate.ts`, `validate.ts`, `types.ts` (contract) + tests | 9.1 (evaluate.ts) | speed continuous across keys; yaw 3.0 → -3.0 turns 0.28 rad |
 | 9.4 | sonnet | Handheld camera: `camera.shake?: { amp, freq?, roll?, seed? }` deterministic 1D Perlin noise on eye / target / roll | `evaluate.ts`, `types.ts` (contract), `validate.ts` + tests | 9.3 | same seed = identical frames; amplitude within spec |

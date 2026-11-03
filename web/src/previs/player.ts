@@ -89,6 +89,20 @@
  * matrix is read every frame (16 floats, no allocation) and the socket math and engine call are skipped
  * while M and k are unchanged; the engine call also when the result is unchanged.
  *
+ * RE-PARENTING (`tracks.parent`, math in evaluate.ts RE-PARENTING)
+ * Every (model, joint) named by a `tracks.parent` key gets a SOCKET like `parentJoint` (created after all
+ * pivots, so docs without the track build exactly as before; posable / forced load as for sockets). At
+ * load, after every model is attached, all captures are computed ONCE in time order through
+ * `createParentResolver` with a `jointFrame` that poses the model at the capture time t_k through the
+ * same machinery as a frame (setNodeRotations of `tracks.joints` at t_k, setBlend of the clips at t_k, FIT
+ * scale of the size at t_k, `nodeMatrix` + `socketTransform`, engine units / worldScale), memoized per
+ * (model, joint, t); afterwards each posed model gets its frame-0 joints / clips sent again, so the
+ * animator matches what the player last sent. Joint frames are thus exactly what the SOCKET object gets
+ * at that time. Each frame: pivots whose active key changed are first all detached (parent null), then
+ * attached to the new parent's pivot / socket (the engine rejects cycles; a hand-off swap would form one
+ * transiently otherwise); the pivot's local transform is the resolver's `local` (capture + deltas, or raw
+ * for key -1 / snap) and goes through the usual unchanged-value skip.
+ *
  * CAMERA
  * Each frame calls `sdk.setCameraView({ eye, target, up, roll })` (meters * worldScale, roll in radians): an
  * exact look-at with no distance or pitch clamp (close-ups and straight-down shots render as authored;
@@ -108,7 +122,20 @@
 import type { Charturbo, ObjectMaterialDescriptor, PrimitiveShape } from '../sdk/charturbo';
 import type { GltfSource, GltfLoadResult, GltfDecoders } from '../sdk/scene-gltf';
 import type { GltfAnimator, GltfClipWeight } from '../sdk/scene-gltf-anim';
-import { clipWeightsAt, evalTrack, evaluateFrame } from './evaluate';
+import {
+  clipWeightsAt,
+  createParentResolver,
+  eulerYXZToQuat,
+  evalTrack,
+  evaluateFrame,
+  matrixToEulerYXZ,
+  nodeStateAt,
+  parentRefOf,
+  type JointFrame,
+  type ParentResolver,
+} from './evaluate';
+
+export { eulerYXZToQuat, matrixToEulerYXZ };
 import type { ClipWeight, FrameState, PrevisDoc, PrevisModelAnimation, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
 
 export interface PrevisPlayer {
@@ -191,8 +218,13 @@ interface NodeObjects {
   /** size * worldScale */
   meshScale: Vec3;
   meshVisible: boolean;
-  /** Sockets of a model node, one per joint used by a child's `parentJoint` (doc order). */
+  /** Sockets of a model node, one per joint used by a child's `parentJoint` (doc order), then by `tracks.parent` joint refs. */
   sockets: SocketObjects[];
+  /** Parent object of the pivot for the static fields (key -1), and the current one. */
+  staticParentId: number | null;
+  parentId: number | null;
+  /** Active `tracks.parent` key last applied (-1: static). */
+  parentKey: number;
 }
 
 const eqVec = (a: Vec3, b: Vec3): boolean => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
@@ -286,25 +318,7 @@ function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[
     const host = n.parent !== undefined ? objects.get(n.parent) : undefined;
     if (n.parentJoint !== undefined && host?.node.shape === 'model') {
       // Hang from the joint's SOCKET (one per model node and joint) instead of the model pivot
-      let socket = host.sockets.find((s) => s.joint === n.parentJoint);
-      if (!socket) {
-        const id = sdk.addPrimitive({
-          shape: 'box',
-          name: `previs:${host.node.id}:joint:${n.parentJoint}`,
-          position: [0, 0, 0],
-          rotation: [0, 0, 0],
-          scale: [1, 1, 1],
-          color: [0, 0, 0, 0],
-          bodyType: 'static',
-          parentId: host.pivotId,
-          castShadow: false,
-          receiveShadow: false,
-        });
-        created.push(id);
-        socket = { joint: n.parentJoint, id, matrix: new Float32Array(16), k: null, pos: [0, 0, 0], rot: [0, 0, 0] };
-        host.sockets.push(socket);
-      }
-      parentId = socket.id;
+      parentId = ensureSocket(sdk, host, n.parentJoint, created).id;
     }
     const pivotId = sdk.addPrimitive({
       shape: 'box',
@@ -342,9 +356,109 @@ function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[
       });
       created.push(meshId);
     }
-    objects.set(n.id, { node: n, pivotId, meshId, model: null, pos, rot, meshScale, meshVisible, sockets: [] });
+    objects.set(n.id, {
+      node: n,
+      pivotId,
+      meshId,
+      model: null,
+      pos,
+      rot,
+      meshScale,
+      meshVisible,
+      sockets: [],
+      staticParentId: parentId,
+      parentId,
+      parentKey: -1,
+    });
+  }
+  // Sockets of `tracks.parent` joint refs (after every pivot: docs without the track are unchanged)
+  for (const n of doc.nodes) {
+    for (const k of n.tracks?.parent ?? []) {
+      const host = k.v ? objects.get(k.v.node) : undefined;
+      if (k.v?.joint !== undefined && host?.node.shape === 'model') ensureSocket(sdk, host, k.v.joint, created);
+    }
   }
   return objects;
+}
+
+/** The SOCKET of (`host`, `joint`), created on first use (alpha-0 unit box under the model PIVOT, see SOCKETS). */
+function ensureSocket(sdk: Charturbo, host: NodeObjects, joint: string, created: number[]): SocketObjects {
+  let socket = host.sockets.find((s) => s.joint === joint);
+  if (!socket) {
+    const id = sdk.addPrimitive({
+      shape: 'box',
+      name: `previs:${host.node.id}:joint:${joint}`,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      color: [0, 0, 0, 0],
+      bodyType: 'static',
+      parentId: host.pivotId,
+      castShadow: false,
+      receiveShadow: false,
+    });
+    created.push(id);
+    socket = { joint, id, matrix: new Float32Array(16), k: null, pos: [0, 0, 0], rot: [0, 0, 0] };
+    host.sockets.push(socket);
+  }
+  return socket;
+}
+
+/** Parent object of `o`'s pivot for `tracks.parent` key `key` (-1: static fields). */
+function parentObjectOf(objects: Map<string, NodeObjects>, o: NodeObjects, key: number): number | null {
+  if (key < 0) return o.staticParentId;
+  const ref = parentRefOf(o.node, key);
+  if (ref === null) return null;
+  const host = objects.get(ref.node);
+  if (!host) return null;
+  if (ref.joint === undefined) return host.pivotId;
+  return host.sockets.find((s) => s.joint === ref.joint)?.id ?? host.pivotId;
+}
+
+/**
+ * Resolver with every capture computed (see RE-PARENTING); null without `tracks.parent`. Joint frames pose
+ * the loaded models at the capture times; the poses are restored afterwards.
+ */
+function captureParents(doc: PrevisDoc, ws: number, objects: Map<string, NodeObjects>): ParentResolver | null {
+  if (!doc.nodes.some((n) => n.tracks?.parent !== undefined)) return null;
+  const frames = new Map<string, JointFrame>();
+  const posed = new Set<ModelObjects>();
+  const jointFrame = (model: string, joint: string, time: number): JointFrame => {
+    const key = `${model}\u0000${joint}\u0000${time}`;
+    const hit = frames.get(key);
+    if (hit) return hit;
+    const o = objects.get(model);
+    const m = o?.model;
+    if (!o || !m?.animator) throw new Error(`joint "${joint}" of node "${model}" has no loaded model to pose`);
+    const st = nodeStateAt(o.node, time);
+    posed.add(m);
+    // Same pose as a frame at `time`: rotations first, then the clips (see JOINTS)
+    if (st.joints && m.jointNames.length > 0) {
+      m.animator.setNodeRotations(m.jointNames.map((node) => ({ node, rotation: eulerYXZToQuat(st.joints![node]) })), 'additive');
+    }
+    if (st.clips && m.segments.length > 0) m.animator.setBlend(toBlend(m.segments, st.clips));
+    const k = modelFitScale(m.fit, scaled(st.size, ws), m.extent);
+    const t = socketTransform(m.animator.nodeMatrix(joint, m.scratch), k, m.center, [NaN, NaN, NaN]);
+    // A collapsed joint frame (scale 0) has no rotation to capture; the runtime socket would keep an
+    // older one, so the capture would not match it (a pop). Refuse instead of guessing.
+    if (t.rotation.some((v) => Number.isNaN(v))) {
+      throw new Error(`joint "${joint}" of node "${model}" has a degenerate frame (zero scale) at t=${time}; move the tracks.parent key off that time`);
+    }
+    const jf: JointFrame = { position: scaled(t.position, 1 / ws), rotation: t.rotation };
+    frames.set(key, jf);
+    return jf;
+  };
+  const resolver = createParentResolver(doc, { jointFrame });
+  try {
+    resolver.captureAll();
+  } finally {
+    // Back to what the player last sent (frame 0 at load)
+    for (const m of posed) {
+      if (m.jointNames.length > 0) sendJoints(m, m.joints);
+      if (m.segments.length > 0) m.animator!.setBlend(toBlend(m.segments, m.clips));
+    }
+  }
+  return resolver;
 }
 
 /** Puts a loaded model under a new FIT object of node `o` and applies the flat look and its clip. */
@@ -478,19 +592,6 @@ export function orthonormalFrame(a: readonly number[]): number[] | null {
   return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
 }
 
-/**
- * Euler [rx, ry, rz] (radians, order YXZ: R = Ry * Rx * Rz, the engine's convention) of a row-major 3x3
- * rotation. With R = Ry Rx Rz: R12 = -sin x, (R10, R11) = cos x (sin z, cos z), (R02, R22) = cos x (sin y, cos y).
- * x = atan2(-R12, |(R10, R11)|) stays accurate near +-90 degrees; in gimbal lock (cos x < 1e-9) only y -+ z is
- * defined, so z = 0 and y = atan2(-R20, R00).
- */
-export function matrixToEulerYXZ(r: ArrayLike<number>): Vec3 {
-  const cx = Math.hypot(r[3], r[4]);
-  const x = Math.atan2(-r[5], cx);
-  if (cx < 1e-9) return [x, Math.atan2(-r[6], r[0]), 0];
-  return [x, Math.atan2(r[2], r[8]), Math.atan2(r[3], r[4])];
-}
-
 function normalizeAnimation(anim: PrevisModelAnimation | PrevisModelAnimation[]): PrevisModelAnimation[] {
   return Array.isArray(anim) ? anim : [anim];
 }
@@ -504,18 +605,6 @@ function toBlend(segments: PrevisModelAnimation[], clips: ClipWeight[]): GltfCli
 
 function sameClips(a: ClipWeight[], b: ClipWeight[]): boolean {
   return a.length === b.length && a.every((c, i) => c.segment === b[i].segment && c.time === b[i].time && c.weight === b[i].weight);
-}
-
-/** Quaternion [x, y, z, w] of Euler [rx, ry, rz] in order YXZ: q = qY * qX * qZ (R = Ry * Rx * Rz). */
-export function eulerYXZToQuat(rot: Vec3): [number, number, number, number] {
-  const hx = rot[0] / 2, hy = rot[1] / 2, hz = rot[2] / 2;
-  const sx = Math.sin(hx), cx = Math.cos(hx);
-  const sy = Math.sin(hy), cy = Math.cos(hy);
-  const sz = Math.sin(hz), cz = Math.cos(hz);
-  // qY * qX
-  const ax = cy * sx, ay = sy * cx, az = -sy * sx, aw = cy * cx;
-  // (qY * qX) * qZ with qZ = (0, 0, sz, cz)
-  return [ax * cz + ay * sz, ay * cz - ax * sz, az * cz + aw * sz, aw * cz - az * sz];
 }
 
 function sendJoints(m: ModelObjects, values: Vec3[]): void {
@@ -533,7 +622,9 @@ function makePlayer(
   prevTheme: ReturnType<Charturbo['getTheme']>,
   objects: Map<string, NodeObjects>,
   created: number[],
+  resolver: ParentResolver | null,
 ): PrevisPlayer {
+  const reparented = [...objects.values()].filter((o) => o.node.tracks?.parent !== undefined);
   let camEye: Vec3 | null = null;
   let camTarget: Vec3 | null = null;
   let camFov: number | null = null;
@@ -545,14 +636,32 @@ function makePlayer(
     frame(time: number): FrameState {
       const fs = evaluateFrame(doc, time);
 
+      if (reparented.length > 0) {
+        // Detach every switching pivot first, then attach: the engine rejects (transient) cycles
+        const moves: { o: NodeObjects; key: number; target: number | null }[] = [];
+        for (const o of reparented) {
+          const key = fs.nodes[o.node.id]?.parentRef?.key ?? -1;
+          if (key === o.parentKey) continue;
+          o.parentKey = key;
+          const target = parentObjectOf(objects, o, key);
+          if (target !== o.parentId) moves.push({ o, key, target });
+        }
+        for (const { o } of moves) if (o.parentId !== null) sdk.setObjectParent(o.pivotId, null);
+        for (const { o, target } of moves) {
+          if (target !== null) sdk.setObjectParent(o.pivotId, target);
+          o.parentId = target;
+        }
+      }
+
       for (const [id, o] of objects) {
         const st = fs.nodes[id];
         if (!st) continue;
-        const pos = scaled(st.position, ws);
-        if (!eqVec(pos, o.pos) || !eqVec(st.rotation, o.rot)) {
-          sdk.setObjectTransform(o.pivotId, { position: pos, rotation: [...st.rotation] });
+        const local = st.parentRef && resolver ? resolver.local(o.node, st) : st;
+        const pos = scaled(local.position, ws);
+        if (!eqVec(pos, o.pos) || !eqVec(local.rotation, o.rot)) {
+          sdk.setObjectTransform(o.pivotId, { position: pos, rotation: [...local.rotation] });
           o.pos = pos;
-          o.rot = [...st.rotation];
+          o.rot = [...local.rotation];
         }
         const m = o.model;
         if (o.meshId === null && m === null) continue;
@@ -636,7 +745,15 @@ export function createPrevisPlayer(sdk: Charturbo, doc: PrevisDoc): PrevisPlayer
   const prevTheme = setupScene(sdk, doc);
   const created: number[] = [];
   const objects = buildNodes(sdk, doc, ws, created);
-  return makePlayer(sdk, doc, ws, prevTheme, objects, created);
+  let resolver: ParentResolver | null;
+  try {
+    resolver = captureParents(doc, ws, objects);
+  } catch (e) {
+    for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
+    sdk.setTheme(prevTheme);
+    throw new Error(`createPrevisPlayer: ${messageOf(e)}`, { cause: e });
+  }
+  return makePlayer(sdk, doc, ws, prevTheme, objects, created, resolver);
 }
 
 const abortError = (signal: AbortSignal): unknown =>
@@ -750,5 +867,14 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
       return fail(o.node, e);
     }
   }
-  return makePlayer(sdk, doc, ws, prevTheme, objects, created);
+  let resolver: ParentResolver | null;
+  try {
+    resolver = captureParents(doc, ws, objects);
+  } catch (e) {
+    for (const r of loaded) sdk.disposeGltf(r);
+    for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
+    sdk.setTheme(prevTheme);
+    throw new Error(`loadPrevisPlayer: ${messageOf(e)}`, { cause: e });
+  }
+  return makePlayer(sdk, doc, ws, prevTheme, objects, created, resolver);
 }

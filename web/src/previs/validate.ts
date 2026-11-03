@@ -178,6 +178,8 @@ export function validateDoc(
   const parentOf = new Map<string, string>();
   /** Nodes with a valid `parentJoint`: id -> joint name (the camera cannot follow them, see shots). */
   const jointOf = new Map<string, string>();
+  /** Valid `tracks.parent` keys per node (node null = world), in key order. */
+  const parentKeys = new Map<string, { i: number; k: number; t: number; node: string | null; joint?: string }[]>();
   nodes.forEach((n, i) => {
     const p = `nodes[${i}]`;
     if (!isObj(n)) return add(p, 'node must be an object');
@@ -288,6 +290,49 @@ export function validateDoc(
           }
         }
       }
+      if (t.parent !== undefined) {
+        const keys: { i: number; k: number; t: number; node: string | null; joint?: string }[] = [];
+        track(t.parent, `${p}.tracks.parent`, (v, pp) => {
+          if (v === null) return true;
+          if (!isObj(v)) {
+            add(pp, `parent key value must be null (world) or { node, joint?, snap? }; got ${JSON.stringify(v)}`);
+            return false;
+          }
+          let ok = true;
+          if (typeof v.node !== 'string' || !nodeIds.has(v.node)) {
+            add(`${pp}.node`, `node "${String(v.node)}" does not exist; use an existing node id, or null for the world`);
+            ok = false;
+          } else if (v.node === n.id) {
+            add(`${pp}.node`, `node "${String(n.id)}" cannot be its own parent; cycle`);
+            ok = false;
+          }
+          if (v.joint !== undefined) {
+            if (typeof v.joint !== 'string' || v.joint === '') {
+              add(`${pp}.joint`, `joint must be a non-empty glTF node name of the parent model (e.g. "hand.R"); got ${JSON.stringify(v.joint)}`);
+              ok = false;
+            } else if (typeof v.node === 'string' && nodeIds.has(v.node) && shapeOf.get(v.node) !== 'model') {
+              add(`${pp}.joint`, `joint needs a parent with shape "model"; node "${v.node}" has shape ${JSON.stringify(shapeOf.get(v.node))}. Remove "joint" or pick a model node`);
+              ok = false;
+            }
+          }
+          if (v.snap !== undefined && typeof v.snap !== 'boolean') {
+            add(`${pp}.snap`, `snap must be true or false; got ${JSON.stringify(v.snap)}`);
+            ok = false;
+          }
+          return ok;
+        });
+        if (Array.isArray(t.parent) && typeof n.id === 'string') {
+          t.parent.forEach((k, ki) => {
+            if (!isObj(k) || !isNum(k.t)) return;
+            if (k.v === null) keys.push({ i, k: ki, t: k.t, node: null });
+            else if (isObj(k.v) && typeof k.v.node === 'string' && nodeIds.has(k.v.node) && k.v.node !== n.id) {
+              const joint = typeof k.v.joint === 'string' && k.v.joint !== '' && shapeOf.get(k.v.node) === 'model' ? k.v.joint : undefined;
+              keys.push({ i, k: ki, t: k.t, node: k.v.node, ...(joint !== undefined ? { joint } : {}) });
+            }
+          });
+          parentKeys.set(n.id, keys);
+        }
+      }
       if (t.visible !== undefined) {
         track(t.visible, `${p}.tracks.visible`, (v, pp) => {
           if (typeof v === 'boolean') return true;
@@ -314,6 +359,49 @@ export function validateDoc(
       cur = parentOf.get(cur);
     }
   });
+
+  // parent cycles at every key time of every tracks.parent (static cycles are reported above)
+  const keyTimes = [...new Set([...parentKeys.values()].flatMap((ks) => ks.map((k) => k.t)))].sort((a, b) => a - b);
+  for (const T of keyTimes) {
+    /** Active key per node at T (last key with t <= T). */
+    const activeAt = (id: string) => {
+      let hit: { i: number; k: number; t: number; node: string | null } | undefined;
+      for (const k of parentKeys.get(id) ?? []) if (k.t <= T) hit = k;
+      return hit;
+    };
+    const parentAt = (id: string): string | undefined => {
+      const k = activeAt(id);
+      return k ? (k.node ?? undefined) : parentOf.get(id);
+    };
+    for (const n of nodes) {
+      if (!isObj(n) || typeof n.id !== 'string' || reported.has(n.id)) continue;
+      const seen = new Set<string>([n.id]);
+      for (let cur = parentAt(n.id); cur !== undefined; cur = parentAt(cur)) {
+        if (cur === n.id) {
+          // Report at a node of the loop whose parent comes from a key active at T
+          const loop = [...seen];
+          const at = loop.map((id) => activeAt(id)).find((k) => k !== undefined);
+          if (at) {
+            add(
+              `nodes[${at.i}].tracks.parent[${at.k}].v.node`,
+              `parent cycle at t=${fmt(T)} through nodes ${loop.map((id) => `"${id}"`).join(', ')}; a node cannot be its own ancestor at any time. Change one parent in the loop or the key times`,
+            );
+          }
+          loop.forEach((id) => reported.add(id));
+          break;
+        }
+        if (seen.has(cur)) break;
+        seen.add(cur);
+      }
+    }
+  }
+  /** Nodes that hang from a joint at some time: id -> first such joint use. */
+  const jointUse = new Map<string, { joint: string; model: string; t?: number }>();
+  for (const [id, joint] of jointOf) jointUse.set(id, { joint, model: parentOf.get(id)! });
+  for (const [id, ks] of parentKeys) {
+    const k = ks.find((x) => x.joint !== undefined);
+    if (k && !jointUse.has(id)) jointUse.set(id, { joint: k.joint!, model: k.node!, t: k.t });
+  }
 
   // Shots
   if (!Array.isArray(d.shots) || d.shots.length === 0) {
@@ -370,6 +458,7 @@ export function validateDoc(
         } else {
           // The evaluator places nodes without joint poses: a joint-attached node (or descendant) has no known position
           const seen = new Set<string>();
+          let found = false;
           for (let cur: string | undefined = c.target.follow; cur !== undefined && !seen.has(cur); cur = parentOf.get(cur)) {
             seen.add(cur);
             const joint = jointOf.get(cur);
@@ -380,7 +469,33 @@ export function validateDoc(
               `${p}.camera.target.follow`,
               `follow "${c.target.follow}" ${via} to joint "${joint}" of model "${model}"; the camera cannot follow joint-attached nodes (their joint pose is only known when rendering). Follow "${model}" with an "offset", or use a target "track"`,
             );
+            found = true;
             break;
+          }
+          // tracks.parent: every parent the node or an ancestor has at ANY time (a capture keeps the joint pose)
+          if (!found && parentKeys.size > 0) {
+            const reach = new Set<string>([c.target.follow]);
+            const queue = [c.target.follow];
+            while (queue.length > 0) {
+              const cur = queue.shift()!;
+              const use = jointUse.get(cur);
+              if (use) {
+                const via = cur === c.target.follow ? '' : ` through node "${cur}"`;
+                const when = use.t !== undefined ? ` (tracks.parent from t=${fmt(use.t)})` : '';
+                add(
+                  `${p}.camera.target.follow`,
+                  `follow "${c.target.follow}" hangs${via} from joint "${use.joint}" of model "${use.model}"${when}; the camera cannot follow nodes that are joint-attached at any time (the joint pose, also the one kept by a tracks.parent switch, is only known when rendering). Follow "${use.model}" with an "offset", or use a target "track"`,
+                );
+                break;
+              }
+              const next = [parentOf.get(cur), ...(parentKeys.get(cur) ?? []).map((k) => k.node)];
+              for (const x of next) {
+                if (typeof x === 'string' && !reach.has(x)) {
+                  reach.add(x);
+                  queue.push(x);
+                }
+              }
+            }
           }
         }
         if (c.target.offset !== undefined) vec3(c.target.offset, `${p}.camera.target.offset`);

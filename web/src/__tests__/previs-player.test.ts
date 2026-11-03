@@ -1300,3 +1300,155 @@ describe('loadPrevisPlayer sockets (parentJoint)', () => {
     expect(m.named('removeObject').map((c) => c[1])).toEqual(prims(m).map((x) => x.id).reverse());
   });
 });
+
+// ---------------------------------------------------------------------------
+// Re-parenting (tracks.parent)
+
+/** World transforms of the recorded scene: replays addPrimitive / setObjectTransform / setObjectParent (scale-1 chains). */
+function sceneWorld(m: ReturnType<typeof mockSdk>) {
+  const parent = new Map<number, number | null>();
+  const pos = new Map<number, Vec3>();
+  const rot = new Map<number, Vec3>();
+  for (const c of m.calls) {
+    if (c[0] === 'addPrimitive') {
+      const d = c[1] as { position: Vec3; rotation: Vec3; parentId: number | null };
+      parent.set(c[2] as number, d.parentId);
+      pos.set(c[2] as number, d.position);
+      rot.set(c[2] as number, d.rotation);
+    } else if (c[0] === 'setObjectTransform') {
+      const t = c[2] as { position?: Vec3; rotation?: Vec3 };
+      if (t.position) pos.set(c[1] as number, t.position);
+      if (t.rotation) rot.set(c[1] as number, t.rotation);
+    } else if (c[0] === 'setObjectParent') parent.set(c[1] as number, c[2] as number | null);
+  }
+  const world = (id: number): { p: Vec3; r: number[] } => {
+    const p = pos.get(id)!;
+    const r = euler3(rot.get(id)!);
+    const pid = parent.get(id);
+    if (pid === null || pid === undefined || !pos.has(pid)) return { p, r };
+    const w = world(pid);
+    const q = [0, 1, 2].map((i) => w.r[i * 3] * p[0] + w.r[i * 3 + 1] * p[1] + w.r[i * 3 + 2] * p[2]);
+    return { p: [w.p[0] + q[0], w.p[1] + q[1], w.p[2] + q[2]], r: mul3(w.r, r) };
+  };
+  return { world, parent };
+}
+
+describe('player re-parenting (tracks.parent)', () => {
+  const pivotOf = (m: ReturnType<typeof mockSdk>, id: string) => prims(m).find((p) => p.name === `previs:${id}`)!.id;
+  const moving = (id: string, extra: Partial<PrevisNode> = {}) =>
+    node(id, {
+      tracks: {
+        position: [{ t: 0, v: [-2, 1, 0] }, { t: 4, v: [3, 2, 1] }],
+        rotation: [{ t: 0, v: [0.1, -0.5, 0.2] }, { t: 4, v: [-0.3, 1.9, 0.5] }],
+      },
+      ...extra,
+    });
+
+  it('re-parents the pivot at each key and keeps the world transform (no pop, 1e-6)', () => {
+    const m = mockSdk();
+    const d = doc([
+      node('crate', { position: [1, 0.4, -2], rotation: [0, 0.7, 0] }),
+      moving('carrier'),
+      node('bottle', {
+        parent: 'crate',
+        position: [0.1, 0.5, 0.05],
+        rotation: [0.3, 0, 0],
+        tracks: { parent: [{ t: 1, v: { node: 'carrier' } }, { t: 2, v: null }] },
+      }),
+    ]);
+    const player = createPrevisPlayer(m.sdk, d);
+    const bottle = pivotOf(m, 'bottle');
+    const at = (t: number) => {
+      player.frame(t);
+      return sceneWorld(m);
+    };
+    expect(at(0.5).parent.get(bottle)).toBe(pivotOf(m, 'crate'));
+    for (const tk of [1, 2]) {
+      const a = at(tk - 1e-7).world(bottle);
+      const s = at(tk);
+      const b = s.world(bottle);
+      closeArr(a.p, b.p, 5); // engine units (x10): 1e-6 m
+      closeArr(a.r, b.r, 6);
+      expect(s.parent.get(bottle)).toBe(tk === 1 ? pivotOf(m, 'carrier') : null);
+    }
+    // detach (null) then attach: exactly these pivot re-parent calls
+    expect(m.named('setObjectParent').filter((c) => c[1] === bottle).map((c) => c[2])).toEqual([null, pivotOf(m, 'carrier'), null]);
+    // seeking back restores the static parent
+    expect(at(0).parent.get(bottle)).toBe(pivotOf(m, 'crate'));
+    player.dispose();
+  });
+
+  it('a hand-off swap in one instant detaches both pivots before attaching (the engine rejects cycles)', () => {
+    const m = mockSdk();
+    const d = doc([
+      node('a', { tracks: { parent: [{ t: 1, v: { node: 'b' } }] } }),
+      node('b', { parent: 'a', position: [1, 0, 0], tracks: { parent: [{ t: 1, v: null }] } }),
+    ]);
+    const player = createPrevisPlayer(m.sdk, d);
+    player.frame(0);
+    const n0 = m.calls.length;
+    player.frame(1);
+    const reparent = m.calls.slice(n0).filter((c) => c[0] === 'setObjectParent');
+    const a = pivotOf(m, 'a');
+    const b = pivotOf(m, 'b');
+    expect(reparent).toEqual([['setObjectParent', b, null], ['setObjectParent', a, b]]);
+    player.dispose();
+  });
+
+  it('joint refs: socket + forced load, captures posed at t_k then restored, no pop at pick-up and release', async () => {
+    const m = mockSdk({ 'w.glb': { nodeNames: ['root', 'hand', 'head'], animations: ['walk'] } });
+    // Hand joint follows the clip time: rotation about z by T, at [T, 0.5, 0] (loader units)
+    const blendTimes = () => m.named('animator.setBlend').map((c) => (c[2] as { time: number }[])[0].time);
+    Object.defineProperty(m.worlds, 'hand', {
+      get: () => {
+        const ts = blendTimes();
+        const T = ts.length > 0 ? ts[ts.length - 1] : 0;
+        return colMajor(rz3(T), [T, 0.5, 0]);
+      },
+    });
+    const d = doc([
+      node('crate', { position: [1, 0.4, -2] }),
+      modelNode('w', { src: 'w.glb', animation: { clip: 'walk' } }, { visible: false, tracks: moving('x').tracks }),
+      node('bottle', {
+        parent: 'crate',
+        position: [0.1, 0.5, 0.05],
+        tracks: {
+          parent: [{ t: 1, v: { node: 'w', joint: 'hand' } }, { t: 2, v: null }],
+          position: [{ t: 2, v: [0.1, 0.5, 0.05] }, { t: 3, v: [1.1, 0.5, 0.05] }],
+        },
+      }),
+    ]);
+    const player = await loadPrevisPlayer(m.sdk, d);
+    // hidden model still loaded (socket), posable has the joint, socket created after the pivots
+    expect(m.named('loadGltf')[0][2]).toMatchObject({ posable: ['hand'] });
+    expect(prims(m).map((p) => p.name).slice(0, 6)).toEqual(['previs:crate', 'previs:crate:mesh', 'previs:w', 'previs:bottle', 'previs:bottle:mesh', 'previs:w:joint:hand']);
+    // frame-0 pose, posed at t=1 and t=2 for the captures, then frame 0 again
+    expect(blendTimes()).toEqual([0, 1, 2, 0]);
+    const bottle = pivotOf(m, 'bottle');
+    const at = (t: number) => {
+      player.frame(t);
+      return sceneWorld(m);
+    };
+    for (const tk of [1, 2]) {
+      const a = at(tk - 1e-7).world(bottle);
+      const s = at(tk);
+      const b = s.world(bottle);
+      closeArr(a.p, b.p, 5);
+      closeArr(a.r, b.r, 6);
+      expect(s.parent.get(bottle)).toBe(tk === 1 ? prims(m).find((p) => p.name === 'previs:w:joint:hand')!.id : null);
+    }
+    // thrown: world moves by the position delta (x10 engine units) from the release point
+    const rel = at(2).world(bottle).p;
+    closeArr(at(2.5).world(bottle).p, [rel[0] + 5, rel[1], rel[2]], 9);
+    player.dispose();
+  });
+
+  it('a doc without tracks.parent makes no re-parent calls per frame', () => {
+    const m = mockSdk();
+    const player = createPrevisPlayer(m.sdk, doc([node('a'), node('b', { parent: 'a' })]));
+    player.frame(0);
+    player.frame(1);
+    expect(m.named('setObjectParent')).toEqual([]);
+    player.dispose();
+  });
+});
