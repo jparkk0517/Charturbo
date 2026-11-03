@@ -85,3 +85,73 @@ describe('buildHandoff', () => {
     expect(r.prompt).toContain('follow the previs exactly');
   });
 });
+
+describe('buildHandoff shot list and markers', () => {
+  const cam = { position: [{ t: 0, v: [0, 0, 5] }], target: { track: [{ t: 0, v: [0, 0, 0] }] } } as never;
+  const multi: PrevisDoc = {
+    ...doc,
+    shots: [
+      { id: 's1', start: 0, end: 1.5, note: 'wide, slow push-in', camera: cam },
+      { id: 's2', start: 1.5, end: 4, camera: cam },
+    ],
+    markers: [
+      { t: 3.8, label: 'bottle hits the wall' },
+      { t: 1.5, label: 'cut on the door slam' },
+    ],
+  };
+
+  it('en: shot lines, notes, sorted markers, intentional-cut sentence', () => {
+    const p = buildHandoff(multi, { lang: 'en' }).prompt;
+    expect(p).toContain('the cuts are intentional; keep them exactly at these times');
+    expect(p).toContain('- s1: 0.00 s–1.50 s (frames 0–44) — wide, slow push-in');
+    expect(p).toContain('- s2: 1.50 s–4.00 s (frames 45–119)\n');
+    expect(p.indexOf('1.50 s (frame 45): cut on the door slam')).toBeLessThan(p.indexOf('3.80 s (frame 114): bottle hits the wall'));
+    expect(p.indexOf('Color = role')).toBeLessThan(p.indexOf('Shot list'));
+  });
+
+  it('ko', () => {
+    const p = buildHandoff(multi, { lang: 'ko' }).prompt;
+    expect(p).toContain('컷은 의도된 것');
+    expect(p).toContain('- s1: 0.00 s–1.50 s (프레임 0–44) — wide, slow push-in');
+    expect(p).toContain('시간별 사건:');
+    expect(p).toContain('- 3.80 s (프레임 114): bottle hits the wall');
+  });
+
+  it('24 fps: exact seconds with 2 decimals and frame ranges at 35/24 boundaries', () => {
+    const d24: PrevisDoc = {
+      ...multi,
+      fps: 24,
+      shots: [
+        { id: 's1-establish', start: 0, end: 35 / 24, camera: cam },
+        { id: 's2', start: 35 / 24, end: 70.1 / 24, camera: cam },
+        { id: 'blip', start: 70.1 / 24, end: 70.5 / 24, camera: cam },
+        { id: 's4', start: 70.5 / 24, end: 4, camera: cam },
+      ],
+      markers: [{ t: 91 / 24, label: 'hit' }],
+    };
+    const en = buildHandoff(d24, { lang: 'en' }).prompt;
+    expect(en).toContain('- s1-establish: 0.00 s–1.46 s (frames 0–34)\n');
+    expect(en).toContain('- s2: 1.46 s–2.92 s (frames 35–70)\n');
+    expect(en).toContain('- blip: 2.92 s–2.94 s (no frames)\n');
+    expect(en).toContain('- 3.79 s (frame 91): hit');
+    const ko = buildHandoff(d24, { lang: 'ko' }).prompt;
+    expect(ko).toContain('- s1-establish: 0.00 s–1.46 s (프레임 0–34)');
+    expect(ko).toContain('- blip: 2.92 s–2.94 s (프레임 없음)');
+  });
+
+  it('omits both sections for a single shot without markers', () => {
+    const one = { ...multi, shots: [multi.shots[0]], markers: undefined };
+    for (const lang of ['ko', 'en'] as const) {
+      const p = buildHandoff(one, { lang }).prompt;
+      expect(p).not.toContain('intentional');
+      expect(p).not.toContain('의도된');
+      expect(p).not.toContain('0.00 s');
+    }
+  });
+
+  it('single shot with markers keeps only events', () => {
+    const p = buildHandoff({ ...multi, shots: [multi.shots[0]] }, { lang: 'en' }).prompt;
+    expect(p).toContain('Timed events:');
+    expect(p).not.toContain('Shot list');
+  });
+});

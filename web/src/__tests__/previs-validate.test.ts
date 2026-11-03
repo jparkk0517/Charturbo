@@ -522,10 +522,57 @@ describe('parentJoint', () => {
   });
 });
 
+describe('shot note and markers', () => {
+  const mod = (f: (x: any) => void) => {
+    const x = base();
+    f(x);
+    return x;
+  };
+  it('accepts valid note and markers (unsorted, duplicates, bounds inclusive)', () => {
+    const d = mod((x) => {
+      x.shots[1].note = 'push-in';
+      x.markers = [{ t: 4, label: 'a' }, { t: 0, label: 'b' }, { t: 4, label: 'a' }];
+    });
+    expect(issues(d)).toEqual([]);
+  });
+  it('rejects empty or non-string note', () => {
+    expect(has(mod((x) => (x.shots[1].note = '')), 'shots[1].note')).toBe(true);
+    expect(has(mod((x) => (x.shots[0].note = 3)), 'shots[0].note')).toBe(true);
+  });
+  it('rejects non-array markers', () => {
+    expect(has(mod((x) => (x.markers = {})), 'markers')).toBe(true);
+  });
+  it('rejects bad t and label', () => {
+    const d = mod((x) => {
+      x.markers = [{ t: 1, label: 'ok' }, { t: -1, label: 'ok' }, { t: 4.5, label: 'ok' }, { t: NaN, label: 'ok' }, { t: 1, label: '' }];
+    });
+    expect(has(d, 'markers[1].t')).toBe(true);
+    expect(has(d, 'markers[2].t')).toBe(true);
+    expect(has(d, 'markers[3].t')).toBe(true);
+    expect(has(d, 'markers[4].label')).toBe(true);
+    expect(has(d, 'markers[0].t')).toBe(false);
+  });
+});
+
 describe('colorDistance', () => {
   it('zero for same, large for different', () => {
     expect(colorDistance([1, 0, 0], [1, 0, 0])).toBe(0);
     expect(colorDistance([1, 0, 0], [0, 0, 1])).toBeGreaterThan(50);
     expect(colorDistance([0, 0, 0], [1, 1, 1])).toBeCloseTo(100, 0);
+  });
+
+  it('shot ids: file-name safe, no . / .., no case-only duplicates', () => {
+    const withId = (id: string) => {
+      const d = base();
+      d.shots[1].id = id;
+      return d;
+    };
+    for (const id of ['..', '.', 'a/b', 'a b', 'ü']) expect(has(withId(id), 'shots[1].id')).toBe(true);
+    for (const id of ['wide', 'a.b-c_1', '...']) expect(has(withId(id), 'shots[1].id')).toBe(false);
+    const d = base();
+    d.shots[0].id = 'wide';
+    d.shots[1].id = 'Wide';
+    const r = issues(d);
+    expect(r.some((x) => x.path === 'shots[1].id' && /only by case/.test(x.message))).toBe(true);
   });
 });

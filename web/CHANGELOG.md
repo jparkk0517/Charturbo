@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 렌더 출력 · handoff 샷 목록
+
+- `npm run previs:render`에 `--format=mp4|mp4-lossless|png-seq`(기본 `mp4`), `--shot=<id>`, `--range=<a>..<b>`, `--handles=<s>`, `--split-shots`, `--camera-json=<file>`를 추가했습니다. `mp4-lossless`는 역할 색을 픽셀 단위로 정확히 유지하지만(`libx264rgb -crf 0`) 많은 플레이어에서 재생되지 않고, `png-seq`는 ffmpeg 없이 PNG 시퀀스를 씁니다. `--split-shots`는 샷별 파일과 프레임 범위를 담은 `<stem>.cuts.json`을 씁니다. 잘못된 형식·구간·샷 id는 종료 코드 2로 거부됩니다.
+- previs 문서에 `Shot.note?`(handoff 샷 목록에 표시되는 자유 텍스트)와 `markers?: [{ t, label }]`(문서 기준 전역 초)를 추가했습니다. 두 필드 모두 검증합니다.
+- handoff 프롬프트는 샷이 2개 이상이면 샷 목록(`- s1: 0.0 s–1.5 s — note`)과 컷은 의도된 것이므로 그 시각에 유지해야 한다는 문장을 담고, 마커를 시간순으로 정렬한 이벤트 목록을 덧붙입니다.
+
 ### 수정 — previs 버그 정리 (camera.up · textures · 숨긴 모델 소품 · 관절 에러)
 
 - previs 샷 카메라에 `camera.up?: Track<Vec3>`(월드 상방 방향, 시간에 따라 변경 가능, 기본 `[0, 1, 0]`)를 추가했습니다. 단위 길이가 아니어도 되지만 영벡터는 거부되며, roll은 그 위에 적용됩니다. 목표 위에서 내려다보는 크레인 샷에서는 시작 `[0, 1, 0]`에서 눈이 목표 위로 올라간 시점에 `[0, 0, -1]`로 바꾸면, 고정된 상방을 시선이 지날 때 화면이 180° 뒤집히지 않습니다.

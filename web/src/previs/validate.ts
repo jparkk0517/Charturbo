@@ -323,13 +323,24 @@ export function validateDoc(
     let prevId = '';
     let prevStart = -Infinity;
     const shotIds = new Set<string>();
+    const shotIdsLower = new Map<string, string>();
     d.shots.forEach((s, i) => {
       const p = `shots[${i}]`;
       if (!isObj(s)) return add(p, 'shot must be an object');
       const id = typeof s.id === 'string' ? s.id : `#${i}`;
+      if (s.note !== undefined && (typeof s.note !== 'string' || s.note.trim() === '')) {
+        add(`${p}.note`, `note must be a non-empty string (free text for the handoff shot list); got ${JSON.stringify(s.note)}. Remove "note" or give it text`);
+      }
       if (typeof s.id !== 'string' || !s.id) add(`${p}.id`, 'shot id must be a non-empty string');
-      else if (shotIds.has(s.id)) add(`${p}.id`, `duplicate shot id "${s.id}"`);
-      else shotIds.add(s.id);
+      else if (!/^[A-Za-z0-9_.-]+$/.test(s.id) || s.id === '.' || s.id === '..') {
+        add(`${p}.id`, `shot id "${s.id}" must match [A-Za-z0-9_.-]+ (letters, digits, _ . -) and must not be "." or ".." (shot ids become file names)`);
+      } else if (shotIds.has(s.id)) add(`${p}.id`, `duplicate shot id "${s.id}"`);
+      else if (shotIdsLower.has(s.id.toLowerCase())) {
+        add(`${p}.id`, `shot id "${s.id}" differs from "${shotIdsLower.get(s.id.toLowerCase())}" only by case; ids become file names and collide on case-insensitive file systems. Rename one`);
+      } else {
+        shotIds.add(s.id);
+        shotIdsLower.set(s.id.toLowerCase(), s.id);
+      }
       if (!isNum(s.start)) add(`${p}.start`, 'start must be a finite number of seconds');
       if (!isNum(s.end)) add(`${p}.end`, 'end must be a finite number of seconds');
       if (isNum(s.start) && isNum(s.end)) {
@@ -422,6 +433,21 @@ export function validateDoc(
         });
       }
     });
+  }
+
+  // Markers
+  if (d.markers !== undefined) {
+    if (!Array.isArray(d.markers)) add('markers', 'markers must be an array of { t, label }');
+    else {
+      const dur = Array.isArray(d.shots) ? totalEnd(d.shots) : 0;
+      d.markers.forEach((m, i) => {
+        const p = `markers[${i}]`;
+        if (!isObj(m)) return add(p, 'marker must be an object { t, label }');
+        if (!isNum(m.t)) add(`${p}.t`, `marker t must be a finite number of seconds; got ${JSON.stringify(m.t)}`);
+        else if (m.t < 0 || m.t > dur + EPS) add(`${p}.t`, `marker t=${fmt(m.t)} must be within 0..${fmt(dur)} (the doc duration)`);
+        if (typeof m.label !== 'string' || m.label.trim() === '') add(`${p}.label`, 'marker label must be a non-empty string, e.g. "bottle hits the wall"');
+      });
+    }
   }
 
   if (issues.length === 0 && isNum(d.fps) && Math.round(totalEnd(d.shots as unknown[]) * d.fps) < 1) {

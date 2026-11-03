@@ -146,6 +146,32 @@ export function buildHandoff(
       : 'camera and motion: follow the previs exactly; take appearance only from reference images, not from previs',
   );
 
+  const shots = doc.shots ?? [];
+  const markers = [...(doc.markers ?? [])].sort((a, b) => a.t - b.t);
+  if (shots.length > 1 || markers.length > 0) {
+    const fps = doc.fps;
+    const sec = (n: number) => `${n.toFixed(2)} s`;
+    // Frame i is at t = i / fps (same rule as the renderer); a span [a, b) holds the frames i with a <= i/fps < b
+    const firstAt = (t: number) => Math.ceil(t * fps - 1e-6);
+    const frameRange = (a: number, b: number) => {
+      const first = firstAt(a);
+      const last = firstAt(b) - 1;
+      if (last < first) return ko ? '(프레임 없음)' : '(no frames)';
+      return ko ? `(프레임 ${first}–${last})` : `(frames ${first}–${last})`;
+    };
+    const frameAt = (t: number) => (ko ? `(프레임 ${firstAt(t)})` : `(frame ${firstAt(t)})`);
+    if (shots.length > 1) {
+      lines.push('');
+      lines.push(ko ? '샷 구성 (컷은 의도된 것. 아래 시간에 그대로 유지할 것):' : 'Shot list (the cuts are intentional; keep them exactly at these times):');
+      for (const s of shots) lines.push(`- ${s.id}: ${sec(s.start)}–${sec(s.end)} ${frameRange(s.start, s.end)}${s.note ? ` — ${s.note}` : ''}`);
+    }
+    if (markers.length > 0) {
+      lines.push('');
+      lines.push(ko ? '시간별 사건:' : 'Timed events:');
+      for (const m of markers) lines.push(`- ${sec(m.t)} ${frameAt(m.t)}: ${m.label}`);
+    }
+  }
+
   const text = opts.textOnly ?? [];
   if (text.length > 0) {
     lines.push('');

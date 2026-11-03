@@ -5,6 +5,7 @@
  *
  *   window.previs.info()      -> { frames, fps, width, height, duration }
  *   window.previs.frame(i)    -> Promise<string>  PNG data URL of frame i (t = i / fps)
+ *   window.previs.camera(i)   -> camera record of frame i (meters + engine-unit view / projection, see ./camera.ts)
  *
  * The canvas is exactly doc.size CSS px == backing px (devicePixelRatio forced to 1). A frame is
  * rendered and copied in the same task by `toDataURL` (a WebGPU canvas loses its contents once
@@ -12,7 +13,8 @@
  * `backend=webgl2` hides `navigator.gpu` before the engine starts (same as e2e/main.ts).
  */
 import { Charturbo } from 'charturbo';
-import { docDuration, frameCount } from '../src/previs/evaluate';
+import { docDuration, evaluateFrame, frameCount } from '../src/previs/evaluate';
+import { engineCameraMatrices } from './camera';
 import { loadPrevisPlayer } from '../src/previs/player';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { Issue, PrevisDoc } from '../src/previs/types';
@@ -43,7 +45,7 @@ declare global {
     /** model.src -> URL served by the dev server (relative paths already resolved against the doc file's dir) */
     __previsModels?: Record<string, string>;
     __previs?: PrevisState;
-    previs?: { info(): PrevisInfo; frame(i: number): Promise<string> };
+    previs?: { info(): PrevisInfo; frame(i: number): Promise<string>; camera(i: number): Record<string, unknown> };
   }
 }
 
@@ -101,8 +103,32 @@ async function run(): Promise<PrevisState> {
   const frames = frameCount(doc);
   const info: PrevisInfo = { frames, fps: doc.fps, width, height, duration: docDuration(doc) };
 
+  const camState = { prev: null as ReturnType<typeof engineCameraMatrices> | null };
   window.previs = {
     info: () => info,
+    camera(i) {
+      if (!Number.isInteger(i) || i < 0 || i >= frames) throw new RangeError(`frame ${i} outside 0..${frames - 1}`);
+      const t = i / doc.fps;
+      const fs = evaluateFrame(doc, t);
+      const m = engineCameraMatrices(fs.camera, doc.worldScale, width / height, camState.prev);
+      camState.prev = m;
+      return {
+        frame: i,
+        t,
+        shot: fs.shotId,
+        eye: fs.camera.eye,
+        target: fs.camera.target,
+        up: fs.camera.up,
+        roll: fs.camera.roll,
+        fovDeg: fs.camera.fovDeg,
+        aspect: width / height,
+        near: m.near,
+        far: m.far,
+        worldScale: m.worldScale,
+        view: m.view,
+        projection: m.projection,
+      };
+    },
     async frame(i) {
       if (!Number.isInteger(i) || i < 0 || i >= frames) throw new RangeError(`frame ${i} outside 0..${frames - 1}`);
       player.frame(i / doc.fps);

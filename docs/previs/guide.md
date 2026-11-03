@@ -10,17 +10,27 @@ Ko/zh mirrors of this guide are not provided yet.
 cd web
 npm run previs:render -- doc.json out.mp4                    # full video (needs Chrome and ffmpeg)
 npm run previs:render -- doc.json --still=1.5 --out=t.png    # one cheap preview frame at t=1.5 s
+npm run previs:render -- doc.json out.mp4 --format=mp4-lossless   # exact role colors (for masks)
+npm run previs:render -- doc.json shots/ --format=png-seq         # PNG frames, no ffmpeg
+npm run previs:render -- doc.json out.mp4 --split-shots          # one file per shot + out.cuts.json
 ```
 
 | Flag | Description |
 | --- | --- |
 | `--still=<s>` + `--out=<png>` | Render one frame at time `s`; no ffmpeg |
 | `--frames=N` | Render only the first N frames |
+| `--format=mp4\|mp4-lossless\|png-seq` | Default `mp4`: H.264 yuv420p, crf 14 (about 2% of pixels at color edges differ from the role palette; fine for viewing). `mp4-lossless`: RGB lossless H.264 (`libx264rgb -crf 0`), pixel-exact role colors; many players cannot play it; ffmpeg must have libx264rgb. `png-seq`: `<out>` is a directory of `frame_000000.png` ..., no ffmpeg. Use lossless or png-seq when the colors are used as masks |
+| `--shot=<id>` | Render one shot |
+| `--range=<a>..<b>` | Render frames with `a <= t < b` (seconds). `--shot` and `--range` are exclusive |
+| `--handles=<s>` | Extend `--shot`, `--range` or each `--split-shots` shot by `s` seconds on both sides, clamped to the doc. Without one of those three: exit 2 |
+| `--force` | png-seq only: delete existing `frame_NNNNNN.png` files (only those) in the target directory (per-shot subdirectories with `--split-shots`). Without it, a directory that already holds such files exits 2 |
+| `--split-shots` | One file per shot: `<stem>.<shotId>.<ext>` (png-seq: `<out>/<shotId>/`) plus `<stem>.cuts.json` = `[{ shot, start, end, frames: [first, last] }]` (global frame indices; seconds include handles). A shot shorter than one frame is skipped (warning, no file, `frames: []`). Not combinable with `--shot`, `--range` or `--frames` |
+| `--camera-json=<file>` | Per-frame camera export: `{ frame, t, shot, eye, target, up, roll, fovDeg, aspect, near, far, worldScale, view[16], projection[16] }`. eye/target in meters; near/far/matrices in engine units (column-major, reverse-Z, clip = projection * view * [p, 1]); a top-level `units` field states this |
 | `--backend=webgpu\|webgl2` | Default `webgpu`; falls back to `webgl2` with a warning when not given explicitly |
 | `--no-aa` | Disable the 4x MSAA of the main pass |
 | `--chrome=<path>` | Chrome binary (or env `CHROME_PATH`) |
 
-Exit codes: `0` ok, `1` render / Chrome / ffmpeg failure, `2` usage error or invalid doc. Issues are printed one per line as `path: message`; the last stdout line is `frames=.. fps=.. size=WxH out=..`.
+Exit codes: `0` ok, `1` render / Chrome / ffmpeg failure, `2` usage error or invalid doc (unknown shot, bad format, bad range). Issues are printed one per line as `path: message`; the last stdout line is `frames=.. fps=.. size=WxH out=.. format=..`.
 
 ## Document format
 
@@ -38,10 +48,11 @@ Source of truth: `web/src/previs/types.ts`. Units: meters, radians, sRGB colors 
 | `roles` | `{ id, label, color, reference? }[]`; colors unique and clear of `avoidColors` (Lab distance >= 25) |
 | `nodes` | `PrevisNode[]` |
 | `shots` | `Shot[]` sorted, covering `[0, duration)` with no gap or overlap |
+| `markers?` | `{ t, label }[]`: timed events on the global clock (seconds within the doc); `label` non-empty. Listed in the handoff prompt |
 
 **Node:** `id` (`[A-Za-z0-9_.-]+`, unique), `shape` (`box`/`sphere`/`cylinder`/`model`), `model` (required for `model`, forbidden otherwise), `color`, `position`, `rotation`, `size`, optional `parent`, `parentJoint` (glTF joint name; needs a `model` parent), `role`, `visible`, `tracks` (`position`, `rotation`, `size`, `visible`, and `joints` on `model` nodes).
 
-**Shot:** `id`, `start`, `end`, `camera: { position: Track, target, fov?, roll?, up? }`. `target` is `{ track }` (look-at points) or `{ follow: nodeId, offset? }`. `fov` is a vertical angle in degrees, default 45. `roll?` is a `Track<number>` in radians, default 0; positive tilts the camera's up toward screen right, so the scene appears to turn counterclockwise. Same track rules as `fov`. `up?` is a `Track<Vec3>` giving the world up direction over time, default `[0, 1, 0]`; it need not be unit length, a zero vector is rejected, neighbouring keys must not point in opposite directions (the interpolation would pass through zero; add an intermediate key), and `roll` is applied on top of it. Use it for a crane over the target: key `[0, 1, 0]` at the start and `[0, 0, -1]` once the eye is above the target. Without that switch the image flips 180° when the view direction passes through the fixed up.
+**Shot:** `id`, `start`, `end`, `camera: { position: Track, target, fov?, roll?, up? }`, `note?` (free text; shown in the handoff shot list). `target` is `{ track }` (look-at points) or `{ follow: nodeId, offset? }`. `fov` is a vertical angle in degrees, default 45. `roll?` is a `Track<number>` in radians, default 0; positive tilts the camera's up toward screen right, so the scene appears to turn counterclockwise. Same track rules as `fov`. `up?` is a `Track<Vec3>` giving the world up direction over time, default `[0, 1, 0]`; it need not be unit length, a zero vector is rejected, neighbouring keys must not point in opposite directions (the interpolation would pass through zero; add an intermediate key), and `roll` is applied on top of it. Use it for a crane over the target: key `[0, 1, 0]` at the start and `[0, 0, -1]` once the eye is above the target. Without that switch the image flips 180° when the view direction passes through the fixed up.
 
 **Track:** `[{ t, v, ease? }]`, `t` strictly increasing; the value is held before the first and after the last key. `ease` applies to the segment starting at that key: `linear` (default), `ease-in`, `ease-out`, `ease-in-out`, `step`. Boolean tracks are always step-wise.
 
@@ -150,6 +161,8 @@ A node renders as exactly its `color`. The player uses shading model `pbr` with 
 | `lang` | `'ko'` or `'en'` |
 
 `uploadOrder` is `['previs video', ...reference names]`. The prompt lists attachments in that order, maps each color to its role (and reference image), and tells the model to follow the previs camera and motion exactly and take appearance only from reference images.
+
+With 2 or more shots, the prompt also carries a shot list (`- s1: 0.00 s–1.46 s (frames 0–34) — note`; seconds with 2 decimals, frame range at the doc fps, `(no frames)` for a sub-frame shot; markers `3.80 s (frame 91): label`) and states that the cuts are intentional and must be kept at those times. Markers are sorted by time and added as a timed events list. Fill `Shot.note` and `markers` in the doc so the prompt carries the cuts and events.
 
 ## Limits
 

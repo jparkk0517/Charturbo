@@ -2,12 +2,30 @@
 // Offline previs renderer: previs doc JSON -> headless Chrome (previs/render.html, real Charturbo
 // engine) -> PNG frames -> ffmpeg -> mp4.
 //
-//   node scripts/previs-render.mjs <doc.json> <out.mp4> [--backend=webgpu|webgl2] [--frames=N]
-//        [--chrome=path] [--no-aa]
+//   node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2]
+//        [--frames=N] [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots]
+//        [--force] [--camera-json=<file>] [--chrome=path] [--no-aa]
 //   node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..]
 //
+// --format    mp4 (default: libx264 -crf 14 yuv420p BT.709), mp4-lossless (libx264rgb -crf 0 -preset veryslow, RGB,
+//             0 off-palette pixels; needs an ffmpeg with libx264rgb, else exit 1; many players cannot play RGB H.264)
+//             or png-seq (<out> is a DIRECTORY: frame_000000.png ... numbered from 0 per output, no ffmpeg needed)
 // --backend   webgpu (default; falls back to webgl2 with a warning when not given explicitly) or webgl2
-// --frames=N  render only the first N frames
+// --frames=N  render only the first N frames (of the selected span)
+// --shot=ID   render only that shot's time span (unknown id: exit 2); --range=A..B renders seconds [A, B) (frames i with
+//             A <= i/fps < B). Frames keep the doc fps and the GLOBAL clock (frame i is always t = i/fps). Exclusive.
+// --handles=S extra seconds added on both sides of --shot / --range / each split shot, clamped to [0, duration] (default 0)
+// --split-shots  one output per shot: <out-stem>.<shotId>.<ext> (mp4 formats) or <out>/<shotId>/ (png-seq), plus
+//             <out-stem>.cuts.json = [{ shot, start, end, frames: [first, last] }] (frames = global inclusive indices;
+//             start/end = seconds incl. handles). Not combinable with --shot / --range / --frames.
+// --camera-json=FILE  per rendered frame { frame, t, shot, eye, target, up, roll, fovDeg, aspect, near, far, worldScale,
+//             view, projection } under { units, frames: [...] }: eye / target in METERS, near / far / view / projection
+//             in ENGINE units (= meters * worldScale), matrices column-major (clip = projection * view * [p,1]),
+//             reverse-Z perspective_rh(fov, aspect, far, near) (see previs/camera.ts, mirrors the engine camera).
+//             A frame rendered twice (overlapping shots with handles) appears once.
+// --force    png-seq only: delete existing frame_NNNNNN.png files (only those) in the target directory; without it a
+//             directory that already holds such files is a usage error (exit 2)
+//             A shot shorter than one frame under --split-shots is skipped (warning, frames: [] in cuts.json).
 // --still=S   render ONE frame at time S seconds to --out (PNG), no ffmpeg (cheap preview)
 // --no-aa     disable the 4x MSAA of the main pass
 // --chrome    Chrome binary (or CHROME_PATH)
@@ -19,7 +37,7 @@
 //
 // Exit codes: 0 ok, 1 render / Chrome / ffmpeg failure, 2 usage error or invalid doc (issues are
 // printed one per line as `path: message`). Progress goes to stderr; the last stdout line is
-// `frames=.. fps=.. size=WxH out=..`.
+// `frames=.. fps=.. size=WxH out=.. backend=.. format=..` (with --split-shots: out = the cuts file, frames = total).
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -262,11 +280,13 @@ async function connectPage(port) {
   return { send, on, once, evaluate, close: () => ws.close() };
 }
 
-/** ffmpeg: PNG stream on stdin -> H.264 mp4 (BT.709 matrix + tags so flat colors survive). */
-function startFfmpeg(fps, out) {
-  const args = [
-    '-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-',
+/** ffmpeg: PNG stream on stdin -> H.264 mp4 (mp4: BT.709 yuv420p; mp4-lossless: libx264rgb crf 0 RGB). */
+function startFfmpeg(fps, out, format = 'mp4') {
+  const input = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-'];
+  const args = format === 'mp4-lossless'
+    ? [...input, '-c:v', 'libx264rgb', '-preset', 'veryslow', '-crf', '0', '-pix_fmt', 'rgb24', '-movflags', '+faststart', out]
+    : [
+    ...input,
     '-vf', 'scale=in_range=full:out_range=tv:out_color_matrix=bt709',
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '14', '-pix_fmt', 'yuv420p',
     '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
@@ -330,11 +350,50 @@ async function main() {
   const backendOpt = option('backend');
   if (!docPath || (still === undefined && !outPath) || (still !== undefined && !stillOut)) {
     throw new Failure(
-      'usage: node scripts/previs-render.mjs <doc.json> <out.mp4> [--backend=webgpu|webgl2] [--frames=N] [--chrome=path] [--no-aa]\n' +
-        '       node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..]',
+      'usage: node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2] [--frames=N]\n' +
+        '         [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots] [--camera-json=<file>] [--chrome=path] [--no-aa]\n' +
+        '       node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..]\n' +
+        '  <out> is the mp4 file, or a directory for --format=png-seq (frame_000000.png ...)',
       2,
     );
   }
+  const format = option('format') ?? 'mp4';
+  if (format !== 'mp4' && format !== 'mp4-lossless' && format !== 'png-seq') {
+    throw new Failure(`--format must be mp4, mp4-lossless or png-seq, got ${format}`, 2);
+  }
+  const shotOpt = option('shot');
+  const rangeOpt = option('range');
+  const splitShots = flag('split-shots');
+  const cameraJson = option('camera-json');
+  const force = flag('force');
+  if (still !== undefined) {
+    const ignored = [
+      ['camera-json', cameraJson !== undefined],
+      ['split-shots', splitShots],
+      ['format', option('format') !== undefined],
+      ['shot', shotOpt !== undefined],
+      ['range', rangeOpt !== undefined],
+      ['handles', option('handles') !== undefined],
+      ['force', force],
+    ].find(([, given]) => given);
+    if (ignored) throw new Failure(`--${ignored[0]} has no effect with --still; remove it`, 2);
+  } else if (option('handles') !== undefined && shotOpt === undefined && rangeOpt === undefined && !splitShots) {
+    throw new Failure('--handles needs --shot, --range or --split-shots', 2);
+  }
+  if (shotOpt !== undefined && rangeOpt !== undefined) throw new Failure('--shot and --range are exclusive', 2);
+  if (splitShots && (shotOpt !== undefined || rangeOpt !== undefined || option('frames') !== undefined)) {
+    throw new Failure('--split-shots cannot be combined with --shot, --range or --frames', 2);
+  }
+  let range;
+  if (rangeOpt !== undefined) {
+    const m = /^([0-9.eE+-]+)\.\.([0-9.eE+-]+)$/.exec(rangeOpt);
+    range = m ? [Number(m[1]), Number(m[2])] : null;
+    if (!range || !Number.isFinite(range[0]) || !Number.isFinite(range[1]) || range[0] < 0 || range[1] <= range[0]) {
+      throw new Failure(`--range must be <a>..<b> seconds with 0 <= a < b, got ${rangeOpt}`, 2);
+    }
+  }
+  const handles = option('handles') !== undefined ? Number(option('handles')) : 0;
+  if (!Number.isFinite(handles) || handles < 0) throw new Failure(`--handles must be seconds >= 0, got ${option('handles')}`, 2);
   if (backendOpt !== undefined && backendOpt !== 'webgpu' && backendOpt !== 'webgl2') {
     throw new Failure(`--backend must be webgpu or webgl2, got ${backendOpt}`, 2);
   }
@@ -413,13 +472,27 @@ async function main() {
     }
     const chromePath = findChrome();
     if (!chromePath) throw new Failure('Chrome not found (set CHROME_PATH or --chrome=<path>)');
-    if (still === undefined) {
-      const probe = spawn('ffmpeg', ['-version'], { stdio: 'ignore' });
+    if (still === undefined && format !== 'png-seq') {
+      const probe = spawn('ffmpeg', ['-hide_banner', '-encoders'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let encoders = '';
+      probe.stdout.on('data', (d) => (encoders += d));
       const ok = await new Promise((resolve) => {
         probe.on('error', () => resolve(false));
         probe.on('close', (c) => resolve(c === 0));
       });
       if (!ok) throw new Failure('ffmpeg not found on PATH');
+      const need = format === 'mp4-lossless' ? 'libx264rgb' : 'libx264';
+      if (!new RegExp(`\\b${need}\\b`).test(encoders)) {
+        throw new Failure(`ffmpeg has no ${need} encoder (needed for --format=${format}); use --format=png-seq or install an ffmpeg build with libx264`);
+      }
+    }
+    // Shot / range selection needs the validated doc (unknown shot id: usage error)
+    let selShot;
+    if (shotOpt !== undefined) {
+      selShot = checkedDoc.doc.shots.find((sh) => sh.id === shotOpt);
+      if (!selShot) {
+        throw new Failure(`unknown shot "${shotOpt}" (shots: ${checkedDoc.doc.shots.map((sh) => sh.id).join(', ')})`, 2);
+      }
     }
 
     const cdpPort = await freePort();
@@ -519,32 +592,136 @@ async function main() {
       const i = Math.min(meta.frames - 1, Math.max(0, Math.round(stillTime * meta.fps)));
       fs.mkdirSync(path.dirname(path.resolve(stillOut)), { recursive: true });
       fs.writeFileSync(stillOut, await grab(i));
-      console.log(`frames=1 fps=${meta.fps} size=${meta.width}x${meta.height} out=${stillOut} frame=${i} backend=${state.backend}`);
+      console.log(`frames=1 fps=${meta.fps} size=${meta.width}x${meta.height} out=${stillOut} frame=${i} backend=${state.backend} format=png`);
       return;
     }
 
-    const total = Math.min(meta.frames, frameLimit ?? meta.frames);
-    fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
-    const ff = startFfmpeg(meta.fps, outPath);
-    // Cleanups run in reverse: kill ffmpeg first, then drop a partial mp4
-    let complete = false;
-    cleanups.push(() => {
-      if (!complete) fs.rmSync(outPath, { force: true });
-    });
-    cleanups.push(() => ff.proc.kill('SIGKILL'));
+    // Frames of a time span [a, b) seconds (global clock): i with a <= i/fps < b, handles on both sides, clamped
+    const spanFrames = (a, b) => {
+      const lo = Math.max(0, a - handles);
+      const hi = Math.min(meta.duration, b + handles);
+      const first = Math.max(0, Math.ceil(lo * meta.fps - 1e-6));
+      const last = Math.min(meta.frames - 1, Math.ceil(hi * meta.fps - 1e-6) - 1);
+      return { first, last, start: lo, end: hi };
+    };
+    const safeName = (id) => String(id).replace(/[^\w.-]/g, '_');
+    const parsed = path.parse(outPath);
+    const stem = format === 'png-seq' ? outPath.replace(/[\\/]+$/, '') : path.join(parsed.dir, parsed.name);
+    const ext = parsed.ext || '.mp4';
+    // One job = one output (file or directory) over a global frame span
+    const jobs = [];
+    if (splitShots) {
+      const used = new Map(); // lower-cased output name -> shot id (case-insensitive file systems)
+      for (const sh of checkedDoc.doc.shots) {
+        const sp = spanFrames(sh.start, sh.end);
+        const name = safeName(sh.id);
+        if (name === '' || name === '.' || name === '..') throw new Failure(`shot id "${sh.id}" is not usable as a file name`, 2);
+        const key = name.toLowerCase();
+        if (used.has(key)) {
+          throw new Failure(`shots "${used.get(key)}" and "${sh.id}" map to the same output name "${name}" (case-insensitive); rename one`, 2);
+        }
+        used.set(key, sh.id);
+        jobs.push({ shot: sh.id, ...sp, out: format === 'png-seq' ? path.join(stem, name) : `${stem}.${name}${ext}` });
+      }
+    } else {
+      let sp = { first: 0, last: meta.frames - 1, start: 0, end: meta.duration };
+      if (selShot) sp = spanFrames(selShot.start, selShot.end);
+      else if (range) sp = spanFrames(range[0], range[1]);
+      if (frameLimit !== undefined) sp.last = Math.min(sp.last, sp.first + frameLimit - 1);
+      jobs.push({ shot: selShot?.id ?? null, ...sp, out: outPath });
+    }
+    if (splitShots) {
+      for (const j of jobs) {
+        if (j.last < j.first) {
+          j.skip = true;
+          info(`warning: shot "${j.shot}" is shorter than one frame (fps ${meta.fps}); skipped, no output`);
+        }
+      }
+    } else {
+      const empty = jobs.find((j) => j.last < j.first);
+      if (empty) throw new Failure(`${empty.shot ? `shot "${empty.shot}"` : '--range'} selects no frames (fps ${meta.fps}, ${meta.frames} frames)`, 2);
+    }
+
+    // png-seq: never mix new frames with stale ones from an earlier run
+    if (format === 'png-seq') {
+      const frameRe = /^frame_\d{6}\.png$/;
+      const stale = [];
+      for (const j of jobs) {
+        if (j.skip) continue;
+        let names = [];
+        try {
+          names = fs.readdirSync(j.out);
+        } catch {}
+        for (const n of names) if (frameRe.test(n)) stale.push(path.join(j.out, n));
+      }
+      if (stale.length > 0 && !force) {
+        throw new Failure(`${stale.length} frame_NNNNNN.png file(s) already in ${path.dirname(stale[0])}; pass --force to delete them or pick an empty directory`, 2);
+      }
+      for (const f of stale) fs.rmSync(f, { force: true });
+    }
+
+    const total = jobs.reduce((n, j) => n + (j.skip ? 0 : j.last - j.first + 1), 0);
+    const cameraRecords = new Map();
     const t0 = Date.now();
     let nextReport = 1;
-    for (let i = 0; i < total; i++) {
-      await ff.write(await grab(i));
-      if ((i + 1) / total >= nextReport / 10) {
-        nextReport = Math.floor(((i + 1) / total) * 10) + 1;
-        info(`${i + 1}/${total} frames (${Math.round(((i + 1) / total) * 100)}%), ${((Date.now() - t0) / 1000 / (i + 1)).toFixed(3)} s/frame`);
+    let done = 0;
+    for (const job of jobs) {
+      if (job.skip) continue;
+      const count = job.last - job.first + 1;
+      let ff = null;
+      if (format === 'png-seq') {
+        fs.mkdirSync(job.out, { recursive: true });
+      } else {
+        fs.mkdirSync(path.dirname(path.resolve(job.out)), { recursive: true });
+        ff = startFfmpeg(meta.fps, job.out, format);
+        let complete = false;
+        job.markComplete = () => (complete = true);
+        // Cleanups run in reverse: kill ffmpeg first, then drop a partial mp4
+        cleanups.push(() => {
+          if (!complete) fs.rmSync(job.out, { force: true });
+        });
+        cleanups.push(() => ff.proc.kill('SIGKILL'));
+      }
+      for (let k = 0; k < count; k++) {
+        const i = job.first + k;
+        const png = await grab(i);
+        if (ff) await ff.write(png);
+        else fs.writeFileSync(path.join(job.out, `frame_${String(k).padStart(6, '0')}.png`), png);
+        if (cameraJson && !cameraRecords.has(i)) cameraRecords.set(i, await cdp.evaluate(`window.previs.camera(${i})`));
+        done++;
+        if (done / total >= nextReport / 10) {
+          nextReport = Math.floor((done / total) * 10) + 1;
+          info(`${done}/${total} frames (${Math.round((done / total) * 100)}%), ${((Date.now() - t0) / 1000 / done).toFixed(3)} s/frame`);
+        }
+      }
+      if (ff) {
+        await ff.finish();
+        job.markComplete();
       }
     }
-    await ff.finish();
-    complete = true;
+    let reported = outPath;
+    if (splitShots) {
+      reported = `${stem}.cuts.json`;
+      const cuts = jobs.map((j) => ({ shot: j.shot, start: j.start, end: j.end, frames: j.skip ? [] : [j.first, j.last] }));
+      fs.writeFileSync(reported, JSON.stringify(cuts, null, 2) + '\n');
+    }
+    if (cameraJson) {
+      fs.mkdirSync(path.dirname(path.resolve(cameraJson)), { recursive: true });
+      const frames = [...cameraRecords.values()].sort((x, y) => x.frame - y.frame);
+      const units = {
+        eye: 'meters',
+        target: 'meters',
+        near: 'engine',
+        far: 'engine',
+        view: 'engine (column-major, meters * worldScale)',
+        projection: 'engine (column-major, reverse-Z perspective_rh(fovDeg, aspect, far, near))',
+        t: 'seconds',
+        roll: 'radians',
+      };
+      fs.writeFileSync(cameraJson, JSON.stringify({ units, fps: meta.fps, frames }) + '\n');
+    }
     info(`done in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-    console.log(`frames=${total} fps=${meta.fps} size=${meta.width}x${meta.height} out=${outPath} backend=${state.backend}`);
+    console.log(`frames=${total} fps=${meta.fps} size=${meta.width}x${meta.height} out=${reported} backend=${state.backend} format=${format}`);
   } finally {
     await cleanup();
   }

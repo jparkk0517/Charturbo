@@ -16,9 +16,9 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
    - props with real sizes and what the hands do
 3. Apply the three rules (below).
 4. Author the doc JSON. Prefer a small Node/TS script using `createMannequin`, `walk`/`jump`/`raiseArm`/`shrug`/`lookAt`, `applyMotion`, `attachProp`, `twoToneBox` from `web/src/previs/mannequin.ts` and `suggestRoleColors` from `web/src/previs/handoff.ts`; hand-write JSON for simple scenes. Time is one global clock; shots must cover `[0, duration)` exactly.
-5. Check cheaply: `cd web && npm run previs:render -- doc.json --still=<t> --out=t.png` at key times (each shot start, mid-motion, each cut, last frame). Read the PNG, fix the doc, repeat. Exit code `2` prints `path: message` issues; fix those first. Then render: `npm run previs:render -- doc.json out.mp4`.
+5. Check cheaply: `cd web && npm run previs:render -- doc.json --still=<t> --out=t.png` at key times (each shot start, mid-motion, each cut, last frame). Read the PNG, fix the doc, repeat. Exit code `2` prints `path: message` issues; fix those first. Then render: `npm run previs:render -- doc.json out.mp4`. Use `--format=mp4-lossless` (or `--format=png-seq`) when the colors are used as masks; the default mp4 leaves about 2% of edge pixels off the role palette. Add `--split-shots` to get one file per shot plus `<stem>.cuts.json` (frame range per shot).
 6. User edits (timing, framing, positions) are made in the doc and re-rendered. This costs no video credits; only the final generation does.
-7. Handoff: call `buildHandoff(doc, { references, textOnly, lang })`. Give the user `uploadOrder` and `prompt`. The prompt must contain the color-to-role mapping, "follow camera and motion exactly", and the text-only items.
+7. Handoff: call `buildHandoff(doc, { references, textOnly, lang })`. Give the user `uploadOrder` and `prompt`. The prompt must contain the color-to-role mapping, "follow camera and motion exactly", and the text-only items. Set `Shot.note` (what the shot shows) and `markers` (`{ t, label }`, timed events) so the prompt carries the shot list with the intended cuts and the event timeline.
 
 ## Three rules (and why)
 

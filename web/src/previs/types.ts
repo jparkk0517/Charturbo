@@ -162,6 +162,8 @@ export type CameraTarget =
 
 export interface Shot {
   id: string;
+  /** Free text for the handoff prompt's shot list (e.g. "wide, slow push-in"). */
+  note?: string;
   /** `[start, end)` on the global clock. Shots must cover `[0, duration)` without gaps or overlap. */
   start: number;
   end: number;
@@ -201,6 +203,14 @@ export interface PrevisDoc {
   roles: PrevisRole[];
   nodes: PrevisNode[];
   shots: Shot[];
+  /** Timed events for the handoff prompt (impact, cut motivation, sound cue); `t` in global seconds within the doc duration. */
+  markers?: PrevisMarker[];
+}
+
+export interface PrevisMarker {
+  t: number;
+  /** Non-empty free text, e.g. "bottle hits the wall". */
+  label: string;
 }
 
 /** Local transform of a node at one time. */
