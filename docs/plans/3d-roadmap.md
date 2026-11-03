@@ -173,7 +173,7 @@ Epic 8 → Epic 9 → Epic 10. Within an epic, tasks on disjoint files run in pa
 
 | ID | Tier | Task | Files | Depends | Done when |
 | --- | --- | --- | --- | --- | --- |
-| 10.1 | sonnet | `--inspect=<glb>` (joint tree, clips + durations, natural bounds), `--stills=a,b,c` in one Chrome launch, `--contact=6x4` with t / shot labels | `web/scripts/previs-render.mjs`, `web/previs/render.ts` | 8.1 | inspect lists the walker's 12 nodes and 2 clips |
+| 10.1 DONE | sonnet | `--inspect=<glb>` (joint tree, clips + durations, natural bounds), `--stills=a,b,c` in one Chrome launch, `--contact=6x4` with t / shot labels | `web/scripts/previs-render.mjs`, `web/previs/render.ts` | 8.1 | inspect lists the walker's 12 nodes and 2 clips |
 | 10.2 | sonnet | `npm run previs:check`: render every example + pure-pivot socket + compressed walker stills and run the flat-color palette check (0.5/255) | new `web/scripts/previs-check.mjs`, `web/package.json` script | 10.1 | check passes on main, fails on an injected off-palette pixel |
 | 10.3 | haiku | `web/src/previs/index.ts` barrel, "Script helpers" table (evaluateFrame, worldPosition, docDuration, mannequin API), `previs:new` scaffold | new files, docs | 10.1 | a scratch scene authored outside the repo imports the barrel with types |
 | 10.4 | sonnet | Skip skinning/sending poses of hidden models (pose-only mode keeping nodeMatrix) | `scene-gltf-anim.ts`, `player.ts` | Epic 9 | hidden 50k-vertex model costs ~0 ms/frame |

@@ -7,6 +7,10 @@
 //        [--force] [--camera-json=<file>] [--chrome=path] [--no-aa]
 //        [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear]
 //   node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]
+//   node scripts/previs-render.mjs <doc.json> --stills=<s>,<s>,... --out=<dir | pattern.png> [--backend=..] [--passes=..]
+//   node scripts/previs-render.mjs <doc.json> --contact=<cols>x<rows> --out=<sheet.png> [--shot=<id> | --range=<a>..<b>]
+//        [--tile-width=<px>] [--backend=..] [--no-aa]
+//   node scripts/previs-render.mjs --inspect=<model.glb|model.gltf> [--json] [--backend=..]
 //
 // --format    mp4 (default: libx264 -crf 14 yuv420p BT.709), mp4-lossless (libx264rgb -crf 0 -preset veryslow, RGB,
 //             0 off-palette pixels; needs an ffmpeg with libx264rgb, else exit 1; many players cannot play RGB H.264)
@@ -50,6 +54,30 @@
 //             `frames` lists { frame, near_m, far_m } per frame).
 //             --still=<s> with depth: renders that one frame, range from that frame alone ('shot' = 'frame'; or fixed);
 //             --passes=depth writes only <out-stem>.depth.png (+ <out-stem>.depth.json), beauty,depth writes <out> too.
+// --stills=a,b,c  several stills (seconds, GLOBAL clock, each >= 0) in ONE Chrome launch. --out is a DIRECTORY (created):
+//             <out>/still_<t>.png with t = the given number formatted toFixed(2) ("1.50"); or a pattern ending in .png that
+//             contains {t} (replaced the same way), e.g. --out=shots/{t}s.png. Frame index of each = the --still rule
+//             (round(t * fps), clamped to the doc). Two times that format to the same name are a usage error. Bytes equal a
+//             separate --still run of the same t. --passes=depth / beauty,depth writes the .depth.png (+ .depth.json)
+//             siblings exactly like --still (range from that frame alone, or the fixed --depth-range); --backend works.
+//             Exclusive with --still / --contact. Same ignored-flag rules as --still.
+// --contact=CxR  contact sheet (cols x rows) of C*R beauty stills in ONE Chrome launch, composed in the page on a 2D canvas
+//             and written to --out=<sheet.png>. Spacing over the span [start, end) (the whole doc, or --shot, or --range=A..B
+//             with B clamped to the doc duration): t_i = start + (i + 0.5) * (end - start) / (C*R), i = 0..C*R-1, row-major
+//             (left to right, then top to bottom); frame = the --still rule. Each tile has a label bar BELOW it (22 px,
+//             #2b2b2b, text #eeeeee, 14 px sans-serif) reading `t=<seconds toFixed(2)> <shotId>` (shotId of that frame, `-`
+//             when no shot covers it); sheet background #1a1a1a. Tile = frame scaled with smoothing to
+//             --tile-width=<px> (integer >= 1; default round(doc width / cols)) x round(tile-width * doc height / doc width)
+//             (doc aspect kept). Sheet size = C*tile-width x R*(tile height + 22); above 16384 px either way is a usage error.
+//             Combinable with --shot / --range / --tile-width / --backend / --no-aa only (not --passes, --handles, --frames,
+//             --format, --split-shots, --camera-json, --force). --tile-width needs --contact.
+// --inspect=FILE  no doc argument: loads the model (sdk.loadGltf, animations on, same decoders as the previs player: Draco /
+//             meshopt on demand) and prints to stdout (a) the node tree of the file's scene (2 spaces per depth, tags
+//             [mesh] [skinned] [joint]), (b) the clips `<index> <name> <duration>s`, (c) the natural bounds of the rest pose
+//             (min / max / size, in the file's units) = the bounds the player fits to `size`. --json prints the same as one
+//             JSON object { file, nodes: [{ index, name, depth, mesh, skinned, joint }], clips: [{ index, name,
+//             duration }], bounds: { min, max, size } | null }. Exit 0; an unreadable file exits 1. Combinable with --backend
+//             / --chrome / --json only. --json needs --inspect.
 // --chrome    Chrome binary (or CHROME_PATH)
 //
 // glTF models (`shape: 'model'`): a relative `model.src` resolves against the DOC FILE's directory and is served by the
@@ -364,18 +392,61 @@ function startFfmpeg(fps, out, format = 'mp4') {
   };
 }
 
+function printInspect(r, file, asJson) {
+  const fmt = (v) => v.map((x) => Number(x.toFixed(6))).join(' ');
+  if (asJson) {
+    console.log(JSON.stringify({ file, nodes: r.nodes, clips: r.clips, bounds: r.bounds }, null, 2));
+    return;
+  }
+  const lines = [`file: ${file}`, `nodes (${r.nodes.length}):`];
+  for (const n of r.nodes) {
+    const tags = [n.mesh && 'mesh', n.skinned && 'skinned', n.joint && 'joint'].filter(Boolean).map((t) => `[${t}]`);
+    lines.push(`${'  '.repeat(n.depth + 1)}${n.name}${tags.length ? ' ' + tags.join(' ') : ''}`);
+  }
+  lines.push(`clips (${r.clips.length}):`);
+  for (const c of r.clips) lines.push(`  ${c.index} ${c.name} ${c.duration.toFixed(3)}s`);
+  lines.push('bounds (rest pose, file units):');
+  if (r.bounds) lines.push(`  min  ${fmt(r.bounds.min)}`, `  max  ${fmt(r.bounds.max)}`, `  size ${fmt(r.bounds.size)}`);
+  else lines.push('  none (no triangle meshes)');
+  console.log(lines.join('\n'));
+}
+
 async function main() {
-  const docPath = positional[0];
+  const inspectOpt = option('inspect');
+  const docPath = inspectOpt !== undefined ? undefined : positional[0];
   const still = option('still');
+  const stillsOpt = option('stills');
+  const contactOpt = option('contact');
+  const tileWidthOpt = option('tile-width');
+  const multi = stillsOpt !== undefined || contactOpt !== undefined;
   const stillOut = option('out') ?? (still !== undefined ? positional[1] : undefined);
-  const outPath = still !== undefined ? undefined : positional[1];
+  const outPath = still !== undefined || multi ? undefined : positional[1];
   const backendOpt = option('backend');
-  if (!docPath || (still === undefined && !outPath) || (still !== undefined && !stillOut)) {
+  if (inspectOpt !== undefined) {
+    if (inspectOpt === '') throw new Failure('--inspect needs a model path (--inspect=<model.glb|model.gltf>)', 2);
+    const bad = [
+      ...positional.map(() => ['<positional argument>', true]),
+      ...['still', 'stills', 'contact', 'tile-width', 'out', 'format', 'shot', 'range', 'handles', 'camera-json', 'frames', 'passes', 'depth-range', 'depth-encoding'].map((n) => [`--${n}`, option(n) !== undefined]),
+      ...['split-shots', 'force', 'no-aa'].map((n) => [`--${n}`, flag(n)]),
+    ].find(([, g]) => g);
+    if (bad) throw new Failure(`${bad[0]} has no effect with --inspect (only --json, --backend, --chrome); remove it`, 2);
+  } else if (flag('json')) throw new Failure('--json needs --inspect', 2);
+  if ([still, stillsOpt, contactOpt].filter((v) => v !== undefined).length > 1) {
+    throw new Failure('--still, --stills and --contact are exclusive', 2);
+  }
+  if (tileWidthOpt !== undefined && contactOpt === undefined) throw new Failure('--tile-width needs --contact', 2);
+  if (
+    inspectOpt === undefined &&
+    (!docPath || (still === undefined && !multi && !outPath) || ((still !== undefined || multi) && !stillOut))
+  ) {
     throw new Failure(
       'usage: node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2] [--frames=N]\n' +
         '         [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots] [--camera-json=<file>] [--chrome=path] [--no-aa]\n' +
         '         [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear]\n' +
         '       node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]\n' +
+        '       node scripts/previs-render.mjs <doc.json> --stills=<s>,<s>,.. --out=<dir | pattern.png> [--backend=..] [--passes=..]\n' +
+        '       node scripts/previs-render.mjs <doc.json> --contact=<cols>x<rows> --out=<sheet.png> [--shot=<id> | --range=<a>..<b>] [--tile-width=<px>]\n' +
+        '       node scripts/previs-render.mjs --inspect=<model.glb|.gltf> [--json]\n' +
         '  <out> is the mp4 file, or a directory for --format=png-seq (frame_000000.png ...)',
       2,
     );
@@ -421,8 +492,23 @@ async function main() {
   const splitShots = flag('split-shots');
   const cameraJson = option('camera-json');
   const force = flag('force');
-  if (still !== undefined) {
+  if (contactOpt !== undefined) {
     const ignored = [
+      ['passes', option('passes') !== undefined],
+      ['depth-range', depthRangeOpt !== undefined],
+      ['depth-encoding', depthEncOpt !== undefined],
+      ['camera-json', cameraJson !== undefined],
+      ['split-shots', splitShots],
+      ['format', option('format') !== undefined],
+      ['handles', option('handles') !== undefined],
+      ['frames', option('frames') !== undefined],
+      ['force', force],
+    ].find(([, given]) => given);
+    if (ignored) throw new Failure(`--${ignored[0]} has no effect with --contact; remove it`, 2);
+  } else if (still !== undefined || stillsOpt !== undefined) {
+    const mode = still !== undefined ? '--still' : '--stills';
+    const ignored = [
+      ['frames', stillsOpt !== undefined && option('frames') !== undefined],
       ['camera-json', cameraJson !== undefined],
       ['split-shots', splitShots],
       ['format', option('format') !== undefined],
@@ -431,7 +517,7 @@ async function main() {
       ['handles', option('handles') !== undefined],
       ['force', force],
     ].find(([, given]) => given);
-    if (ignored) throw new Failure(`--${ignored[0]} has no effect with --still; remove it`, 2);
+    if (ignored) throw new Failure(`--${ignored[0]} has no effect with ${mode}; remove it`, 2);
   } else if (option('handles') !== undefined && shotOpt === undefined && rangeOpt === undefined && !splitShots) {
     throw new Failure('--handles needs --shot, --range or --split-shots', 2);
   }
@@ -458,6 +544,42 @@ async function main() {
     stillTime = Number(still);
     if (!Number.isFinite(stillTime) || stillTime < 0) throw new Failure(`--still must be seconds >= 0, got ${still}`, 2);
   }
+  let stillTimes;
+  let stillNames;
+  if (stillsOpt !== undefined) {
+    stillTimes = stillsOpt.split(',').map((x) => (x.trim() === '' ? NaN : Number(x)));
+    if (stillTimes.length === 0 || stillTimes.some((x) => !Number.isFinite(x) || x < 0)) {
+      throw new Failure(`--stills must be comma-separated seconds >= 0 (e.g. 0.5,2.5,5), got ${stillsOpt}`, 2);
+    }
+    const out = stillOut;
+    if (/\.png$/i.test(out) && !out.includes('{t}')) {
+      throw new Failure(`--out for --stills is a directory, or a pattern containing {t} (got ${out}); for one file use --still`, 2);
+    }
+    const pattern = out.includes('{t}');
+    if (pattern && !/\.png$/i.test(out)) throw new Failure(`--out pattern must end with .png, got ${out}`, 2);
+    stillNames = stillTimes.map((t) => (pattern ? out.split('{t}').join(t.toFixed(2)) : path.join(out, `still_${t.toFixed(2)}.png`)));
+    const seen = new Set();
+    for (const n of stillNames) {
+      if (seen.has(n)) throw new Failure(`two --stills times map to the same output name ${n} (names use 2 decimals)`, 2);
+      seen.add(n);
+    }
+  }
+  let contact;
+  if (contactOpt !== undefined) {
+    const m = /^(\d+)x(\d+)$/.exec(contactOpt);
+    const cols = m ? Number(m[1]) : 0;
+    const rows = m ? Number(m[2]) : 0;
+    if (!m || cols < 1 || rows < 1 || !Number.isSafeInteger(cols) || !Number.isSafeInteger(rows)) {
+      throw new Failure(`--contact must be <cols>x<rows> with integers >= 1 (e.g. 4x3), got ${contactOpt}`, 2);
+    }
+    let tileWidth;
+    if (tileWidthOpt !== undefined) {
+      tileWidth = /^\d+$/.test(tileWidthOpt) ? Number(tileWidthOpt) : 0;
+      if (!(tileWidth >= 1)) throw new Failure(`--tile-width must be an integer >= 1 (pixels), got ${tileWidthOpt}`, 2);
+    }
+    if (!/\.png$/i.test(stillOut)) throw new Failure(`--out for --contact must be a .png file, got ${stillOut}`, 2);
+    contact = { cols, rows, tileWidth };
+  }
   const frameLimit = option('frames') !== undefined ? Number(option('frames')) : undefined;
   if (frameLimit !== undefined && !(Number.isInteger(frameLimit) && frameLimit >= 1)) {
     throw new Failure(`--frames must be an integer >= 1, got ${option('frames')}`, 2);
@@ -465,15 +587,28 @@ async function main() {
 
   let docText;
   let doc;
-  try {
-    docText = fs.readFileSync(docPath, 'utf8');
-  } catch (err) {
-    throw new Failure(`cannot read ${docPath}: ${err.message}`, 2);
-  }
-  try {
-    doc = JSON.parse(docText);
-  } catch (err) {
-    throw new Failure(`invalid JSON in ${docPath}: ${err.message}`, 2);
+  let inspectFile;
+  if (inspectOpt !== undefined) {
+    inspectFile = path.resolve(inspectOpt);
+    let ok = false;
+    try {
+      ok = fs.statSync(inspectFile).isFile();
+    } catch {
+      // missing
+    }
+    if (!ok) throw new Failure(`--inspect: cannot read model file ${inspectOpt}`);
+    if (!/\.(glb|gltf)$/i.test(inspectFile)) throw new Failure(`--inspect: ${inspectOpt} is not a .glb / .gltf file`, 2);
+  } else {
+    try {
+      docText = fs.readFileSync(docPath, 'utf8');
+    } catch (err) {
+      throw new Failure(`cannot read ${docPath}: ${err.message}`, 2);
+    }
+    try {
+      doc = JSON.parse(docText);
+    } catch (err) {
+      throw new Failure(`invalid JSON in ${docPath}: ${err.message}`, 2);
+    }
   }
 
   // Filled after validation (the served files map is read lazily by the vite plugin)
@@ -509,15 +644,20 @@ async function main() {
     await vite.listen();
 
     // Validation wins over every other failure: an invalid doc exits 2 with its issues
-    const { validateDoc } = await vite.ssrLoadModule(path.join(WEB, 'src/previs/validate.ts'));
-    const checkedDoc = validateDoc(doc);
-    if (!checkedDoc.ok) {
-      for (const i of checkedDoc.issues) console.error(`${i.path}: ${i.message}`);
-      throw new Failure(`invalid previs document (${checkedDoc.issues.length} issue${checkedDoc.issues.length === 1 ? '' : 's'})`, 2);
+    let checkedDoc = null;
+    let srcsToLoad = [inspectFile];
+    if (inspectFile === undefined) {
+      const { validateDoc } = await vite.ssrLoadModule(path.join(WEB, 'src/previs/validate.ts'));
+      checkedDoc = validateDoc(doc);
+      if (!checkedDoc.ok) {
+        for (const i of checkedDoc.issues) console.error(`${i.path}: ${i.message}`);
+        throw new Failure(`invalid previs document (${checkedDoc.issues.length} issue${checkedDoc.issues.length === 1 ? '' : 's'})`, 2);
+      }
+      // Fail fast (exit 1) on a missing model file the player loads, before Chrome starts
+      const { modelSrcsToLoad } = await vite.ssrLoadModule(path.join(WEB, 'src/previs/models.ts'));
+      srcsToLoad = modelSrcsToLoad(doc);
     }
-    // Fail fast (exit 1) on a missing model file the player loads, before Chrome starts
-    const { modelSrcsToLoad } = await vite.ssrLoadModule(path.join(WEB, 'src/previs/models.ts'));
-    const found = collectModels(modelSrcsToLoad(doc), docPath);
+    const found = collectModels(srcsToLoad, inspectFile ?? docPath);
     models.urls = found.urls;
     models.missing = found.missing;
     for (const [k, v] of found.files) models.files.set(k, v);
@@ -527,7 +667,7 @@ async function main() {
     }
     const chromePath = findChrome();
     if (!chromePath) throw new Failure('Chrome not found (set CHROME_PATH or --chrome=<path>)');
-    if (still === undefined && format !== 'png-seq') {
+    if (still === undefined && !multi && inspectFile === undefined && format !== 'png-seq') {
       const probe = spawn('ffmpeg', ['-hide_banner', '-encoders'], { stdio: ['ignore', 'pipe', 'ignore'] });
       let encoders = '';
       probe.stdout.on('data', (d) => (encoders += d));
@@ -543,7 +683,7 @@ async function main() {
     }
     // Shot / range selection needs the validated doc (unknown shot id: usage error)
     let selShot;
-    if (shotOpt !== undefined) {
+    if (shotOpt !== undefined && checkedDoc) {
       selShot = checkedDoc.doc.shots.find((sh) => sh.id === shotOpt);
       if (!selShot) {
         throw new Failure(`unknown shot "${shotOpt}" (shots: ${checkedDoc.doc.shots.map((sh) => sh.id).join(', ')})`, 2);
@@ -552,8 +692,8 @@ async function main() {
 
     const cdpPort = await freePort();
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'charturbo-previs-'));
-    const w = Number.isInteger(doc?.size?.width) && doc.size.width > 0 ? doc.size.width : 1200;
-    const h = Number.isInteger(doc?.size?.height) && doc.size.height > 0 ? doc.size.height : 900;
+    const w = inspectFile ? 64 : Number.isInteger(doc?.size?.width) && doc.size.width > 0 ? doc.size.width : 1200;
+    const h = inspectFile ? 64 : Number.isInteger(doc?.size?.height) && doc.size.height > 0 ? doc.size.height : 900;
     const chrome = spawn(
       chromePath,
       [
@@ -606,7 +746,9 @@ async function main() {
       }
     });
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
-      source: `window.__previsDoc = ${docText};window.__previsModels = ${JSON.stringify(models.urls)};`,
+      source: inspectFile
+        ? `window.__previsInspect = ${JSON.stringify({ src: models.urls[inspectFile] })};window.__previsModels = {};`
+        : `window.__previsDoc = ${docText};window.__previsModels = ${JSON.stringify(models.urls)};`,
     });
 
     const q = new URLSearchParams({ backend });
@@ -633,6 +775,10 @@ async function main() {
       const msg = `requested backend ${backend}, got ${state.backend}`;
       if (backendOpt !== undefined) throw new Failure(msg);
       info(`warning: ${msg}`);
+    }
+    if (inspectFile) {
+      printInspect(state.inspect, inspectOpt, flag('json'));
+      return;
     }
     const meta = await cdp.evaluate('window.previs.info()');
     info(`${state.backend}; ${meta.frames} frames @ ${meta.fps} fps, ${meta.width}x${meta.height}, ${meta.duration}s`);
@@ -704,6 +850,54 @@ async function main() {
       return entry;
     }
 
+    // The --still rule: frame index of time t
+    const frameOfTime = (t) => Math.min(meta.frames - 1, Math.max(0, Math.round(t * meta.fps)));
+    if (stillsOpt !== undefined) {
+      const reported = [];
+      for (let k = 0; k < stillTimes.length; k++) {
+        const i = frameOfTime(stillTimes[k]);
+        const file = stillNames[k];
+        fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+        if (wantBeauty) fs.writeFileSync(file, await grab(i));
+        let rep = file;
+        if (wantDepth) {
+          const base = file.replace(/\.png$/i, '');
+          const entry = await renderDepth(null, [i], (_k, png) => fs.writeFileSync(`${base}.depth.png`, png), () => {});
+          fs.writeFileSync(`${base}.depth.json`, JSON.stringify([entry], null, 2) + '\n');
+          if (!wantBeauty) rep = `${base}.depth.png`;
+        }
+        reported.push(rep);
+        info(`still t=${stillTimes[k].toFixed(2)} frame ${i} -> ${rep}`);
+      }
+      console.log(`frames=${stillTimes.length} fps=${meta.fps} size=${meta.width}x${meta.height} out=${reported.join(',')} backend=${state.backend} format=png`);
+      return;
+    }
+    if (contact) {
+      const n = contact.cols * contact.rows;
+      let start = 0;
+      let end = meta.duration;
+      if (selShot) [start, end] = [selShot.start, selShot.end];
+      else if (range) {
+        if (range[0] >= meta.duration) throw new Failure(`--range starts at ${range[0]} s, at or after the doc end (${meta.duration} s)`, 2);
+        [start, end] = [range[0], Math.min(range[1], meta.duration)];
+      }
+      const tileW = contact.tileWidth ?? Math.max(1, Math.round(meta.width / contact.cols));
+      const tileH = Math.max(1, Math.round((tileW * meta.height) / meta.width));
+      const labelH = 22;
+      const sheetW = contact.cols * tileW;
+      const sheetH = contact.rows * (tileH + labelH);
+      if (sheetW > 16384 || sheetH > 16384) {
+        throw new Failure(`contact sheet would be ${sheetW}x${sheetH} px (limit 16384 per side); use a smaller --tile-width or grid`, 2);
+      }
+      const times = Array.from({ length: n }, (_, i) => start + ((i + 0.5) * (end - start)) / n);
+      const spec = { frames: times.map(frameOfTime), times, cols: contact.cols, rows: contact.rows, tileW, tileH, labelH };
+      const url = await cdp.evaluate(`window.previs.contact(${JSON.stringify(spec)})`, 600_000);
+      if (typeof url !== 'string' || !url.startsWith('data:image/png;base64,')) throw new Failure('contact sheet: no PNG returned');
+      fs.mkdirSync(path.dirname(path.resolve(stillOut)), { recursive: true });
+      fs.writeFileSync(stillOut, Buffer.from(url.slice(22), 'base64'));
+      console.log(`frames=${n} fps=${meta.fps} size=${sheetW}x${sheetH} out=${stillOut} tiles=${contact.cols}x${contact.rows} span=${start}..${end} backend=${state.backend} format=png`);
+      return;
+    }
     if (still !== undefined) {
       const i = Math.min(meta.frames - 1, Math.max(0, Math.round(stillTime * meta.fps)));
       fs.mkdirSync(path.dirname(path.resolve(stillOut)), { recursive: true });

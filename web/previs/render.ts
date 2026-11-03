@@ -8,8 +8,13 @@
  *   window.previs.camera(i)   -> camera record of frame i (meters + engine-unit view / projection, see ./camera.ts)
  *   window.previs.measureFrame(i) -> { near_m, far_m } | null: foreground min / max planar depth (meters) of frame i, from a
  *                                'packed' depth render (SDK readDepthRange); null = no foreground pixel
+ *   window.previs.contact(spec) -> Promise<string>  PNG data URL of a contact sheet: tiles of the given frames, each with a label
+ *                                bar below (`t=<seconds> <shotId>`), composed on a 2D canvas (see scripts/previs-render.mjs --contact)
  *   window.previs.frame(i, { depth: { encoding: 'inverse'|'linear', near_m, far_m } }) -> PNG of the depth pass of frame i
  *                                (gray R=G=B, near = white, background 0; range in meters, engine units = meters * worldScale)
+ *
+ * Inspect mode (`window.__previsInspect = { src }` instead of `__previsDoc`): loads one model like the player does and
+ * stores `window.__previs.inspect` = { nodes: [{ index, name, depth, mesh, skinned, joint }], clips, bounds }; no doc, no frames.
  *
  * The depth pass needs MSAA off: entering it (frame with `depth`, measureFrame) calls `setAntialias(1)`; the next
  * `frame(i)` without `depth` restores beauty and the initial anti-aliasing (4 unless `aa=0`).
@@ -51,6 +56,23 @@ interface PrevisState {
   backend?: string;
   issues?: Issue[];
   error?: string;
+  inspect?: InspectResult;
+}
+
+interface InspectResult {
+  nodes: { index: number; name: string; depth: number; mesh: boolean; skinned: boolean; joint: boolean }[];
+  clips: { index: number; name: string; duration: number }[];
+  bounds: { min: number[]; max: number[]; size: number[] } | null;
+}
+
+interface ContactSpec {
+  frames: number[];
+  times: number[];
+  cols: number;
+  rows: number;
+  tileW: number;
+  tileH: number;
+  labelH: number;
 }
 
 declare global {
@@ -58,12 +80,14 @@ declare global {
     __previsDoc?: unknown;
     /** model.src -> URL served by the dev server (relative paths already resolved against the doc file's dir) */
     __previsModels?: Record<string, string>;
+    __previsInspect?: { src: string };
     __previs?: PrevisState;
     previs?: {
       info(): PrevisInfo;
       frame(i: number, opts?: { depth?: DepthFrameOptions }): Promise<string>;
       camera(i: number): Record<string, unknown>;
       measureFrame(i: number): { near_m: number; far_m: number } | null;
+      contact(spec: ContactSpec): Promise<string>;
     };
   }
 }
@@ -77,8 +101,72 @@ if (requested === 'webgl2') {
   Object.defineProperty(Navigator.prototype, 'gpu', { configurable: true, get: () => undefined });
 }
 
+interface GltfJson {
+  scene?: number;
+  scenes?: { nodes?: number[] }[];
+  nodes?: { name?: string; children?: number[]; mesh?: number; skin?: number }[];
+  skins?: { joints?: number[] }[];
+}
+
+/** JSON part of a GLB (first chunk) or a .gltf text; null when unreadable. */
+function gltfJson(b: Uint8Array): GltfJson | null {
+  try {
+    let text: string;
+    if (b.length >= 20 && b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46) {
+      const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      text = new TextDecoder().decode(b.subarray(20, 20 + dv.getUint32(12, true)));
+    } else text = new TextDecoder().decode(b);
+    return JSON.parse(text) as GltfJson;
+  } catch {
+    return null;
+  }
+}
+
+async function runInspect(state: PrevisState, src: string): Promise<PrevisState> {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  document.body.appendChild(canvas);
+  const sdk = await Charturbo.create(canvas, { autoResize: false, nodeCount: 0, edgeCount: 0 });
+  const url = new URL(src, location.href).href;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`model not served (${res.status})`);
+  const b = new Uint8Array(await res.arrayBuffer());
+  const decoders = await loadDecodersFor(gltfExtensions(b));
+  const isGlb = b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46;
+  const r = await sdk.loadGltf(isGlb ? b : url, { animations: true, textures: false, decoders });
+  const json = gltfJson(b);
+  if (!json) throw new Error('cannot read the glTF JSON');
+  const nodes = json.nodes ?? [];
+  const joints = new Set<number>();
+  for (const s of json.skins ?? []) for (const j of s.joints ?? []) joints.add(j);
+  const hasParent = new Set<number>();
+  for (const n of nodes) for (const c of n.children ?? []) hasParent.add(c);
+  const roots = json.scenes?.[json.scene ?? 0]?.nodes ?? nodes.map((_, i) => i).filter((i) => !hasParent.has(i));
+  const out: InspectResult['nodes'] = [];
+  const walk = (i: number, depth: number, seen: Set<number>): void => {
+    const n = nodes[i];
+    if (!n || seen.has(i)) return;
+    seen.add(i);
+    out.push({ index: i, name: n.name ?? `(node ${i})`, depth, mesh: n.mesh !== undefined, skinned: n.skin !== undefined, joint: joints.has(i) });
+    for (const c of n.children ?? []) walk(c, depth + 1, seen);
+  };
+  const seen = new Set<number>();
+  for (const i of roots) walk(i, 0, seen);
+  const { min, max } = r.bounds;
+  const finite = [...min, ...max].every((v) => Number.isFinite(v));
+  const inspect: InspectResult = {
+    nodes: out,
+    clips: r.animations.map((a, index) => ({ index, name: a.name, duration: a.duration })),
+    bounds: finite ? { min: [...min], max: [...max], size: [0, 1, 2].map((k) => max[k] - min[k]) } : null,
+  };
+  sdk.disposeGltf(r);
+  return { ...state, ok: true, backend: canvas.getContext('webgl2') ? 'webgl2' : 'webgpu', inspect };
+}
+
 async function run(): Promise<PrevisState> {
   const state: PrevisState = { done: true, ok: false, requestedBackend: requested };
+  if (window.__previsInspect) return runInspect(state, window.__previsInspect.src);
   const checked = validateDoc(window.__previsDoc);
   if (!checked.ok) return { ...state, issues: checked.issues, error: 'invalid previs document' };
   const doc: PrevisDoc = checked.doc;
@@ -171,6 +259,39 @@ async function run(): Promise<PrevisState> {
       player.frame(i / doc.fps);
       const r = sdk.readDepthRange();
       return r ? { near_m: r.near / worldScale, far_m: r.far / worldScale } : null;
+    },
+    async contact(spec) {
+      const { cols, rows, tileW, tileH, labelH } = spec;
+      const sheet = document.createElement('canvas');
+      sheet.width = cols * tileW;
+      sheet.height = rows * (tileH + labelH);
+      const g = sheet.getContext('2d');
+      if (!g) throw new Error('2D canvas unavailable');
+      g.fillStyle = '#1a1a1a';
+      g.fillRect(0, 0, sheet.width, sheet.height);
+      g.imageSmoothingEnabled = true;
+      g.imageSmoothingQuality = 'high';
+      g.font = '14px sans-serif';
+      g.textBaseline = 'middle';
+      for (let k = 0; k < spec.frames.length; k++) {
+        const i = spec.frames[k];
+        checkFrame(i);
+        enterBeauty();
+        player.frame(i / doc.fps);
+        sdk.render();
+        const img = new Image();
+        img.src = await sdk.toDataURL({ overlay: false, pixelRatio: 1, format: 'png' });
+        await img.decode();
+        const x = (k % cols) * tileW;
+        const y = Math.floor(k / cols) * (tileH + labelH);
+        g.drawImage(img, x, y, tileW, tileH);
+        g.fillStyle = '#2b2b2b';
+        g.fillRect(x, y + tileH, tileW, labelH);
+        g.fillStyle = '#eeeeee';
+        const shot = evaluateFrame(doc, i / doc.fps).shotId ?? '-';
+        g.fillText(`t=${spec.times[k].toFixed(2)} ${shot}`, x + 6, y + tileH + labelH / 2, tileW - 12);
+      }
+      return sheet.toDataURL('image/png');
     },
     async frame(i, opts) {
       checkFrame(i);
