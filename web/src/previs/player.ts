@@ -63,6 +63,12 @@
  * frame where clips AND joints both changed costs two applies (rotations first, then setBlend);
  * a frame where only one changed costs exactly one call.
  *
+ * POSE-ONLY (hidden models)
+ * A model node hidden at this frame (`visible` false at load, or by its `visible` track) has its animator in
+ * `setDrawEnabled(false)`: it is still posed every frame (joint frames for SOCKETS / re-parenting, ground lock via
+ * `posedMinAlong`), but no mesh matrices or skin palettes are built or sent to the engine. The frame that shows it again enables
+ * drawing first (the CURRENT pose is sent at once), then applies that frame's pose. Docs without hidden models make the same engine calls.
+ *
  * SOCKETS (`parentJoint`: a node attached to a joint of its `parent` model node)
  * One SOCKET object per (model node, joint), an alpha-0 unit box named `previs:<model>:joint:<joint>`,
  * parented to the model's PIVOT (never the scaled FIT: children must not be scaled); the child's pivot
@@ -221,6 +227,8 @@ interface ModelObjects {
   fitScale: Vec3;
   /** Ground-lock offset (engine units, pivot frame) the FIT and sockets carry; [0, 0, 0] without ground lock. */
   lift: Vec3;
+  /** False while the animator is pose-only (see POSE-ONLY). */
+  drawn: boolean;
   /** Bumped by every player call that re-poses the animator (setNodeRotations / setBlend). */
   poseVersion: number;
   /** Inputs of `lift`: [poseVersion, k (3), pivot world q (4), p_y]; null: not computed yet. */
@@ -569,9 +577,15 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
     fitPos: [-k[0] * center[0], -k[1] * center[1], -k[2] * center[2]],
     fitScale: [...k],
     lift: [0, 0, 0],
+    drawn: true,
     poseVersion: 0,
     liftKey: null,
   };
+  // Hidden at load: pose only (the first frame that shows it enables drawing, see POSE-ONLY)
+  if (animator && !o.meshVisible) {
+    animator.setDrawEnabled(false);
+    model.drawn = false;
+  }
   if (animator && jointNames.length > 0) sendJoints(model, joints); // initial offsets = frame 0
   if (anim && animator) {
     model.segments = segments = normalizeAnimation(anim);
@@ -805,6 +819,11 @@ function makePlayer(
           o.meshVisible = st.visible;
         }
         if (m?.animator) {
+          // Draw before the pose changes below: enabling sends the current pose at once, the setBlend after it the new one
+          if (m.drawn !== st.visible) {
+            m.animator.setDrawEnabled(st.visible);
+            m.drawn = st.visible;
+          }
           // Rotations first: setBlend then re-applies the pose with the new offsets
           if (st.joints && m.jointNames.length > 0) {
             const next = m.jointNames.map((name) => st.joints![name]);

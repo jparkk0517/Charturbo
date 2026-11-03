@@ -510,6 +510,10 @@ class RigPose {
   readonly jointOffsets: Uint32Array;
   /** False until the first `compose` (the buffers then still hold zeros; the engine shows the loader's rest pose) */
   evaluated = false;
+  /** False (pose-only): `compose` evaluates the node worlds only; mesh matrices and palettes are built by `ensureOutputs` on demand */
+  emit = true;
+  /** True when the node worlds are newer than `matrices` / `jointMatrices` */
+  private stale = false;
   /** Palette of each skin (shared by its objects) */
   private readonly palettes: Float32Array[];
   /** Second TRS buffer for blending (allocated on the first multi-clip blend) */
@@ -660,6 +664,23 @@ class RigPose {
       if (p < 0) world.set(local, i * 16);
       else mul4(world, p * 16, local, 0, world, i * 16);
     }
+    if (!this.emit) {
+      this.stale = true;
+      return;
+    }
+    this.stale = false;
+    this.outputs();
+  }
+
+  /** Builds `matrices` / `jointMatrices` from the current node worlds when a pose-only evaluation left them behind. */
+  ensureOutputs(): void {
+    if (!this.stale) return;
+    this.stale = false;
+    this.outputs();
+  }
+
+  private outputs(): void {
+    const { rig, world } = this;
     const { ids, nodes } = rig.targets;
     for (let k = 0; k < ids.length; k++) mul4(rig.base, 0, world, nodes[k] * 16, this.matrices, k * 16);
     const skins = rig.skinTargets.skins;
@@ -696,6 +717,7 @@ export class GltfAnimator {
   private blend = 1;
   private lastFrame: number | null = null;
   private disposed = false;
+  private drawOn = true;
   // setBlend scratch (validated entries; no per-call allocation)
   private readonly blendClips: GltfClip[] = [];
   private readonly blendTimes = new Float64Array(GLTF_MAX_BLEND_CLIPS);
@@ -960,6 +982,32 @@ export class GltfAnimator {
     return this;
   }
 
+  /** False after `setDrawEnabled(false)`: poses are evaluated but not sent to the engine. */
+  get drawEnabled(): boolean {
+    return this.drawOn;
+  }
+
+  /**
+   * Pose-only mode for a model that is not drawn (hidden). False: every pose change (play, seek, update, setBlend,
+   * setNodeRotations, render frames) still evaluates the rig, so `nodeMatrix` and `posedMinAlong` stay exact, but the
+   * mesh matrices and joint palettes are neither built nor sent to the engine (they are built on demand by
+   * `posedMinAlong`). True (the default): sends the CURRENT pose at once when one was evaluated, so the first drawn
+   * frame is exact. A change to the same value does nothing.
+   */
+  setDrawEnabled(enabled: boolean): this {
+    this.checkAlive('setDrawEnabled');
+    if (this.drawOn === enabled) return this;
+    this.drawOn = enabled;
+    const pose = this.pose;
+    if (!pose) return this;
+    pose.emit = enabled;
+    if (enabled && pose.evaluated) {
+      pose.ensureOutputs();
+      this.send();
+    }
+    return this;
+  }
+
   /** Stops (rest pose) and detaches from the render loop; `disposeGltf` disposes the model's animators. */
   dispose(): void {
     if (this.disposed) return;
@@ -1067,6 +1115,7 @@ export class GltfAnimator {
     if (!pose || (g.rigid.length === 0 && g.skinned.length === 0)) return min;
     // Not posed yet: the rest pose the loader sent (no overrides can exist before the first compose)
     if (!pose.evaluated) pose.evaluate(null, 0, 1);
+    pose.ensureOutputs();
     const mats = pose.matrices;
     for (const { target, positions: p } of g.rigid) {
       const m = target * 16;
@@ -1177,6 +1226,7 @@ export class GltfAnimator {
 
   /** Sends the evaluated pose: all mesh matrices in one call, all joint palettes in another. */
   private send(): void {
+    if (!this.drawOn) return;
     const pose = this.pose!;
     const { targets, skinTargets } = pose.rig;
     if (targets.ids.length > 0) this.host.setObjectMeshMatrices(targets.ids, pose.matrices);

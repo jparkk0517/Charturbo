@@ -111,6 +111,10 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
           calls.push(['animator.setBlend', a, entries]);
           return animator;
         },
+        setDrawEnabled: (enabled: boolean) => {
+          calls.push(['animator.setDrawEnabled', a, enabled]);
+          return animator;
+        },
         // base x world: the load scale multiplies rows 0..2 (not recorded: read every frame)
         nodeMatrix: (name: string, out?: Float32Array) => {
           if (!model.nodeNames.includes(name)) throw new Error(`GltfAnimator.nodeMatrix: no node named "${name}"`);

@@ -219,10 +219,22 @@ describe('previs model.groundLock', () => {
       tracks: { joints: crouch(0.5, 2), visible: [{ t: 0, v: true }, { t: 1, v: false }, { t: 2, v: true }] },
     });
     const player = await loadPrevisPlayer(scene.sdk, doc([w]), { resolveModel });
+    // Same doc without the visible track: the always-drawn reference for the hidden frames
+    const ref = drawnScene();
+    const always = walker('w', true, { ...w, tracks: { joints: crouch(0.5, 2) } });
+    const refPlayer = await loadPrevisPlayer(ref.sdk, doc([always]), { resolveModel });
     for (const t of [3, 0.2, 1.2, 1.4, 0, 2.2]) {
       player.frame(t);
-      expect(Math.abs(scene.minWorldY('w'))).toBeLessThan(1e-6);
+      refPlayer.frame(t);
+      const hidden = t >= 1 && t < 2;
+      // A hidden model is posed but not drawn (the engine keeps its last drawn pose): the lift is still computed
+      // from the posed vertices, so its FIT offset equals the always-visible run
+      if (!hidden) expect(Math.abs(scene.minWorldY('w'))).toBeLessThan(1e-6);
+      expect(Math.abs(ref.minWorldY('w'))).toBeLessThan(1e-6);
+      const fit = (s: typeof scene) => s.objects.get(s.idOf('previs:w:fit'))!.position;
+      for (let i = 0; i < 3; i++) expect(Math.abs(fit(scene)[i] - fit(ref)[i])).toBeLessThan(1e-6);
     }
+    refPlayer.dispose();
     player.dispose();
   });
 
