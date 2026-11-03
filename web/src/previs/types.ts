@@ -239,7 +239,28 @@ export interface Shot {
      * causes when the view direction passes through it.
      */
     up?: Track<Vec3>;
+    /**
+     * Handheld camera: deterministic noise added AFTER the tracks (and `follow`) are evaluated.
+     * Seven independent channels (eye x/y/z, target x/y/z, roll), each a 1D Perlin gradient noise
+     * (integer lattice, quintic fade 6t^5 - 15t^4 + 10t^3 from Perlin 2002 "Improving Noise", 1D
+     * gradients uniform in [-1, 1] from a seeded permutation as in Perlin 1985) of global time
+     * t * freq, scaled so every channel stays within
+     * [-1, 1] times its amplitude. Same doc + seed = identical frames; different channels never share
+     * a lattice. Noise is 0 at lattice points, so it does not jump at cuts but also does not restart.
+     */
+    shake?: CameraShake;
   };
+}
+
+export interface CameraShake {
+  /** Meters, >= 0: max offset of eye and target per axis. */
+  amp: number;
+  /** Noise lattice frequency in Hz (lattice points per second), > 0. */
+  freq: number;
+  /** Radians, >= 0: max roll offset. Default 0. */
+  roll?: number;
+  /** Integer seed. Default 0. */
+  seed?: number;
 }
 
 export interface PrevisDoc {

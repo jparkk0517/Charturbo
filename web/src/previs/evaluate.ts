@@ -547,13 +547,70 @@ export function worldTransform(
   return createParentResolver(doc, options).world(nodes, id);
 }
 
+// --- Camera shake: seeded 1D Perlin gradient noise -------------------------------------------
+// Perlin 2002, "Improving Noise": integer lattice, quintic fade 6t^5 - 15t^4 + 10t^3, 256-entry
+// permutation. 1D gradient at lattice point i is g = perm[i] / 127.5 - 1, in [-1, 1] (Perlin's
+// original 1D formulation with float gradients; 256 distinct values per channel).
+// Bound: with t in [0,1), u = fade(t), n = (1-u)*a*t + u*b*(t-1), a,b in [-1,1]. n is linear in
+// (a, b), so the extremum sits at a vertex a,b in {-1,1}. For a=-b=1, n = t + u(1-2t); on [0, 1/2]
+// fade(t) <= t, so n <= 2t - 2t^2 <= 1/2 (symmetric on [1/2, 1]). For a=b the value is +-(t - u),
+// |t - u| < 0.1. So |n| <= 1/2 and 2n is in [-1, 1].
+// Permutations: Fisher-Yates over 0..255 driven by mulberry32 (Tommy Ettinger's public-domain
+// 32-bit PRNG), seeded per (seed, channel) so no two channels share a lattice.
+function mulberry32(a: number): () => number {
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SHAKE_CHANNELS = 7; // eye x/y/z, target x/y/z, roll
+const permCache = new Map<number, Uint8Array[]>();
+
+function shakePerms(seed: number): Uint8Array[] {
+  const key = seed | 0;
+  let perms = permCache.get(key);
+  if (perms) return perms;
+  perms = [];
+  for (let c = 0; c < SHAKE_CHANNELS; c++) {
+    // Seed mix: Knuth multiplicative hash constant (2^32 / golden ratio) and the MurmurHash3 fmix32 constant
+    const rnd = mulberry32((Math.imul(key, 0x9e3779b1) ^ Math.imul(c + 1, 0x85ebca6b)) | 0);
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      const tmp = p[i];
+      p[i] = p[j];
+      p[j] = tmp;
+    }
+    perms.push(p);
+  }
+  if (permCache.size > 64) permCache.clear();
+  permCache.set(key, perms);
+  return perms;
+}
+
+/** 1D Perlin noise scaled to [-1, 1]; 0 at integer x. */
+export function perlin1(perm: Uint8Array, x: number): number {
+  const xf = Math.floor(x);
+  const t = x - xf;
+  const i = xf & 255;
+  const u = t * t * t * (t * (t * 6 - 15) + 10);
+  const a = (perm[i] / 127.5 - 1) * t;
+  const b = (perm[(i + 1) & 255] / 127.5 - 1) * (t - 1);
+  const n = 2 * (a + u * (b - a));
+  return n > 1 ? 1 : n < -1 ? -1 : n;
+}
+
 export function evaluateFrame(doc: PrevisDoc, time: number): FrameState {
   const shot = pickShot(doc, time);
   const nodes: Record<string, NodeState> = {};
   for (const n of doc.nodes) nodes[n.id] = nodeStateAt(n, time);
 
   const cam = shot.camera;
-  const eye = evalTrack<Vec3>(cam.position, time, [0, 0, 0]);
+  let eye = evalTrack<Vec3>(cam.position, time, [0, 0, 0]);
   let target: Vec3;
   if ('follow' in cam.target) {
     const id = cam.target.follow;
@@ -567,8 +624,22 @@ export function evaluateFrame(doc: PrevisDoc, time: number): FrameState {
     target = evalTrack<Vec3>(cam.target.track, time, [0, 0, 0]);
   }
   const fovDeg = evalTrack<number>(cam.fov, time, DEFAULT_FOV_DEG);
-  const roll = evalTrack<number>(cam.roll, time, 0);
+  let roll = evalTrack<number>(cam.roll, time, 0);
   const up = evalTrack<Vec3>(cam.up, time, [0, 1, 0]);
+
+  const sh = cam.shake;
+  if (sh) {
+    const perms = shakePerms(sh.seed ?? 0);
+    const x = time * sh.freq;
+    const a = sh.amp;
+    eye = [eye[0] + a * perlin1(perms[0], x), eye[1] + a * perlin1(perms[1], x), eye[2] + a * perlin1(perms[2], x)];
+    target = [
+      target[0] + a * perlin1(perms[3], x),
+      target[1] + a * perlin1(perms[4], x),
+      target[2] + a * perlin1(perms[5], x),
+    ];
+    if (sh.roll) roll += sh.roll * perlin1(perms[6], x);
+  }
 
   return { time, shotId: shot.id, camera: { eye, target, fovDeg, roll, up }, nodes };
 }

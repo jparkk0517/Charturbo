@@ -556,6 +556,20 @@ export function validateDoc(
           add(`${p}.camera`, 'camera position equals target (constant tracks); move position away from target so the camera has a view direction');
         }
       }
+      if (c.shake !== undefined) {
+        const sp = `${p}.camera.shake`;
+        const k = c.shake;
+        if (!isObj(k)) add(sp, 'shake must be { amp, freq, roll?, seed? }');
+        else {
+          for (const key of Object.keys(k)) {
+            if (!['amp', 'freq', 'roll', 'seed'].includes(key)) add(`${sp}.${key}`, `unknown shake key "${key}"; allowed: amp, freq, roll, seed`);
+          }
+          if (!isNum(k.amp) || k.amp < 0) add(`${sp}.amp`, `amp must be a finite number of meters >= 0; got ${JSON.stringify(k.amp)}`);
+          if (!isNum(k.freq) || k.freq <= 0) add(`${sp}.freq`, `freq must be a finite number of Hz > 0; got ${JSON.stringify(k.freq)}`);
+          if (k.roll !== undefined && (!isNum(k.roll) || k.roll < 0)) add(`${sp}.roll`, `roll must be a finite number of radians >= 0; got ${JSON.stringify(k.roll)}`);
+          if (k.seed !== undefined && !(isNum(k.seed) && Number.isInteger(k.seed))) add(`${sp}.seed`, `seed must be an integer; got ${JSON.stringify(k.seed)}`);
+        }
+      }
       if (c.fov !== undefined) {
         track(c.fov, `${p}.camera.fov`, (v, pp) => {
           if (isNum(v) && v >= 10 && v <= 120) return true;
