@@ -155,12 +155,19 @@ export function validateDoc(
         prev = k.t;
       }
       value(k.v, `${p}.v`);
-      if (k.ease !== undefined && !['linear', 'ease-in', 'ease-out', 'ease-in-out', 'step'].includes(k.ease as string)) {
-        add(`${p}.ease`, `ease must be one of linear, ease-in, ease-out, ease-in-out, step; got ${JSON.stringify(k.ease)}`);
+      if (k.ease !== undefined && !['linear', 'ease-in', 'ease-out', 'ease-in-out', 'step', 'smooth'].includes(k.ease as string)) {
+        add(`${p}.ease`, `ease must be one of linear, ease-in, ease-out, ease-in-out, step, smooth; got ${JSON.stringify(k.ease)}`);
       }
     });
   };
   const vecTrack = (t: unknown, path: string) => track(t, path, vec3);
+  // `smooth` may overshoot between keys: not allowed where a value outside the keys' range breaks things
+  const noSmooth = (t: unknown, path: string, why: string) => {
+    if (!Array.isArray(t)) return;
+    t.forEach((k, i) => {
+      if (isObj(k) && k.ease === 'smooth') add(`${path}[${i}].ease`, `ease "smooth" is not allowed on ${why} (it can overshoot between keys); use linear or ease-in-out`);
+    });
+  };
 
   // Nodes
   const nodeIds = new Set<string>();
@@ -197,6 +204,9 @@ export function validateDoc(
         if (typeof m.src !== 'string' || !m.src) add(`${mp}.src`, `model src must be a non-empty string (relative path or http(s)/data URL); got ${JSON.stringify(m.src)}`);
         if (m.fit !== undefined && m.fit !== 'contain' && m.fit !== 'stretch') {
           add(`${mp}.fit`, `fit must be contain or stretch; got ${JSON.stringify(m.fit)}`);
+        }
+        if (m.groundLock !== undefined && typeof m.groundLock !== 'boolean') {
+          add(`${mp}.groundLock`, `groundLock must be true or false; got ${JSON.stringify(m.groundLock)}`);
         }
         if (m.animation !== undefined) {
           const ap = `${mp}.animation`;
@@ -270,13 +280,19 @@ export function validateDoc(
         add(`${p}.color`, `node color differs from role "${n.role}" color; the handoff prompt maps the role color, so set the node color to ${JSON.stringify(rc.color)}`);
       }
     }
+    if (n.rotationPath !== undefined && n.rotationPath !== 'direct' && n.rotationPath !== 'shortest') {
+      add(`${p}.rotationPath`, `rotationPath must be direct or shortest; got ${JSON.stringify(n.rotationPath)}`);
+    }
     if (n.visible !== undefined && typeof n.visible !== 'boolean') add(`${p}.visible`, 'visible must be true or false');
     if (n.tracks !== undefined) {
       if (!isObj(n.tracks)) return add(`${p}.tracks`, 'tracks must be an object');
       const t = n.tracks;
       if (t.position !== undefined) vecTrack(t.position, `${p}.tracks.position`);
       if (t.rotation !== undefined) vecTrack(t.rotation, `${p}.tracks.rotation`);
-      if (t.size !== undefined) vecTrack(t.size, `${p}.tracks.size`);
+      if (t.size !== undefined) {
+        vecTrack(t.size, `${p}.tracks.size`);
+        noSmooth(t.size, `${p}.tracks.size`, 'size tracks (sizes must stay >= 0 and model fitting reads the key range)');
+      }
       if (t.joints !== undefined) {
         const jp = `${p}.tracks.joints`;
         if (n.shape !== 'model') {
@@ -546,6 +562,7 @@ export function validateDoc(
           add(pp, `fov must be a finite number of degrees in [10, 120] (engine clamp); got ${JSON.stringify(v)}`);
           return false;
         });
+        noSmooth(c.fov, `${p}.camera.fov`, 'fov tracks (fov must stay in [10, 120])');
       }
     });
   }

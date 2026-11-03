@@ -14,8 +14,18 @@
 export type Vec3 = [number, number, number];
 export type Rgb = [number, number, number];
 
-/** Easing of the segment that STARTS at a keyframe (`step` holds the value until the next key). */
-export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'step';
+/**
+ * Easing of the segment that STARTS at a keyframe (`step` holds the value until the next key).
+ *
+ * `smooth`: cubic Hermite through the keys with Catmull-Rom (finite difference) tangents in TIME,
+ * per component: m_k = (v_{k+1} - v_{k-1}) / (t_{k+1} - t_{k-1}); at the first / last key the
+ * one-sided difference (v_1 - v_0) / (t_1 - t_0) / (v_n - v_{n-1}) / (t_n - t_{n-1}). The curve passes
+ * through every key and its velocity is continuous at a key whose two neighboring segments are both
+ * `smooth` (a `smooth` segment next to another easing still meets the key value, not its speed).
+ * May overshoot between keys, so it is rejected on `size` tracks and `camera.fov`. Boolean tracks stay
+ * step-wise.
+ */
+export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'step' | 'smooth';
 
 export interface Keyframe<T> {
   /** Seconds on the global clock. */
@@ -90,6 +100,14 @@ export interface PrevisModel {
   fit?: PrevisModelFit;
   /** One clip, or clip segments (see `PrevisModelAnimation`). */
   animation?: PrevisModelAnimation | PrevisModelAnimation[];
+  /**
+   * Default false. When true, every frame the player shifts the model vertically (world Y, after the
+   * node's own transform, parents and re-parenting) so the lowest point of the POSED mesh (clips,
+   * blends and `tracks.joints` included) sits exactly on y = 0: feet stay on the floor while a crouch
+   * or a clip moves the hips. The authored height is therefore overridden; turn it off for jumps or
+   * models standing on something other than the ground. Props attached to its joints move with it.
+   */
+  groundLock?: boolean;
 }
 
 export interface PrevisNode {
@@ -124,6 +142,13 @@ export interface PrevisNode {
    * scales children or their offsets: world transform = parent translation + rotation only.
    */
   size: Vec3;
+  /**
+   * How `tracks.rotation` and `tracks.joints` interpolate angles, per Euler component. `'direct'`
+   * (default): the values as written. `'shortest'`: each key's component is first unwrapped by a
+   * multiple of 2π to lie within π of the previous key's (unwrapped) component, so yaw 3.0 -> -3.0
+   * turns 0.28 rad instead of 6.0. Per component, not a quaternion slerp; exact for single-axis turns.
+   */
+  rotationPath?: 'direct' | 'shortest';
   /** Initial visibility, default true. */
   visible?: boolean;
   tracks?: {

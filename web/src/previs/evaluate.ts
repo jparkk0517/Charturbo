@@ -29,6 +29,7 @@ import type {
   ClipWeight,
   Easing,
   FrameState,
+  Keyframe,
   NodeState,
   PrevisDoc,
   PrevisModelAnimation,
@@ -98,7 +99,61 @@ export function evalTrack<T extends number | Vec3 | boolean>(
   if (typeof a.v === 'boolean' || a.ease === 'step') return copyVal(a.v);
   const span = b.t - a.t;
   const u = span > 0 ? (t - a.t) / span : 1;
+  if (a.ease === 'smooth') return hermite(track, lo, hi, span, u);
   return lerp(a.v, b.v, applyEase(a.ease, u));
+}
+
+/** Cubic Hermite on segment lo..hi with Catmull-Rom tangents in time (one-sided at the track ends). */
+function hermite<T extends number | Vec3 | boolean>(track: Track<T>, lo: number, hi: number, span: number, u: number): T {
+  const last = track.length - 1;
+  const pl = track[Math.max(lo - 1, 0)];
+  const nl = track[Math.min(lo + 1, last)]; // hi
+  const pr = track[lo]; // lo
+  const nr = track[Math.min(hi + 1, last)];
+  const u2 = u * u;
+  const u3 = u2 * u;
+  const h00 = 2 * u3 - 3 * u2 + 1;
+  const h10 = u3 - 2 * u2 + u;
+  const h01 = -2 * u3 + 3 * u2;
+  const h11 = u3 - u2;
+  const comp = (c: number): number => {
+    const v0 = c < 0 ? (track[lo].v as number) : ((track[lo].v as Vec3)[c]);
+    const v1 = c < 0 ? (track[hi].v as number) : ((track[hi].v as Vec3)[c]);
+    const get = (k: Keyframe<T>) => (c < 0 ? (k.v as number) : (k.v as Vec3)[c]);
+    const m0 = (get(nl) - get(pl)) / (nl.t - pl.t);
+    const m1 = (get(nr) - get(pr)) / (nr.t - pr.t);
+    return h00 * v0 + h10 * span * m0 + h01 * v1 + h11 * span * m1;
+  };
+  if (typeof track[lo].v === 'number') return comp(-1) as T;
+  return [comp(0), comp(1), comp(2)] as Vec3 as T;
+}
+
+const wrapCache = new WeakMap<object, Track<number | Vec3 | boolean>>();
+
+/** Per component unwrap by multiples of 2π so each key lies within π of the previous (cached per track). */
+function unwrapTrack(track: Track<Vec3>): Track<Vec3> {
+  const hit = wrapCache.get(track);
+  if (hit) return hit as Track<Vec3>;
+  const TAU = Math.PI * 2;
+  const out: Track<Vec3> = [];
+  for (let i = 0; i < track.length; i++) {
+    const k = track[i];
+    if (i === 0) {
+      out.push({ ...k, v: [...k.v] as Vec3 });
+      continue;
+    }
+    const prev = out[i - 1].v;
+    const v: Vec3 = [0, 0, 0];
+    for (let c = 0; c < 3; c++) v[c] = k.v[c] - TAU * Math.round((k.v[c] - prev[c]) / TAU);
+    out.push({ ...k, v });
+  }
+  wrapCache.set(track, out);
+  return out;
+}
+
+/** Rotation-like track of a node honoring `rotationPath`. */
+function angleTrack(node: PrevisNode, track: Track<Vec3> | undefined): Track<Vec3> | undefined {
+  return track && node.rotationPath === 'shortest' ? unwrapTrack(track) : track;
 }
 
 /** End of the last shot (max shot end). 0 when there are no shots. */
@@ -182,14 +237,14 @@ export function nodeStateAt(node: PrevisNode, time: number): NodeState {
   const tr = node.tracks;
   const state: NodeState = {
     position: evalTrack(tr?.position, time, node.position),
-    rotation: evalTrack(tr?.rotation, time, node.rotation),
+    rotation: evalTrack(angleTrack(node, tr?.rotation), time, node.rotation),
     size: evalTrack(tr?.size, time, node.size),
     visible: evalTrack(tr?.visible, time, node.visible ?? true),
   };
   if (tr?.joints) {
     // Null prototype: a joint literally named "__proto__" stays an own key
     state.joints = Object.create(null) as Record<string, Vec3>;
-    for (const [name, jt] of Object.entries(tr.joints)) state.joints[name] = evalTrack(jt, time, [0, 0, 0]);
+    for (const [name, jt] of Object.entries(tr.joints)) state.joints[name] = evalTrack(angleTrack(node, jt), time, [0, 0, 0]);
   }
   const anim = node.model?.animation;
   if (anim) {
@@ -375,7 +430,7 @@ export function createParentResolver(doc: PrevisDoc, options: WorldTransformOpti
     const c = capture(node, key)!;
     const tk = node.tracks!.parent![key].t;
     const pk = evalTrack(node.tracks?.position, tk, node.position);
-    const rk = evalTrack(node.tracks?.rotation, tk, node.rotation);
+    const rk = evalTrack(angleTrack(node, node.tracks?.rotation), tk, node.rotation);
     return {
       p: [c.p[0] + pos[0] - pk[0], c.p[1] + pos[1] - pk[1], c.p[2] + pos[2] - pk[2]],
       q: qmul(c.q, qmul(qconj(euler(rk)), euler(rot))),
@@ -416,7 +471,7 @@ export function createParentResolver(doc: PrevisDoc, options: WorldTransformOpti
       key = st.parentRef?.key ?? (node.tracks?.parent && Number.isFinite(t) ? parentKeyAt(node, t) : -1);
     } else {
       pos = evalTrack(node.tracks?.position, t, node.position);
-      rot = evalTrack(node.tracks?.rotation, t, node.rotation);
+      rot = evalTrack(angleTrack(node, node.tracks?.rotation), t, node.rotation);
       key = parentKeyAt(node, t, strict);
     }
     return compose(frameOf(node, refValue(node, key), t, strict, depth, nodes), local(node, key, pos, rot));
