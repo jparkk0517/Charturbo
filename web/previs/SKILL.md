@@ -48,6 +48,13 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 - Weapons/props held by a model: child box with `parent: <model id>` + `parentJoint: '<joint name>'`; it follows the posed joint. Offsets are meters in the joint frame, not scaled by `fit`: when the model is drawn at another size than natural, scale offsets along the bone by k = size / natural size (walker: `k = size.y / 1.75`). Camera `follow` of a joint-attached node is rejected; follow the model node.
 - For hand-posed tweaks on top of clips (raise an arm, turn the head), use `tracks.joints` on the model node: joint name → track of Euler `[rx, ry, rz]` radians, additive in the joint's local frame. Joint names are the glTF node names; the load error `posable node "<name>" not found (nodes: ...)` lists them (up to 64), or use the SDK's `GltfAnimator.nodeNames`.
 
+## Authoring tips
+
+- Pick-ups and hand-offs: use `tracks.parent` (`{ node: "<hand pivot>" }`, then `null` for the throw) instead of hiding and showing two copies of the prop. Put the prop at the grab point before the switch. See guide "Re-parenting (tracks.parent)".
+- Crouching model (glTF): set `model.groundLock: true` so the feet stay on y = 0; turn it off for jumps. Jointed mannequins: `crouch` / `pickUp` need `limbs: 'jointed'` and the doc `fps`. See guide "Ground lock" and "Jointed limbs, crouch and pickUp".
+- Camera moves: `ease: "smooth"` on consecutive camera keys gives continuous speed through the keys. Not allowed on `fov`. See guide "Smooth easing".
+- Handheld look: `camera.shake: { amp (m), freq (Hz, required), roll?, seed? }`; same seed gives identical frames. See guide "Camera shake".
+
 ## Pitfalls
 
 - Prop sizes are real-world meters. A wrong-size box makes the model resize the object.

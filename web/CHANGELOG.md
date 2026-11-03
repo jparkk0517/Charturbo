@@ -5,6 +5,38 @@
 
 ## [Unreleased]
 
+### 변경 — 숨긴 모델은 포즈만 계산 (GltfAnimator.setDrawEnabled)
+
+- `GltfAnimator.setDrawEnabled(false)`이면 리그는 계속 평가하지만(`nodeMatrix` · `posedMinAlong` 정확) 메시 행렬과 스킨 팔레트는 만들지도 보내지도 않습니다. 다시 켜면 현재 포즈를 즉시 보냅니다. previs 플레이어는 그 프레임에 숨겨진 모델을 이 모드로 돌리므로, 관절에 소품만 매단 숨긴 모델의 스키닝 비용이 거의 0이 됩니다.
+
+### 추가 — previs 도구 (previs:check · 배럴 · previs:new · --inspect · --stills · --contact)
+
+- `npm run previs:check`: 모든 예제와 관절 소켓 · 압축 모델 장면의 스틸을 `--no-aa`로 렌더하고, 모든 픽셀이 팔레트 색(배경 · 노드 · 역할 색)과 정확히 같은지 검사합니다. 하나라도 다르면 종료 코드 1입니다. `--selftest`는 픽셀 1개 오류를 잡는지 확인합니다.
+- `web/src/previs/index.ts` 배럴(플레이어 제외)과 `npm run previs:new -- <name>` 생성기 템플릿을 추가했습니다. 함수 표는 `docs/previs/guide.md`의 「Script helpers」 절에 있습니다.
+- 렌더 스크립트: `--inspect=<glb|gltf> [--json]`(노드 트리 · 클립 길이 · 기본 자세 경계), `--stills=a,b,c`(Chrome 한 번에 여러 스틸), `--contact=CxR`(시간 · 샷 라벨이 붙은 콘택트 시트).
+
+### 추가 — 모델 바닥 고정 (model.groundLock)
+
+- previs glTF 모델 노드에 `model.groundLock?: boolean`(기본 `false`)을 추가했습니다. `true`이면 매 프레임 포즈가 적용된 메시(클립 · 블렌드 · `tracks.joints` 포함)의 가장 낮은 점이 y = 0에 오도록 모델을 수직으로 옮깁니다. 웅크리기나 클립으로 엉덩이가 내려가도 발이 바닥에 붙습니다. 저작된 높이는 덮어쓰이므로 점프나 바닥이 아닌 곳에 선 모델에는 끄세요. 노드 원점은 옮기지 않으므로 일반 `parent` 자식, 카메라 `follow`, `worldTransform`은 저작된 위치를 그대로 봅니다. 자세한 내용은 `docs/previs/guide.md`의 「Ground lock」 절을 참고하세요.
+
+### 추가 — 카메라 흔들림 (camera.shake)
+
+- previs 샷 카메라에 `camera.shake?: { amp, freq, roll?, seed? }`를 추가했습니다. 트랙과 `follow`를 계산한 뒤 눈 · 목표 · roll에 결정적 1D Perlin 노이즈를 더합니다. `amp`는 미터 단위로 축마다 눈과 목표의 최대 오프셋이고, `freq`(Hz, `> 0`)는 필수입니다. `roll`은 라디안 단위 최대 roll 오프셋(기본 0), `seed`는 정수(기본 0)입니다. 같은 문서와 시드는 같은 프레임을 만듭니다. 자세한 내용은 `docs/previs/guide.md`의 「Camera shake」 절을 참고하세요.
+
+### 추가 — 부드러운 보간 (ease: smooth) · 최단 회전 경로 (rotationPath)
+
+- 트랙 키의 `ease`에 `'smooth'`를 추가했습니다. 키를 지나는 큐빅 Hermite 곡선이며, 접선은 이웃 키의 시간 차분(Catmull-Rom)으로 구합니다. 양 끝 키에서는 한쪽 차분을 씁니다. 두 구간이 모두 `smooth`인 키에서는 속도가 이어지고, 값이 키 사이에서 넘칠 수 있으므로 `size` 트랙과 `camera.fov`에서는 거부합니다.
+- 노드에 `rotationPath?: 'direct' | 'shortest'`(기본 `'direct'`)를 추가했습니다. `'shortest'`는 `tracks.rotation`과 `tracks.joints`의 Euler 성분을 2π 배수로 풀어, 각 키가 이전 키와 π 이내가 되게 합니다. 요(yaw) 3.0 → -3.0은 6.0 rad이 아니라 0.28 rad만 돕니다. 성분별 처리이므로 한 축 회전에서 정확합니다. 자세한 내용은 `docs/previs/guide.md`의 「Smooth easing」 · 「Shortest rotation path」 절을 참고하세요.
+
+### 추가 — 재부모화 (tracks.parent: 집기 · 넘기기 · 던지기)
+
+- 노드에 `tracks.parent?: Track<{ node, joint?, snap? } | null>`(step)를 추가했습니다. 전환 시점의 월드 변환(관절 포즈 포함)을 유지하도록 이전 부모에서 캡처해 새 부모 좌표계로 옮깁니다. 전환 후 `tracks.position` · `tracks.rotation`은 전환 시점 값으로부터의 변화량(델타)으로 동작하므로 튀지 않고, `null`(월드) 뒤의 던지기 궤적은 놓은 지점 기준으로 씁니다. `snap: true`는 캡처를 건너뛰고 트랙을 새 부모 좌표계의 절대값으로 씁니다. 같은 시각에 여러 노드가 전환하면 모두 그 직전 상태를 기준으로 캡처합니다. 부모 순환은 모든 키 시각에서 거부하며, 관절에 붙은 노드는 카메라 `follow` 대상이 될 수 없습니다. 자세한 내용과 예제(병 집기 · 던지기)는 `docs/previs/guide.md`의 「Re-parenting (tracks.parent)」 절을 참고하세요.
+
+### 추가 — 관절 머니퀸 · crouch / pickUp (limbs: 'jointed')
+
+- `createMannequin`에 `limbs: 'jointed'`를 추가했습니다. `'full'`의 팔과 다리를 팔꿈치 · 무릎 피벗으로 두 조각씩 나눕니다(Drillis & Contini 1966 비율, Winter 표 인용). 관절 id 표는 `docs/previs/guide.md`의 「Jointed limbs, crouch and pickUp」 절에 있습니다.
+- `crouch({ mannequin, start, end, depth, from?, fps })`는 두 발을 바닥 지점에 고정한 채 엉덩이를 내리고 끝에서 유지합니다. `pickUp({ mannequin, side, target, start, grab, end, depth, lean?, fps, ... })`는 한 손을 월드 지점으로 뻗고 `{ motion, hand, miss }`를 반환합니다(`hand`는 소품을 붙일 피벗 id, `miss`는 `grab` 시점의 손-목표 거리). 둘 다 `limbs: 'jointed'`가 필요하고 문서의 `fps`를 넘겨야 합니다. 두 다리 IK는 `twoBoneIK`(해석적 2-bone IK)로 풉니다. 기존 rigid 팔다리 출력은 바뀌지 않습니다.
+
 ### 추가 — 깊이 출력 패스 (depth pass)
 
 - SDK에 `setRenderPass(pass, options?)` / `getRenderPass()` / `readDepthRange()`를 추가했습니다(`web/src/sdk/scene-depth.ts`). `setRenderPass('depth', { encoding?, near?, far? })`는 매 프레임을 평면 뷰 깊이의 회색 맵으로 바꿉니다. `encoding`은 `'inverse'`(기본, near = 흰색 255, 배경 0) · `'linear'` · `'packed'`(측정용 24비트)이며, `readDepthRange()`는 `packed` 프레임의 전경 최소/최대 깊이(엔진 단위)를 읽습니다. depth 패스는 MSAA를 끈 상태에서만 동작하고(`setAntialias(4)`는 depth 패스 중 거부, depth 패스는 MSAA 4에서 거부), 불투명 지오메트리만 나타납니다.

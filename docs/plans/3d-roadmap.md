@@ -148,7 +148,7 @@ Epic 8 → Epic 9 → Epic 10. Within an epic, tasks on disjoint files run in pa
 | 7.3 | sonnet | Textures are loaded then dropped by previs (256 MiB budget exceeded with 20 x 2048² models; `KHR_texture_basisu` / `EXT_texture_webp` required files rejected): `GltfLoadOptions.textures?: false` skips images and allows texture-only extensions; unknown-node errors list ALL node names | `web/src/sdk/scene-gltf.ts` + tests | — | 20 x 2048² models load with `textures: false`; basisu-required file loads |
 | 7.4 | haiku | Player passes `textures: false`; docs: joint-error text matches code, visibility-track pitfall (static `visible` vs first key), `camera.up`, `textures` | `web/src/previs/player.ts` (1 line), `docs/previs/guide.md`, `web/previs/SKILL.md`, `web/CHANGELOG.md` | 7.2, 7.3 | grep shows no stale text |
 
-## Epic 8. AI-video outputs (C)
+## Epic 8. AI-video outputs (C) — DONE
 
 | ID | Tier | Task | Files | Depends | Done when |
 | --- | --- | --- | --- | --- | --- |
@@ -158,18 +158,18 @@ Epic 8 → Epic 9 → Epic 10. Within an epic, tasks on disjoint files run in pa
 | 8.3b DONE (approved 2026-11-03: planar z-depth, MSAA off, per-shot measured range) | opus | Depth pass implementation per the approved design: Rust pass + wasm + SDK `render({ pass: 'depth' })` (new module, not charturbo.ts bloat) + `--passes=depth` in the render script | crates renderer, `web/src/sdk/*` (new module), render script | 8.3a + user approval of numbers, 8.1 | depth png sequence matches analytic depth of a test scene |
 | 8.4 DONE | haiku | Docs for 8.1-8.3 | docs | 8.3b | — |
 
-## Epic 9. Authoring power (B)
+## Epic 9. Authoring power (B) — DONE
 
 | ID | Tier | Task | Files | Depends | Done when |
 | --- | --- | --- | --- | --- | --- |
-| 9.1 DONE | opus | Pick-up / hand-off / throw: `tracks.parent?: Track<{ node, joint? } | null>` (step), world transform kept at each switch; evaluate exports `worldTransform` (rotation too, joint-aware via the player) | `types.ts` (contract), `evaluate.ts`, `player.ts`, `validate.ts` + tests | Epic 7, 8.2 | bottle picked from a crate, carried, thrown with no pop in stills |
+| 9.1 DONE | opus | Pick-up / hand-off / throw: `tracks.parent?: Track<{ node, joint?, snap? } | null>` (step), world transform kept at each switch; evaluate exports `worldTransform` (rotation too, joint-aware via the player) | `types.ts` (contract), `evaluate.ts`, `player.ts`, `validate.ts` + tests | Epic 7, 8.2 | bottle picked from a crate, carried, thrown with no pop in stills |
 | 9.2 DONE | opus | `model.groundLock?: boolean`: keep the posed model's lowest point on y = 0 (posed bounds from mesh matrices / CPU skin positions) | `player.ts`, `scene-gltf-anim.ts` (bounds read-back) + tests | 9.1 (player.ts) | walker crouch via tracks.joints keeps feet on the floor |
 | 9.3 DONE | sonnet | Smooth interpolation `ease: 'smooth'` (Catmull-Rom through keys) and `shortest` angle unwrap for rotation tracks | `evaluate.ts`, `validate.ts`, `types.ts` (contract) + tests | 9.1 (evaluate.ts) | speed continuous across keys; yaw 3.0 → -3.0 turns 0.28 rad |
-| 9.4 DONE | sonnet | Handheld camera: `camera.shake?: { amp, freq?, roll?, seed? }` deterministic 1D Perlin noise on eye / target / roll | `evaluate.ts`, `types.ts` (contract), `validate.ts` + tests | 9.3 | same seed = identical frames; amplitude within spec |
+| 9.4 DONE | sonnet | Handheld camera: `camera.shake?: { amp, freq, roll?, seed? }` (freq required: no sourced default) deterministic 1D Perlin noise on eye / target / roll | `evaluate.ts`, `types.ts` (contract), `validate.ts` + tests | 9.3 | same seed = identical frames; amplitude within spec |
 | 9.5 DONE | opus | Mannequin `limbs: 'jointed'` (elbow, knee pivots) + `crouch()` / `pickUp()` helpers with foot-planted two-bone analytic IK; joint key table in docs | `web/src/previs/mannequin.ts` + tests | — | crouch keeps feet on the floor, knees bend forward |
-| 9.6 | haiku | Docs for 9.x | docs | 9.5 | — |
+| 9.6 DONE | haiku | Docs for 9.x | docs | 9.5 | — |
 
-## Epic 10. Tools and docs (D)
+## Epic 10. Tools and docs (D) — DONE
 
 | ID | Tier | Task | Files | Depends | Done when |
 | --- | --- | --- | --- | --- | --- |

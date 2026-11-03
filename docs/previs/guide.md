@@ -84,11 +84,11 @@ Source of truth: `web/src/previs/types.ts`. Units: meters, radians, sRGB colors 
 | `shots` | `Shot[]` sorted, covering `[0, duration)` with no gap or overlap |
 | `markers?` | `{ t, label }[]`: timed events on the global clock (seconds within the doc); `label` non-empty. Listed in the handoff prompt |
 
-**Node:** `id` (`[A-Za-z0-9_.-]+`, unique), `shape` (`box`/`sphere`/`cylinder`/`model`), `model` (required for `model`, forbidden otherwise), `color`, `position`, `rotation`, `size`, optional `parent`, `parentJoint` (glTF joint name; needs a `model` parent), `role`, `visible`, `tracks` (`position`, `rotation`, `size`, `visible`, and `joints` on `model` nodes).
+**Node:** `id` (`[A-Za-z0-9_.-]+`, unique), `shape` (`box`/`sphere`/`cylinder`/`model`), `model` (required for `model`, forbidden otherwise), `color`, `position`, `rotation`, `size`, optional `parent`, `parentJoint` (glTF joint name; needs a `model` parent), `role`, `visible`, `rotationPath?` (`'direct'` default, or `'shortest'`, see "Shortest rotation path"), `tracks` (`position`, `rotation`, `size`, `visible`, `joints` on `model` nodes, and `parent` for re-parenting, see "Re-parenting").
 
-**Shot:** `id`, `start`, `end`, `camera: { position: Track, target, fov?, roll?, up? }`, `note?` (free text; shown in the handoff shot list). `target` is `{ track }` (look-at points) or `{ follow: nodeId, offset? }`. `fov` is a vertical angle in degrees, default 45. `roll?` is a `Track<number>` in radians, default 0; positive tilts the camera's up toward screen right, so the scene appears to turn counterclockwise. Same track rules as `fov`. `up?` is a `Track<Vec3>` giving the world up direction over time, default `[0, 1, 0]`; it need not be unit length, a zero vector is rejected, neighbouring keys must not point in opposite directions (the interpolation would pass through zero; add an intermediate key), and `roll` is applied on top of it. Use it for a crane over the target: key `[0, 1, 0]` at the start and `[0, 0, -1]` once the eye is above the target. Without that switch the image flips 180° when the view direction passes through the fixed up.
+**Shot:** `id`, `start`, `end`, `camera: { position: Track, target, fov?, roll?, up?, shake? }`, `note?` (free text; shown in the handoff shot list). `target` is `{ track }` (look-at points) or `{ follow: nodeId, offset? }`. `fov` is a vertical angle in degrees, default 45. `roll?` is a `Track<number>` in radians, default 0; positive tilts the camera's up toward screen right, so the scene appears to turn counterclockwise. Same track rules as `fov`. `up?` is a `Track<Vec3>` giving the world up direction over time, default `[0, 1, 0]`; it need not be unit length, a zero vector is rejected, neighbouring keys must not point in opposite directions (the interpolation would pass through zero; add an intermediate key), and `roll` is applied on top of it. Use it for a crane over the target: key `[0, 1, 0]` at the start and `[0, 0, -1]` once the eye is above the target. Without that switch the image flips 180° when the view direction passes through the fixed up. `shake?` is handheld noise added on top of the tracks (see "Camera shake").
 
-**Track:** `[{ t, v, ease? }]`, `t` strictly increasing; the value is held before the first and after the last key. `ease` applies to the segment starting at that key: `linear` (default), `ease-in`, `ease-out`, `ease-in-out`, `step`. Boolean tracks are always step-wise.
+**Track:** `[{ t, v, ease? }]`, `t` strictly increasing; the value is held before the first and after the last key. `ease` applies to the segment starting at that key: `linear` (default), `ease-in`, `ease-out`, `ease-in-out`, `step`, `smooth` (see "Smooth easing"). Boolean tracks and `tracks.parent` are always step-wise.
 
 Rules to remember:
 
@@ -98,13 +98,90 @@ Rules to remember:
 - Hidden shapes: `visible: false` or a `visible` track (the player draws them with alpha 0). A track holds its first key before that key, so a node with static `visible: false` and a `visible` track whose first key is `true` at t > 0 is VISIBLE from t = 0. Always add an explicit `{ "t": 0, "v": false }` key.
 - `shape: "model"` requires `model: { src, fit?, animation? }`; `model` on any other shape is an error. See "Model nodes (glTF)".
 
+### Smooth easing (`ease: "smooth"`)
+
+`ease: "smooth"` on a key shapes the segment that starts at that key as a cubic Hermite through the keys, with Catmull-Rom tangents taken in time from the neighbouring keys (one-sided at the first and last key). The curve passes through every key. When both segments meeting a key are `smooth`, the speed is continuous across that key, so a camera move through several keys has no jerk at each one. A `smooth` segment next to another easing still reaches the key value, but not its speed. The curve may overshoot between keys, so `smooth` is rejected on `size` tracks and on `camera.fov` (use `linear` or `ease-in-out` there). Boolean tracks and `tracks.parent` stay step-wise.
+
+```json
+"position": [
+  { "t": 0,   "v": [0, 1.4, 4], "ease": "smooth" },
+  { "t": 1.5, "v": [1, 1.4, 3], "ease": "smooth" },
+  { "t": 3.0, "v": [2, 1.6, 2] }
+]
+```
+
+Here both segments are `smooth`, so the camera's speed is continuous at 1.5 s.
+
+### Shortest rotation path (`rotationPath`)
+
+`rotationPath: "shortest"` on a node unwraps each Euler component of `tracks.rotation` and `tracks.joints` by multiples of 2π, so each key lies within π of the previous one. Yaw 3.0 → -3.0 then turns 0.28 rad instead of 6.0. Interpolation stays per component (not a quaternion slerp), so it is exact for turns about one axis. The default `'direct'` uses the values as written. `camera.roll` and `position` are not affected.
+
+### Re-parenting (`tracks.parent`)
+
+`tracks.parent` is a step track of `{ node, joint?, snap? }` or `null`, where `null` means world. Before its first key the static `parent` (and `parentJoint`) applies. `node` is any node id: a mannequin pivot such as `a.handL` needs no `joint`; `joint` names a glTF joint of a `shape: "model"` node.
+
+- At each key the node's WORLD transform (position, rotation, joint pose included) is kept. The player captures it under the old parent and expresses it in the new parent's frame, so there is no pop at the switch.
+- After the switch, `tracks.position` and `tracks.rotation` act as DELTAS from their own value at the switch time, in the new parent's frame. An unchanged track keeps the node where the switch left it. A throw after `null` is written relative to the release point.
+- `snap: true` skips the capture: the tracks are absolute in the new parent's frame again, so the node jumps to that frame. Use it when a pop is intended.
+- `size` and `visible` are not affected.
+- When several nodes switch at the same time (a hand-off), every capture uses the configuration just before that time.
+- Parent cycles are rejected at every key time. A camera `follow` cannot target a node that hangs from a joint at any time (follow the model with an `offset` instead).
+- Put the object at the grab point before the switch (for `pickUp`, its `target` at `grab`), so the switch itself does not move it.
+
+Example: a bottle is picked up by the mannequin's left hand pivot at 1.2 s (`pickUp` returns `hand: "a.handL"`), released at 2.0 s and thrown. Values are illustrative. After `null` the position keys are offsets from the release value `[0.35, 0.9, 0.45]`, so the throw moves the bottle +0.8 m and +0.5 m up by 2.6 s.
+
+```json
+{ "id": "bottle", "shape": "cylinder", "role": "prop", "color": [0.1, 0.8, 0.3],
+  "position": [0.35, 0.9, 0.45], "rotation": [0, 0, 0], "size": [0.07, 0.25, 0.07],
+  "tracks": {
+    "parent": [
+      { "t": 1.2, "v": { "node": "a.handL" } },
+      { "t": 2.0, "v": null }
+    ],
+    "position": [
+      { "t": 0,   "v": [0.35, 0.9, 0.45] },
+      { "t": 1.2, "v": [0.35, 0.9, 0.45] },
+      { "t": 2.0, "v": [0.35, 0.9, 0.45] },
+      { "t": 2.6, "v": [1.15, 1.4, 0.45] },
+      { "t": 3.2, "v": [1.95, 0.8, 0.45] }
+    ]
+  } }
+```
+
+### Ground lock (`model.groundLock`)
+
+`model.groundLock: true` (default `false`, on a `shape: "model"` node) moves the model vertically on every frame so the lowest point of the POSED mesh (clip, blends and `tracks.joints` included) sits exactly on y = 0. Feet stay on the floor while a crouch or a clip lowers the hips. The authored height is overridden, so turn it off for jumps and for models standing on something other than the ground. Props on its joints move with it. The node origin itself is NOT moved: plain `parent` children, camera `follow` and `worldTransform` still see the authored position.
+
+```json
+"model": { "src": "models/walker.glb", "groundLock": true, "animation": { "clip": "walk" } }
+```
+
+### Camera shake (`camera.shake`)
+
+`camera.shake` adds handheld noise to the camera after its tracks and `follow` are evaluated. Fields:
+
+| Field | Description |
+| --- | --- |
+| `amp` | Meters, `>= 0`: maximum offset of eye and target on each axis |
+| `freq` | Hz, `> 0`, required: lattice frequency of the noise (lattice points per second) |
+| `roll?` | Radians, `>= 0`, default `0`: maximum roll offset |
+| `seed?` | Integer, default `0` |
+
+The noise is seven independent 1D Perlin channels (eye x/y/z, target x/y/z, roll), derived from the seed. The same doc and seed give identical frames. The noise is 0 at lattice points, so it does not jump at cuts, but it also does not restart at a cut.
+
+```json
+"camera": { "position": [{ "t": 0, "v": [0, 1.5, 5] }],
+            "target": { "follow": "a.body" },
+            "shake": { "amp": 0.02, "freq": 3, "roll": 0.01, "seed": 7 } }
+```
+
 ## Mannequin helpers
 
 Import from `web/src/previs/mannequin.ts`. All return plain data and never mutate inputs.
 
 | API | Description |
 | --- | --- |
-| `createMannequin({ id, color, role?, height?=1.75, position?, limbs? })` | Returns `{ nodes, joints }`. Default is exactly 3 visible blocks (`.lower`, `.upper`, `.head.mesh`) on invisible pivots. `limbs`: `'none'` (default), `'arms'`, `'full'` |
+| `createMannequin({ id, color, role?, height?=1.75, position?, limbs? })` | Returns `{ nodes, joints }`. Default is exactly 3 visible blocks (`.lower`, `.upper`, `.head.mesh`) on invisible pivots. `limbs`: `'none'` (default), `'arms'`, `'full'`, `'jointed'` (elbow and knee pivots, required for `crouch` and `pickUp`; see "Jointed limbs") |
 | `walk({ joints, from, to, start, end, stepsPerSecond?=1.8 })` | Root moves `from` to `to`, yaws once to face travel direction, spine bobs, limbs swing |
 | `jump({ joints, start, airTime, height, base? })` | Vertical hop of the root |
 | `raiseArm({ joints, side, start, end, angle?=2.6, from? })` | Needs arms; holds the final angle |
@@ -113,8 +190,54 @@ Import from `web/src/previs/mannequin.ts`. All return plain data and never mutat
 | `applyMotion(nodes, fragments)` | Merges motion fragments into node tracks; throws on unknown node |
 | `attachProp(nodes, parentJointId, { id, size, color, role?, offset? })` | Box child of a joint (e.g. `handR`). `size` = real-world meters |
 | `twoToneBox({ id, size, front, back, role?, position? })` | Product-spin box: pivot `id` plus `.front` (+z half) and `.back` (-z half). Spin the pivot's `ry` |
+| `crouch({ mannequin, start, end, depth, from?, fps })` | Hips straight down by `depth` m with both feet planted; holds at the end. Needs `limbs: 'jointed'` |
+| `pickUp({ mannequin, side, target, start, grab, end, depth, lean?, fps, rootPosition?, rootYaw? })` | Bends and reaches one hand to a world `target` at `grab`, back to rest at `end`. Returns `{ motion, hand, miss }`. Needs `limbs: 'jointed'` |
+| `twoBoneIK(l1, l2, ty, tz, bend)` | Low-level analytic two-bone IK in a joint's local y-z plane; out-of-reach distances are clamped |
 
 Color helpers (`web/src/previs/handoff.ts`): `suggestRoleColors(count, avoid?)` returns deterministic, distinct colors maximizing distance to `avoid` and to each other; `colorName(rgb, 'ko'|'en')`.
+
+### Jointed limbs, crouch and pickUp
+
+`createMannequin({ ..., limbs: 'jointed' })` is `'full'` with every arm and leg split in two (elbow and knee pivots). Only jointed mannequins accept `crouch` and `pickUp`; a rigid one throws. The segment ratios follow Drillis & Contini (1966) as tabulated in Winter, "Biomechanics and Motor Control of Human Movement", Fig. 4.1. The total arm and leg lengths stay those of the rigid mannequin.
+
+Joint id table (X = `L` or `R`; `L` is the character's left = +x). Node ids are `${id}.<name>`, e.g. `a.elbowL`. Pivot axes are the pivot's local axes; at rest every limb hangs straight down (-y) and all rotations are 0.
+
+| id                | kind  | parent       | joint, local offset           | bend axis, positive bend      |
+| ----------------- | ----- | ------------ | ----------------------------- | ----------------------------- |
+| `.shoulderX`      | pivot | `.spine`     | shoulder (as `'full'`)        | rx < 0 swings the arm forward; ry yaws the elbow plane |
+| `.upperArmX`      | block | `.shoulderX` | 0.32 h * 0.560 long           | -                             |
+| `.elbowX`         | pivot | `.shoulderX` | elbow, [0, -upperArm, 0]      | rx; flexion = rx < 0 (forearm swings forward / up, elbow points back) |
+| `.forearmX`       | block | `.elbowX`    | 0.32 h * 0.440 long           | -                             |
+| `.handX`          | pivot | `.elbowX`    | wrist, [0, -forearm, 0]       | none (prop parent)            |
+| `.hipX`           | pivot | `.hips`      | hip joint (as `'full'`)       | rx < 0 swings the thigh forward |
+| `.thighX`         | block | `.hipX`      | 0.48 h * 0.499 long           | -                             |
+| `.kneeX`          | pivot | `.hipX`      | knee, [0, -thigh, 0]          | rx; flexion = rx > 0 (shin swings back, knee points forward +z) |
+| `.shinX`          | block | `.kneeX`     | 0.48 h * 0.501 long           | -                             |
+| `.footX`          | pivot | `.kneeX`     | ankle / ground point, [0, -shin, 0] (world y = 0 at rest) | none |
+
+The `'full'` blocks `.armX` / `.legX` do not exist in `'jointed'`; root, hips, spine, head, `.lower` (pelvis), `.upper` and `.head.mesh` are identical to `'full'`. `createMannequin` returns `joints` with the same ids: `handL/R`, `elbowL/R`, `kneeL/R`, `footL/R`, and so on.
+
+`crouch` and `pickUp` both take `fps`: pass the doc's `fps`. They emit one solved key per frame (`t = k / fps`), so the planted feet and the hand are exact on every rendered frame. Between keys the angles interpolate linearly and the feet can drift slightly.
+
+```ts
+import { createMannequin, crouch, pickUp, applyMotion, attachProp } from '../../src/previs/index.ts';
+
+const m = createMannequin({ id: 'a', color: [0.5, 0, 1], limbs: 'jointed' });
+
+// crouch: hips 0.35 m down between 0.5 s and 1.0 s, feet stay on the ground points, then hold
+const crouched = applyMotion(m.nodes, crouch({ mannequin: m, start: 0.5, end: 1.0, depth: 0.35, fps: 24 }));
+
+// pickUp: reach the left hand to a world point at 1.2 s, back at rest at 2.0 s
+const { motion, hand, miss } = pickUp({
+  mannequin: m, side: 'left', target: [0.35, 0.9, 0.45],
+  start: 0, grab: 1.2, end: 2.0, depth: 0.3, fps: 24,
+});
+const picking = applyMotion(m.nodes, motion);
+// `hand` is the pivot id, here "a.handL". `miss` is the hand-to-target distance at `grab`, in meters (0 = reached).
+// Parent the object to `hand` with tracks.parent (see "Re-parenting"), or attach a rigid child: attachProp(picking, hand, {...}).
+```
+
+Do not put `crouch` and `pickUp` on the same node and property over overlapping times (see Limits): sequence them.
 
 ## Model nodes (glTF)
 
@@ -132,6 +255,7 @@ Use a glTF model (`.glb` / `.gltf`) where silhouette, contact or pose matters (a
 | `model.src` | Relative path or absolute `http(s):` / `data:` URL; non-empty |
 | `model.fit?` | `'contain'` (default): uniform scale so the rest-pose bounds fit inside `size`. `'stretch'`: per-axis, bounds match `size` exactly |
 | `model.animation?` | `{ clip, start?, speed?, loop?, blendIn? }` or an array of such segments (see below) |
+| `model.groundLock?` | Boolean, default `false`. Keeps the lowest point of the posed mesh on y = 0 every frame; see "Ground lock" |
 | `animation.clip` | Clip name or non-negative integer index |
 | `animation.start?` | Global seconds at which clip time 0 plays, default `0`; before it the first pose is held |
 | `animation.speed?` | Clip seconds per global second, `> 0`, default `1` |
@@ -208,6 +332,9 @@ With 2 or more shots, the prompt also carries a shot list (`- s1: 0.00 s–1.46 
 - No per-object visibility API: hiding = alpha 0. A `visible` track holds its first key before that key, so add `{ "t": 0, "v": false }` (see Hidden shapes).
 - Model nodes: clip segments with cross-fade are supported (array form above); textures are not loaded and material colors are dropped; only the rest pose drives `fit`.
 - Motions on the same node and property must not overlap in time; `applyMotion` does not detect it and interleaves keys. Sequence them (for example two `walk`s on one root, back to back).
+- `ease: "smooth"` is rejected on `size` tracks and `camera.fov`. `camera.shake` needs `freq` (Hz, `> 0`); `amp` is meters.
+- `groundLock` moves the model's drawn position, not its authored origin; turn it off for jumps.
+- `crouch` / `pickUp` need `limbs: 'jointed'` and the doc `fps`. `pickUp` returns the hand pivot id as `hand`; use it as the `attachProp` parent or as a `tracks.parent` `node`.
 
 ## Minimal example
 
