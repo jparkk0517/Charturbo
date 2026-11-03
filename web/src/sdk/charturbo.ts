@@ -37,6 +37,7 @@ import {
   type ScenePointLightsBackend,
 } from './scene-lights';
 import { resolveAntialias, sendAntialias, type AntialiasBackend, type CharturboAntialias, type CharturboAntialiasSamples } from './antialias';
+import { decodeDepthRange, defaultRenderPass, resolveRenderPass, sendRenderPass, type DepthOutputBackend, type DepthPassOptions, type RenderPassKind, type RenderPassState } from './scene-depth';
 export type { CameraControlOptions } from './camera-controls';
 
 export type { TouchInteractionOptions } from './chart-gestures';
@@ -1687,7 +1688,7 @@ export interface SceneDescriptor {
 }
 
 export interface WasmCharturboEngineBackend
-  extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend, ScenePostBackend, ScenePointLightsBackend, AntialiasBackend {
+  extends AnimationBackend, ZoomBackend, RenderStatsBackend, SceneShadowsBackend, ScenePostBackend, ScenePointLightsBackend, AntialiasBackend, DepthOutputBackend {
   /** SVG of the last frame (chart/svg.rs; header comment + markup) */
   chart_export_svg?(maxMarks: number, id: string): string;
   reload_dataset(seed: number, nodeCount: number, edgeCount: number, clusterCount: number): void;
@@ -3271,6 +3272,7 @@ export class Charturbo {
   private shadowsState: SceneShadowsState = defaultShadowsState();
   private postState: ScenePostSettings = defaultPostSettings();
   private antialiasState: CharturboAntialiasSamples = 1;
+  private renderPassState: RenderPassState = defaultRenderPass();
   private helpersState: Required<SceneHelpersDescriptor> = {
     showGrid: false,
     gridSize: 200,
@@ -8406,12 +8408,56 @@ export class Charturbo {
     if (samples !== 1 && samples !== 4) {
       throw new Error(`setAntialias: samples must be 1 or 4 (got ${String(samples)})`);
     }
+    if (samples > 1 && this.renderPassState.pass === 'depth') {
+      throw new Error("setAntialias: anti-aliasing must stay off during the depth pass (WebGL2 cannot sample a multisampled depth buffer); call setRenderPass('beauty') first");
+    }
     this.antialiasState = sendAntialias(this.backend, samples);
   }
 
   /** Applied main-pass sample count (1 = off, 4 = MSAA x4). */
   getAntialias(): CharturboAntialiasSamples {
     return this.antialiasState;
+  }
+
+  /**
+   * `'depth'`: every rendered frame shows the encoded planar view depth instead of the beauty
+   * image (AI video conditioning; encodings and range in scene-depth.ts). `'beauty'` (default)
+   * restores normal frames. Needs `getAntialias() === 1` (throws otherwise); throws on invalid
+   * options (`near` / `far` in engine units, required for `inverse` / `linear`).
+   */
+  setRenderPass(pass: RenderPassKind, options?: DepthPassOptions): void {
+    const next = resolveRenderPass('setRenderPass', pass, options, this.antialiasState);
+    sendRenderPass('setRenderPass', this.backend, next);
+    this.renderPassState = next;
+  }
+
+  getRenderPass(): RenderPassState {
+    return { ...this.renderPassState };
+  }
+
+  /**
+   * Renders one `packed` depth frame and returns the foreground min / max planar depth in engine
+   * units (`null`: nothing drawn). Throws unless `setRenderPass('depth', { encoding: 'packed' })`.
+   */
+  readDepthRange(): { near: number; far: number } | null {
+    const s = this.renderPassState;
+    if (s.pass !== 'depth' || s.encoding !== 'packed') {
+      throw new Error("readDepthRange: needs setRenderPass('depth', { encoding: 'packed' })");
+    }
+    const canvas = this.canvas;
+    if (!canvas) throw new Error('readDepthRange: no canvas (create the SDK with Charturbo.create)');
+    const far = this.backend.get_depth_clip_planes?.()[1];
+    if (far === undefined) throw new Error('readDepthRange: this engine has no depth output');
+    if (canvas.width === 0 || canvas.height === 0) throw new Error('readDepthRange: the canvas has zero size');
+    const out = document.createElement('canvas');
+    out.width = canvas.width;
+    out.height = canvas.height;
+    const ctx = out.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error('readDepthRange: 2D canvas unavailable');
+    // Render and copy in the same task (a WebGPU canvas loses its frame once presented)
+    this.render();
+    ctx.drawImage(canvas, 0, 0);
+    return decodeDepthRange(ctx.getImageData(0, 0, out.width, out.height).data, far);
   }
 
   private sendShading(): void {

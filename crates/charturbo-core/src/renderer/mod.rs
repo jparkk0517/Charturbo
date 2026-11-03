@@ -2,6 +2,7 @@ use crate::camera::OrbitCamera;
 use crate::domain::GraphDataset;
 use bytemuck::{Pod, Zeroable};
 
+pub mod depth_out;
 mod fill_style;
 pub mod gpu_context;
 pub mod gpu_layout;
@@ -21,6 +22,7 @@ pub use fill_style::{fill_emphasis_tag, merge_ranges, with_lit, ChartFillPatch, 
 pub use heatmap::{ChartHeatmapGrid, ChartHeatmapStyleRaw, HEATMAP_LUT_SIZE};
 pub use parallel::{ChartParallelStyleRaw, PARALLEL_ACTIVE, PARALLEL_HIDDEN, PARALLEL_INACTIVE};
 pub use env_prefilter::EnvCheck;
+pub use depth_out::DepthOutFrame;
 pub use post::{AutoExposureParams, BloomParams, PostFrame};
 pub use stats::{chart_layer_bytes, RenderStats};
 
@@ -678,6 +680,11 @@ pub trait RenderBackend {
     fn post_processing_supported(&self) -> bool {
         false
     }
+    /// Depth output pass for this frame (`None` = off: the frame keeps the beauty image). On:
+    /// after the main pass a fullscreen pass replaces the frame with the encoded planar depth of
+    /// the frame's depth buffer (`depth_out`). Sent every frame (the camera's clip planes are
+    /// read per frame). The engine only enables it at sample count 1.
+    fn sync_depth_output(&mut self, _depth: Option<&DepthOutFrame>) {}
     /// Uploads changed chart layers (see `ChartLayers`); unchanged layers are passed as `None`.
     fn sync_chart(&mut self, _layers: &ChartLayers<'_>) {}
     /// Background color the frame is cleared to.
@@ -823,6 +830,8 @@ pub struct MockRenderBackend {
     /// Last `sync_post_processing` frame (`None` = off) and the reported device support
     pub last_post: Option<PostFrame>,
     pub post_supported: bool,
+    /// Last `sync_depth_output` frame (`None` = off)
+    pub last_depth_out: Option<DepthOutFrame>,
     /// Last `sync_point_shadows` frame (`None` = off)
     pub last_point_shadows: Option<PointShadowFrame>,
     /// Fake device support for MSAA x4 and the applied sample count (0 = never set: 1)
@@ -907,6 +916,10 @@ impl RenderBackend for MockRenderBackend {
 
     fn post_processing_supported(&self) -> bool {
         self.post_supported
+    }
+
+    fn sync_depth_output(&mut self, depth: Option<&DepthOutFrame>) {
+        self.last_depth_out = depth.copied();
     }
 
     fn set_sample_count(&mut self, samples: u32) -> u32 {

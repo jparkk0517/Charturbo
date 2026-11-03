@@ -190,7 +190,7 @@ impl OrbitCamera {
 
     /// Near / far planes: orbit uses `z_near` / `z_far`; an exact pose uses `EXACT_NEAR` (never
     /// above the orbit near) and the same `z_far`.
-    fn clip_planes(&self) -> (f32, f32) {
+    pub fn clip_planes(&self) -> (f32, f32) {
         match self.exact {
             Some(_) => (EXACT_NEAR.min(self.z_near), self.z_far),
             None => (self.z_near, self.z_far),

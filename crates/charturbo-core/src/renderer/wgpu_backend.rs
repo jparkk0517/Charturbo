@@ -32,6 +32,8 @@ mod shadow;
 mod msaa;
 #[path = "wgpu_post.rs"]
 mod post_gpu;
+#[path = "wgpu_depth_out.rs"]
+mod depth_out_gpu;
 use post_gpu::{hdr_source, mesh_format, mesh_slot};
 pub use msaa::{msaa_target_bytes, resolve_sample_count};
 
@@ -231,6 +233,10 @@ pub struct WgpuRenderBackend {
     post: Option<post_gpu::PostState>,
     /// The device renders the `Rgba16Float` HDR targets at (1x, x4)
     hdr_targets: (bool, bool),
+    /// Depth output pipeline (built on the first depth output frame, shared like `post_pipes`)
+    depth_out_pipes: Rc<depth_out_gpu::LazyDepthOut>,
+    /// This engine's depth output uniform + bind group while it is on (`sync_depth_output`)
+    depth_out: Option<depth_out_gpu::DepthOutState>,
 }
 
 /// Environment map bind group of the PBR mesh pipelines (group 2).
@@ -583,6 +589,7 @@ pub struct GpuPipelines {
     mesh_pbr: Rc<LazyMeshPbr>,
     shadow: Rc<shadow::LazyShadow>,
     post: Rc<post_gpu::LazyPost>,
+    depth_out: Rc<depth_out_gpu::LazyDepthOut>,
     node_pipeline: wgpu::RenderPipeline,
     node_translucent_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
@@ -1022,6 +1029,8 @@ impl WgpuRenderBackend {
             post_pipes: p.post.clone(),
             post: None,
             hdr_targets,
+            depth_out_pipes: p.depth_out.clone(),
+            depth_out: None,
         }
     }
 
@@ -1037,7 +1046,8 @@ impl WgpuRenderBackend {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            // Sampled by the depth output pass (`wgpu_depth_out.rs`)
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         texture.create_view(&wgpu::TextureViewDescriptor::default())
@@ -1471,6 +1481,10 @@ impl GpuPipelines {
             |b| b.shadow.clone(),
         );
         let post = base.map_or_else(|| Rc::new(post_gpu::LazyPost::new(format)), |b| b.post.clone());
+        let depth_out = base.map_or_else(
+            || Rc::new(depth_out_gpu::LazyDepthOut::new(format)),
+            |b| b.depth_out.clone(),
+        );
 
         Self {
             target,
@@ -1485,6 +1499,7 @@ impl GpuPipelines {
             mesh_pbr,
             shadow,
             post,
+            depth_out,
             node_pipeline,
             node_translucent_pipeline,
             edge_pipeline,
@@ -1938,6 +1953,10 @@ impl RenderBackend for WgpuRenderBackend {
         self.post_supported()
     }
 
+    fn sync_depth_output(&mut self, depth: Option<&crate::renderer::DepthOutFrame>) {
+        self.apply_depth_output(depth);
+    }
+
     fn sync_shadows(&mut self, shadows: Option<&crate::renderer::ShadowFrame>) {
         self.apply_shadows(shadows);
         // After `sync_lighting` and `sync_point_shadows`: build the receivers of the selected
@@ -2112,6 +2131,8 @@ impl RenderBackend for WgpuRenderBackend {
             });
             self.draw_scene(&mut rpass, resident_bind.as_ref(), true);
         }
+        // Depth output: replaces the frame with the encoded depth of the pass above
+        self.encode_depth_out(&mut encoder, &view);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -2176,6 +2197,7 @@ impl RenderBackend for WgpuRenderBackend {
             PresentTarget::Blit { .. } => {}
         }
         self.depth_view = Self::create_depth_view(&self.device, width, height);
+        self.invalidate_depth_out_group();
         if self.msaa.is_some() {
             self.msaa = Some(msaa::MsaaTargets::new(&self.device, self.config.format, self.samples, width, height));
         }

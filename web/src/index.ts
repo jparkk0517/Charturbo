@@ -207,6 +207,13 @@ export {
   type ScenePointLightsBackend,
 } from './sdk/scene-lights';
 export { type CharturboAntialias, type CharturboAntialiasSamples, type AntialiasBackend } from './sdk/antialias';
+export {
+  type DepthEncoding,
+  type DepthOutputBackend,
+  type DepthPassOptions,
+  type RenderPassKind,
+  type RenderPassState,
+} from './sdk/scene-depth';
 export { type ChartDataTable, type ChartDataCell, type DataTableOptions } from './sdk/chart-a11y';
 export { type ChartImageFormat, type ChartImageOptions } from './sdk/chart-export';
 export { type ChartAnnotation, type AnnotationX } from './sdk/chart-annotations';

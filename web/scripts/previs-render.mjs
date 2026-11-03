@@ -5,7 +5,8 @@
 //   node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2]
 //        [--frames=N] [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots]
 //        [--force] [--camera-json=<file>] [--chrome=path] [--no-aa]
-//   node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..]
+//        [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear]
+//   node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]
 //
 // --format    mp4 (default: libx264 -crf 14 yuv420p BT.709), mp4-lossless (libx264rgb -crf 0 -preset veryslow, RGB,
 //             0 off-palette pixels; needs an ffmpeg with libx264rgb, else exit 1; many players cannot play RGB H.264)
@@ -27,7 +28,28 @@
 //             directory that already holds such files is a usage error (exit 2)
 //             A shot shorter than one frame under --split-shots is skipped (warning, frames: [] in cuts.json).
 // --still=S   render ONE frame at time S seconds to --out (PNG), no ffmpeg (cheap preview)
-// --no-aa     disable the 4x MSAA of the main pass
+// --no-aa     disable the 4x MSAA of the main pass (beauty only; with --passes=depth it has no effect: exit 2)
+// --passes     beauty (default), depth, or beauty,depth. Depth = AI-video conditioning map (see src/sdk/scene-depth.ts): gray
+//             R=G=B, near = white, background (no geometry) = 0, opaque meshes only. Written next to the beauty output:
+//             <out-stem>.depth.mp4 (or <out-stem>.depth/ with --format=png-seq; same --format codec as beauty, mp4 is
+//             yuv420p limited range so 0..255 becomes 16..235; use png-seq or mp4-lossless for exact codes) and, with
+//             --split-shots, <out-stem>.<shot>.depth.mp4 (png-seq: <out-stem>.depth/<shot>/). --shot / --range / --handles /
+//             --frames / --force apply to the depth output the same way. --passes=depth writes only the depth output (<out>
+//             itself is only the base name). The depth pass needs MSAA off: in ONE page load the beauty pass keeps its MSAA,
+//             all beauty jobs run first, then the page switches to MSAA off (setAntialias(1)) for all depth jobs; with
+//             --passes=depth the page loads with MSAA off. Beauty bytes are the same as a beauty-only run.
+// --depth-range  shot (default) | frame | <near>..<far> meters. shot: per output job (a split shot incl. handles, or the whole
+//             render when not split) one range = foreground min / max planar depth over its frames, measured by a first pass
+//             in 'packed' encoding (precision far-plane / 2^24); frame: the same per frame; <near>..<far>: fixed, engine
+//             units = meters * worldScale (doc.worldScale, default 10). A shot / frame with no foreground pixel is all 0
+//             (warning on stderr). A measured near == far (e.g. one flat wall) is a failure: pass a fixed range.
+// --depth-encoding  inverse (default): v = (1/D - 1/far) / (1/near - 1/far); linear: v = (far - D) / (far - near); clamped
+//             0..1, byte = round(255 v). D = planar view depth (meters).
+//             Sidecar <out-stem>.depth.json = [{ shot, near_m, far_m, encoding, range, formula }] (range = shot | frame |
+//             fixed; shot null when not split; near_m / far_m null with no foreground; in frame mode they span the job and
+//             `frames` lists { frame, near_m, far_m } per frame).
+//             --still=<s> with depth: renders that one frame, range from that frame alone ('shot' = 'frame'; or fixed);
+//             --passes=depth writes only <out-stem>.depth.png (+ <out-stem>.depth.json), beauty,depth writes <out> too.
 // --chrome    Chrome binary (or CHROME_PATH)
 //
 // glTF models (`shape: 'model'`): a relative `model.src` resolves against the DOC FILE's directory and is served by the
@@ -352,7 +374,8 @@ async function main() {
     throw new Failure(
       'usage: node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2] [--frames=N]\n' +
         '         [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots] [--camera-json=<file>] [--chrome=path] [--no-aa]\n' +
-        '       node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..]\n' +
+        '         [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear]\n' +
+        '       node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]\n' +
         '  <out> is the mp4 file, or a directory for --format=png-seq (frame_000000.png ...)',
       2,
     );
@@ -361,6 +384,38 @@ async function main() {
   if (format !== 'mp4' && format !== 'mp4-lossless' && format !== 'png-seq') {
     throw new Failure(`--format must be mp4, mp4-lossless or png-seq, got ${format}`, 2);
   }
+  const passList = (option('passes') ?? 'beauty').split(',');
+  if (passList.some((p) => p !== 'beauty' && p !== 'depth') || new Set(passList).size !== passList.length) {
+    throw new Failure(`--passes must be beauty, depth or beauty,depth, got ${option('passes')}`, 2);
+  }
+  const wantBeauty = passList.includes('beauty');
+  const wantDepth = passList.includes('depth');
+  const depthRangeOpt = option('depth-range');
+  const depthEncOpt = option('depth-encoding');
+  if (!wantDepth) {
+    const given = [
+      ['depth-range', depthRangeOpt !== undefined],
+      ['depth-encoding', depthEncOpt !== undefined],
+    ].find(([, g]) => g);
+    if (given) throw new Failure(`--${given[0]} needs depth in --passes (--passes=depth or --passes=beauty,depth)`, 2);
+  } else if (!wantBeauty && flag('no-aa')) {
+    throw new Failure('--no-aa has no effect with --passes=depth (the depth pass always renders without MSAA); remove it', 2);
+  }
+  const depthEncoding = depthEncOpt ?? 'inverse';
+  if (depthEncoding !== 'inverse' && depthEncoding !== 'linear') {
+    throw new Failure(`--depth-encoding must be inverse or linear, got ${depthEncoding}`, 2);
+  }
+  let depthRangeMode = 'shot';
+  let depthFixed = null;
+  if (depthRangeOpt !== undefined && depthRangeOpt !== 'shot' && depthRangeOpt !== 'frame') {
+    const parts = depthRangeOpt.split('..');
+    const near = parts.length === 2 && parts[0] !== '' && parts[1] !== '' ? [Number(parts[0]), Number(parts[1])] : null;
+    if (!near || !Number.isFinite(near[0]) || !Number.isFinite(near[1]) || !(near[0] > 0 && near[0] < near[1])) {
+      throw new Failure(`--depth-range must be shot, frame or <near>..<far> meters with 0 < near < far, got ${depthRangeOpt}`, 2);
+    }
+    depthRangeMode = 'fixed';
+    depthFixed = { near_m: near[0], far_m: near[1] };
+  } else if (depthRangeOpt !== undefined) depthRangeMode = depthRangeOpt;
   const shotOpt = option('shot');
   const rangeOpt = option('range');
   const splitShots = flag('split-shots');
@@ -555,7 +610,7 @@ async function main() {
     });
 
     const q = new URLSearchParams({ backend });
-    if (flag('no-aa')) q.set('aa', '0');
+    if (flag('no-aa') || !wantBeauty) q.set('aa', '0');
     const loaded = cdp.once('Page.loadEventFired', 120_000);
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${vitePort}/render.html?${q}` });
     await loaded;
@@ -588,11 +643,79 @@ async function main() {
       return Buffer.from(url.slice(22), 'base64');
     };
 
+    const cameraRecords = new Map();
+    const depthFormula =
+      depthEncoding === 'inverse'
+        ? 'v = clamp((1/D - 1/far_m) / (1/near_m - 1/far_m), 0, 1); byte = round(255 * v); R = G = B = byte; D = planar view depth in meters; no geometry = 0'
+        : 'v = clamp((far_m - D) / (far_m - near_m), 0, 1); byte = round(255 * v); R = G = B = byte; D = planar view depth in meters; no geometry = 0';
+    const grabDepth = async (i, r) => {
+      const opts = JSON.stringify({ depth: { encoding: depthEncoding, near_m: r.near_m, far_m: r.far_m } });
+      const url = await cdp.evaluate(`window.previs.frame(${i}, ${opts})`);
+      if (typeof url !== 'string' || !url.startsWith('data:image/png;base64,')) throw new Failure(`frame ${i}: no depth PNG returned`);
+      return Buffer.from(url.slice(22), 'base64');
+    };
+    const merge = (a, b) => (!a ? b : !b ? a : { near_m: Math.min(a.near_m, b.near_m), far_m: Math.max(a.far_m, b.far_m) });
+    // Any valid range: used where nothing is foreground, so every pixel is 0 whatever the range
+    const noForeground = { near_m: 1 / meta.worldScale, far_m: 2 / meta.worldScale };
+    const checkRange = (r, what) => {
+      if (r && !(r.near_m < r.far_m)) {
+        throw new Failure(`${what}: measured near == far (${r.near_m} m, one flat surface); pass a fixed --depth-range=<near>..<far>`);
+      }
+      return r;
+    };
+    /**
+     * Depth pass over frame indices: measure (shot / frame range), render each frame, hand the PNG to emit(k, png).
+     * Returns the sidecar entry.
+     */
+    async function renderDepth(shot, indices, emit, tick) {
+      const label = shot ? `shot "${shot}"` : 'depth pass';
+      const measure = async (i) => await cdp.evaluate(`window.previs.measureFrame(${i})`);
+      const entry = { shot, near_m: null, far_m: null, encoding: depthEncoding, range: depthRangeMode, formula: depthFormula };
+      let shotRange = null;
+      if (depthRangeMode === 'fixed') shotRange = depthFixed;
+      else if (depthRangeMode === 'shot') {
+        for (const i of indices) shotRange = merge(shotRange, await measure(i));
+        checkRange(shotRange, label);
+        if (!shotRange) info(`warning: ${label} has no foreground pixels; depth frames are all 0`);
+      }
+      const perFrame = [];
+      let span = null;
+      let empty = 0;
+      for (let k = 0; k < indices.length; k++) {
+        const i = indices[k];
+        let r = shotRange;
+        if (depthRangeMode === 'frame') {
+          r = checkRange(await measure(i), `${label} frame ${i}`);
+          perFrame.push({ frame: i, near_m: r?.near_m ?? null, far_m: r?.far_m ?? null });
+          span = merge(span, r);
+          if (!r) empty++;
+        }
+        await emit(k, await grabDepth(i, r ?? noForeground));
+        if (cameraJson && !wantBeauty && !cameraRecords.has(i)) cameraRecords.set(i, await cdp.evaluate(`window.previs.camera(${i})`));
+        tick();
+      }
+      if (depthRangeMode === 'frame') {
+        if (empty > 0) info(`warning: ${label}: ${empty} of ${indices.length} frames have no foreground pixels; those depth frames are all 0`);
+        entry.frames = perFrame;
+        shotRange = span;
+      }
+      entry.near_m = shotRange?.near_m ?? null;
+      entry.far_m = shotRange?.far_m ?? null;
+      return entry;
+    }
+
     if (still !== undefined) {
       const i = Math.min(meta.frames - 1, Math.max(0, Math.round(stillTime * meta.fps)));
       fs.mkdirSync(path.dirname(path.resolve(stillOut)), { recursive: true });
-      fs.writeFileSync(stillOut, await grab(i));
-      console.log(`frames=1 fps=${meta.fps} size=${meta.width}x${meta.height} out=${stillOut} frame=${i} backend=${state.backend} format=png`);
+      if (wantBeauty) fs.writeFileSync(stillOut, await grab(i));
+      let reportedStill = stillOut;
+      if (wantDepth) {
+        const base = stillOut.replace(/\.png$/i, '');
+        const entry = await renderDepth(null, [i], (_k, png) => fs.writeFileSync(`${base}.depth.png`, png), () => {});
+        fs.writeFileSync(`${base}.depth.json`, JSON.stringify([entry], null, 2) + '\n');
+        if (!wantBeauty) reportedStill = `${base}.depth.png`;
+      }
+      console.log(`frames=1 fps=${meta.fps} size=${meta.width}x${meta.height} out=${reportedStill} frame=${i} backend=${state.backend} format=png`);
       return;
     }
 
@@ -642,17 +765,32 @@ async function main() {
       if (empty) throw new Failure(`${empty.shot ? `shot "${empty.shot}"` : '--range'} selects no frames (fps ${meta.fps}, ${meta.frames} frames)`, 2);
     }
 
+    // Depth output of a job (next to the beauty output, see the header)
+    const depthOutOf = (j) =>
+      splitShots
+        ? format === 'png-seq'
+          ? path.join(`${stem}.depth`, safeName(j.shot))
+          : `${stem}.${safeName(j.shot)}.depth${ext}`
+        : format === 'png-seq'
+          ? `${stem}.depth`
+          : `${stem}.depth${ext}`;
+    const passJobs = [];
+    if (wantBeauty) passJobs.push({ kind: 'beauty', jobs: jobs.map((j) => ({ ...j })) });
+    if (wantDepth) passJobs.push({ kind: 'depth', jobs: jobs.map((j) => ({ ...j, out: depthOutOf(j) })) });
+
     // png-seq: never mix new frames with stale ones from an earlier run
     if (format === 'png-seq') {
       const frameRe = /^frame_\d{6}\.png$/;
       const stale = [];
-      for (const j of jobs) {
-        if (j.skip) continue;
-        let names = [];
-        try {
-          names = fs.readdirSync(j.out);
-        } catch {}
-        for (const n of names) if (frameRe.test(n)) stale.push(path.join(j.out, n));
+      for (const { jobs: pj } of passJobs) {
+        for (const j of pj) {
+          if (j.skip) continue;
+          let names = [];
+          try {
+            names = fs.readdirSync(j.out);
+          } catch {}
+          for (const n of names) if (frameRe.test(n)) stale.push(path.join(j.out, n));
+        }
       }
       if (stale.length > 0 && !force) {
         throw new Failure(`${stale.length} frame_NNNNNN.png file(s) already in ${path.dirname(stale[0])}; pass --force to delete them or pick an empty directory`, 2);
@@ -660,45 +798,57 @@ async function main() {
       for (const f of stale) fs.rmSync(f, { force: true });
     }
 
-    const total = jobs.reduce((n, j) => n + (j.skip ? 0 : j.last - j.first + 1), 0);
-    const cameraRecords = new Map();
+    const total = passJobs.length * jobs.reduce((n, j) => n + (j.skip ? 0 : j.last - j.first + 1), 0);
     const t0 = Date.now();
     let nextReport = 1;
     let done = 0;
-    for (const job of jobs) {
-      if (job.skip) continue;
-      const count = job.last - job.first + 1;
-      let ff = null;
-      if (format === 'png-seq') {
-        fs.mkdirSync(job.out, { recursive: true });
-      } else {
-        fs.mkdirSync(path.dirname(path.resolve(job.out)), { recursive: true });
-        ff = startFfmpeg(meta.fps, job.out, format);
-        let complete = false;
-        job.markComplete = () => (complete = true);
-        // Cleanups run in reverse: kill ffmpeg first, then drop a partial mp4
-        cleanups.push(() => {
-          if (!complete) fs.rmSync(job.out, { force: true });
-        });
-        cleanups.push(() => ff.proc.kill('SIGKILL'));
+    const tick = () => {
+      done++;
+      if (done / total >= nextReport / 10) {
+        nextReport = Math.floor((done / total) * 10) + 1;
+        info(`${done}/${total} frames (${Math.round((done / total) * 100)}%), ${((Date.now() - t0) / 1000 / done).toFixed(3)} s/frame`);
       }
-      for (let k = 0; k < count; k++) {
-        const i = job.first + k;
-        const png = await grab(i);
-        if (ff) await ff.write(png);
-        else fs.writeFileSync(path.join(job.out, `frame_${String(k).padStart(6, '0')}.png`), png);
-        if (cameraJson && !cameraRecords.has(i)) cameraRecords.set(i, await cdp.evaluate(`window.previs.camera(${i})`));
-        done++;
-        if (done / total >= nextReport / 10) {
-          nextReport = Math.floor((done / total) * 10) + 1;
-          info(`${done}/${total} frames (${Math.round((done / total) * 100)}%), ${((Date.now() - t0) / 1000 / done).toFixed(3)} s/frame`);
+    };
+    const depthSidecar = [];
+    for (const { kind, jobs: pj } of passJobs) {
+      for (const job of pj) {
+        if (job.skip) continue;
+        let ff = null;
+        if (format === 'png-seq') {
+          fs.mkdirSync(job.out, { recursive: true });
+        } else {
+          fs.mkdirSync(path.dirname(path.resolve(job.out)), { recursive: true });
+          ff = startFfmpeg(meta.fps, job.out, format);
+          let complete = false;
+          job.markComplete = () => (complete = true);
+          // Cleanups run in reverse: kill ffmpeg first, then drop a partial mp4
+          cleanups.push(() => {
+            if (!complete) fs.rmSync(job.out, { force: true });
+          });
+          cleanups.push(() => ff.proc.kill('SIGKILL'));
+        }
+        const emit = async (k, png) => {
+          if (ff) await ff.write(png);
+          else fs.writeFileSync(path.join(job.out, `frame_${String(k).padStart(6, '0')}.png`), png);
+        };
+        if (kind === 'beauty') {
+          for (let k = 0; k < job.last - job.first + 1; k++) {
+            const i = job.first + k;
+            await emit(k, await grab(i));
+            if (cameraJson && !cameraRecords.has(i)) cameraRecords.set(i, await cdp.evaluate(`window.previs.camera(${i})`));
+            tick();
+          }
+        } else {
+          const indices = Array.from({ length: job.last - job.first + 1 }, (_, k) => job.first + k);
+          depthSidecar.push(await renderDepth(job.shot, indices, emit, tick));
+        }
+        if (ff) {
+          await ff.finish();
+          job.markComplete();
         }
       }
-      if (ff) {
-        await ff.finish();
-        job.markComplete();
-      }
     }
+    if (wantDepth) fs.writeFileSync(`${stem}.depth.json`, JSON.stringify(depthSidecar, null, 2) + '\n');
     let reported = outPath;
     if (splitShots) {
       reported = `${stem}.cuts.json`;

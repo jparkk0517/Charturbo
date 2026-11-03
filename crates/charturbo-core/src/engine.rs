@@ -113,6 +113,8 @@ pub struct VisualizationEngine {
     /// Exposure adaptation step of the next frame and the clock it was measured on
     post_dt: f32,
     post_clock: Option<f64>,
+    /// Depth output pass (`None` = beauty frames; see renderer/depth_out.rs)
+    depth_output: Option<crate::renderer::depth_out::DepthOutput>,
     /// Positions / masses changed since the spatial index was built (rebuilt lazily on query)
     index_dirty: bool,
     /// Chart animations (`None` = off) handed to every new chart (see chart/animation.rs)
@@ -166,6 +168,7 @@ impl VisualizationEngine {
             chart_gpu_stale: false,
             post_dt: 0.0,
             post_clock: None,
+            depth_output: None,
             index_dirty: false,
             chart_animation: None,
             chart_anim_prev: None,
@@ -502,6 +505,17 @@ impl VisualizationEngine {
         self.renderer.sync_lighting(&self.scene.light_uniform(eye));
         let post = self.scene.post.frame(&self.scene.shading, std::mem::take(&mut self.post_dt));
         self.renderer.sync_post_processing(post.as_ref());
+        let depth = self.depth_output.map(|output| {
+            // The frame's clip planes (exact view: 0.01 near) and projection, read every frame
+            let (z_near, z_far) = self.camera.clip_planes();
+            crate::renderer::DepthOutFrame {
+                output,
+                z_near,
+                z_far,
+                ortho: self.camera.orthographic_size().is_some(),
+            }
+        });
+        self.renderer.sync_depth_output(depth.as_ref());
         self.renderer.sync_point_shadows(self.scene.point_shadow_frame().as_ref());
         self.renderer.sync_shadows(self.scene.shadow_frame().as_ref());
 
@@ -651,12 +665,45 @@ impl VisualizationEngine {
     /// Main-pass MSAA: 4 = x4, anything else = off; devices without x4 support for the surface
     /// format stay at 1. Returns the applied sample count.
     pub fn set_antialias(&mut self, samples: u32) -> u32 {
+        // The depth output reads the 1x depth buffer: MSAA stays off while it is on
+        if self.depth_output.is_some() && samples > 1 {
+            return self.renderer.sample_count();
+        }
         self.renderer.set_sample_count(samples)
     }
 
     /// Applied main-pass sample count (1 = off).
     pub fn antialias(&self) -> u32 {
         self.renderer.sample_count()
+    }
+
+    /// Depth output pass (`None` = beauty frames): every frame is replaced by the encoded planar
+    /// view depth of its depth buffer (renderer/depth_out.rs). Refused (error, setting unchanged)
+    /// while MSAA is on: WebGL2 cannot sample a multisampled depth buffer, so the pass needs
+    /// `set_antialias(1)` first; `set_antialias` keeps 1 while the depth output is on.
+    pub fn set_depth_output(
+        &mut self,
+        output: Option<crate::renderer::depth_out::DepthOutput>,
+    ) -> Result<(), String> {
+        let samples = self.renderer.sample_count();
+        if output.is_some() && samples > 1 {
+            return Err(format!(
+                "depth output needs anti-aliasing off (MSAA x{samples} is on): WebGL2 cannot sample a multisampled depth buffer; call set_antialias(1) first"
+            ));
+        }
+        self.depth_output = output;
+        Ok(())
+    }
+
+    pub fn depth_output(&self) -> Option<crate::renderer::depth_out::DepthOutput> {
+        self.depth_output
+    }
+
+    /// `(near, far, orthographic)` clip planes of the current projection (engine units): the
+    /// `N` / `F` of the depth output's decoding (`packed`: `D = q / (2^24 - 1) * F`).
+    pub fn depth_clip_planes(&self) -> (f32, f32, bool) {
+        let (n, f) = self.camera.clip_planes();
+        (n, f, self.camera.orthographic_size().is_some())
     }
 
     /// Whether an object casts / receives shadows.
@@ -1736,6 +1783,10 @@ mod tests {
             self.0.borrow().post_processing_supported()
         }
 
+        fn sync_depth_output(&mut self, depth: Option<&crate::renderer::DepthOutFrame>) {
+            self.0.borrow_mut().sync_depth_output(depth);
+        }
+
         fn set_sample_count(&mut self, samples: u32) -> u32 {
             self.0.borrow_mut().set_sample_count(samples)
         }
@@ -2172,6 +2223,39 @@ mod tests {
         assert_eq!(engine.set_antialias(4), 4);
         assert_eq!(engine.set_antialias(1), 1);
         assert_eq!(engine.antialias(), 1);
+    }
+
+    #[test]
+    fn depth_output_sends_the_frame_clip_planes_and_refuses_msaa() {
+        use crate::renderer::depth_out::{DepthEncoding, DepthOutput};
+        let (mut engine, state) = mock_engine(GraphDataset::default_empty());
+        engine.sync_and_render();
+        assert_eq!(state.borrow().last_depth_out, None, "off by default");
+        let out = DepthOutput::new(DepthEncoding::Inverse, 50.0, 100.0).unwrap();
+        engine.set_depth_output(Some(out)).unwrap();
+        engine.sync_and_render();
+        let f = state.borrow().last_depth_out.expect("sent");
+        assert_eq!((f.output, f.z_near, f.z_far, f.ortho), (out, 0.5, 2000.0, false), "orbit planes");
+        // Exact view: 0.01 near, read on the next frame (not cached)
+        assert!(engine.set_camera_view(Vec3::new(0.0, 0.0, 100.0), Vec3::ZERO, None, 0.0));
+        engine.sync_and_render();
+        let f = state.borrow().last_depth_out.unwrap();
+        assert_eq!((f.z_near, f.z_far), (0.01, 2000.0));
+        assert_eq!(engine.depth_clip_planes(), (0.01, 2000.0, false));
+        // MSAA stays off while the depth output is on
+        state.borrow_mut().msaa_x4 = true;
+        assert_eq!(engine.set_antialias(4), 1);
+        engine.set_depth_output(None).unwrap();
+        engine.sync_and_render();
+        assert_eq!(state.borrow().last_depth_out, None);
+        assert_eq!(engine.set_antialias(4), 4);
+        // ...and the depth output is refused while MSAA is on (setting unchanged)
+        let err = engine.set_depth_output(Some(out)).unwrap_err();
+        assert!(err.contains("anti-aliasing off") && err.contains("x4"), "{err}");
+        assert_eq!(engine.depth_output(), None);
+        assert_eq!(engine.set_antialias(1), 1);
+        engine.set_depth_output(Some(out)).unwrap();
+        assert_eq!(engine.depth_output(), Some(out));
     }
 
     #[test]

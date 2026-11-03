@@ -34,6 +34,7 @@ mod lib_skin;
 mod lib_point_lights;
 mod lib_post;
 mod lib_antialias;
+mod lib_depth;
 mod lib_camera;
 mod lib_scatter;
 mod lib_edit;

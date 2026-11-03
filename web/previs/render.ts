@@ -6,6 +6,13 @@
  *   window.previs.info()      -> { frames, fps, width, height, duration }
  *   window.previs.frame(i)    -> Promise<string>  PNG data URL of frame i (t = i / fps)
  *   window.previs.camera(i)   -> camera record of frame i (meters + engine-unit view / projection, see ./camera.ts)
+ *   window.previs.measureFrame(i) -> { near_m, far_m } | null: foreground min / max planar depth (meters) of frame i, from a
+ *                                'packed' depth render (SDK readDepthRange); null = no foreground pixel
+ *   window.previs.frame(i, { depth: { encoding: 'inverse'|'linear', near_m, far_m } }) -> PNG of the depth pass of frame i
+ *                                (gray R=G=B, near = white, background 0; range in meters, engine units = meters * worldScale)
+ *
+ * The depth pass needs MSAA off: entering it (frame with `depth`, measureFrame) calls `setAntialias(1)`; the next
+ * `frame(i)` without `depth` restores beauty and the initial anti-aliasing (4 unless `aa=0`).
  *
  * The canvas is exactly doc.size CSS px == backing px (devicePixelRatio forced to 1). A frame is
  * rendered and copied in the same task by `toDataURL` (a WebGPU canvas loses its contents once
@@ -14,7 +21,7 @@
  */
 import { Charturbo } from 'charturbo';
 import { docDuration, evaluateFrame, frameCount } from '../src/previs/evaluate';
-import { engineCameraMatrices } from './camera';
+import { DEFAULT_WORLD_SCALE, engineCameraMatrices } from './camera';
 import { loadPrevisPlayer } from '../src/previs/player';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { Issue, PrevisDoc } from '../src/previs/types';
@@ -28,6 +35,13 @@ interface PrevisInfo {
   width: number;
   height: number;
   duration: number;
+  worldScale: number;
+}
+
+interface DepthFrameOptions {
+  encoding: 'inverse' | 'linear';
+  near_m: number;
+  far_m: number;
 }
 
 interface PrevisState {
@@ -45,7 +59,12 @@ declare global {
     /** model.src -> URL served by the dev server (relative paths already resolved against the doc file's dir) */
     __previsModels?: Record<string, string>;
     __previs?: PrevisState;
-    previs?: { info(): PrevisInfo; frame(i: number): Promise<string>; camera(i: number): Record<string, unknown> };
+    previs?: {
+      info(): PrevisInfo;
+      frame(i: number, opts?: { depth?: DepthFrameOptions }): Promise<string>;
+      camera(i: number): Record<string, unknown>;
+      measureFrame(i: number): { near_m: number; far_m: number } | null;
+    };
   }
 }
 
@@ -101,7 +120,23 @@ async function run(): Promise<PrevisState> {
     decoders,
   });
   const frames = frameCount(doc);
-  const info: PrevisInfo = { frames, fps: doc.fps, width, height, duration: docDuration(doc) };
+  const worldScale = doc.worldScale ?? DEFAULT_WORLD_SCALE;
+  const info: PrevisInfo = { frames, fps: doc.fps, width, height, duration: docDuration(doc), worldScale };
+  const checkFrame = (i: number) => {
+    if (!Number.isInteger(i) || i < 0 || i >= frames) throw new RangeError(`frame ${i} outside 0..${frames - 1}`);
+  };
+  // Depth pass: MSAA off while on (WebGL2 cannot sample a multisampled depth buffer); beauty restores it
+  let inDepth = false;
+  const enterDepth = () => {
+    if (!inDepth && sdk.getAntialias() > 1) sdk.setAntialias(1);
+    inDepth = true;
+  };
+  const enterBeauty = () => {
+    if (!inDepth) return;
+    sdk.setRenderPass('beauty');
+    if (antialias) sdk.setAntialias(4);
+    inDepth = false;
+  };
 
   const camState = { prev: null as ReturnType<typeof engineCameraMatrices> | null };
   window.previs = {
@@ -129,8 +164,21 @@ async function run(): Promise<PrevisState> {
         projection: m.projection,
       };
     },
-    async frame(i) {
-      if (!Number.isInteger(i) || i < 0 || i >= frames) throw new RangeError(`frame ${i} outside 0..${frames - 1}`);
+    measureFrame(i) {
+      checkFrame(i);
+      enterDepth();
+      sdk.setRenderPass('depth', { encoding: 'packed' });
+      player.frame(i / doc.fps);
+      const r = sdk.readDepthRange();
+      return r ? { near_m: r.near / worldScale, far_m: r.far / worldScale } : null;
+    },
+    async frame(i, opts) {
+      checkFrame(i);
+      if (opts?.depth) {
+        enterDepth();
+        const d = opts.depth;
+        sdk.setRenderPass('depth', { encoding: d.encoding, near: d.near_m * worldScale, far: d.far_m * worldScale });
+      } else enterBeauty();
       player.frame(i / doc.fps);
       sdk.render();
       return sdk.toDataURL({ overlay: false, pixelRatio: 1, format: 'png' });
