@@ -770,3 +770,79 @@ describe('loadGltf failures and disposal', () => {
     expect(sdk.getTextures()).toEqual([]);
   });
 });
+
+describe('loadGltf textures: false', () => {
+  const textureCalls = (calls: Calls) =>
+    ['create_texture_from_bitmap', 'create_texture_rgba8', 'set_object_map', 'set_object_material_maps'].filter((k) => calls[k]?.length);
+
+  it('makes no image / texture host calls and creates no textures', async () => {
+    const createImageBitmap = stubBitmaps();
+    const fetchSpy = vi.fn(async () => new Response(PNG));
+    vi.stubGlobal('fetch', fetchSpy);
+    const { sdk, calls } = gltfBackend();
+    const { json, bin } = triangleModel({
+      images: [{ uri: 'https://example.invalid/big-2048.png' }],
+      materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0.25 }, normalTexture: { index: 0 } }],
+    });
+    const model = { ...json, buffers: [{ byteLength: bin.byteLength, uri: `data:application/octet-stream;base64,${base64(bin)}` }] };
+    const result = await sdk.loadGltf(gltfBytes(model), { textures: false });
+    expect(result.textures).toEqual([]);
+    expect(result.objects).toHaveLength(1);
+    expect(createImageBitmap).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(textureCalls(calls)).toEqual([]);
+    expect(sdk.getObjectRecord(result.objects[0])!.map).toBeNull();
+  });
+
+  it('many models with images never touch the texture budget (host throws on any texture call)', async () => {
+    stubBitmaps();
+    const { sdk, backend } = gltfBackend();
+    const be = backend as unknown as Record<string, unknown>;
+    be.create_texture_from_bitmap = () => {
+      throw new Error('loadTexture: texture memory budget exceeded');
+    };
+    const { json, bin } = triangleModel();
+    for (let i = 0; i < 20; i++) await sdk.loadGltf(writeGlb(json, bin), { textures: false });
+  });
+
+  it('accepts required texture-only extensions, still rejects them by default', async () => {
+    stubBitmaps();
+    for (const ext of ['KHR_texture_basisu', 'EXT_texture_webp']) {
+      const { json, bin } = triangleModel({ extensionsUsed: [ext], extensionsRequired: [ext] });
+      const off = gltfBackend();
+      const result = await off.sdk.loadGltf(writeGlb(json, bin), { textures: false });
+      expect(result.objects).toHaveLength(1);
+      expect(result.textures).toEqual([]);
+      await expect(gltfBackend().sdk.loadGltf(writeGlb(json, bin))).rejects.toThrow(`loadGltf: extension ${ext} is required but not supported`);
+      await expect(gltfBackend().sdk.loadGltf(writeGlb(json, bin), { textures: true })).rejects.toThrow('is required but not supported');
+    }
+  });
+
+  it('other required extensions are still rejected', async () => {
+    const { json, bin } = triangleModel({ extensionsRequired: ['KHR_materials_clearcoat'] });
+    await expect(gltfBackend().sdk.loadGltf(writeGlb(json, bin), { textures: false })).rejects.toThrow(
+      'loadGltf: extension KHR_materials_clearcoat is required but not supported'
+    );
+  });
+});
+
+describe('loadGltf node name lists in errors', () => {
+  const named = (n: number) => ({
+    asset: { version: '2.0' },
+    scenes: [{ nodes: Array.from({ length: n }, (_, i) => i) }],
+    nodes: Array.from({ length: n }, (_, i) => ({ name: `n${i}` })),
+  });
+
+  it('lists all names for a 12-node model', async () => {
+    const { sdk } = gltfBackend();
+    const all = Array.from({ length: 12 }, (_, i) => `"n${i}"`).join(', ');
+    await expect(sdk.loadGltf(gltfBytes(named(12)), { posable: ['nope'] })).rejects.toThrow(`loadGltf: posable node "nope" not found (nodes: ${all})`);
+  });
+
+  it('lists 64 names plus "... N more" above 64 nodes, none cut at exactly 64', async () => {
+    const { sdk } = gltfBackend();
+    const list = (n: number) => Array.from({ length: n }, (_, i) => `"n${i}"`).join(', ');
+    await expect(sdk.loadGltf(gltfBytes(named(64)), { posable: ['nope'] })).rejects.toThrow(`(nodes: ${list(64)})`);
+    await expect(sdk.loadGltf(gltfBytes(named(70)), { posable: ['nope'] })).rejects.toThrow(`(nodes: ${list(64)}, ... 6 more)`);
+  });
+});

@@ -6605,6 +6605,11 @@ export class Charturbo {
    * `WEIGHTS_0`, 4 influences per vertex) are kept too: skinned meshes stay in bind space and the
    * engine skins them on the CPU from a joint palette the animator updates (rest pose without a
    * clip). Morph targets are ignored with a warning.
+   *
+   * `textures: false` skips every image (no fetch, decode or texture memory; materials keep their
+   * factors, no maps) and accepts required texture-only extensions (`KHR_texture_basisu`,
+   * `EXT_texture_webp`, ...). Use it when textures are never shown (flat-color previews).
+   * Unknown-node errors of `posable` list every node name (the first 64 and `... N more` above 64).
    */
   async loadGltf(source: GltfSource, options: GltfLoadOptions = {}): Promise<GltfLoadResult> {
     if (this.disposed) throw new Error('loadGltf: Charturbo is disposed');

@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 수정 — previs 버그 정리 (camera.up · textures · 숨긴 모델 소품 · 관절 에러)
+
+- previs 샷 카메라에 `camera.up?: Track<Vec3>`(월드 상방 방향, 시간에 따라 변경 가능, 기본 `[0, 1, 0]`)를 추가했습니다. 단위 길이가 아니어도 되지만 영벡터는 거부되며, roll은 그 위에 적용됩니다. 목표 위에서 내려다보는 크레인 샷에서는 시작 `[0, 1, 0]`에서 눈이 목표 위로 올라간 시점에 `[0, 0, -1]`로 바꾸면, 고정된 상방을 시선이 지날 때 화면이 180° 뒤집히지 않습니다.
+- 알 수 없는 관절(posable 노드) 이름의 오류 문구를 실제 출력에 맞췄습니다: `loadPrevisPlayer: node "<id>" (<src>): loadGltf: posable node "<name>" not found (nodes: ...)`. 노드 이름을 최대 64개까지 모두 나열하고 나머지는 `... N more`로 줄입니다. 검증 오류가 아니라 로드 실패(렌더 종료 코드 1)입니다.
+- previs 플레이어는 모델 텍스처를 읽지 않습니다(`loadGltf(..., { textures: false })`). 모델은 단색으로 그려지므로 결과는 같고, 큰 텍스처 모델이 256 MiB 텍스처 예산에 걸리지 않으며, `KHR_texture_basisu` · `EXT_texture_webp` · `EXT_texture_avif` · `MSFT_texture_dds`를 필수로 요구하는 파일도 로드됩니다.
+- `visible: false`로 숨긴 모델이라도 `parentJoint` 소품을 가지면 이제 소품이 렌더링됩니다. 렌더러와 뷰어가 플레이어가 로드하는 모델과 같은 집합을 로드합니다.
+
 ### 추가 — 관절 소품 (parentJoint · nodeMatrix)
 
 - previs 노드에 `parentJoint?: string`을 추가했습니다. `shape: 'model'` 부모의 glTF 관절 이름을 지정하면 자식이 그 관절의 현재 포즈(클립 · 블렌드 · `tracks.joints`) 프레임을 따라가며, 관절 스케일은 제거됩니다. 손에 든 무기나 소품에 씁니다. 자식의 `position`/`rotation`은 관절 프레임 기준 미터 단위이며 모델의 `fit` 배율이 적용되지 않으므로, 모델을 자연 크기와 다르게 그리면 뼈 방향 오프셋에 k(그린 크기 / 자연 크기)를 곱해야 합니다. 검증기는 모델 부모가 없는 `parentJoint`와, 관절에 붙은 노드(또는 그 자손)를 대상으로 하는 카메라 `follow`를 거부합니다(대신 모델 노드를 오프셋과 함께 따라가세요).

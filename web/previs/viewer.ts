@@ -13,6 +13,7 @@ import { loadPrevisPlayer } from '../src/previs/player';
 import { gltfExtensions, loadDecodersFor } from './decoders';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { PrevisDoc } from '../src/previs/types';
+import { modelSrcsToLoad } from '../src/previs/models';
 import { validateDoc } from '../src/previs/validate';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -181,15 +182,8 @@ function findModelFile(src: string): File | null {
 }
 
 function missingModels(doc: PrevisDoc): string[] {
-  const out = new Set<string>();
-  for (const n of doc.nodes) {
-    const src = n.model?.src;
-    if (!src || isUrl(src)) continue;
-    // pure-pivot nodes never load their model (see hasShape in src/previs/player.ts)
-    if (n.visible === false && !n.tracks?.visible?.some((k) => k.v)) continue;
-    if (!findModelFile(src)) out.add(src);
-  }
-  return [...out];
+  // only models the player loads (see nodeLoadsModel in src/previs/models.ts)
+  return modelSrcsToLoad(doc).filter((src) => !isUrl(src) && !findModelFile(src));
 }
 
 function addFiles(files: File[]): void {
@@ -280,9 +274,9 @@ async function load(file: File): Promise<void> {
       const bytes = new Map<string, Uint8Array>();
       const exts = new Set<string>();
       const urlSeen = new Set<string>();
-      for (const n of doc.nodes) {
-        const src = n.model?.src;
-        if (!src || bytes.has(src) || urlSeen.has(src)) continue;
+      // Only the models the player loads (same rule as the render page)
+      for (const src of modelSrcsToLoad(doc)) {
+        if (bytes.has(src) || urlSeen.has(src)) continue;
         if (isUrl(src)) {
           // Fetched once for the extension sniff; a GLB's bytes are reused, a .gltf is loaded by URL (sibling files)
           urlSeen.add(src);

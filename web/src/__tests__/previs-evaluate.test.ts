@@ -190,6 +190,23 @@ describe('evaluateFrame', () => {
     expect(evaluateFrame(dd, 1).camera.fovDeg).toBeCloseTo(40);
   });
 
+  it('up defaults to [0, 1, 0] and interpolates (not normalized)', () => {
+    expect(evaluateFrame(d, 0).camera.up).toEqual([0, 1, 0]);
+    const dd = doc(
+      [],
+      [
+        shot('u', 0, 2, {
+          up: [
+            { t: 0, v: [0, 1, 0] },
+            { t: 2, v: [0, 0, -1] },
+          ],
+        }),
+      ],
+    );
+    expect(evaluateFrame(dd, 1).camera.up).toEqual([0, 0.5, -0.5]);
+    expect(evaluateFrame(dd, 5).camera.up).toEqual([0, 0, -1]);
+  });
+
   it('roll defaults to 0 and interpolates (radians)', () => {
     expect(evaluateFrame(d, 0).camera.roll).toBe(0);
     const dd = doc(

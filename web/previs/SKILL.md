@@ -46,7 +46,7 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 "tracks": { "position": [{ "t": 0, "v": [-3.2, 0.875, -3.5] }, { "t": 2.6, "v": [0.96, 0.875, -3.5] }] }
 ```
 - Weapons/props held by a model: child box with `parent: <model id>` + `parentJoint: '<joint name>'`; it follows the posed joint. Offsets are meters in the joint frame, not scaled by `fit`: when the model is drawn at another size than natural, scale offsets along the bone by k = size / natural size (walker: `k = size.y / 1.75`). Camera `follow` of a joint-attached node is rejected; follow the model node.
-- For hand-posed tweaks on top of clips (raise an arm, turn the head), use `tracks.joints` on the model node: joint name → track of Euler `[rx, ry, rz]` radians, additive in the joint's local frame. Joint names are the glTF node names; list them from the `unknown joint` error message or the SDK's `GltfAnimator.nodeNames`.
+- For hand-posed tweaks on top of clips (raise an arm, turn the head), use `tracks.joints` on the model node: joint name → track of Euler `[rx, ry, rz]` radians, additive in the joint's local frame. Joint names are the glTF node names; the load error `posable node "<name>" not found (nodes: ...)` lists them (up to 64), or use the SDK's `GltfAnimator.nodeNames`.
 
 ## Pitfalls
 
@@ -56,8 +56,10 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 - Rotation is Euler YXZ; mannequins face +z at rotation 0.
 - Portrait output: `fov` is vertical, so horizontal view is narrow. Raise `fov` or pull the camera back; verify with `--still`.
 - `camera.roll` (radians, track, default 0) tilts the frame; positive turns the scene counterclockwise.
+- `camera.up` (`Track<Vec3>`, default `[0, 1, 0]`, zero vector rejected) sets world up over time. Crane over the target: key `[0, 1, 0]` at the start and `[0, 0, -1]` once the eye is above the target; otherwise the image flips 180° as the view passes through the fixed up.
 - Shapes thinner than 0.05 units are drawn at 0.05 units.
 - Hiding = `visible: false` or a `visible` track (alpha 0); there is no other visibility API.
+- A `visible` track holds its first key before that key: static `visible: false` plus a track whose first key is `true` at t > 0 is VISIBLE from t = 0. Always add `{ "t": 0, "v": false }`.
 - Motions on the same node+property must not overlap in time; chain them with non-overlapping `start`/`end`.
 - Ids: `[A-Za-z0-9_.-]+`, unique; role, parent and follow ids must exist.
 - Do not edit engine code. Ko/zh doc mirrors do not exist yet; do not create them.

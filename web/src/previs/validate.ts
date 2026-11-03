@@ -382,6 +382,30 @@ export function validateDoc(
           return false;
         });
       }
+      if (c.up !== undefined) {
+        track(c.up, `${p}.camera.up`, (v, pp) => {
+          if (!vec3(v, pp)) return false;
+          const [x, y, z] = v as number[];
+          if (x === 0 && y === 0 && z === 0) {
+            add(pp, 'up must not be the zero vector; use [0, 1, 0] for the default');
+            return false;
+          }
+          return true;
+        });
+        // Opposite neighbouring keys interpolate through the zero vector: the image would flip there
+        if (Array.isArray(c.up)) {
+          for (let k = 1; k < c.up.length; k++) {
+            const a = (c.up[k - 1] as { v?: unknown })?.v;
+            const b = (c.up[k] as { v?: unknown })?.v;
+            if (!Array.isArray(a) || !Array.isArray(b) || a.length !== 3 || b.length !== 3 || ![...a, ...b].every(isNum)) continue;
+            const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            const len = Math.hypot(a[0], a[1], a[2]) * Math.hypot(b[0], b[1], b[2]);
+            if (len > 0 && dot <= -len * (1 - 1e-9)) {
+              add(`${p}.camera.up[${k}].v`, 'up must not be opposite to the previous key (the interpolation passes through the zero vector and flips the image); add an intermediate key, e.g. [0, 0, -1] between [0, 1, 0] and [0, -1, 0]');
+            }
+          }
+        }
+      }
       // eye == target is undefined for a look-at; checked only when both tracks are constant (1 keyframe)
       if (Array.isArray(c.position) && c.position.length === 1 && isObj(c.target) && Array.isArray(c.target.track) && c.target.track.length === 1) {
         const a = (c.position[0] as { v?: unknown }).v;

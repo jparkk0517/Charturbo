@@ -1,0 +1,19 @@
+import type { PrevisDoc, PrevisNode } from './types';
+
+/**
+ * Whether the player loads the glTF of `node` (same rule as loadPrevisPlayer, see SOCKETS in player.ts):
+ * a model node with a `model` that ever shows a shape (visible at rest, or some visible key true), or a pure
+ * pivot (visible false, no visible key true) that has a child hanging from one of its joints (`parentJoint`).
+ */
+export function nodeLoadsModel(doc: PrevisDoc, node: PrevisNode): boolean {
+  if (node.shape !== 'model' || !node.model) return false;
+  if (node.visible !== false || (node.tracks?.visible?.some((k) => k.v) ?? false)) return true;
+  return doc.nodes.some((c) => c.parent === node.id && c.parentJoint !== undefined);
+}
+
+/** Distinct `model.src` of the nodes the player loads, in doc order. */
+export function modelSrcsToLoad(doc: PrevisDoc): string[] {
+  const out = new Set<string>();
+  for (const n of doc.nodes) if (nodeLoadsModel(doc, n) && n.model) out.add(n.model.src);
+  return [...out];
+}

@@ -80,19 +80,16 @@ function findChrome() {
 /**
  * glTF model sources of the doc: relative paths (and file: URLs / absolute fs paths) resolve against the DOC FILE's
  * directory and are served by the vite plugin `previsModels` as `/__previs_models/<index>/<basename>` (no /@fs, no
- * base64 through CDP, 20+ MB models are fine). http(s): / data: / blob: URLs pass through. Nodes that never show a shape
- * (visible === false, no visible key with v: true; see hasShape in src/previs/player.ts) are skipped.
+ * base64 through CDP, 20+ MB models are fine). http(s): / data: / blob: URLs pass through. `srcs` = modelSrcsToLoad(doc)
+ * (src/previs/models.ts): the models the player loads (a pure pivot only when a node hangs from its joint).
  * Returns { urls: src -> served URL, missing: [{src, file}], files: index -> { file, dir } }.
  */
-function collectModels(doc, docPath) {
+function collectModels(srcs, docPath) {
   const urls = {};
   const missing = [];
   const files = new Map();
-  if (!doc || !Array.isArray(doc.nodes)) return { urls, missing, files };
   const docDir = path.dirname(path.resolve(docPath));
-  for (const node of doc.nodes) {
-    if (node?.visible === false && !(Array.isArray(node.tracks?.visible) && node.tracks.visible.some((k) => k?.v === true))) continue;
-    const src = node?.model?.src;
+  for (const src of srcs) {
     if (typeof src !== 'string' || src === '' || src in urls || missing.some((m) => m.src === src)) continue;
     if (/^(https?|data|blob):/i.test(src)) continue;
     let file;
@@ -365,8 +362,8 @@ async function main() {
     throw new Failure(`invalid JSON in ${docPath}: ${err.message}`, 2);
   }
 
-  const models = collectModels(doc, docPath);
-  const missingText = models.missing.map((m) => `model file not found: ${m.src} (looked for ${m.file})`).join('\n');
+  // Filled after validation (the served files map is read lazily by the vite plugin)
+  const models = { urls: {}, missing: [], files: new Map() };
 
   const cleanups = [];
   const cleanup = async () => {
@@ -404,9 +401,14 @@ async function main() {
       for (const i of checkedDoc.issues) console.error(`${i.path}: ${i.message}`);
       throw new Failure(`invalid previs document (${checkedDoc.issues.length} issue${checkedDoc.issues.length === 1 ? '' : 's'})`, 2);
     }
-    // Fail fast (exit 1) on a missing model file, before Chrome starts
+    // Fail fast (exit 1) on a missing model file the player loads, before Chrome starts
+    const { modelSrcsToLoad } = await vite.ssrLoadModule(path.join(WEB, 'src/previs/models.ts'));
+    const found = collectModels(modelSrcsToLoad(doc), docPath);
+    models.urls = found.urls;
+    models.missing = found.missing;
+    for (const [k, v] of found.files) models.files.set(k, v);
     if (models.missing.length) {
-      console.error(missingText);
+      console.error(models.missing.map((m) => `model file not found: ${m.src} (looked for ${m.file})`).join('\n'));
       throw new Failure(`${models.missing.length} model file${models.missing.length === 1 ? '' : 's'} not found (paths resolve against ${path.dirname(path.resolve(docPath))})`);
     }
     const chromePath = findChrome();

@@ -176,6 +176,13 @@ export interface Shot {
      * camera's up toward screen right (the scene appears to turn counterclockwise).
      */
     roll?: Track<number>;
+    /**
+     * World up direction of the camera over time (need not be unit length); default constant
+     * [0, 1, 0]. Roll is applied on top of it. Animate it through a crane over the target (for
+     * example [0, 1, 0] -> [0, 0, -1] -> [0, -1, 0]) to avoid the 180° image flip that a fixed up
+     * causes when the view direction passes through it.
+     */
+    up?: Track<Vec3>;
   };
 }
 
@@ -222,7 +229,7 @@ export interface FrameState {
   time: number;
   shotId: string;
   /** `roll` in radians (see `Shot.camera.roll`). */
-  camera: { eye: Vec3; target: Vec3; fovDeg: number; roll: number };
+  camera: { eye: Vec3; target: Vec3; fovDeg: number; roll: number; up: Vec3 };
   /** Local (parent-relative) states keyed by node id. */
   nodes: Record<string, NodeState>;
 }

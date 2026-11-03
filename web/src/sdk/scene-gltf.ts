@@ -8,7 +8,7 @@
 import type { CustomMeshObjectDescriptor, LoadTextureOptions, Vec2Tuple, Vec3Tuple } from './charturbo';
 import type { RgbaTuple } from './color';
 import type { GltfAnimationInfo, GltfAnimationPath, GltfChannel, GltfClip, GltfInterpolation, GltfRig, GltfRigSkin, GltfSampler } from './scene-gltf-anim';
-import { computeJointMatrices, skinPositions } from './scene-gltf-anim';
+import { computeJointMatrices, formatNodeNames, skinPositions } from './scene-gltf-anim';
 
 /** Model sources `loadGltf` reads (strings and `URL`s are fetched). */
 export type GltfSource = string | URL | ArrayBuffer | Uint8Array | Blob;
@@ -49,6 +49,13 @@ export interface GltfLoadOptions {
    * fallback data).
    */
   decoders?: GltfDecoders;
+  /**
+   * Load textures (default true). False: no image is fetched, decoded or uploaded and no texture is
+   * created, materials keep their factors and get no maps; extensions that only affect textures
+   * (`KHR_texture_basisu`, `EXT_texture_webp`, `EXT_texture_avif`, `MSFT_texture_dds`,
+   * `KHR_texture_transform`) are accepted even when required. Geometry, skins and animations are unchanged.
+   */
+  textures?: boolean;
 }
 
 /** Decoders `loadGltf` uses for compressed geometry (see `GltfLoadOptions.decoders`). */
@@ -165,6 +172,9 @@ export const GLTF_MAX_INDICES = 67_108_864;
 
 /** Extensions the loader understands; others in `extensionsRequired` reject the file. */
 const SUPPORTED_EXTENSIONS = new Set(['KHR_texture_transform', 'KHR_mesh_quantization', 'KHR_materials_emissive_strength']);
+
+/** Extensions that only affect textures: accepted even when required if `textures` is false. */
+const TEXTURE_ONLY_EXTENSIONS = ['KHR_texture_basisu', 'EXT_texture_webp', 'EXT_texture_avif', 'MSFT_texture_dds', 'KHR_texture_transform'];
 
 const EXT_MESHOPT = 'EXT_meshopt_compression';
 const KHR_DRACO = 'KHR_draco_mesh_compression';
@@ -551,6 +561,8 @@ class GltfLoader {
   private readonly dracoAccessors = new Map<number, Uint8Array>();
   /** Decoded triangles of Draco primitives without an `indices` accessor */
   private readonly dracoIndices = new Map<GltfPrimitive, Uint32Array>();
+  /** False: textures are skipped entirely (`GltfLoadOptions.textures`) */
+  private textures = true;
 
   constructor(
     private readonly host: GltfHost,
@@ -574,6 +586,8 @@ class GltfLoader {
     const supported = new Set(SUPPORTED_EXTENSIONS);
     if (this.decoders.meshopt) supported.add(EXT_MESHOPT);
     if (this.decoders.draco) supported.add(KHR_DRACO);
+    this.textures = options.textures !== false;
+    if (!this.textures) for (const ext of TEXTURE_ONLY_EXTENSIONS) supported.add(ext);
     for (const ext of json.extensionsRequired ?? []) {
       if (supported.has(ext)) continue;
       if (ext === EXT_MESHOPT || ext === KHR_DRACO) throw missingDecoderError(ext);
@@ -651,8 +665,7 @@ class GltfLoader {
           const hits = order.flatMap((v, i) => (v.node.name === ref ? [i] : []));
           if (hits.length === 0) {
             const named = order.map((v) => v.node.name).filter((n): n is string => typeof n === 'string');
-            const shown = named.slice(0, 8).map((n) => `"${n}"`).join(', ');
-            throw new Error(`loadGltf: posable node "${ref}" not found (${named.length > 0 ? `nodes: ${shown}${named.length > 8 ? `, ... ${named.length - 8} more` : ''}` : 'the model has no named nodes'})`);
+            throw new Error(`loadGltf: posable node "${ref}" not found (${named.length > 0 ? `nodes: ${formatNodeNames(named)}` : 'the model has no named nodes'})`);
           }
           if (hits.length > 1) {
             throw new Error(`loadGltf: posable node name "${ref}" is ambiguous (glTF nodes ${hits.map((i) => order[i].index).join(', ')}); use the glTF node index`);
@@ -1397,7 +1410,7 @@ class GltfLoader {
     // Every texture shares the object's uv transform: the first textured slot sets it
     let transformOf: { repeat: Vec2Tuple; offset: Vec2Tuple } | null = null;
     const slot = (tex: GltfTextureInfo | undefined, label: string): number | null => {
-      if (!tex) return null;
+      if (!tex || !this.textures) return null;
       const transform = tex.extensions?.KHR_texture_transform;
       const texCoord = transform?.texCoord ?? tex.texCoord ?? 0;
       const texture = this.json.textures?.[tex.index];

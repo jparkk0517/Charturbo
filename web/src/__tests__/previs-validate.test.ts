@@ -92,6 +92,34 @@ describe('validateDoc', () => {
     expect(has(empty, 'shots[0].camera.roll')).toBe(true);
   });
 
+  it('camera up: finite non-zero Vec3 keys, track rules', () => {
+    const ok = base();
+    ok.shots[0].camera.up = [{ t: 0, v: [0, 1, 0] }, { t: 1, v: [0, 0, -1] }];
+    expect(validateDoc(ok).ok).toBe(true);
+    const zero = base();
+    zero.shots[0].camera.up = [{ t: 0, v: [0, 0, 0] }];
+    expect(has(zero, 'shots[0].camera.up[0].v')).toBe(true);
+    // Opposite neighbours pass through zero; an intermediate key fixes it
+    const flip = base();
+    flip.shots[0].camera.up = [{ t: 0, v: [0, 1, 0] }, { t: 1, v: [0, -2, 0] }];
+    expect(has(flip, 'shots[0].camera.up[1].v')).toBe(true);
+    const via = base();
+    via.shots[0].camera.up = [{ t: 0, v: [0, 1, 0] }, { t: 0.5, v: [0, 0, -1] }, { t: 1, v: [0, -1, 0] }];
+    expect(validateDoc(via).ok).toBe(true);
+    const nan = base();
+    nan.shots[0].camera.up = [{ t: 0, v: [0, NaN, 0] }];
+    expect(has(nan, 'shots[0].camera.up[0].v')).toBe(true);
+    const short = base();
+    short.shots[0].camera.up = [{ t: 0, v: [0, 1] }];
+    expect(has(short, 'shots[0].camera.up[0].v')).toBe(true);
+    const unsorted = base();
+    unsorted.shots[0].camera.up = [{ t: 1, v: [0, 1, 0] }, { t: 0.5, v: [0, 1, 0] }];
+    expect(has(unsorted, 'shots[0].camera.up[1].t')).toBe(true);
+    const empty = base();
+    empty.shots[0].camera.up = [];
+    expect(has(empty, 'shots[0].camera.up')).toBe(true);
+  });
+
   it('no distance or pitch caveats: 0.2 m close-up and straight-down are valid', () => {
     const d = base();
     d.shots[0].camera = { position: [{ t: 0, v: [0, 0.3, 0.2] }], target: { track: [{ t: 0, v: [0, 0.1, 0] }] } };

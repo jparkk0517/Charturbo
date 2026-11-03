@@ -16,6 +16,7 @@ import { docDuration, frameCount } from '../src/previs/evaluate';
 import { loadPrevisPlayer } from '../src/previs/player';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { Issue, PrevisDoc } from '../src/previs/types';
+import { modelSrcsToLoad } from '../src/previs/models';
 import { validateDoc } from '../src/previs/validate';
 import { gltfExtensions, loadDecodersFor } from './decoders';
 
@@ -79,13 +80,12 @@ async function run(): Promise<PrevisState> {
   // Fetch each model once: its extensionsUsed pick the decoders (loaded only when needed); .glb bytes are reused
   const bytes = new Map<string, Uint8Array>();
   const exts = new Set<string>();
-  for (const n of doc.nodes) {
-    const src = n.model?.src;
-    if (!src || bytes.has(src)) continue;
+  for (const src of modelSrcsToLoad(doc)) {
+    if (bytes.has(src)) continue;
     const url = src in served ? new URL(served[src], location.href).href : src;
     const res = await fetch(url);
     if (!res.ok) {
-      bytes.set(src, new Uint8Array(0)); // not served (pure-pivot node): the player never loads it
+      bytes.set(src, new Uint8Array(0)); // not served: the player's own load reports it
       continue;
     }
     const b = new Uint8Array(await res.arrayBuffer());

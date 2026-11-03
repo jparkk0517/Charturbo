@@ -130,3 +130,52 @@ blend, `tracks.joints`), joint scale removed.
 | 6.1 | opus | Animator read-back: `GltfAnimator.nodeMatrix(node, out?)` = model-space matrix of a rig node in the current pose (load scale included), for dynamic and static rig nodes, skinned joints included | `scene-gltf-anim.ts` + tests | — | matches hand-computed chains under clip, blend and overrides; static node = rest world |
 | 6.2 | opus | Previs: validate `parentJoint`; player creates a socket pivot per (model node, joint) under the model's pivot, updates it every frame after the pose from fit (k, center) and `nodeMatrix` with scale removed; joint names forwarded via `posable`; tests + real render of a prop in the walker's hand during `walk` | previs validate/player + tests | 6.1, contract | prop stays in the hand over the walk cycle in stills; pixel/position check |
 | 6.3 | sonnet | Docs + SKILL + CHANGELOG; gate-raid example gives the giant a club in `lowerArm.R` / hand | docs, `gate-raid.gen.ts` | 6.2 | still shows the club following the swing |
+
+---
+
+# Round 2 (2026-11-03): from the user-lens and code-lens reviews
+
+Sources: a user-lens review (authored a new "bottle throw" scene) and a code-lens audit (measured: 12 animated
+50k-vertex characters at 1080p = 0.031 s/frame, 60 s video no slowdown; perf is not a blocker). Order: Epic 7 →
+Epic 8 → Epic 9 → Epic 10. Within an epic, tasks on disjoint files run in parallel; the File column decides.
+
+## Epic 7. Bug sweep (A) — DONE
+
+| ID | Tier | Task | Files | Depends | Done when |
+| --- | --- | --- | --- | --- | --- |
+| 7.1 | sonnet | Hidden (`visible: false`) model with `parentJoint` children fails offline render (`404`): render script / render page / viewer skip "pure pivot" models, but the player loads them when a socket child exists. Serve and preload every model src the player can load | `web/scripts/previs-render.mjs`, `web/previs/render.ts`, `web/previs/viewer.ts` | — | repro doc (hidden walker + stick on `lowerArm.R`) renders in render + viewer |
+| 7.2 | sonnet | Crane over the target flips the image 180°: add `camera.up?: Track<Vec3>` (contract by supervisor), evaluate, validate, pass to `setCameraView` | `web/src/previs/validate.ts`, `evaluate.ts`, `player.ts` + tests | contract | crane-over repro with an up track has no flip |
+| 7.3 | sonnet | Textures are loaded then dropped by previs (256 MiB budget exceeded with 20 x 2048² models; `KHR_texture_basisu` / `EXT_texture_webp` required files rejected): `GltfLoadOptions.textures?: false` skips images and allows texture-only extensions; unknown-node errors list ALL node names | `web/src/sdk/scene-gltf.ts` + tests | — | 20 x 2048² models load with `textures: false`; basisu-required file loads |
+| 7.4 | haiku | Player passes `textures: false`; docs: joint-error text matches code, visibility-track pitfall (static `visible` vs first key), `camera.up`, `textures` | `web/src/previs/player.ts` (1 line), `docs/previs/guide.md`, `web/previs/SKILL.md`, `web/CHANGELOG.md` | 7.2, 7.3 | grep shows no stale text |
+
+## Epic 8. AI-video outputs (C)
+
+| ID | Tier | Task | Files | Depends | Done when |
+| --- | --- | --- | --- | --- | --- |
+| 8.1 | sonnet | Render outputs: `--format=mp4|mp4-lossless|png-seq` (lossless = `libx264rgb -crf 0`; mp4 yuv420p measured 2% off-palette pixels), `--shot=<id>` / `--range=a..b` with handles, `--camera-json=<file>` (per frame: t, shot, eye, target, up, fov, roll, aspect, view/proj matrices, meters) | `web/scripts/previs-render.mjs`, `web/previs/render.ts` | 7.1 | lossless frame has 0 off-palette pixels; camera json round-trips a still |
+| 8.2 | sonnet | Handoff gets the shot list with cut times and optional `markers: [{ t, label }]` (doc field) | `web/src/previs/handoff.ts`, `types.ts` (contract), `validate.ts` + tests | 7.2 (validate.ts) | prompt lists shots + markers |
+| 8.3a | opus | Depth pass DESIGN (read-only): encoding for AI video conditioning (convention used by ControlNet / depth-conditioned video models), range per shot vs per frame (flicker), bit depth, where in the Rust renderer, cost. Output a design note with sources | none (note in scratchpad) | — | note with cited conventions |
+| 8.3b | opus | Depth pass implementation per the approved design: Rust pass + wasm + SDK `render({ pass: 'depth' })` (new module, not charturbo.ts bloat) + `--passes=depth` in the render script | crates renderer, `web/src/sdk/*` (new module), render script | 8.3a + user approval of numbers, 8.1 | depth png sequence matches analytic depth of a test scene |
+| 8.4 | haiku | Docs for 8.1-8.3 | docs | 8.3b | — |
+
+## Epic 9. Authoring power (B)
+
+| ID | Tier | Task | Files | Depends | Done when |
+| --- | --- | --- | --- | --- | --- |
+| 9.1 | opus | Pick-up / hand-off / throw: `tracks.parent?: Track<{ node, joint? } | null>` (step), world transform kept at each switch; evaluate exports `worldTransform` (rotation too, joint-aware via the player) | `types.ts` (contract), `evaluate.ts`, `player.ts`, `validate.ts` + tests | Epic 7, 8.2 | bottle picked from a crate, carried, thrown with no pop in stills |
+| 9.2 | opus | `model.groundLock?: boolean`: keep the posed model's lowest point on y = 0 (posed bounds from mesh matrices / CPU skin positions) | `player.ts`, `scene-gltf-anim.ts` (bounds read-back) + tests | 9.1 (player.ts) | walker crouch via tracks.joints keeps feet on the floor |
+| 9.3 | sonnet | Smooth interpolation `ease: 'smooth'` (Catmull-Rom through keys) and `shortest` angle unwrap for rotation tracks | `evaluate.ts`, `validate.ts`, `types.ts` (contract) + tests | 9.1 (evaluate.ts) | speed continuous across keys; yaw 3.0 → -3.0 turns 0.28 rad |
+| 9.4 | sonnet | Handheld camera: `camera.shake?: { amp, freq?, roll?, seed? }` deterministic 1D Perlin noise on eye / target / roll | `evaluate.ts`, `types.ts` (contract), `validate.ts` + tests | 9.3 | same seed = identical frames; amplitude within spec |
+| 9.5 | opus | Mannequin `limbs: 'jointed'` (elbow, knee pivots) + `crouch()` / `pickUp()` helpers with foot-planted two-bone analytic IK; joint key table in docs | `web/src/previs/mannequin.ts` + tests | — | crouch keeps feet on the floor, knees bend forward |
+| 9.6 | haiku | Docs for 9.x | docs | 9.5 | — |
+
+## Epic 10. Tools and docs (D)
+
+| ID | Tier | Task | Files | Depends | Done when |
+| --- | --- | --- | --- | --- | --- |
+| 10.1 | sonnet | `--inspect=<glb>` (joint tree, clips + durations, natural bounds), `--stills=a,b,c` in one Chrome launch, `--contact=6x4` with t / shot labels | `web/scripts/previs-render.mjs`, `web/previs/render.ts` | 8.1 | inspect lists the walker's 12 nodes and 2 clips |
+| 10.2 | sonnet | `npm run previs:check`: render every example + pure-pivot socket + compressed walker stills and run the flat-color palette check (0.5/255) | new `web/scripts/previs-check.mjs`, `web/package.json` script | 10.1 | check passes on main, fails on an injected off-palette pixel |
+| 10.3 | haiku | `web/src/previs/index.ts` barrel, "Script helpers" table (evaluateFrame, worldPosition, docDuration, mannequin API), `previs:new` scaffold | new files, docs | 10.1 | a scratch scene authored outside the repo imports the barrel with types |
+| 10.4 | sonnet | Skip skinning/sending poses of hidden models (pose-only mode keeping nodeMatrix) | `scene-gltf-anim.ts`, `player.ts` | Epic 9 | hidden 50k-vertex model costs ~0 ms/frame |
+
+Deferred: GPU skinning (CPU 32 ns/vertex is enough today), instancing of repeated models, audio mux.

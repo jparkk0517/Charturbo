@@ -296,7 +296,7 @@ describe('frame', () => {
       ['setObjectTransform', aPivot, { position: [10, 0, 0], rotation: [0, 0, 0] }],
       ['setObjectTransform', aMesh, { scale: [20, 10, 10] }],
     ]);
-    expect(m.named('setCameraView')).toEqual([['setCameraView', { eye: [0, 10, 50], target: [0, 10, 0], roll: 0 }]]);
+    expect(m.named('setCameraView')).toEqual([['setCameraView', { eye: [0, 10, 50], target: [0, 10, 0], up: [0, 1, 0], roll: 0 }]]);
     expect(m.named('setCameraPose')).toEqual([]);
     expect(m.named('setCameraFov')).toEqual([['setCameraFov', 45]]);
   });
@@ -336,13 +336,41 @@ describe('frame', () => {
     });
     const p = createPrevisPlayer(m.sdk, d);
     p.frame(0);
-    expect(m.named('setCameraView')).toEqual([['setCameraView', { eye: [0, 1, 2], target: [0, 1, 0], roll: 0 }]]);
+    expect(m.named('setCameraView')).toEqual([['setCameraView', { eye: [0, 1, 2], target: [0, 1, 0], up: [0, 1, 0], roll: 0 }]]);
     p.frame(0);
     expect(m.named('setCameraView').length).toBe(1);
     p.frame(1);
-    expect(m.named('setCameraView')[1]).toEqual(['setCameraView', { eye: [0, 1, 2], target: [0, 1, 0], roll: 0.5 }]);
+    expect(m.named('setCameraView')[1]).toEqual(['setCameraView', { eye: [0, 1, 2], target: [0, 1, 0], up: [0, 1, 0], roll: 0.5 }]);
     p.frame(1);
     expect(m.named('setCameraView').length).toBe(2);
+  });
+
+  it('passes camera.up and re-sends when only up changes', () => {
+    const m = mockSdk();
+    const d = doc([], {
+      shots: [
+        {
+          id: 's',
+          start: 0,
+          end: 4,
+          camera: {
+            position: [{ t: 0, v: [0, 5, 1] }],
+            target: { track: [{ t: 0, v: [0, 0, 0] }] },
+            up: [
+              { t: 0, v: [0, 1, 0] },
+              { t: 2, v: [0, 0, -1] },
+            ],
+          },
+        },
+      ],
+    });
+    const p = createPrevisPlayer(m.sdk, d);
+    p.frame(0);
+    p.frame(0);
+    expect(m.named('setCameraView').length).toBe(1);
+    p.frame(2);
+    expect(m.named('setCameraView').length).toBe(2);
+    expect((m.named('setCameraView')[1][1] as { up: number[] }).up).toEqual([0, 0, -1]);
   });
 
   it('keeps the previous camera and does not throw when setCameraView returns false', () => {

@@ -934,9 +934,7 @@ export class GltfAnimator {
       const slots = t.byName.get(node);
       if (!slots) {
         const named = t.names.filter((n): n is string => n !== null);
-        const shown = named.slice(0, 8).map((n) => `"${n}"`).join(', ');
-        const more = named.length > 8 ? `, ... ${named.length - 8} more` : '';
-        fail(`no node named "${node}" (${named.length > 0 ? `nodes: ${shown}${more}` : 'the model has no named nodes'})`);
+        fail(`no node named "${node}" (${named.length > 0 ? `nodes: ${formatNodeNames(named)}` : 'the model has no named nodes'})`);
       }
       if (slots.length > 1) {
         fail(`node name "${node}" is ambiguous (${slots.length} nodes have it: glTF nodes ${slots.map((s) => t.gltf[s]).join(', ')}); use the glTF node index`);
@@ -1114,4 +1112,13 @@ function checkSpeed(speed: number): number {
 function checkWeight(weight: number): number {
   if (typeof weight !== 'number' || !(weight >= 0 && weight <= 1)) throw new Error(`GltfAnimator: weight must be in [0, 1] (got ${String(weight)})`);
   return weight;
+}
+
+/** Most node names an unknown-node error lists. */
+const MAX_LISTED_NODE_NAMES = 64;
+
+/** Quoted, comma separated node names for errors: all of them up to 64, else the first 64 and `... N more`. */
+export function formatNodeNames(names: readonly string[]): string {
+  const shown = names.slice(0, MAX_LISTED_NODE_NAMES).map((n) => `"${n}"`).join(', ');
+  return names.length > MAX_LISTED_NODE_NAMES ? `${shown}, ... ${names.length - MAX_LISTED_NODE_NAMES} more` : shown;
 }

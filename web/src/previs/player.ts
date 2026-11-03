@@ -90,9 +90,9 @@
  * while M and k are unchanged; the engine call also when the result is unchanged.
  *
  * CAMERA
- * Each frame calls `sdk.setCameraView({ eye, target, roll })` (meters * worldScale, roll in radians): an
+ * Each frame calls `sdk.setCameraView({ eye, target, up, roll })` (meters * worldScale, roll in radians): an
  * exact look-at with no distance or pitch clamp (close-ups and straight-down shots render as authored;
- * straight down / up uses the engine's up fallback). The call is skipped while eye, target and roll are
+ * straight down / up uses the engine's up fallback; `camera.up` is a track, default [0, 1, 0]). The call is skipped while eye, target, up and roll are
  * unchanged. When it returns false nothing throws and the call is retried next frame: for eye == target
  * the previous camera stays; an engine build without the binding gets the clamped `setCameraPose`
  * fallback instead. The far plane is the engine's orbit far (2000 units unless a fit widened it).
@@ -538,6 +538,7 @@ function makePlayer(
   let camTarget: Vec3 | null = null;
   let camFov: number | null = null;
   let camRoll = 0;
+  let camUp: Vec3 = [0, 1, 0];
   let disposed = false;
 
   return {
@@ -595,12 +596,14 @@ function makePlayer(
       const eye = scaled(fs.camera.eye, ws);
       const target = scaled(fs.camera.target, ws);
       const roll = fs.camera.roll;
-      if (!camEye || !camTarget || !eqVec(eye, camEye) || !eqVec(target, camTarget) || roll !== camRoll) {
+      const up = fs.camera.up;
+      if (!camEye || !camTarget || !eqVec(eye, camEye) || !eqVec(target, camTarget) || roll !== camRoll || !eqVec(up, camUp)) {
         // Exact look-at: no distance / pitch clamp. false (eye == target) keeps the previous camera.
-        if (sdk.setCameraView({ eye, target, roll })) {
+        if (sdk.setCameraView({ eye, target, up, roll })) {
           camEye = eye;
           camTarget = target;
           camRoll = roll;
+          camUp = up;
         }
       }
       if (fs.camera.fovDeg !== camFov) {
@@ -683,6 +686,8 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
       const r = await sdk.loadGltf(source, {
         signal: ctl.signal,
         animations: anim !== undefined,
+        // Flat colors drop every map: skip images (texture budget, texture-only extensions)
+        textures: false,
         ...(posable.length > 0 ? { posable } : {}),
         ...(options.decoders ? { decoders: options.decoders } : {}),
         ...(scale !== undefined ? { scale } : {}),
