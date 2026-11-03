@@ -103,6 +103,24 @@
  * transiently otherwise); the pivot's local transform is the resolver's `local` (capture + deltas, or raw
  * for key -1 / snap) and goes through the usual unchanged-value skip.
  *
+ * GROUND LOCK (`model.groundLock: true`)
+ * The node's model gets an animator even without animation / joints / sockets. Each frame, after every pivot, pose
+ * (setNodeRotations / setBlend) and FIT scale is current, the player takes the pivot's world frame (R, p: the chain of
+ * pivot and socket local transforms last sent, i.e. parents and re-parenting, composed like the engine with scale 1) and
+ * the lowest world height of the posed mesh, exactly per vertex:
+ *   y_min = p_y + r . (-k*c) + min_v (r * kd) . v   (r = world-Y row of R, kd = max(k, 0.05) the drawn FIT scale,
+ *                                                     v = posed vertex in loader space, `GltfAnimator.posedMinAlong`)
+ * and lifts the model by dy = -y_min along world Y: the pivot-frame offset d = dy * r (R^T (0, dy, 0)) is added to the
+ * FIT position (-k*c + d) and to every SOCKET position, so the mesh's lowest point is on y = 0 and props on its joints
+ * move with it. The PIVOT itself keeps the authored transform: children by plain `parent`, camera `follow` and
+ * `worldTransform` see the authored (unlifted) node origin. Order: poses, then per locked model (a locked model hanging
+ * from another locked model's socket is locked after that host) the offset, the FIT call and the socket updates;
+ * the FIT and socket calls are skipped while unchanged. The offset is reused while the pose (every player call that
+ * re-poses the animator bumps a counter), k and the pivot's world rotation and height are unchanged. Locked models are
+ * loaded with `readback: true` (both loads), which keeps their CPU vertices for `posedMinAlong`. RE-PARENTING captures include the offset: the joint frame of a
+ * locked model at a capture time t adds d(t), computed the same way from the pivot's `worldTransform` at t (the
+ * configuration at t). Docs without groundLock make exactly the calls they made before.
+ *
  * CAMERA
  * Each frame calls `sdk.setCameraView({ eye, target, up, roll })` (meters * worldScale, roll in radians): an
  * exact look-at with no distance or pitch clamp (close-ups and straight-down shots render as authored;
@@ -131,12 +149,14 @@ import {
   matrixToEulerYXZ,
   nodeStateAt,
   parentRefOf,
+  worldTransform,
   type JointFrame,
   type ParentResolver,
+  type Quat,
 } from './evaluate';
 
 export { eulerYXZToQuat, matrixToEulerYXZ };
-import type { ClipWeight, FrameState, PrevisDoc, PrevisModelAnimation, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
+import type { ClipWeight, FrameState, NodeState, PrevisDoc, PrevisModelAnimation, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
 
 export interface PrevisPlayer {
   /** Applies the doc at `time` seconds to the scene (call `sdk.render()` afterwards). */
@@ -193,15 +213,28 @@ interface ModelObjects {
   k: Vec3;
   /** nodeMatrix output buffer. */
   scratch: Float32Array;
+  /** `model.groundLock` (see GROUND LOCK). */
+  groundLock: boolean;
+  /** FIT position last sent (ground lock: -k*c + offset). */
+  fitPos: Vec3;
+  /** FIT scale last sent. */
+  fitScale: Vec3;
+  /** Ground-lock offset (engine units, pivot frame) the FIT and sockets carry; [0, 0, 0] without ground lock. */
+  lift: Vec3;
+  /** Bumped by every player call that re-poses the animator (setNodeRotations / setBlend). */
+  poseVersion: number;
+  /** Inputs of `lift`: [poseVersion, k (3), pivot world q (4), p_y]; null: not computed yet. */
+  liftKey: number[] | null;
 }
 
 /** Alpha-0 object that follows one joint of a model node (see SOCKETS). */
 interface SocketObjects {
   joint: string;
   id: number;
-  /** Joint matrix and FIT scale of the last socket computation (null: none yet). */
+  /** Joint matrix, FIT scale and ground-lock offset of the last socket computation (k null: none yet). */
   matrix: Float32Array;
   k: Vec3 | null;
+  lift: Vec3;
   /** Last values sent to the engine. */
   pos: Vec3;
   rot: Vec3;
@@ -398,7 +431,7 @@ function ensureSocket(sdk: Charturbo, host: NodeObjects, joint: string, created:
       receiveShadow: false,
     });
     created.push(id);
-    socket = { joint, id, matrix: new Float32Array(16), k: null, pos: [0, 0, 0], rot: [0, 0, 0] };
+    socket = { joint, id, matrix: new Float32Array(16), k: null, lift: [0, 0, 0], pos: [0, 0, 0], rot: [0, 0, 0] };
     host.sockets.push(socket);
   }
   return socket;
@@ -430,15 +463,19 @@ function captureParents(doc: PrevisDoc, ws: number, objects: Map<string, NodeObj
     const o = objects.get(model);
     const m = o?.model;
     if (!o || !m?.animator) throw new Error(`joint "${joint}" of node "${model}" has no loaded model to pose`);
-    const st = nodeStateAt(o.node, time);
     posed.add(m);
-    // Same pose as a frame at `time`: rotations first, then the clips (see JOINTS)
-    if (st.joints && m.jointNames.length > 0) {
-      m.animator.setNodeRotations(m.jointNames.map((node) => ({ node, rotation: eulerYXZToQuat(st.joints![node]) })), 'additive');
-    }
-    if (st.clips && m.segments.length > 0) m.animator.setBlend(toBlend(m.segments, st.clips));
-    const k = modelFitScale(m.fit, scaled(st.size, ws), m.extent);
+    const k = poseAt(o, m, time);
     const t = socketTransform(m.animator.nodeMatrix(joint, m.scratch), k, m.center, [NaN, NaN, NaN]);
+    if (m.groundLock) {
+      // The socket carries the model's ground-lock offset at `time` (see GROUND LOCK): from the pivot's world
+      // frame at `time` (re-parenting included; may pose other models), then this model posed at `time` again
+      const states: Record<string, NodeState> = {};
+      for (const n of doc.nodes) states[n.id] = nodeStateAt(n, time);
+      const w = worldTransform(doc, states, model, { jointFrame, time });
+      poseAt(o, m, time);
+      const lift = groundLift(m.animator, k, m.center, w.quaternion, w.position[1] * ws);
+      for (let i = 0; i < 3; i++) t.position[i] += lift[i];
+    }
     // A collapsed joint frame (scale 0) has no rotation to capture; the runtime socket would keep an
     // older one, so the capture would not match it (a pop). Refuse instead of guessing.
     if (t.rotation.some((v) => Number.isNaN(v))) {
@@ -448,12 +485,23 @@ function captureParents(doc: PrevisDoc, ws: number, objects: Map<string, NodeObj
     frames.set(key, jf);
     return jf;
   };
+  /** Poses model node `o` as a frame at `time` would (rotations first, then the clips; see JOINTS); returns its FIT scale. */
+  const poseAt = (o: NodeObjects, m: ModelObjects, time: number): Vec3 => {
+    const st = nodeStateAt(o.node, time);
+    m.poseVersion++;
+    if (st.joints && m.jointNames.length > 0) {
+      m.animator!.setNodeRotations(m.jointNames.map((node) => ({ node, rotation: eulerYXZToQuat(st.joints![node]) })), 'additive');
+    }
+    if (st.clips && m.segments.length > 0) m.animator!.setBlend(toBlend(m.segments, st.clips));
+    return modelFitScale(m.fit, scaled(st.size, ws), m.extent);
+  };
   const resolver = createParentResolver(doc, { jointFrame });
   try {
     resolver.captureAll();
   } finally {
     // Back to what the player last sent (frame 0 at load)
     for (const m of posed) {
+      m.poseVersion++;
       if (m.jointNames.length > 0) sendJoints(m, m.joints);
       if (m.segments.length > 0) m.animator!.setBlend(toBlend(m.segments, m.clips));
     }
@@ -491,7 +539,8 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
   const jointTracks = n.tracks?.joints;
   const jointNames = jointTracks ? Object.keys(jointTracks) : [];
   const posable = posableNames(o);
-  if (anim || posable.length > 0) animator = sdk.createGltfAnimator(result, { autoUpdate: false });
+  const groundLock = n.model?.groundLock === true;
+  if (anim || posable.length > 0 || groundLock) animator = sdk.createGltfAnimator(result, { autoUpdate: false });
   if (animator && posable.length > 0) {
     const known = animator.nodeNames;
     for (const name of posable) {
@@ -516,6 +565,12 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
     clips,
     k,
     scratch: new Float32Array(16),
+    groundLock,
+    fitPos: [-k[0] * center[0], -k[1] * center[1], -k[2] * center[2]],
+    fitScale: [...k],
+    lift: [0, 0, 0],
+    poseVersion: 0,
+    liftKey: null,
   };
   if (animator && jointNames.length > 0) sendJoints(model, joints); // initial offsets = frame 0
   if (anim && animator) {
@@ -543,10 +598,12 @@ const sameMatrix = (a: Float32Array, b: Float32Array): boolean => {
 function updateSockets(sdk: Charturbo, sockets: SocketObjects[], m: ModelObjects): void {
   for (const s of sockets) {
     const mat = m.animator!.nodeMatrix(s.joint, m.scratch);
-    if (s.k !== null && eqVec(s.k, m.k) && sameMatrix(mat, s.matrix)) continue;
+    if (s.k !== null && eqVec(s.k, m.k) && eqVec(s.lift, m.lift) && sameMatrix(mat, s.matrix)) continue;
     s.matrix.set(mat.subarray(0, 16));
     s.k = [...m.k];
+    s.lift = [...m.lift];
     const { position, rotation } = socketTransform(mat, m.k, m.center, s.rot);
+    if (m.groundLock) for (let i = 0; i < 3; i++) position[i] += m.lift[i];
     if (!eqVec(position, s.pos) || !eqVec(rotation, s.rot)) {
       sdk.setObjectTransform(s.id, { position, rotation });
       s.pos = position;
@@ -608,11 +665,60 @@ function sameClips(a: ClipWeight[], b: ClipWeight[]): boolean {
 }
 
 function sendJoints(m: ModelObjects, values: Vec3[]): void {
+  m.poseVersion++;
   m.animator!.setNodeRotations(
     m.jointNames.map((node, i) => ({ node, rotation: eulerYXZToQuat(values[i]) })),
     'additive',
   );
   m.joints = values;
+}
+
+/** Rigid transform (engine units, quaternion [x, y, z, w]). */
+interface Rigid {
+  p: Vec3;
+  q: Quat;
+}
+
+/** Deeper object chains are cut (the engine caps its parent chain at 32). */
+const MAX_CHAIN = 32;
+
+/** parent * T(pos) * R(rot) (rot: Euler YXZ, the engine's local transform with scale 1). */
+function composeRigid(parent: Rigid, pos: Vec3, rot: Vec3): Rigid {
+  const [x, y, z, w] = parent.q;
+  // p' = parent.p + parent.q * pos * parent.q^-1
+  const tx = 2 * (y * pos[2] - z * pos[1]);
+  const ty = 2 * (z * pos[0] - x * pos[2]);
+  const tz = 2 * (x * pos[1] - y * pos[0]);
+  const p: Vec3 = [
+    parent.p[0] + pos[0] + w * tx + (y * tz - z * ty),
+    parent.p[1] + pos[1] + w * ty + (z * tx - x * tz),
+    parent.p[2] + pos[2] + w * tz + (x * ty - y * tx),
+  ];
+  const [bx, by, bz, bw] = eulerYXZToQuat(rot);
+  const q: Quat = [
+    w * bx + x * bw + y * bz - z * by,
+    w * by - x * bz + y * bw + z * bx,
+    w * bz + x * by - y * bx + z * bw,
+    w * bw - x * bx - y * by - z * bz,
+  ];
+  return { p, q };
+}
+
+/**
+ * Ground-lock offset in the PIVOT frame (engine units) of a posed model under a FIT of scale `k` and bounds center `c`,
+ * whose pivot has world rotation `q` and world height `py` (see GROUND LOCK): dy * r with r = the world-Y row of R(q)
+ * and dy = -(lowest world y of the posed vertices). [0, 0, 0] for a model without vertices.
+ */
+function groundLift(animator: GltfAnimator, k: Vec3, c: Vec3, q: Quat, py: number): Vec3 {
+  const len = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+  const [x, y, z, w] = [q[0] / len, q[1] / len, q[2] / len, q[3] / len];
+  const r: Vec3 = [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)];
+  // The engine draws the FIT at max(k, 0.05) per axis (scale clamp); its position stays -k*c
+  const kd = k.map((v) => Math.max(v, MIN_OBJECT_SCALE));
+  const min = animator.posedMinAlong([r[0] * kd[0], r[1] * kd[1], r[2] * kd[2]]);
+  if (!Number.isFinite(min)) return [0, 0, 0];
+  const dy = -(py - r[0] * k[0] * c[0] - r[1] * k[1] * c[1] - r[2] * k[2] * c[2] + min);
+  return [r[0] * dy, r[1] * dy, r[2] * dy];
 }
 
 function makePlayer(
@@ -625,6 +731,16 @@ function makePlayer(
   resolver: ParentResolver | null,
 ): PrevisPlayer {
   const reparented = [...objects.values()].filter((o) => o.node.tracks?.parent !== undefined);
+  // Ground-locked loaded models and the owners of pivot / socket objects (their world chain, see GROUND LOCK)
+  const locked = [...objects.values()].filter((o) => o.model?.groundLock === true && o.model.animator !== null);
+  const pivotOwner = new Map<number, NodeObjects>();
+  const socketOwner = new Map<number, { host: NodeObjects; socket: SocketObjects }>();
+  if (locked.length > 0) {
+    for (const o of objects.values()) {
+      pivotOwner.set(o.pivotId, o);
+      for (const socket of o.sockets) socketOwner.set(socket.id, { host: o, socket });
+    }
+  }
   let camEye: Vec3 | null = null;
   let camTarget: Vec3 | null = null;
   let camFov: number | null = null;
@@ -670,10 +786,13 @@ function makePlayer(
           if (m) {
             const k = modelFitScale(m.fit, ms, m.extent);
             m.k = k;
-            sdk.setObjectTransform(m.fitId, {
-              position: [-k[0] * m.center[0], -k[1] * m.center[1], -k[2] * m.center[2]],
-              scale: k,
-            });
+            // Ground-locked FITs are sent after the pose, with their offset (see GROUND LOCK)
+            if (!m.groundLock) {
+              sdk.setObjectTransform(m.fitId, {
+                position: [-k[0] * m.center[0], -k[1] * m.center[1], -k[2] * m.center[2]],
+                scale: k,
+              });
+            }
           } else {
             sdk.setObjectTransform(o.meshId!, { scale: ms });
           }
@@ -694,12 +813,47 @@ function makePlayer(
           // evaluate.ts sets clips on every model node with an animation
           const cl = st.clips ?? m.clips;
           if (!sameClips(cl, m.clips)) {
+            m.poseVersion++;
             m.animator.setBlend(toBlend(m.segments, cl));
             m.clips = cl;
           }
           // After this frame's pose and FIT: children of joints render in the same frame
-          if (o.sockets.length > 0) updateSockets(sdk, o.sockets, m);
+          if (o.sockets.length > 0 && !m.groundLock) updateSockets(sdk, o.sockets, m);
         }
+      }
+
+      if (locked.length > 0) {
+        // GROUND LOCK: every pose and pivot is current; lock parents (through sockets) before their children
+        const done = new Set<NodeObjects>();
+        const worldOf = (id: number | null, depth: number): Rigid => {
+          if (id === null || depth > MAX_CHAIN) return { p: [0, 0, 0], q: [0, 0, 0, 1] };
+          const pivot = pivotOwner.get(id);
+          if (pivot) return composeRigid(worldOf(pivot.parentId, depth + 1), pivot.pos, pivot.rot);
+          const sock = socketOwner.get(id);
+          if (!sock) return { p: [0, 0, 0], q: [0, 0, 0, 1] };
+          if (sock.host.model?.groundLock) lock(sock.host);
+          return composeRigid(worldOf(sock.host.pivotId, depth + 1), sock.socket.pos, sock.socket.rot);
+        };
+        const lock = (o: NodeObjects): void => {
+          if (done.has(o)) return;
+          done.add(o);
+          const m = o.model!;
+          const w = worldOf(o.pivotId, 0);
+          // The offset depends only on the pose, k and the pivot's world rotation / height
+          const key = [m.poseVersion, ...m.k, ...w.q, w.p[1]];
+          if (!m.liftKey || key.some((v, i) => v !== m.liftKey![i])) {
+            m.lift = groundLift(m.animator!, m.k, m.center, w.q, w.p[1]);
+            m.liftKey = key;
+          }
+          const fitPos: Vec3 = [0, 1, 2].map((i) => -m.k[i] * m.center[i] + m.lift[i]) as Vec3;
+          if (!eqVec(fitPos, m.fitPos) || !eqVec(m.k, m.fitScale)) {
+            sdk.setObjectTransform(m.fitId, { position: fitPos, scale: [...m.k] });
+            m.fitPos = fitPos;
+            m.fitScale = [...m.k];
+          }
+          if (o.sockets.length > 0) updateSockets(sdk, o.sockets, m);
+        };
+        for (const o of locked) lock(o);
       }
 
       const eye = scaled(fs.camera.eye, ws);
@@ -808,6 +962,8 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
         ...(posable.length > 0 ? { posable } : {}),
         ...(options.decoders ? { decoders: options.decoders } : {}),
         ...(scale !== undefined ? { scale } : {}),
+        // Ground lock reads the posed vertices back (GltfAnimator.posedMinAlong)
+        ...(model.groundLock === true ? { readback: true } : {}),
       });
       loaded.add(r);
       check();

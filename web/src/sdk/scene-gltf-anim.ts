@@ -3,7 +3,8 @@
 // space and get a mesh matrix (glTF scale x node chain); skinned meshes stay in bind space and get
 // a joint palette (glTF scale x joint world x inverse bind matrix) that the engine skins on the
 // CPU. The animator recomputes both and pushes each to the engine in one batched call per update,
-// and reads back the posed model-space matrix of any rig node (`GltfAnimator.nodeMatrix`).
+// and reads back the posed model-space matrix of any rig node (`GltfAnimator.nodeMatrix`) and the exact
+// lowest point of the posed vertices along any axis (`GltfAnimator.posedMinAlong`).
 
 /** Keyframe interpolation of a glTF animation sampler. */
 export type GltfInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
@@ -124,6 +125,107 @@ export interface GltfRigSkin {
   joints: Int32Array;
   /** 16 column-major floats per joint (identity when the file has none) */
   inverseBind: Float32Array;
+}
+
+/**
+ * Vertices of a loaded model as the engine draws them, for posed read-backs (`GltfAnimator.posedMinAlong`).
+ * Only loads with `readback: true` register the arrays they hand to the engine (`registerGltfGeometry`); the compact
+ * form (only the vertices some triangle uses, skin weights normalized like the engine) is built on the first read-back.
+ * `disposeGltf` drops both (`releaseGltfGeometry`).
+ */
+export interface GltfGeometrySource {
+  /** Baked meshes: vertices already in model space (3 floats each) and their triangle indices */
+  fixed: { positions: Float32Array; indices: Uint32Array }[];
+  /** Mesh-matrix objects: node-local vertices; `target` indexes `GltfRig.targets` */
+  rigid: { target: number; positions: Float32Array; indices: Uint32Array }[];
+  /** Skinned objects: bind-space vertices, 4 joints (palette indices) / weights per vertex; `target` indexes `GltfRig.skinTargets` */
+  skinned: { target: number; positions: Float32Array; indices: Uint32Array; joints: Uint16Array; weights: Float32Array }[];
+}
+
+/** Compact geometry of `GltfGeometrySource` (used vertices only). */
+interface GltfGeometry {
+  fixed: Float32Array;
+  rigid: { target: number; positions: Float32Array }[];
+  /** `joints` / `weights`: 4 per vertex; weights normalized (engine `normalize_weights`), unused influences weight 0 */
+  skinned: { target: number; positions: Float32Array; joints: Uint16Array; weights: Float32Array }[];
+}
+
+const geometrySources = new WeakMap<object, GltfGeometrySource>();
+const geometries = new WeakMap<object, GltfGeometry>();
+
+/** @internal Called by the loader for every `loadGltf` result. */
+export function registerGltfGeometry(model: object, source: GltfGeometrySource): void {
+  geometrySources.set(model, source);
+}
+
+/** @internal Drops the CPU vertices kept for a model (`disposeGltf`). */
+export function releaseGltfGeometry(model: object): void {
+  geometrySources.delete(model);
+  geometries.delete(model);
+}
+
+/** @internal True while CPU vertices of `model` are kept (loaded with `readback: true`, not disposed). */
+export function hasGltfGeometry(model: object): boolean {
+  return geometrySources.has(model) || geometries.has(model);
+}
+
+/** Positions (and skin attributes) of the vertices `indices` reference, in first-use order of the vertex index. */
+function usedVertices(indices: Uint32Array, count: number): Uint32Array | null {
+  const used = new Uint8Array(count);
+  let n = 0;
+  for (let i = 0; i < indices.length; i++) {
+    const v = indices[i];
+    if (v < count && !used[v]) {
+      used[v] = 1;
+      n++;
+    }
+  }
+  if (n === count) return null; // every vertex is drawn: keep the arrays as they are
+  const out = new Uint32Array(n);
+  let o = 0;
+  for (let v = 0; v < count; v++) if (used[v]) out[o++] = v;
+  return out;
+}
+
+function pick(src: ArrayLike<number>, list: Uint32Array | null, width: number, make: (n: number) => Float32Array | Uint16Array): Float32Array | Uint16Array {
+  if (!list) return src as Float32Array | Uint16Array;
+  const out = make(list.length * width);
+  for (let k = 0; k < list.length; k++) for (let c = 0; c < width; c++) out[k * width + c] = src[list[k] * width + c];
+  return out;
+}
+
+function compactGeometry(src: GltfGeometrySource): GltfGeometry {
+  const fixedParts = src.fixed.map(({ positions, indices }) => pick(positions, usedVertices(indices, positions.length / 3), 3, (n) => new Float32Array(n)) as Float32Array);
+  const fixed = new Float32Array(fixedParts.reduce((a, p) => a + p.length, 0));
+  let o = 0;
+  for (const p of fixedParts) {
+    fixed.set(p, o);
+    o += p.length;
+  }
+  const rigid = src.rigid.map(({ target, positions, indices }) => ({
+    target,
+    positions: pick(positions, usedVertices(indices, positions.length / 3), 3, (n) => new Float32Array(n)) as Float32Array,
+  }));
+  const skinned = src.skinned.map(({ target, positions, indices, joints, weights }) => {
+    const list = usedVertices(indices, positions.length / 3);
+    const j = Uint16Array.from(pick(joints, list, 4, (n) => new Uint16Array(n)));
+    const w = Float32Array.from(pick(weights, list, 4, (n) => new Float32Array(n)));
+    for (let v = 0; v < w.length; v += 4) {
+      // Engine `normalize_weights`: non-finite / negative -> 0, scaled to sum 1; all-zero keeps the bind position
+      let sum = 0;
+      for (let k = 0; k < 4; k++) {
+        const x = w[v + k];
+        w[v + k] = Number.isFinite(x) && x > 0 ? x : 0;
+        sum += w[v + k];
+      }
+      for (let k = 0; k < 4; k++) {
+        w[v + k] = sum > 1e-12 ? w[v + k] / sum : 0;
+        if (w[v + k] === 0) j[v + k] = 0;
+      }
+    }
+    return { target, positions: pick(positions, list, 3, (n) => new Float32Array(n)) as Float32Array, joints: j, weights: w };
+  });
+  return { fixed, rigid, skinned };
 }
 
 /** The engine calls the animator uses (`Charturbo.setObjectMeshMatrices` / `setObjectJointMatrices`). */
@@ -404,6 +506,10 @@ class RigPose {
   /** Joint matrices of `rig.skinTargets`, back to back */
   readonly jointMatrices: Float32Array;
   readonly jointCounts: Uint32Array;
+  /** Offset of each skinned object's palette in `jointMatrices` (16 floats per joint) */
+  readonly jointOffsets: Uint32Array;
+  /** False until the first `compose` (the buffers then still hold zeros; the engine shows the loader's rest pose) */
+  evaluated = false;
   /** Palette of each skin (shared by its objects) */
   private readonly palettes: Float32Array[];
   /** Second TRS buffer for blending (allocated on the first multi-clip blend) */
@@ -422,6 +528,8 @@ class RigPose {
     this.matrices = new Float32Array(rig.targets.ids.length * 16);
     this.jointCounts = skinTargetJointCounts(rig);
     this.jointMatrices = new Float32Array(this.jointCounts.reduce((a, c) => a + c, 0) * 16);
+    this.jointOffsets = new Uint32Array(this.jointCounts.length);
+    for (let k = 1; k < this.jointCounts.length; k++) this.jointOffsets[k] = this.jointOffsets[k - 1] + this.jointCounts[k - 1] * 16;
     this.palettes = rig.skins.map((s) => new Float32Array(s.joints.length * 16));
     this.active = rig.dynamic;
   }
@@ -541,6 +649,7 @@ class RigPose {
   /** World matrices of the dynamic nodes from `trs`, then the mesh matrices and joint palettes. */
   private compose(): void {
     const { rig, trs, world, local, active } = this;
+    this.evaluated = true;
     const n = rig.parent.length;
     for (let i = 0; i < n; i++) {
       if (!active[i]) continue;
@@ -602,6 +711,8 @@ export class GltfAnimator {
    */
   readonly nodeNames: readonly (string | null)[];
   private readonly nodes: NodeTable;
+  /** posedMinAlong: per-joint axis rows (4 floats per joint) */
+  private rowScratch = new Float64Array(0);
 
   /** @internal Created by `Charturbo.createGltfAnimator` */
   constructor(
@@ -927,6 +1038,102 @@ export class GltfAnimator {
     return target;
   }
 
+  /**
+   * Exact minimum of `axis . v` over every vertex `v` the model's triangles use, in the CURRENT pose (clip / blend /
+   * `setNodeRotations`, rest pose before any), in the model's object space (the `nodeMatrix` frame: load `scale`
+   * included, load position / rotation NOT included). `axis` need not be unit length: for a world direction d and an
+   * object-to-world linear map A, pass A^T d (e.g. A's row) to get the lowest point along d. Computed from the same data
+   * the engine draws: baked vertices as loaded, mesh-matrix objects as mesh matrix x node-local vertex, skinned objects
+   * by linear-blend skinning with the palette this animator last sent and the engine's weight normalization (all-zero
+   * weights keep the bind position). Per vertex, not a bounding box: exact under any rotation (up to f32 rounding of the
+   * vertices / matrices). Vertices no triangle references are skipped. Works without a rig (a static model: its baked
+   * vertices). Cost O(vertices) per call (about 3 multiply-adds per rigid vertex, 4 x 4 per skinned vertex), no
+   * allocation after the first call (which builds the compact vertex list). Infinity when the model has no vertices.
+   * Needs the model loaded with `loadGltf(..., { readback: true })` (the CPU vertex copy); throws otherwise or after
+   * `disposeGltf`.
+   */
+  posedMinAlong(axis: readonly [number, number, number]): number {
+    this.checkAlive('posedMinAlong');
+    if (!isVec3Like(axis)) throw new Error(`GltfAnimator.posedMinAlong: axis must be 3 finite numbers (got ${String(axis)})`);
+    const g = this.geometry();
+    const [ax, ay, az] = [axis[0], axis[1], axis[2]];
+    let min = Infinity;
+    const f = g.fixed;
+    for (let i = 0; i < f.length; i += 3) {
+      const d = ax * f[i] + ay * f[i + 1] + az * f[i + 2];
+      if (d < min) min = d;
+    }
+    const pose = this.pose;
+    if (!pose || (g.rigid.length === 0 && g.skinned.length === 0)) return min;
+    // Not posed yet: the rest pose the loader sent (no overrides can exist before the first compose)
+    if (!pose.evaluated) pose.evaluate(null, 0, 1);
+    const mats = pose.matrices;
+    for (const { target, positions: p } of g.rigid) {
+      const m = target * 16;
+      // axis . (M v) = (M^T axis) . v + axis . t
+      const bx = ax * mats[m] + ay * mats[m + 1] + az * mats[m + 2];
+      const by = ax * mats[m + 4] + ay * mats[m + 5] + az * mats[m + 6];
+      const bz = ax * mats[m + 8] + ay * mats[m + 9] + az * mats[m + 10];
+      const bt = ax * mats[m + 12] + ay * mats[m + 13] + az * mats[m + 14];
+      let lo = Infinity;
+      for (let i = 0; i < p.length; i += 3) {
+        const d = bx * p[i] + by * p[i + 1] + bz * p[i + 2];
+        if (d < lo) lo = d;
+      }
+      if (lo + bt < min) min = lo + bt;
+    }
+    if (g.skinned.length > 0) {
+      const pal = pose.jointMatrices;
+      for (const { target, positions: p, joints, weights } of g.skinned) {
+        const base = pose.jointOffsets[target];
+        const count = pose.jointCounts[target];
+        // Per joint row (M_j^T axis, axis . t_j): axis . (sum w_k M_k v) = sum w_k (b_k . v + t_k)
+        const b = (this.rowScratch.length >= count * 4 ? this.rowScratch : (this.rowScratch = new Float64Array(count * 4)));
+        for (let j = 0; j < count; j++) {
+          const m = base + j * 16;
+          b[j * 4] = ax * pal[m] + ay * pal[m + 1] + az * pal[m + 2];
+          b[j * 4 + 1] = ax * pal[m + 4] + ay * pal[m + 5] + az * pal[m + 6];
+          b[j * 4 + 2] = ax * pal[m + 8] + ay * pal[m + 9] + az * pal[m + 10];
+          b[j * 4 + 3] = ax * pal[m + 12] + ay * pal[m + 13] + az * pal[m + 14];
+        }
+        for (let v = 0, i = 0; i < p.length; v += 4, i += 3) {
+          const x = p[i], y = p[i + 1], z = p[i + 2];
+          let d: number;
+          if (weights[v] === 0 && weights[v + 1] === 0 && weights[v + 2] === 0 && weights[v + 3] === 0) {
+            d = ax * x + ay * y + az * z;
+          } else {
+            d = 0;
+            for (let k = 0; k < 4; k++) {
+              const w = weights[v + k];
+              if (w === 0) continue;
+              const o = joints[v + k] * 4;
+              d += w * (b[o] * x + b[o + 1] * y + b[o + 2] * z + b[o + 3]);
+            }
+          }
+          if (d < min) min = d;
+        }
+      }
+    }
+    return min;
+  }
+
+  /** Compact vertex data of the model (built on first use from the loader's registration). */
+  private geometry(): GltfGeometry {
+    let g = geometries.get(this.model);
+    if (!g) {
+      const src = geometrySources.get(this.model);
+      if (!src) {
+        throw new Error(
+          'GltfAnimator.posedMinAlong: no CPU vertices kept for this model; load it with loadGltf(..., { readback: true }) (and do not dispose it)'
+        );
+      }
+      g = compactGeometry(src);
+      geometries.set(this.model, g);
+      geometrySources.delete(this.model);
+    }
+    return g;
+  }
+
   /** Slot (index into `nodeNames`) of a node name or glTF node index (`k` < 0: a single node argument, not entry k). */
   private resolveNode(node: unknown, fail: (message: string) => never, k: number): number {
     const t = this.nodes;
@@ -1087,6 +1294,12 @@ function readUnitQuat(q: unknown, label: string, out: Float64Array, o: number): 
   const len = Math.hypot(q[0], q[1], q[2], q[3]);
   if (!(Math.abs(len - 1) <= UNIT_QUAT_TOLERANCE)) failNode(`rotation of ${label} must be a unit quaternion (length ${len})`);
   for (let c = 0; c < 4; c++) out[o + c] = q[c] / len;
+}
+
+function isVec3Like(v: unknown): v is ArrayLike<number> {
+  if (!Array.isArray(v) && !ArrayBuffer.isView(v)) return false;
+  const a = v as ArrayLike<unknown>;
+  return a.length === 3 && [0, 1, 2].every((c) => typeof a[c] === 'number' && Number.isFinite(a[c]));
 }
 
 function isQuatLike(q: unknown): q is ArrayLike<number> {

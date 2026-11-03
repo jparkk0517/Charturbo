@@ -8,7 +8,7 @@
 import type { CustomMeshObjectDescriptor, LoadTextureOptions, Vec2Tuple, Vec3Tuple } from './charturbo';
 import type { RgbaTuple } from './color';
 import type { GltfAnimationInfo, GltfAnimationPath, GltfChannel, GltfClip, GltfInterpolation, GltfRig, GltfRigSkin, GltfSampler } from './scene-gltf-anim';
-import { computeJointMatrices, formatNodeNames, skinPositions } from './scene-gltf-anim';
+import { computeJointMatrices, formatNodeNames, registerGltfGeometry, releaseGltfGeometry, skinPositions, type GltfGeometrySource } from './scene-gltf-anim';
 
 /** Model sources `loadGltf` reads (strings and `URL`s are fetched). */
 export type GltfSource = string | URL | ArrayBuffer | Uint8Array | Blob;
@@ -56,6 +56,13 @@ export interface GltfLoadOptions {
    * `KHR_texture_transform`) are accepted even when required. Geometry, skins and animations are unchanged.
    */
   textures?: boolean;
+  /**
+   * Keep a CPU reference to the loaded vertices (positions, indices, skin joints / weights) so
+   * `GltfAnimator.posedMinAlong` can read the posed geometry back (default false). Costs memory: about
+   * 12 bytes per vertex plus the indices (and 24 per skinned vertex) on top of the engine's copy, held
+   * until `disposeGltf`. Without it `posedMinAlong` throws.
+   */
+  readback?: boolean;
 }
 
 /** Decoders `loadGltf` uses for compressed geometry (see `GltfLoadOptions.decoders`). */
@@ -414,6 +421,7 @@ export async function loadGltfModel(host: GltfHost, source: GltfSource, options:
 
 /** Removes the objects and textures of a `loadGltf` result. */
 export function disposeGltfModel(host: GltfHost, result: GltfLoadResult): void {
+  releaseGltfGeometry(result);
   for (const id of result.objects) host.removeObject(id);
   for (const id of result.textures) {
     try {
@@ -752,6 +760,8 @@ class GltfLoader {
     // Objects
     const dynamicObjects: { id: number; mesh: PreparedMesh }[] = [];
     const skinnedObjects: { id: number; slot: number }[] = [];
+    // The vertices as handed to the engine, for posed read-backs (GltfAnimator.posedMinAlong; `readback` only)
+    const geometry: GltfGeometrySource | null = options.readback === true ? { fixed: [], rigid: [], skinned: [] } : null;
     const position: Vec3Tuple = options.position ? [...options.position] : [0, 0, 0];
     const rotation: Vec3Tuple = options.rotation ? [...options.rotation] : [0, 0, 0];
     for (const mesh of meshes) {
@@ -787,14 +797,19 @@ class GltfLoader {
       });
       created.objects.push(id);
       mesh.node.objectIds.push(id);
-      if (mesh.matrix) dynamicObjects.push({ id, mesh });
+      if (mesh.matrix) {
+        geometry?.rigid.push({ target: dynamicObjects.length, positions: mesh.positions, indices: mesh.indices });
+        dynamicObjects.push({ id, mesh });
+      }
       if (mesh.skin) {
         const { slot, joints, weights } = mesh.skin;
         if (!this.host.setObjectSkin!(id, { joints, weights, jointCount: skins[slot].joints.length })) {
           throw new Error('loadGltf: the engine could not skin a mesh');
         }
+        geometry?.skinned.push({ target: skinnedObjects.length, positions: mesh.positions, indices: mesh.indices, joints, weights });
         skinnedObjects.push({ id, slot });
       }
+      if (!mesh.matrix && !mesh.skin) geometry?.fixed.push({ positions: mesh.positions, indices: mesh.indices });
     }
 
     let rig: GltfRig | null = null;
@@ -827,6 +842,7 @@ class GltfLoader {
     };
     if (rig) rigs.set(result, rig);
     else if (clips.length > 0) rigs.set(result, { ...emptyRig(), clips });
+    if (geometry) registerGltfGeometry(result, geometry);
     return result;
   }
 

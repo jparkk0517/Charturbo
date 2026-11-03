@@ -105,7 +105,9 @@ export interface PrevisModel {
    * node's own transform, parents and re-parenting) so the lowest point of the POSED mesh (clips,
    * blends and `tracks.joints` included) sits exactly on y = 0: feet stay on the floor while a crouch
    * or a clip moves the hips. The authored height is therefore overridden; turn it off for jumps or
-   * models standing on something other than the ground. Props attached to its joints move with it.
+   * models standing on something other than the ground. Props attached to its joints move with it;
+   * the node origin itself is NOT moved, so plain `parent` children, camera `follow` and
+   * `worldTransform` still see the authored position.
    */
   groundLock?: boolean;
 }
