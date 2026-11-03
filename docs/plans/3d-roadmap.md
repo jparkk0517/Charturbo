@@ -156,7 +156,7 @@ Epic 8 → Epic 9 → Epic 10. Within an epic, tasks on disjoint files run in pa
 | 8.2 DONE | sonnet | Handoff gets the shot list with cut times and optional `markers: [{ t, label }]` (doc field) | `web/src/previs/handoff.ts`, `types.ts` (contract), `validate.ts` + tests | 7.2 (validate.ts) | prompt lists shots + markers |
 | 8.3a DONE | opus | Depth pass DESIGN (read-only): encoding for AI video conditioning (convention used by ControlNet / depth-conditioned video models), range per shot vs per frame (flicker), bit depth, where in the Rust renderer, cost. Output a design note with sources | none (note in scratchpad) | — | note with cited conventions |
 | 8.3b DONE (approved 2026-11-03: planar z-depth, MSAA off, per-shot measured range) | opus | Depth pass implementation per the approved design: Rust pass + wasm + SDK `render({ pass: 'depth' })` (new module, not charturbo.ts bloat) + `--passes=depth` in the render script | crates renderer, `web/src/sdk/*` (new module), render script | 8.3a + user approval of numbers, 8.1 | depth png sequence matches analytic depth of a test scene |
-| 8.4 | haiku | Docs for 8.1-8.3 | docs | 8.3b | — |
+| 8.4 DONE | haiku | Docs for 8.1-8.3 | docs | 8.3b | — |
 
 ## Epic 9. Authoring power (B)
 

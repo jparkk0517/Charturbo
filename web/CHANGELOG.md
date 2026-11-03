@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 추가 — 깊이 출력 패스 (depth pass)
+
+- SDK에 `setRenderPass(pass, options?)` / `getRenderPass()` / `readDepthRange()`를 추가했습니다(`web/src/sdk/scene-depth.ts`). `setRenderPass('depth', { encoding?, near?, far? })`는 매 프레임을 평면 뷰 깊이의 회색 맵으로 바꿉니다. `encoding`은 `'inverse'`(기본, near = 흰색 255, 배경 0) · `'linear'` · `'packed'`(측정용 24비트)이며, `readDepthRange()`는 `packed` 프레임의 전경 최소/최대 깊이(엔진 단위)를 읽습니다. depth 패스는 MSAA를 끈 상태에서만 동작하고(`setAntialias(4)`는 depth 패스 중 거부, depth 패스는 MSAA 4에서 거부), 불투명 지오메트리만 나타납니다.
+- `npm run previs:render`에 `--passes=beauty|depth|beauty,depth`, `--depth-range=shot|frame|<near>..<far>`(미터, 기본 `shot`), `--depth-encoding=inverse|linear`를 추가했습니다. 출력은 `<stem>.depth.mp4`(`--format=png-seq`는 `<stem>.depth/`), `--split-shots`는 `<stem>.<shot>.depth.mp4`, 그리고 `<stem>.depth.json` 사이드카입니다. 자세한 내용은 `docs/previs/guide.md`의 「Depth pass」 절을 참고하세요.
+
 ### 추가 — 렌더 출력 · handoff 샷 목록
 
 - `npm run previs:render`에 `--format=mp4|mp4-lossless|png-seq`(기본 `mp4`), `--shot=<id>`, `--range=<a>..<b>`, `--handles=<s>`, `--split-shots`, `--camera-json=<file>`를 추가했습니다. `mp4-lossless`는 역할 색을 픽셀 단위로 정확히 유지하지만(`libx264rgb -crf 0`) 많은 플레이어에서 재생되지 않고, `png-seq`는 ffmpeg 없이 PNG 시퀀스를 씁니다. `--split-shots`는 샷별 파일과 프레임 범위를 담은 `<stem>.cuts.json`을 씁니다. 잘못된 형식·구간·샷 id는 종료 코드 2로 거부됩니다.

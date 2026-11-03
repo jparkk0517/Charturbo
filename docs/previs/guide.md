@@ -32,6 +32,40 @@ npm run previs:render -- doc.json out.mp4 --split-shots          # one file per 
 
 Exit codes: `0` ok, `1` render / Chrome / ffmpeg failure, `2` usage error or invalid doc (unknown shot, bad format, bad range). Issues are printed one per line as `path: message`; the last stdout line is `frames=.. fps=.. size=WxH out=.. format=..`.
 
+## Depth pass
+
+`--passes` adds a depth map for AI video conditioning (ControlNet depth, Wan VACE, LTX-Video depth IC-LoRA). It is written next to the beauty output. The engine side is `setRenderPass` / `getRenderPass` / `readDepthRange` in `web/src/sdk/scene-depth.ts`.
+
+```bash
+npm run previs:render -- previs/examples/gate-raid.json out/raid --passes=beauty,depth --split-shots --format=png-seq
+```
+
+| Flag | Description |
+| --- | --- |
+| `--passes=beauty\|depth\|beauty,depth` | Default `beauty`. `depth` writes only the depth output (`<out>` is then only the base name). `beauty,depth` writes both; beauty bytes are the same as a beauty-only run |
+| `--depth-range=shot\|frame\|<near>..<far>` | Default `shot`. `shot`: one range per output job (a split shot incl. handles, or the whole render), from the foreground min / max depth over its frames. `frame`: per frame. `<near>..<far>`: fixed, in meters, `0 < near < far`. A measured `near == far` (one flat surface) fails; pass a fixed range. Without `depth` in `--passes` this flag exits 2 |
+| `--depth-encoding=inverse\|linear` | Default `inverse`. Without `depth` in `--passes` this flag exits 2 |
+
+Encoding: `D` is the planar view depth (distance along the camera's view axis, in meters). `inverse` (default): `v = (1/D - 1/far) / (1/near - 1/far)`; `linear`: `v = (far - D) / (far - near)`. `v` is clamped to 0..1 and written as `round(255 v)`. The nearest distance (`near`) is white (255), the farthest (`far`) is black (0), and nothing drawn (background) is 0. The value is gray with R = G = B. One range per shot keeps the brightness of a shot stable, so the same depth looks the same across its frames.
+
+Output files (`<stem>` is `<out>` without its extension; with `png-seq`, `<out>` is the directory):
+
+| Case | File |
+| --- | --- |
+| mp4 formats | `<stem>.depth.mp4` (same `--format` codec as beauty) |
+| `--format=png-seq` | `<stem>.depth/` (`frame_NNNNNN.png`) |
+| `--split-shots`, mp4 | `<stem>.<shotId>.depth.mp4` |
+| `--split-shots`, png-seq | `<stem>.depth/<shotId>/` |
+| always (with depth) | `<stem>.depth.json` = `[{ shot, near_m, far_m, encoding, range, formula }]`; `shot` is `null` when not split, `near_m` / `far_m` are `null` with no foreground pixel |
+| `--still` | `<stem>.depth.png` (+ `.depth.json`); range from that frame alone |
+
+Rules:
+
+- The depth pass renders without anti-aliasing, so edges are hard. In one run the beauty jobs keep their 4x MSAA and run first; the depth jobs then run with MSAA off. With `--passes=depth` the page loads with MSAA off. `--no-aa` together with `--passes=depth` exits 2.
+- Only geometry that writes depth appears: opaque meshes, opaque graph nodes, bars and 3D markers / fills. Translucent meshes, 2D lines and overlays write no depth, so they show as background.
+- `--format=mp4` is yuv420p limited range (0..255 becomes 16..235), so the gray levels are coarser. When exact values matter (masks, training data, measurements), use `--format=png-seq` or `--format=mp4-lossless`.
+- Models: ControlNet depth ([lllyasviel/sd-controlnet-depth](https://huggingface.co/lllyasviel/sd-controlnet-depth)) and Wan VACE ([VACE depth annotators](https://github.com/ali-vilab/VACE/blob/main/vace/annotators/depth.py), MiDaS / Depth Anything V2 inverse depth) use near = white. Wan VACE preprocessing normalizes depth per frame, so `--depth-range=frame` matches it exactly. The LTX-Video depth IC-LoRA guide asks for a consistent range across frames (the default `shot`) but does not state the polarity.
+
 ## Document format
 
 Source of truth: `web/src/previs/types.ts`. Units: meters, radians, sRGB colors `[r, g, b]` in 0..1, Y up.
