@@ -44,6 +44,7 @@ npm run previs:render -- previs/examples/gate-raid.json out/raid --passes=beauty
 | --- | --- |
 | `--passes=beauty\|depth\|beauty,depth` | Default `beauty`. `depth` writes only the depth output (`<out>` is then only the base name). `beauty,depth` writes both; beauty bytes are the same as a beauty-only run |
 | `--depth-range=shot\|frame\|<near>..<far>` | Default `shot`. `shot`: one range per output job (a split shot incl. handles, or the whole render), from the foreground min / max depth over its frames. `frame`: per frame. `<near>..<far>`: fixed, in meters, `0 < near < far`. A measured `near == far` (one flat surface) fails; pass a fixed range. Without `depth` in `--passes` this flag exits 2 |
+| `--depth-near-clip=<meters>` | Opt-in, no default. Only with a measured range (`--depth-range=shot` or `frame`): after measuring `[Dnear, Dfar]`, `near` becomes `max(Dnear, meters)`; `far` is unchanged. Pixels nearer than `meters` clamp to white (255), so one close object (a prop in the lens) no longer takes the gray range from the rest of the scene. The value must be finite and `> 0`, else exit 2. With a fixed `--depth-range=<near>..<far>` or without `depth` in `--passes` it exits 2. If `meters` is at or beyond the measured `far` of a shot / frame, it exits 1 and names the shot and both numbers. Absent: output is unchanged |
 | `--depth-encoding=inverse\|linear` | Default `inverse`. Without `depth` in `--passes` this flag exits 2 |
 
 Encoding: `D` is the planar view depth (distance along the camera's view axis, in meters). `inverse` (default): `v = (1/D - 1/far) / (1/near - 1/far)`; `linear`: `v = (far - D) / (far - near)`. `v` is clamped to 0..1 and written as `round(255 v)`. The nearest distance (`near`) is white (255), the farthest (`far`) is black (0), and nothing drawn (background) is 0. The value is gray with R = G = B. One range per shot keeps the brightness of a shot stable, so the same depth looks the same across its frames.
@@ -56,7 +57,7 @@ Output files (`<stem>` is `<out>` without its extension; with `png-seq`, `<out>`
 | `--format=png-seq` | `<stem>.depth/` (`frame_NNNNNN.png`) |
 | `--split-shots`, mp4 | `<stem>.<shotId>.depth.mp4` |
 | `--split-shots`, png-seq | `<stem>.depth/<shotId>/` |
-| always (with depth) | `<stem>.depth.json` = `[{ shot, near_m, far_m, encoding, range, formula }]`; `shot` is `null` when not split, `near_m` / `far_m` are `null` with no foreground pixel |
+| always (with depth) | `<stem>.depth.json` = `[{ shot, near_m, far_m, encoding, range, formula }]` (with `--depth-near-clip` also `near_clip_m`, the flag value, and `measured_near_m`, the raw measured near; `near_m` is the value used); `shot` is `null` when not split, `near_m` / `far_m` are `null` with no foreground pixel |
 | `--still` | `<stem>.depth.png` (+ `.depth.json`); range from that frame alone |
 
 Rules:

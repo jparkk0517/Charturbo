@@ -5,7 +5,7 @@
 //   node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2]
 //        [--frames=N] [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots]
 //        [--force] [--camera-json=<file>] [--chrome=path] [--no-aa]
-//        [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear]
+//        [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear] [--depth-near-clip=<meters>]
 //   node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]
 //   node scripts/previs-render.mjs <doc.json> --stills=<s>,<s>,... --out=<dir | pattern.png> [--backend=..] [--passes=..]
 //   node scripts/previs-render.mjs <doc.json> --contact=<cols>x<rows> --out=<sheet.png> [--shot=<id> | --range=<a>..<b>]
@@ -49,6 +49,12 @@
 //             (warning on stderr). A measured near == far (e.g. one flat wall) is a failure: pass a fixed range.
 // --depth-encoding  inverse (default): v = (1/D - 1/far) / (1/near - 1/far); linear: v = (far - D) / (far - near); clamped
 //             0..1, byte = round(255 v). D = planar view depth (meters).
+// --depth-near-clip=<meters>  opt-in, measured ranges only (--depth-range=shot | frame). After measuring [Dnear, Dfar]
+//             near becomes max(Dnear, meters); far is unchanged. Pixels nearer than <meters> clamp to white 255, so a close
+//             foreground object no longer eats the gray range of the rest. Absent = no change. Value must be finite > 0
+//             (else exit 2); with a fixed --depth-range or without depth in --passes: exit 2. If <meters> >= the measured
+//             far of a shot / frame: exit 1 naming the shot and both numbers. The sidecar entries then also carry
+//             near_clip_m (the flag value) and measured_near_m (raw measured near; near_m is the value used).
 //             Sidecar <out-stem>.depth.json = [{ shot, near_m, far_m, encoding, range, formula }] (range = shot | frame |
 //             fixed; shot null when not split; near_m / far_m null with no foreground; in frame mode they span the job and
 //             `frames` lists { frame, near_m, far_m } per frame).
@@ -426,7 +432,7 @@ async function main() {
     if (inspectOpt === '') throw new Failure('--inspect needs a model path (--inspect=<model.glb|model.gltf>)', 2);
     const bad = [
       ...positional.map(() => ['<positional argument>', true]),
-      ...['still', 'stills', 'contact', 'tile-width', 'out', 'format', 'shot', 'range', 'handles', 'camera-json', 'frames', 'passes', 'depth-range', 'depth-encoding'].map((n) => [`--${n}`, option(n) !== undefined]),
+      ...['still', 'stills', 'contact', 'tile-width', 'out', 'format', 'shot', 'range', 'handles', 'camera-json', 'frames', 'passes', 'depth-range', 'depth-encoding', 'depth-near-clip'].map((n) => [`--${n}`, option(n) !== undefined]),
       ...['split-shots', 'force', 'no-aa'].map((n) => [`--${n}`, flag(n)]),
     ].find(([, g]) => g);
     if (bad) throw new Failure(`${bad[0]} has no effect with --inspect (only --json, --backend, --chrome); remove it`, 2);
@@ -442,7 +448,7 @@ async function main() {
     throw new Failure(
       'usage: node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2] [--frames=N]\n' +
         '         [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots] [--camera-json=<file>] [--chrome=path] [--no-aa]\n' +
-        '         [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear]\n' +
+        '         [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear] [--depth-near-clip=<meters>]\n' +
         '       node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]\n' +
         '       node scripts/previs-render.mjs <doc.json> --stills=<s>,<s>,.. --out=<dir | pattern.png> [--backend=..] [--passes=..]\n' +
         '       node scripts/previs-render.mjs <doc.json> --contact=<cols>x<rows> --out=<sheet.png> [--shot=<id> | --range=<a>..<b>] [--tile-width=<px>]\n' +
@@ -463,10 +469,12 @@ async function main() {
   const wantDepth = passList.includes('depth');
   const depthRangeOpt = option('depth-range');
   const depthEncOpt = option('depth-encoding');
+  const nearClipOpt = option('depth-near-clip');
   if (!wantDepth) {
     const given = [
       ['depth-range', depthRangeOpt !== undefined],
       ['depth-encoding', depthEncOpt !== undefined],
+      ['depth-near-clip', nearClipOpt !== undefined],
     ].find(([, g]) => g);
     if (given) throw new Failure(`--${given[0]} needs depth in --passes (--passes=depth or --passes=beauty,depth)`, 2);
   } else if (!wantBeauty && flag('no-aa')) {
@@ -487,6 +495,16 @@ async function main() {
     depthRangeMode = 'fixed';
     depthFixed = { near_m: near[0], far_m: near[1] };
   } else if (depthRangeOpt !== undefined) depthRangeMode = depthRangeOpt;
+  let nearClip = null;
+  if (nearClipOpt !== undefined) {
+    nearClip = nearClipOpt.trim() === '' ? NaN : Number(nearClipOpt);
+    if (!(Number.isFinite(nearClip) && nearClip > 0)) {
+      throw new Failure(`--depth-near-clip must be a finite number of meters > 0, got ${nearClipOpt}`, 2);
+    }
+    if (depthRangeMode === 'fixed') {
+      throw new Failure('--depth-near-clip has no effect with a fixed --depth-range=<near>..<far> (the range already sets near); remove one', 2);
+    }
+  }
   const shotOpt = option('shot');
   const rangeOpt = option('range');
   const splitShots = flag('split-shots');
@@ -497,6 +515,7 @@ async function main() {
       ['passes', option('passes') !== undefined],
       ['depth-range', depthRangeOpt !== undefined],
       ['depth-encoding', depthEncOpt !== undefined],
+      ['depth-near-clip', nearClipOpt !== undefined],
       ['camera-json', cameraJson !== undefined],
       ['split-shots', splitShots],
       ['format', option('format') !== undefined],
@@ -809,6 +828,14 @@ async function main() {
       }
       return r;
     };
+    // --depth-near-clip: near = max(measured near, nearClip); far unchanged; nearClip >= far fails
+    const clipNear = (r, what) => {
+      if (nearClip === null || !r) return r;
+      if (nearClip >= r.far_m) {
+        throw new Failure(`${what}: --depth-near-clip=${nearClip} m is at or beyond the measured far (${r.far_m} m; measured near ${r.near_m} m); use a smaller value`);
+      }
+      return { near_m: Math.max(r.near_m, nearClip), far_m: r.far_m };
+    };
     /**
      * Depth pass over frame indices: measure (shot / frame range), render each frame, hand the PNG to emit(k, png).
      * Returns the sidecar entry.
@@ -818,10 +845,13 @@ async function main() {
       const measure = async (i) => await cdp.evaluate(`window.previs.measureFrame(${i})`);
       const entry = { shot, near_m: null, far_m: null, encoding: depthEncoding, range: depthRangeMode, formula: depthFormula };
       let shotRange = null;
+      let measuredNear = null;
       if (depthRangeMode === 'fixed') shotRange = depthFixed;
       else if (depthRangeMode === 'shot') {
         for (const i of indices) shotRange = merge(shotRange, await measure(i));
         checkRange(shotRange, label);
+        measuredNear = shotRange?.near_m ?? null;
+        shotRange = clipNear(shotRange, label);
         if (!shotRange) info(`warning: ${label} has no foreground pixels; depth frames are all 0`);
       }
       const perFrame = [];
@@ -832,7 +862,14 @@ async function main() {
         let r = shotRange;
         if (depthRangeMode === 'frame') {
           r = checkRange(await measure(i), `${label} frame ${i}`);
-          perFrame.push({ frame: i, near_m: r?.near_m ?? null, far_m: r?.far_m ?? null });
+          const rawNear = r?.near_m ?? null;
+          r = clipNear(r, `${label} frame ${i}`);
+          if (rawNear !== null) measuredNear = measuredNear === null ? rawNear : Math.min(measuredNear, rawNear);
+          perFrame.push(
+            nearClip === null
+              ? { frame: i, near_m: r?.near_m ?? null, far_m: r?.far_m ?? null }
+              : { frame: i, near_m: r?.near_m ?? null, far_m: r?.far_m ?? null, measured_near_m: rawNear },
+          );
           span = merge(span, r);
           if (!r) empty++;
         }
@@ -847,6 +884,10 @@ async function main() {
       }
       entry.near_m = shotRange?.near_m ?? null;
       entry.far_m = shotRange?.far_m ?? null;
+      if (nearClip !== null) {
+        entry.near_clip_m = nearClip;
+        entry.measured_near_m = measuredNear;
+      }
       return entry;
     }
 

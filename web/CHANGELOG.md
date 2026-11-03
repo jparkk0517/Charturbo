@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 추가 — 깊이 패스 근거리 클립 (--depth-near-clip)
+
+- 렌더 스크립트에 옵트인 `--depth-near-clip=<미터>`를 추가했습니다. 측정 범위(`--depth-range=shot` 또는 `frame`)에서만 적용되며, 측정한 `[Dnear, Dfar]`에서 `near`를 `max(Dnear, 값)`으로 올립니다(`far`는 그대로). 값보다 가까운 픽셀은 흰색(255)으로 고정되므로, 렌즈 앞의 가까운 소품 하나가 나머지 장면의 회색 범위를 차지하지 않습니다. 값은 유한한 `> 0`이어야 하며 아니면 종료 코드 2입니다. 고정 `--depth-range=<near>..<far>`와 함께 쓰거나 `--passes`에 `depth`가 없어도 종료 코드 2입니다. 값이 샷(또는 프레임)의 측정 `far` 이상이면 샷 이름과 두 수치를 알리고 종료 코드 1입니다. `depth.json` 항목에 `near_clip_m`(플래그 값)과 `measured_near_m`(측정한 원래 near)가 추가되며, `near_m`은 실제 사용한 값입니다. 플래그가 없으면 출력은 이전과 바이트 단위로 같습니다. 자세한 내용은 `docs/previs/guide.md`의 「Depth pass」 절을 참고하세요.
+
 ### 변경 — 숨긴 모델은 포즈만 계산 (GltfAnimator.setDrawEnabled)
 
 - `GltfAnimator.setDrawEnabled(false)`이면 리그는 계속 평가하지만(`nodeMatrix` · `posedMinAlong` 정확) 메시 행렬과 스킨 팔레트는 만들지도 보내지도 않습니다. 다시 켜면 현재 포즈를 즉시 보냅니다. previs 플레이어는 그 프레임에 숨겨진 모델을 이 모드로 돌리므로, 관절에 소품만 매단 숨긴 모델의 스키닝 비용이 거의 0이 됩니다.
