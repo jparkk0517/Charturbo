@@ -166,6 +166,8 @@
     "bench:report:check": "node bench/check-report.mjs",
     "bench:physics:check": "node bench/check-gpu-physics.mjs",
     "previs:render": "node scripts/previs-render.mjs",
+    "previs:new": "node previs/new.mjs",
+    "previs:check": "node scripts/previs-check.mjs",
     "previs:viewer": "vite --config previs/vite.config.ts --open /viewer.html"
   },
   "peerDependencies": {

@@ -234,3 +234,33 @@ With 2 or more shots, the prompt also carries a shot list (`- s1: 0.00 s–1.46 
   ]
 }
 ```
+
+## Script helpers
+
+Generators import the pure helpers from the barrel `web/src/previs/index.ts` (types, evaluate, validate, handoff, mannequin, models), with a path relative to the generator file, e.g. `import { createMannequin, validateDoc } from '../../src/previs/index.ts';`. `player.ts` is not in the barrel because it needs the SDK at runtime: `import { loadPrevisPlayer } from '<relative>/src/previs/player.ts'`.
+
+Scaffold a new generator with `npm run previs:new -- <name>` (name: `^[a-z0-9][a-z0-9-]*$`). It writes `web/previs/examples/<name>.gen.ts` from a minimal template and refuses to overwrite an existing file (exit 2).
+
+| function | module | what it does |
+| --- | --- | --- |
+| `evalTrack` | evaluate.ts | Value of a track at time `t`; `rest` when the track is empty or undefined; held outside the key range |
+| `docDuration` | evaluate.ts | End of the last shot (max shot end); 0 when there are no shots |
+| `frameCount` | evaluate.ts | `round(docDuration * fps)` |
+| `evaluateFrame` | evaluate.ts | Frame state at global time `t`: active shot camera and every node's local state |
+| `worldPosition` | evaluate.ts | World position of node `id` from local node states (parent translation and rotation; sizes ignored); throws for joint-chained nodes in docs with `tracks.parent` (use `worldTransform`) |
+| `worldTransform` | evaluate.ts | World transform of node `id` (position in meters, Euler YXZ and quaternion) for one frame, with static parents and `tracks.parent` captures; joints need `options.jointFrame` |
+| `validateDoc` | validate.ts | Checks unknown input as a `PrevisDoc`; returns `{ ok: true, doc }` or `{ ok: false, issues }` |
+| `buildHandoff` | handoff.ts | Builds `{ uploadOrder, prompt }` for the handoff from a doc, optional `references` and `textOnly` lines, `lang` `ko` or `en` |
+| `createMannequin` | mannequin.ts | Builds `{ nodes, joints }`: 3 visible blocks by default; `limbs` `none`, `arms`, `full` or `jointed` (jointed adds elbow and knee pivots, needed for `crouch` and `pickUp`) |
+| `walk` | mannequin.ts | Root moves `from` to `to`, yaws once to face travel direction, spine bobs, limbs swing |
+| `jump` | mannequin.ts | Vertical hop of the root (ease-out up, ease-in down); arms swing up during the air time |
+| `raiseArm` | mannequin.ts | Swings one arm forward/up about the shoulder and holds; requires arms |
+| `shrug` | mannequin.ts | Shoulders-up shrug: spine lifts 3 cm, head tilts, arms open slightly, then return to rest |
+| `lookAt` | mannequin.ts | Turns the head (not the body) about y and holds |
+| `crouch` | mannequin.ts | Lowers the hips straight down with both feet planted (`twoBoneIK`); requires `limbs: 'jointed'` |
+| `pickUp` | mannequin.ts | Bends down and reaches one hand to a world point (crouch, lean, IK arm); requires `limbs: 'jointed'` |
+| `twoBoneIK` | mannequin.ts | Analytic two-bone IK (law of cosines) in a joint's local y-z plane; out-of-reach distances are clamped |
+| `applyMotion` | mannequin.ts | Merges motion fragments into copies of `nodes`; keys sorted by `t`, same `t` replaces; throws on unknown node; does not detect time overlap |
+| `attachProp` | mannequin.ts | Returns `nodes` plus a box child of a joint (e.g. `handR`); throws on unknown parent or duplicate id |
+| `twoToneBox` | mannequin.ts | Product-spin helper: invisible pivot `id` with `.front` and `.back` half-depth boxes in two colors |
+| `modelSrcsToLoad` | models.ts | Distinct `model.src` of the nodes the player loads, in doc order |
