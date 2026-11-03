@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPrevisPlayer, loadPrevisPlayer } from '../previs/player';
+import { createPrevisPlayer, eulerYXZToQuat, loadPrevisPlayer, matrixToEulerYXZ, orthonormalFrame, socketTransform } from '../previs/player';
 import type { PrevisDoc, PrevisModel, PrevisNode, Vec3 } from '../previs/types';
 import type { Charturbo } from '../sdk/charturbo';
 import type { GltfDecoders } from '../sdk/scene-gltf';
@@ -17,6 +17,8 @@ interface FakeModel {
   error?: Error;
   /** Resolves only after this promise does (abort tests). */
   gate?: Promise<void>;
+  /** loadGltf rejects posable names missing from nodeNames, like the real loader. */
+  checkPosable?: boolean;
 }
 
 interface FakeResult {
@@ -26,6 +28,8 @@ interface FakeResult {
   bounds: { min: Vec3; max: Vec3 };
   animations: { name: string; duration: number }[];
   nodeNames: (string | null)[];
+  /** Load scale (the fake animator's nodeMatrix applies it). */
+  loadScale: number;
 }
 
 /** Recording stand-in for the Charturbo methods the player uses. */
@@ -35,6 +39,8 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
   let nextId = 100;
   let nextAnimator = 1;
   const theme = { surface: [0.1, 0.1, 0.1, 1], marker: 'theme' };
+  /** Posed glTF world (column-major) per joint name for the fake nodeMatrix; identity when absent. Tests mutate it. */
+  const worlds: Record<string, number[]> = {};
   const rec =
     (name: string, ret?: unknown) =>
     (...args: unknown[]) => {
@@ -71,6 +77,11 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
       if (fm.gate) await fm.gate;
       if (opts.signal?.aborted) throw Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
       if (fm.error) throw fm.error;
+      const names = fm.nodeNames ?? ['hips', 'leftArm', 'rightArm'];
+      const posable = (opts as { posable?: string[] }).posable;
+      if (fm.checkPosable && posable) {
+        for (const p of posable) if (!names.includes(p)) throw new Error(`loadGltf: posable node "${p}" not found (nodes: ${names.filter((x) => x !== null).map((x) => `"${x}"`).join(', ')})`);
+      }
       const k = opts.scale ?? 1;
       const b = fm.bounds ?? { min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] };
       const objects = Array.from({ length: fm.objects ?? 2 }, () => nextId++);
@@ -80,7 +91,8 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
         nodes: [],
         bounds: { min: b.min.map((v) => v * k) as Vec3, max: b.max.map((v) => v * k) as Vec3 },
         animations: (fm.animations ?? []).map((name) => ({ name, duration: 1 })),
-        nodeNames: fm.nodeNames ?? ['hips', 'leftArm', 'rightArm'],
+        nodeNames: names,
+        loadScale: k,
       };
     },
     disposeGltf: (r: FakeResult) => {
@@ -99,6 +111,14 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
           calls.push(['animator.setBlend', a, entries]);
           return animator;
         },
+        // base x world: the load scale multiplies rows 0..2 (not recorded: read every frame)
+        nodeMatrix: (name: string, out?: Float32Array) => {
+          if (!model.nodeNames.includes(name)) throw new Error(`GltfAnimator.nodeMatrix: no node named "${name}"`);
+          const w = worlds[name] ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+          const target = out ?? new Float32Array(16);
+          for (let i = 0; i < 16; i++) target[i] = i % 4 < 3 ? w[i] * model.loadScale : w[i];
+          return target;
+        },
         dispose: () => {
           calls.push(['animator.dispose', a]);
         },
@@ -107,7 +127,7 @@ function mockSdk(models: Record<string, FakeModel> = {}) {
     },
   };
   const named = (n: string) => calls.filter((c) => c[0] === n);
-  return { sdk: sdk as unknown as Charturbo, calls, named, theme, view };
+  return { sdk: sdk as unknown as Charturbo, calls, named, theme, view, worlds };
 }
 
 const node = (id: string, extra: Partial<PrevisNode> = {}): PrevisNode => ({
@@ -949,5 +969,306 @@ describe('loadPrevisPlayer', () => {
     p.dispose();
     expectCleanedUp(m, 2);
     expect(m.named('setTheme')).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sockets (parentJoint)
+
+/** Row-major 3x3 products / rotations, independent of the player code. */
+const mul3 = (a: number[], b: number[]): number[] =>
+  [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]));
+const rx3 = (t: number) => [1, 0, 0, 0, Math.cos(t), -Math.sin(t), 0, Math.sin(t), Math.cos(t)];
+const ry3 = (t: number) => [Math.cos(t), 0, Math.sin(t), 0, 1, 0, -Math.sin(t), 0, Math.cos(t)];
+const rz3 = (t: number) => [Math.cos(t), -Math.sin(t), 0, Math.sin(t), Math.cos(t), 0, 0, 0, 1];
+/** R = Ry * Rx * Rz (engine YXZ). */
+const euler3 = (e: Vec3) => mul3(ry3(e[1]), mul3(rx3(e[0]), rz3(e[2])));
+/** Column-major 4x4 of row-major R (times s) and translation t. */
+const colMajor = (r: number[], t: Vec3, s = 1): number[] => [
+  r[0] * s, r[3] * s, r[6] * s, 0,
+  r[1] * s, r[4] * s, r[7] * s, 0,
+  r[2] * s, r[5] * s, r[8] * s, 0,
+  t[0], t[1], t[2], 1,
+];
+const closeArr = (a: number[], b: number[], digits = 9) => {
+  expect(a).toHaveLength(b.length);
+  a.forEach((v, i) => expect(v).toBeCloseTo(b[i], digits));
+};
+
+describe('matrixToEulerYXZ', () => {
+  it('uses the same convention as eulerYXZToQuat (R = Ry Rx Rz)', () => {
+    const e: Vec3 = [0.4, -1.2, 2.1];
+    const [x, y, z, w] = eulerYXZToQuat(e);
+    const fromQuat = [
+      1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+      2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+      2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y),
+    ];
+    closeArr(fromQuat, euler3(e), 12);
+    closeArr(matrixToEulerYXZ(euler3(e)), e, 12);
+  });
+
+  it('round-trips rotations, including gimbal lock and its neighborhood', () => {
+    const H = Math.PI / 2;
+    const cases: Vec3[] = [
+      [0, 0, 0],
+      [0.3, -0.7, 1.1],
+      [-1.4, 3.0, -2.9],
+      [1.2, 0.1, -0.4],
+      [H, 0.5, 0.2],
+      [-H, -2.0, 1.0],
+      [H - 1e-7, 0.8, -0.3],
+      [-H + 1e-10, 1.3, 0.6],
+      [H - 1e-12, -0.2, 0.9],
+    ];
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 * Math.PI - Math.PI;
+    for (let i = 0; i < 200; i++) cases.push([rnd() / 2, rnd(), rnd()]);
+    for (const e of cases) {
+      const r = euler3(e);
+      const back = matrixToEulerYXZ(r);
+      closeArr(euler3(back), r, 9);
+      expect(Math.abs(back[0])).toBeLessThanOrEqual(H + 1e-15);
+    }
+    // exact gimbal lock: z = 0 and y carries y - z (x = +90) or y + z (x = -90)
+    const up = matrixToEulerYXZ(euler3([H, 0.5, 0.2]));
+    closeArr(up, [H, 0.3, 0], 12);
+    const down = matrixToEulerYXZ(euler3([-H, 0.5, 0.2]));
+    closeArr(down, [-H, 0.7, 0], 12);
+  });
+});
+
+describe('socketTransform / orthonormalFrame', () => {
+  it('removes per-axis joint scale and uniform k exactly', () => {
+    const e: Vec3 = [0.3, -0.7, 1.1];
+    const r = euler3(e);
+    const scaledCols = mul3(r, [2, 0, 0, 0, 3, 0, 0, 0, 0.5]);
+    const mat = colMajor(scaledCols, [1, 2, 3]);
+    const t = socketTransform(mat, [4, 4, 4], [0.5, 1, -1]);
+    closeArr(t.position, [2, 4, 16], 12);
+    closeArr(t.rotation, e, 12);
+  });
+
+  it('stretch: keeps the stretched y (bone) axis, x perpendicular, z = x cross y (hand computed)', () => {
+    // A = S(5, 2.5, 10) * Rz(45): y column (-5c, 2.5c, 0) -> (-2, 1, 0)/sqrt5, x -> (1, 2, 0)/sqrt5, z = (0, 0, 1)
+    const t = socketTransform(colMajor(rz3(Math.PI / 4), [0, 0, 0]), [5, 2.5, 10], [0, 0, 0]);
+    closeArr(t.rotation, [0, 0, Math.atan2(2, 1)], 12);
+  });
+
+  it('mirrored frames give a proper rotation; degenerate frames return the fallback', () => {
+    const m = orthonormalFrame(mul3(rz3(0.4), [1, 0, 0, 0, 1, 0, 0, 0, -1]))!;
+    closeArr(m, rz3(0.4), 12); // z = x cross y: the mirrored z axis is flipped back
+    expect(orthonormalFrame([1, 0, 0, 0, 0, 0, 0, 0, 1])).toBeNull(); // y axis of size 0
+    expect(orthonormalFrame([1, 1, 0, 0, 0, 0, 0, 0, 1])).toBeNull(); // x parallel to y
+    const flat = colMajor([1, 0, 0, 0, 1, 0, 0, 0, 1], [1, 1, 1]);
+    expect(socketTransform(flat, [2, 0, 2], [0, 0, 0], [0.1, 0.2, 0.3])).toEqual({ position: [2, 0, 2], rotation: [0.1, 0.2, 0.3] });
+  });
+});
+
+describe('loadPrevisPlayer sockets (parentJoint)', () => {
+  const RIG = { nodeNames: ['root', 'hand', 'head'] as (string | null)[] };
+  const socketOf = (m: ReturnType<typeof mockSdk>, model: string, joint: string) => prims(m).find((p) => p.name === `previs:${model}:joint:${joint}`)!;
+  const moves = (m: ReturnType<typeof mockSdk>, id: number) =>
+    m.named('setObjectTransform').filter((c) => c[1] === id).map((c) => c[2] as { position: Vec3; rotation: Vec3 });
+
+  it('one alpha-0 socket per (model, joint) under the model PIVOT; joint children hang from it', async () => {
+    const m = mockSdk({ 'w.glb': RIG });
+    await loadPrevisPlayer(
+      m.sdk,
+      doc([
+        modelNode('w', { src: 'w.glb' }),
+        node('stick', { parent: 'w', parentJoint: 'hand' }),
+        node('cap', { parent: 'w', parentJoint: 'hand' }),
+        node('tag', { parent: 'w', parentJoint: 'head' }),
+        node('plain', { parent: 'w' }),
+      ]),
+    );
+    const p = prims(m);
+    expect(p.map((d) => d.name)).toEqual([
+      'previs:w',
+      'previs:w:joint:hand',
+      'previs:stick',
+      'previs:stick:mesh',
+      'previs:cap',
+      'previs:cap:mesh',
+      'previs:w:joint:head',
+      'previs:tag',
+      'previs:tag:mesh',
+      'previs:plain',
+      'previs:plain:mesh',
+      'previs:w:fit',
+    ]);
+    const byName = (n: string) => p.find((d) => d.name === n)!;
+    const pivot = byName('previs:w');
+    for (const j of ['hand', 'head']) {
+      expect(socketOf(m, 'w', j)).toMatchObject({ shape: 'box', parentId: pivot.id, scale: [1, 1, 1], color: [0, 0, 0, 0] });
+    }
+    expect(byName('previs:stick').parentId).toBe(socketOf(m, 'w', 'hand').id);
+    expect(byName('previs:cap').parentId).toBe(socketOf(m, 'w', 'hand').id);
+    expect(byName('previs:tag').parentId).toBe(socketOf(m, 'w', 'head').id);
+    expect(byName('previs:plain').parentId).toBe(pivot.id);
+    expect(byName('previs:w:fit').parentId).toBe(pivot.id);
+    // posable = socket joints; an animator without animation or joints, no pose sends
+    expect(m.named('loadGltf')[0][2]).toMatchObject({ posable: ['hand', 'head'], animations: false });
+    expect(m.named('createGltfAnimator')).toHaveLength(1);
+    expect(m.named('animator.setBlend')).toEqual([]);
+    expect(m.named('animator.setNodeRotations')).toEqual([]);
+  });
+
+  it('posable lists tracks.joints names, then socket joints, deduplicated, on every load (tiny-scale reload too)', async () => {
+    const m = mockSdk({ 'mm.glb': { bounds: { min: [-500, -500, -500], max: [500, 500, 500] }, nodeNames: ['hips', 'leftArm', 'hand'] } });
+    await loadPrevisPlayer(
+      m.sdk,
+      doc([
+        modelNode('w', { src: 'mm.glb' }, { tracks: { joints: { leftArm: [{ t: 0, v: [0, 0, 0] }], hand: [{ t: 0, v: [0, 0, 0] }] } } }),
+        node('a', { parent: 'w', parentJoint: 'hand' }),
+        node('b', { parent: 'w', parentJoint: 'hips' }),
+      ]),
+    );
+    const loads = m.named('loadGltf');
+    expect(loads).toHaveLength(2);
+    for (const l of loads) expect((l[2] as { posable: string[] }).posable).toEqual(['leftArm', 'hand', 'hips']);
+  });
+
+  it("'contain': position k (t - c), rotation of the joint with its scale removed (hand computed)", async () => {
+    // extent [2, 4, 1], center [0, 2, 0], size 1 m * 10 -> k = 2.5
+    const m = mockSdk({ 'w.glb': { ...RIG, bounds: { min: [-1, 0, -0.5], max: [1, 4, 0.5] } } });
+    m.worlds.hand = colMajor(rz3(Math.PI / 2), [1, 3, 0.5], 2);
+    const p = await loadPrevisPlayer(m.sdk, doc([modelNode('w', { src: 'w.glb' }), node('s', { parent: 'w', parentJoint: 'hand' })]));
+    const id = socketOf(m, 'w', 'hand').id;
+    let mv = moves(m, id);
+    expect(mv).toHaveLength(1); // frame-0 pose at load
+    closeArr(mv[0].position, [2.5, 2.5, 1.25], 6);
+    closeArr(mv[0].rotation, [0, 0, Math.PI / 2], 6);
+    // a general rotation with joint scale 3
+    m.worlds.hand = colMajor(euler3([0.3, -0.7, 1.1]), [0, 2, 0], 3);
+    p.frame(0);
+    mv = moves(m, id);
+    expect(mv).toHaveLength(2);
+    closeArr(mv[1].position, [0, 0, 0], 6);
+    closeArr(mv[1].rotation, [0.3, -0.7, 1.1], 6);
+  });
+
+  it("'stretch': per-axis k on position and the frame (hand computed)", async () => {
+    // k = [5, 2.5, 10], center [0, 2, 0]
+    const m = mockSdk({ 'w.glb': { ...RIG, bounds: { min: [-1, 0, -0.5], max: [1, 4, 0.5] } } });
+    m.worlds.hand = colMajor(rz3(Math.PI / 2), [1, 3, 0.5]);
+    const p = await loadPrevisPlayer(m.sdk, doc([modelNode('w', { src: 'w.glb', fit: 'stretch' }), node('s', { parent: 'w', parentJoint: 'hand' })]));
+    const id = socketOf(m, 'w', 'hand').id;
+    // S(k) Rz(90) has orthogonal columns: rotation exact
+    closeArr(moves(m, id)[0].position, [5, 2.5, 5], 6);
+    closeArr(moves(m, id)[0].rotation, [0, 0, Math.PI / 2], 6);
+    // sheared: Rz(45) under S(5, 2.5, 10) -> bone (y) axis (-2, 1, 0)/sqrt5 -> Rz(atan2(2, 1))
+    m.worlds.hand = colMajor(rz3(Math.PI / 4), [0, 2, 0]);
+    p.frame(0);
+    closeArr(moves(m, id)[1].rotation, [0, 0, Math.atan2(2, 1)], 6);
+  });
+
+  it('tiny-scale reload: the joint matrix carries the baked load scale', async () => {
+    // mm model: extent [1000, 2000, 500] mm, size [1, 2, 0.5] m -> reload at 0.01, then k = 1, center [0, 10, 0]
+    const m = mockSdk({ 'mm.glb': { ...RIG, bounds: { min: [-500, 0, -250], max: [500, 2000, 250] } } });
+    m.worlds.hand = colMajor(rz3(0), [100, 1500, 50]);
+    await loadPrevisPlayer(m.sdk, doc([modelNode('w', { src: 'mm.glb' }, { size: [1, 2, 0.5] }), node('s', { parent: 'w', parentJoint: 'hand' })]));
+    expect((m.named('loadGltf')[1][2] as { scale: number }).scale).toBeCloseTo(0.01, 12);
+    const mv = moves(m, socketOf(m, 'w', 'hand').id);
+    closeArr(mv[0].position, [1, 5, 0.5], 5);
+    closeArr(mv[0].rotation, [0, 0, 0], 9);
+  });
+
+  it('updates after the pose in the same frame, follows size changes, and skips unchanged results', async () => {
+    const m = mockSdk({ 'w.glb': { ...RIG, animations: ['walk'] } });
+    m.worlds.hand = colMajor(rz3(0.5), [0.25, 0.5, 0]);
+    const p = await loadPrevisPlayer(
+      m.sdk,
+      doc([
+        modelNode('w', { src: 'w.glb', animation: { clip: 'walk' } }, { tracks: { size: [{ t: 2, v: [1, 1, 1] }, { t: 3, v: [2, 2, 2] }] } }),
+        node('s', { parent: 'w', parentJoint: 'hand' }),
+      ]),
+    );
+    const id = socketOf(m, 'w', 'hand').id;
+    const count = () => moves(m, id).length;
+    expect(count()).toBe(1);
+    p.frame(0);
+    expect(count()).toBe(1); // nothing changed
+    p.frame(0.5); // clip time moves; the (fake) joint matrix does not
+    expect(count()).toBe(1);
+    m.worlds.hand = colMajor(rz3(0.5), [0.25, 0.5, 0], 2); // joint scale only: same socket transform
+    p.frame(0.6);
+    expect(count()).toBe(1);
+    m.worlds.hand = colMajor(rz3(0.9), [0.25, 0.5, 0]);
+    p.frame(0.7);
+    expect(count()).toBe(2);
+    // the socket call comes after this frame's setBlend
+    const lastIndex = (f: (c: Call) => boolean) => m.calls.map((c, i) => (f(c) ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+    const idxBlend = lastIndex((c) => c[0] === 'animator.setBlend');
+    const idxSock = lastIndex((c) => c[0] === 'setObjectTransform' && c[1] === id);
+    expect(idxBlend).toBeGreaterThan(0);
+    expect(idxSock).toBeGreaterThan(idxBlend);
+    // size track: k doubles -> position doubles (center 0), rotation unchanged
+    const before = moves(m, id).at(-1)!;
+    p.frame(3);
+    const after = moves(m, id).at(-1)!;
+    closeArr(after.position, before.position.map((v) => v * 2), 6);
+    closeArr(after.rotation, before.rotation, 12);
+    p.frame(3);
+    expect(moves(m, id).at(-1)).toBe(after);
+  });
+
+  it('loads a pure pivot model (invisible) when a node hangs from its joint; sockets never change material', async () => {
+    const m = mockSdk({ 'w.glb': RIG });
+    const p = await loadPrevisPlayer(
+      m.sdk,
+      doc([
+        modelNode('w', { src: 'w.glb' }, { visible: false }),
+        node('s', { parent: 'w', parentJoint: 'hand', tracks: { visible: [{ t: 0, v: true }, { t: 1, v: false }] } }),
+      ]),
+    );
+    expect(m.named('loadGltf')).toHaveLength(1);
+    const loaderObjects = parentCalls(m).map((c) => c[0]);
+    expect(loaderObjects).toHaveLength(2);
+    for (const c of m.named('setObjectMaterial').filter((c) => loaderObjects.includes(c[1]))) expect((c[2] as { color: number[] }).color[3]).toBe(0);
+    p.frame(2);
+    const sock = socketOf(m, 'w', 'hand').id;
+    const mesh = prims(m).find((x) => x.name === 'previs:s:mesh')!.id;
+    expect(m.named('setObjectMaterial').filter((c) => c[1] === sock)).toEqual([]);
+    expect(m.named('setObjectMaterial').at(-1)).toEqual(['setObjectMaterial', mesh, { color: [1, 0.5, 0.25, 0] }]);
+  });
+
+  it('a pure pivot model without joint children is still not loaded', async () => {
+    const m = mockSdk();
+    await loadPrevisPlayer(m.sdk, doc([modelNode('w', { src: 'w.glb' }, { visible: false }), node('s', { parent: 'w' })]));
+    expect(m.named('loadGltf')).toEqual([]);
+  });
+
+  it('rejects an unknown socket joint (loadGltf posable error, or the nodeNames check) and cleans up', async () => {
+    const d = doc([modelNode('w', { src: 'w.glb' }), node('s', { parent: 'w', parentJoint: 'elbow' })]);
+    const m = mockSdk({ 'w.glb': { ...RIG, checkPosable: true } });
+    await expect(loadPrevisPlayer(m.sdk, d)).rejects.toThrow(
+      'loadPrevisPlayer: node "w" (w.glb): loadGltf: posable node "elbow" not found (nodes: "root", "hand", "head")',
+    );
+    expect(m.named('disposeGltf')).toEqual([]);
+    expect(m.named('removeObject').map((c) => c[1])).toEqual(prims(m).map((x) => x.id).reverse());
+    expect(m.named('setTheme').at(-1)![1]).toBe(m.theme);
+    // engines that ignore posable: the player's own check
+    const m2 = mockSdk({ 'w.glb': RIG });
+    await expect(loadPrevisPlayer(m2.sdk, d)).rejects.toThrow('loadPrevisPlayer: node "w" (w.glb): unknown joint "elbow" (joints: "root", "hand", "head")');
+    expect(m2.named('disposeGltf')).toHaveLength(1);
+    expect(m2.named('removeObject').map((c) => c[1])).toEqual(prims(m2).map((x) => x.id).reverse());
+  });
+
+  it('a nodeMatrix failure at load is wrapped and cleaned up', async () => {
+    const m = mockSdk({ 'w.glb': RIG });
+    const d = doc([modelNode('w', { src: 'w.glb' }), node('s', { parent: 'w', parentJoint: 'hand' })]);
+    const orig = m.sdk.createGltfAnimator.bind(m.sdk);
+    (m.sdk as unknown as { createGltfAnimator: unknown }).createGltfAnimator = (r: never, o: never) => {
+      const a = orig(r, o);
+      a.nodeMatrix = () => {
+        throw new Error('GltfAnimator.nodeMatrix: "hand" is not in an animation rig');
+      };
+      return a;
+    };
+    await expect(loadPrevisPlayer(m.sdk, d)).rejects.toThrow('loadPrevisPlayer: node "w" (w.glb): GltfAnimator.nodeMatrix: "hand" is not in an animation rig');
+    expect(m.named('disposeGltf')).toHaveLength(1);
+    expect(m.named('removeObject').map((c) => c[1])).toEqual(prims(m).map((x) => x.id).reverse());
   });
 });

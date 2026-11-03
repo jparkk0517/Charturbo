@@ -103,6 +103,15 @@ export interface PrevisNode {
    * NOT scale this node or its offset (see `size`).
    */
   parent?: string;
+  /**
+   * glTF node name (unique in the model) of the `parent` model node to attach to, e.g. a hand
+   * joint. Requires `parent` to be a `shape: 'model'` node. This node's position / rotation become
+   * local to that joint's CURRENT posed frame (clip, blend and `tracks.joints` included) instead of
+   * the parent node origin, with the joint's scale removed (meters stay meters, like `parent`).
+   * Unknown joint names fail the load. Mesh-less attach nodes (an empty "hand_socket" node in a static
+   * model) work too: the node's rest pose is used.
+   */
+  parentJoint?: string;
   /** Id of an entry in `PrevisDoc.roles`; the handoff prompt maps its color to what it stands for. */
   role?: string;
   /** Flat color. */

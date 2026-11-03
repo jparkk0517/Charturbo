@@ -45,6 +45,7 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 ] },
 "tracks": { "position": [{ "t": 0, "v": [-3.2, 0.875, -3.5] }, { "t": 2.6, "v": [0.96, 0.875, -3.5] }] }
 ```
+- Weapons/props held by a model: child box with `parent: <model id>` + `parentJoint: '<joint name>'`; it follows the posed joint. Offsets are meters in the joint frame, not scaled by `fit`: when the model is drawn at another size than natural, scale offsets along the bone by k = size / natural size (walker: `k = size.y / 1.75`). Camera `follow` of a joint-attached node is rejected; follow the model node.
 - For hand-posed tweaks on top of clips (raise an arm, turn the head), use `tracks.joints` on the model node: joint name → track of Euler `[rx, ry, rz]` radians, additive in the joint's local frame. Joint names are the glTF node names; list them from the `unknown joint` error message or the SDK's `GltfAnimator.nodeNames`.
 
 ## Pitfalls

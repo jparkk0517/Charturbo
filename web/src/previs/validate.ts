@@ -164,16 +164,20 @@ export function validateDoc(
 
   // Nodes
   const nodeIds = new Set<string>();
+  const shapeOf = new Map<string, unknown>();
   const nodes: unknown[] = Array.isArray(d.nodes) ? d.nodes : [];
   if (!Array.isArray(d.nodes)) add('nodes', 'nodes must be an array');
   nodes.forEach((n, i) => {
     if (isObj(n) && typeof n.id === 'string') {
       if (!/^[A-Za-z0-9_.-]+$/.test(n.id)) add(`nodes[${i}].id`, `node id "${n.id}" must match [A-Za-z0-9_.-]+ (letters, digits, _ . -)`);
       if (nodeIds.has(n.id)) add(`nodes[${i}].id`, `duplicate node id "${n.id}"; ids must be unique`);
+      else shapeOf.set(n.id, n.shape);
       nodeIds.add(n.id);
     }
   });
   const parentOf = new Map<string, string>();
+  /** Nodes with a valid `parentJoint`: id -> joint name (the camera cannot follow them, see shots). */
+  const jointOf = new Map<string, string>();
   nodes.forEach((n, i) => {
     const p = `nodes[${i}]`;
     if (!isObj(n)) return add(p, 'node must be an object');
@@ -243,6 +247,18 @@ export function validateDoc(
       if (typeof n.parent !== 'string' || !nodeIds.has(n.parent)) add(`${p}.parent`, `parent "${String(n.parent)}" does not exist; use an existing node id or remove "parent"`);
       else if (n.parent === n.id) add(`${p}.parent`, `node "${String(n.id)}" cannot be its own parent; cycle`);
       else if (typeof n.id === 'string') parentOf.set(n.id, n.parent);
+    }
+    if (n.parentJoint !== undefined) {
+      const jp = `${p}.parentJoint`;
+      if (typeof n.parentJoint !== 'string' || n.parentJoint === '') {
+        add(jp, `parentJoint must be a non-empty glTF node name of the parent model (e.g. "hand.R"); got ${JSON.stringify(n.parentJoint)}`);
+      } else if (n.parent === undefined) {
+        add(jp, 'parentJoint requires "parent" to name the model node that has the joint; add "parent" or remove "parentJoint"');
+      } else if (typeof n.parent === 'string' && nodeIds.has(n.parent) && n.parent !== n.id) {
+        if (shapeOf.get(n.parent) !== 'model') {
+          add(jp, `parentJoint needs a parent with shape "model"; parent "${n.parent}" has shape ${JSON.stringify(shapeOf.get(n.parent))}. Remove "parentJoint" or parent the node to a model node`);
+        } else if (typeof n.id === 'string') jointOf.set(n.id, n.parentJoint);
+      }
     }
     if (n.role !== undefined && (typeof n.role !== 'string' || !roleIds.has(n.role))) {
       add(`${p}.role`, `role "${String(n.role)}" is not defined in roles; add it to roles or fix the id`);
@@ -340,6 +356,21 @@ export function validateDoc(
       else if (c.target.follow !== undefined) {
         if (typeof c.target.follow !== 'string' || !nodeIds.has(c.target.follow)) {
           add(`${p}.camera.target.follow`, `follow "${String(c.target.follow)}" is not a node id; use an existing node id`);
+        } else {
+          // The evaluator places nodes without joint poses: a joint-attached node (or descendant) has no known position
+          const seen = new Set<string>();
+          for (let cur: string | undefined = c.target.follow; cur !== undefined && !seen.has(cur); cur = parentOf.get(cur)) {
+            seen.add(cur);
+            const joint = jointOf.get(cur);
+            if (joint === undefined) continue;
+            const model = parentOf.get(cur)!;
+            const via = cur === c.target.follow ? `is attached` : `hangs from node "${cur}", which is attached`;
+            add(
+              `${p}.camera.target.follow`,
+              `follow "${c.target.follow}" ${via} to joint "${joint}" of model "${model}"; the camera cannot follow joint-attached nodes (their joint pose is only known when rendering). Follow "${model}" with an "offset", or use a target "track"`,
+            );
+            break;
+          }
         }
         if (c.target.offset !== undefined) vec3(c.target.offset, `${p}.camera.target.offset`);
       } else if (c.target.track !== undefined) vecTrack(c.target.track, `${p}.camera.target.track`);

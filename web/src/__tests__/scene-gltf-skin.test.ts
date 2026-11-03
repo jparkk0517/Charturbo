@@ -533,3 +533,83 @@ describe('glTF skins: joint rotation overrides (setNodeRotations)', () => {
     close(posed(id), STRIP, 6);
   });
 });
+
+describe('glTF skins: joint matrices read back (nodeMatrix)', () => {
+  type Quat = [number, number, number, number];
+  const q = (v: number[]) => v as Quat;
+  const mmul = (a: ArrayLike<number>, b: ArrayLike<number>) => {
+    const o = new Array<number>(16).fill(0);
+    for (let col = 0; col < 4; col++) for (let row = 0; row < 4; row++) for (let k = 0; k < 4; k++) o[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
+    return o;
+  };
+  const T = (x: number, y: number, z: number) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
+  const S = (k: number) => [k, 0, 0, 0, 0, k, 0, 0, 0, 0, k, 0, 0, 0, 0, 1];
+  const Rz = (deg: number) => {
+    const r = (deg * Math.PI) / 180;
+    return [Math.cos(r), Math.sin(r), 0, 0, -Math.sin(r), Math.cos(r), 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  };
+  const IDENTITY = T(0, 0, 0);
+  /** The strip's inverse bind matrix of 'bend' */
+  const IBM_BEND = T(0, -1, 0);
+
+  async function setup(load: Record<string, unknown> = {}) {
+    const env = skinBackend();
+    const model = await env.sdk.loadGltf(stripModel(), load as never);
+    const id = model.objects[0];
+    const anim = env.sdk.createGltfAnimator(model, { autoUpdate: false });
+    const palette = () => Array.from(env.skins.get(id)!.palette);
+    const node = (n: string | number) => Array.from(anim.nodeMatrix(n));
+    return { ...env, model, id, anim, palette, node };
+  }
+
+  it('a skinned joint under a clip: hand-computed chain; nodeMatrix x inverse bind = the palette sent', async () => {
+    const { anim, node, palette, jointBatches, meshBatches } = await setup();
+    close(node('root'), IDENTITY, 6);
+    close(node('bend'), T(0, 1, 0), 6); // rest
+    anim.play('bend').pause().seek(1);
+    close(node('bend'), mmul(T(0, 1, 0), Rz(90)), 6);
+    close(mmul(anim.nodeMatrix('bend'), IBM_BEND), palette().slice(16, 32), 6);
+    close(node('root'), palette().slice(0, 16), 6);
+    anim.seek(0.5);
+    close(node('bend'), mmul(T(0, 1, 0), Rz(45)), 6);
+    // The skinned mesh node returns its own glTF frame (skinning ignores it)
+    close(node('skinned'), T(100, 0, 0), 6);
+    // Reading makes no engine calls
+    const j = jointBatches.length;
+    const m = meshBatches.length;
+    const out = new Float32Array(16);
+    for (const n of ['root', 'bend', 'skinned', 0, 1, 2]) expect(anim.nodeMatrix(n, out)).toBe(out);
+    expect(jointBatches.length).toBe(j);
+    expect(meshBatches.length).toBe(m);
+    // stop: rest pose
+    anim.stop();
+    close(node('bend'), T(0, 1, 0), 6);
+  });
+
+  it('static joints (no clips) follow an overridden ancestor and return to rest on []', async () => {
+    const { anim, node, palette } = await setup({ animations: false });
+    close(node('bend'), T(0, 1, 0), 6);
+    anim.setNodeRotations([{ node: 'root', rotation: q(qz(90)) }], 'absolute');
+    close(node('root'), Rz(90), 6);
+    close(node('bend'), mmul(Rz(90), T(0, 1, 0)), 6);
+    close(mmul(anim.nodeMatrix('bend'), IBM_BEND), palette().slice(16, 32), 6);
+    anim.setNodeRotations([]);
+    close(node('bend'), T(0, 1, 0), 6);
+    close(node('root'), IDENTITY, 6);
+  });
+
+  it('includes the load scale, like the palette (base x joint world x inverse bind)', async () => {
+    const { anim, node, palette } = await setup({ scale: 2 });
+    anim.play('bend').pause().seek(1);
+    close(node('bend'), mmul(S(2), mmul(T(0, 1, 0), Rz(90))), 6);
+    close(mmul(anim.nodeMatrix('bend'), IBM_BEND), palette().slice(16, 32), 6);
+    // Blend 0.5 / 0.5 of 0 deg and 90 deg = 45 deg
+    anim.setBlend([
+      { clip: 'bend', time: 0, weight: 0.5 },
+      { clip: 'bend', time: 1, weight: 0.5 },
+    ]);
+    close(node('bend'), mmul(S(2), mmul(T(0, 1, 0), Rz(45))), 6);
+    anim.dispose();
+    expect(() => anim.nodeMatrix('bend')).toThrow('GltfAnimator.nodeMatrix: the animator is disposed');
+  });
+});

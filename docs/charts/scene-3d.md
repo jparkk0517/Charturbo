@@ -214,6 +214,12 @@ const anim = sdk.createGltfAnimator(rig, { autoUpdate: false });
 anim.setNodeRotations([{ node: 'upperArm.R', rotation: [0, 0, 0.3827, 0.9239] }]); // ~45 deg about z
 ```
 
+`anim.nodeMatrix(node, out?)` returns a rig node's model-space matrix in the current pose (for example to attach a prop to a joint yourself); the previs `parentJoint` field uses it.
+
+```ts
+const m = anim.nodeMatrix('lowerArm.R'); // column-major 4x4, model space, current pose
+```
+
 #### Skinning {#gltf-skinning}
 
 ```ts

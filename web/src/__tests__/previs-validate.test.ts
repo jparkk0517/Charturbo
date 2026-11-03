@@ -427,6 +427,73 @@ describe('validateDoc model nodes', () => {
   });
 });
 
+describe('parentJoint', () => {
+  // nodes: a (box), b (sphere, parent a), m (model), p (box on joint "hand" of m), q (child of p)
+  const withJoint = (extra: (d: any) => void = () => {}): any => {
+    const d = base();
+    d.nodes.push(
+      { id: 'm', shape: 'model', model: { src: 'w.glb' }, color: [0, 0.6, 0.3], position: [0, 0, 0], rotation: [0, 0, 0], size: [1, 2, 1] },
+      { id: 'p', shape: 'box', parent: 'm', parentJoint: 'hand', color: [0.2, 0.2, 0.2], position: [0, 0.1, 0], rotation: [0, 0, 0], size: [0.1, 1, 0.1] },
+      { id: 'q', shape: 'box', parent: 'p', color: [0.2, 0.2, 0.2], position: [0, 0.5, 0], rotation: [0, 0, 0], size: [0.1, 0.1, 0.1] },
+    );
+    extra(d);
+    return d;
+  };
+  const P = 'nodes[3].parentJoint';
+
+  it('accepts a joint of a model parent', () => {
+    const r = validateDoc(withJoint());
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.doc.nodes[3].parentJoint).toBe('hand');
+  });
+
+  it('must be a non-empty string', () => {
+    for (const v of ['', 3, null, ['hand']]) {
+      const d = withJoint((x) => (x.nodes[3].parentJoint = v));
+      const hit = issues(d).find((i) => i.path === P);
+      expect(hit?.message).toMatch(/^parentJoint must be a non-empty glTF node name/);
+    }
+  });
+
+  it('requires a parent', () => {
+    const d = withJoint((x) => delete x.nodes[3].parent);
+    expect(issues(d).find((i) => i.path === P)?.message).toMatch(/^parentJoint requires "parent"/);
+  });
+
+  it('requires the parent to be a model node', () => {
+    const d = withJoint((x) => (x.nodes[3].parent = 'a'));
+    expect(issues(d).find((i) => i.path === P)?.message).toBe(
+      'parentJoint needs a parent with shape "model"; parent "a" has shape "box". Remove "parentJoint" or parent the node to a model node',
+    );
+    // an unknown parent is reported on parent only
+    const u = withJoint((x) => (x.nodes[3].parent = 'ghost'));
+    expect(has(u, 'nodes[3].parent')).toBe(true);
+    expect(has(u, P)).toBe(false);
+  });
+
+  it('the camera cannot follow a joint-attached node or its descendants', () => {
+    const F = 'shots[1].camera.target.follow';
+    const direct = withJoint((x) => (x.shots[1].camera.target = { follow: 'p' }));
+    expect(issues(direct).find((i) => i.path === F)?.message).toBe(
+      'follow "p" is attached to joint "hand" of model "m"; the camera cannot follow joint-attached nodes (their joint pose is only known when rendering). Follow "m" with an "offset", or use a target "track"',
+    );
+    const below = withJoint((x) => (x.shots[1].camera.target = { follow: 'q', offset: [0, 1, 0] }));
+    expect(issues(below).find((i) => i.path === F)?.message).toMatch(/^follow "q" hangs from node "p", which is attached to joint "hand" of model "m"; /);
+    // the model itself and unrelated nodes are fine
+    expect(validateDoc(withJoint((x) => (x.shots[1].camera.target = { follow: 'm', offset: [0, 1, 0] }))).ok).toBe(true);
+    expect(validateDoc(withJoint((x) => (x.shots[1].camera.target = { follow: 'b' }))).ok).toBe(true);
+  });
+
+  it('follow terminates on parent cycles', () => {
+    const d = withJoint((x) => {
+      x.nodes[0].parent = 'b'; // a <-> b
+      x.shots[1].camera.target = { follow: 'b' };
+    });
+    expect(has(d, 'shots[1].camera.target.follow')).toBe(false);
+    expect(issues(d).some((i) => /parent cycle/.test(i.message))).toBe(true);
+  });
+});
+
 describe('colorDistance', () => {
   it('zero for same, large for different', () => {
     expect(colorDistance([1, 0, 0], [1, 0, 0])).toBe(0);

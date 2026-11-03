@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 관절 소품 (parentJoint · nodeMatrix)
+
+- previs 노드에 `parentJoint?: string`을 추가했습니다. `shape: 'model'` 부모의 glTF 관절 이름을 지정하면 자식이 그 관절의 현재 포즈(클립 · 블렌드 · `tracks.joints`) 프레임을 따라가며, 관절 스케일은 제거됩니다. 손에 든 무기나 소품에 씁니다. 자식의 `position`/`rotation`은 관절 프레임 기준 미터 단위이며 모델의 `fit` 배율이 적용되지 않으므로, 모델을 자연 크기와 다르게 그리면 뼈 방향 오프셋에 k(그린 크기 / 자연 크기)를 곱해야 합니다. 검증기는 모델 부모가 없는 `parentJoint`와, 관절에 붙은 노드(또는 그 자손)를 대상으로 하는 카메라 `follow`를 거부합니다(대신 모델 노드를 오프셋과 함께 따라가세요).
+- `GltfAnimator.nodeMatrix(node, out?)`이 리그 노드의 현재 포즈 기준 모델 공간 행렬을 반환합니다.
+- 예제 `gate-raid`의 거인이 `lowerArm.R`에 붙은 돌 몽둥이를 듭니다.
+
 ### 추가 — 관절 포즈 (setNodeRotations · posable · previs joints)
 
 - `GltfAnimator.setNodeRotations(rotations, mode = 'additive')`로 노드별 회전 오버라이드를 지정합니다. `mode`는 `'additive'`(기본, 현재 포즈 위에 곱함) 또는 `'absolute'`이며, rest · seek · update · setBlend 등 모든 포즈 갱신에 적용됩니다. `[]`를 넘기면 해제되고, `GltfAnimator.nodeNames`로 리그의 노드 이름을 볼 수 있습니다. 정적 지오메트리로 구운 노드는 `loadGltf(src, { posable: ['nodeName', ...] })`(또는 `posable: true`)로 불러와야 하며, 스키닝 관절은 항상 포즈를 바꿀 수 있고 `matrix` 노드는 오버라이드할 수 없습니다.

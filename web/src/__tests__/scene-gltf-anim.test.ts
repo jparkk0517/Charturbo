@@ -93,6 +93,8 @@ function armModel(
     rootMatrix?: boolean;
     /** base is a child of root (static mesh inside root's subtree) */
     baseUnderRoot?: boolean;
+    /** Adds node 4 'socket' (translation 0,0,1, no mesh) as the last child of root: a static mesh-less node */
+    socket?: boolean;
   } = {}
 ) {
   const bin = new Bin();
@@ -106,14 +108,16 @@ function armModel(
   const names = opts.names ?? ['root', 'arm', 'tip', 'base'];
   const named = (k: number) => (names[k] !== null ? { name: names[k] } : {});
   const rootTransform = opts.rootMatrix ? { matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1] } : { translation: [0, 1, 0] };
+  const rootChildren = [1, ...(opts.baseUnderRoot ? [3] : []), ...(opts.socket ? [4] : [])];
   return bin.gltf({
     scene: 0,
     scenes: [{ nodes: opts.baseUnderRoot ? [0] : [0, 3] }],
     nodes: [
-      { ...named(0), ...rootTransform, children: opts.baseUnderRoot ? [1, 3] : [1] },
+      { ...named(0), ...rootTransform, children: rootChildren },
       { ...named(1), children: [2] },
       { ...named(2), translation: [2, 0, 0], mesh: 0 },
       { ...named(3), translation: [5, 0, 0], mesh: 0 },
+      ...(opts.socket ? [{ name: 'socket', translation: [0, 0, 1] }] : []),
     ],
     meshes: [{ primitives: [{ attributes: { POSITION: pos }, indices: idx }] }],
     animations: [
@@ -981,5 +985,229 @@ describe('glTF node rotation overrides (setNodeRotations)', () => {
       const flat = await setup({}, { animations: false });
       expect(off.model.bounds).toEqual(flat.model.bounds);
     });
+  });
+});
+
+describe('glTF node matrices (nodeMatrix)', () => {
+  type Quat = [number, number, number, number];
+  const q = (v: number[]) => v as Quat;
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  /** Quaternion of `deg` degrees about +Z */
+  const qz = (deg: number) => q([0, 0, Math.sin(rad(deg) / 2), Math.cos(rad(deg) / 2)]);
+  // Column-major 4x4 helpers (hand-computed expectations)
+  const mmul = (a: number[], b: number[]) => {
+    const o = new Array<number>(16).fill(0);
+    for (let col = 0; col < 4; col++) for (let row = 0; row < 4; row++) for (let k = 0; k < 4; k++) o[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
+    return o;
+  };
+  const chain = (...ms: number[][]) => ms.reduce(mmul);
+  const T = (x: number, y: number, z: number) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
+  const S = (k: number) => [k, 0, 0, 0, 0, k, 0, 0, 0, 0, k, 0, 0, 0, 0, 1];
+  const Ry = (deg: number) => {
+    const c = Math.cos(rad(deg)), s = Math.sin(rad(deg));
+    return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1];
+  };
+  const Rz = (deg: number) => {
+    const c = Math.cos(rad(deg)), s = Math.sin(rad(deg));
+    return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  };
+  const ROOT = T(0, 1, 0);
+  const TIP = T(2, 0, 0);
+
+  async function setup(opts: Parameters<typeof armModel>[0] = {}, load: Record<string, unknown> = {}) {
+    const env = animBackend();
+    const model = await env.sdk.loadGltf(armModel(opts), load as never);
+    const anim = env.sdk.createGltfAnimator(model, { autoUpdate: false });
+    const tip = model.objects[0];
+    const mesh = () => Array.from(env.matrices.get(tip)!);
+    const node = (n: string | number) => Array.from(anim.nodeMatrix(n));
+    return { ...env, model, anim, tip, mesh, node };
+  }
+
+  it('rest pose before any play: dynamic and static rig nodes give their load-time world', async () => {
+    const { node, mesh } = await setup();
+    close(node('root'), ROOT, 6);
+    close(node('arm'), ROOT, 6);
+    close(node('tip'), chain(ROOT, TIP), 6);
+    close(node('base'), T(5, 0, 0), 6); // static scene root with a baked mesh
+    // Same product as the mesh matrix the loader sent (base x world)
+    expect(node('tip')).toEqual(mesh());
+    // glTF node index = name
+    expect(node(2)).toEqual(node('tip'));
+  });
+
+  it('tip node under a clip at t equals the hand-computed chain and the mesh matrix bit for bit', async () => {
+    const { anim, node, mesh } = await setup();
+    anim.play('spin').pause().seek(0.5);
+    close(node('arm'), chain(ROOT, Ry(45)), 5);
+    close(node('tip'), chain(ROOT, Ry(45), TIP), 5);
+    expect(node('tip')).toEqual(mesh());
+    anim.seek(1);
+    close(node('tip'), chain(ROOT, Ry(90), TIP), 5);
+    // update() and the STEP clip
+    anim.play('lift').seek(1);
+    close(node('tip'), chain(ROOT, T(0, 3, 0), TIP), 5);
+    anim.play('spin').update(0.25);
+    close(node('tip'), chain(ROOT, Ry(22.5), TIP), 5);
+    expect(node('tip')).toEqual(mesh());
+    // stop: rest pose again
+    anim.stop();
+    close(node('tip'), chain(ROOT, TIP), 6);
+    expect(node('tip')).toEqual(mesh());
+  });
+
+  it('under a 0.5 / 0.5 blend: rotation slerped, translation lerped', async () => {
+    const { anim, node, mesh } = await setup();
+    anim.setBlend([
+      { clip: 'spin', time: 1, weight: 0.5 },
+      { clip: 'lift', time: 1, weight: 0.5 },
+    ]);
+    close(node('arm'), chain(ROOT, T(0, 1.5, 0), Ry(45)), 5);
+    close(node('tip'), chain(ROOT, T(0, 1.5, 0), Ry(45), TIP), 5);
+    expect(node('tip')).toEqual(mesh());
+  });
+
+  it('additive override on an ancestor (static root) moves the chain; nodes outside stay at rest', async () => {
+    const { anim, node, mesh } = await setup();
+    anim.play('spin').pause().seek(0.5);
+    anim.setNodeRotations([{ node: 'root', rotation: qz(30) }]);
+    close(node('root'), chain(ROOT, Rz(30)), 5);
+    close(node('tip'), chain(ROOT, Rz(30), Ry(45), TIP), 5);
+    expect(node('tip')).toEqual(mesh());
+    close(node('base'), T(5, 0, 0), 6);
+    // Override on the animated node itself, absolute
+    anim.setNodeRotations([{ node: 'arm', rotation: qz(90) }], 'absolute');
+    close(node('root'), ROOT, 6);
+    close(node('tip'), chain(ROOT, Rz(90), TIP), 5);
+    // stop keeps the overrides (rest + override)
+    anim.stop();
+    close(node('tip'), chain(ROOT, Rz(90), TIP), 5);
+  });
+
+  it('static mesh-less node under an overridden ancestor follows it, and gets its rest world back on []', async () => {
+    for (const load of [{}, { animations: false, posable: ['arm'] }]) {
+      const { anim, node, model } = await setup({ socket: true }, load);
+      expect(model.nodes.map((n) => n.name)).toEqual(['root', 'arm', 'tip', 'socket', 'base']);
+      const SOCKET = T(0, 0, 1);
+      const rest = node('socket');
+      close(rest, chain(ROOT, SOCKET), 6);
+      anim.setNodeRotations([{ node: 'root', rotation: q(qy(90)) }]);
+      close(node('socket'), chain(ROOT, Ry(90), SOCKET), 5);
+      close(node('tip'), chain(ROOT, Ry(90), TIP), 5);
+      anim.setNodeRotations([{ node: 'root', rotation: q(qy(90)) }], 'absolute');
+      close(node('socket'), chain(ROOT, Ry(90), SOCKET), 5);
+      anim.setNodeRotations([]);
+      expect(node('socket')).toEqual(rest);
+    }
+  });
+
+  it('matrix nodes are valid and children follow them', async () => {
+    const { anim, node, mesh } = await setup({ rootMatrix: true });
+    close(node('root'), ROOT, 6);
+    anim.play('spin').pause().seek(1);
+    close(node('root'), ROOT, 6);
+    close(node('tip'), chain(ROOT, Ry(90), TIP), 5);
+    expect(node('tip')).toEqual(mesh());
+  });
+
+  it('includes the load scale; load position / rotation are not included', async () => {
+    const { anim, node, mesh, model } = await setup({}, { scale: 2, position: [10, 0, 0] });
+    close(node('tip'), chain(S(2), ROOT, TIP), 6);
+    close(node('base'), chain(S(2), T(5, 0, 0)), 6);
+    expect(node('tip')).toEqual(mesh());
+    // tip origin (object space) + load position = the bounds' minimum corner (tip vertex 0)
+    expect(apply(node('tip'), [0, 0, 0])[0] + 10).toBeCloseTo(model.bounds.min[0], 6);
+    anim.play('spin').pause().seek(0.5);
+    close(node('tip'), chain(S(2), ROOT, Ry(45), TIP), 5);
+    expect(node('tip')).toEqual(mesh());
+    const rotated = await setup({}, { scale: 2, position: [3, 4, 5], rotation: [0.3, 1.1, -0.4] });
+    expect(rotated.node('tip')).toEqual(await setup({}, { scale: 2 }).then((s) => s.node('tip')));
+  });
+
+  it('writes into out (same array returned, first 16 floats) and makes no host calls', async () => {
+    const { anim, node, batches, backend } = await setup();
+    anim.play('spin').pause().seek(0.5);
+    const spy = vi.spyOn(backend as unknown as { set_object_mesh_matrices: () => number }, 'set_object_mesh_matrices');
+    const n = batches.length;
+    const out = new Float32Array(16);
+    expect(anim.nodeMatrix('tip', out)).toBe(out);
+    expect(Array.from(out)).toEqual(node('tip'));
+    const longer = new Float32Array(20).fill(7);
+    expect(anim.nodeMatrix('arm', longer)).toBe(longer);
+    expect(Array.from(longer.subarray(0, 16))).toEqual(node('arm'));
+    expect(Array.from(longer.subarray(16))).toEqual([7, 7, 7, 7]);
+    // A fresh array without out
+    const a = anim.nodeMatrix('tip');
+    expect(a).not.toBe(anim.nodeMatrix('tip'));
+    expect(batches.length).toBe(n);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('errors: unknown / ambiguous / out-of-scene / malformed nodes, bad out, no rig, disposed', async () => {
+    const msg = (m: string) => `GltfAnimator.nodeMatrix: ${m}`;
+    const { anim } = await setup({ names: ['root', 'arm', 'tip', 'arm'] });
+    expect(() => anim.nodeMatrix('nope')).toThrow(msg('no node named "nope" (nodes: "root", "arm", "tip", "arm")'));
+    expect(() => anim.nodeMatrix('arm')).toThrow(msg('node name "arm" is ambiguous (2 nodes have it: glTF nodes 1, 3); use the glTF node index'));
+    expect(() => anim.nodeMatrix(9)).toThrow(msg('glTF node 9 is not in the loaded scene (it has 4 nodes)'));
+    expect(() => anim.nodeMatrix(-1)).toThrow(msg('node must be a node name or a glTF node index (got -1)'));
+    expect(() => anim.nodeMatrix(1.5)).toThrow(msg('node must be a node name or a glTF node index (got 1.5)'));
+    expect(() => anim.nodeMatrix(null as never)).toThrow(msg('node must be a node name or a glTF node index (got null)'));
+    expect(() => anim.nodeMatrix('tip', new Float32Array(15))).toThrow(msg('out must be a Float32Array of length >= 16 (got a Float32Array of length 15)'));
+    expect(() => anim.nodeMatrix('tip', new Float64Array(16) as never)).toThrow(msg('out must be a Float32Array of length >= 16 (got Float64Array)'));
+    expect(() => anim.nodeMatrix('tip', [] as never)).toThrow(msg('out must be a Float32Array of length >= 16 (got Array)'));
+    // The ambiguous name still resolves by glTF index
+    close(Array.from(anim.nodeMatrix(1)), ROOT, 6);
+    // No rig (animations: false bakes everything)
+    const flat = await setup({}, { animations: false });
+    expect(() => flat.anim.nodeMatrix('arm')).toThrow(
+      msg(
+        'node "arm" is not in an animation rig: the model has no animated, skinned or posable meshes (a posable node needs a mesh in its subtree); load the model with loadGltf(..., { posable: [<node names>] }) naming a node above a mesh'
+      )
+    );
+    expect(() => flat.anim.nodeMatrix('nope')).toThrow(msg('no node named "nope" (nodes: "root", "arm", "tip", "base")'));
+    // Disposed
+    anim.dispose();
+    expect(() => anim.nodeMatrix(2)).toThrow(msg('the animator is disposed'));
+    expect(() => anim.nodeMatrix(2, new Float32Array(16))).toThrow(msg('the animator is disposed'));
+  });
+});
+
+describe('mesh-less posable attach node (static model)', () => {
+  const load = { animations: false, posable: ['socket'] };
+  it('builds a rig without mesh-matrix / joint host calls; nodeMatrix is the rest world incl. load scale', async () => {
+    const env = animBackend();
+    const model = await env.sdk.loadGltf(armModel({ socket: true }), { ...load, scale: 2 });
+    expect(env.batches.length).toBe(0);
+    const anim = env.sdk.createGltfAnimator(model, { autoUpdate: false });
+    const mesh = vi.spyOn(env.backend as unknown as { set_object_mesh_matrices: () => number }, 'set_object_mesh_matrices');
+    const joints = vi.fn();
+    (env.backend as unknown as { set_object_joint_matrices: unknown }).set_object_joint_matrices = joints;
+    const m = Array.from(anim.nodeMatrix('socket'));
+    // scale 2 x root (0,1,0) x socket (0,0,1)
+    expect(apply(m, [0, 0, 0])).toEqual([0, 2, 2]);
+    anim.seek(0).update(0.1);
+    anim.stop();
+    expect(mesh).not.toHaveBeenCalled();
+    expect(joints).not.toHaveBeenCalled();
+    // rotation of the socket itself moves nothing visible but changes its nodeMatrix
+    anim.setNodeRotations([{ node: 'socket', rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2] }]);
+    const turned = Array.from(anim.nodeMatrix('socket'));
+    expect(apply(turned, [0, 0, 0])).toEqual([0, 2, 2]);
+    expect(apply(turned, [1, 0, 0])[2]).toBeCloseTo(2 - 2, 5);
+    expect(turned).not.toEqual(m);
+    expect(mesh).not.toHaveBeenCalled();
+    expect(joints).not.toHaveBeenCalled();
+    // baked meshes still throw the baked error
+    expect(() => anim.setNodeRotations([{ node: 'base', rotation: [0, 0, 0, 1] }])).toThrow(/baked into static geometry/);
+  });
+
+  it('without posable: no rig and bit-identical objects', async () => {
+    const a = animBackend();
+    const plain = await a.sdk.loadGltf(armModel({ socket: true }), { animations: false });
+    const b = animBackend();
+    const posed = await b.sdk.loadGltf(armModel({ socket: true }), load);
+    expect(plain.objects.length).toBe(posed.objects.length);
+    expect(() => a.sdk.createGltfAnimator(plain, { autoUpdate: false }).nodeMatrix('socket')).toThrow(/not in an animation rig/);
+    expect(a.batches.length).toBe(0);
   });
 });

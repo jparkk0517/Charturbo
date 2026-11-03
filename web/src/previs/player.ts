@@ -52,7 +52,7 @@
  * changed since the last call. The frame-0 clips are applied at load as the initial pose.
  * JOINTS (`tracks.joints`): every `sdk.loadGltf` of the node (also the tiny-scale reload) gets
  * `posable: [...joint names]` so static nodes can be posed. The animator exists when the node has an
- * animation OR joints (joints only: rest pose + offsets, deterministic). Unknown joint names are
+ * animation OR joints OR sockets (no clip: rest pose + offsets, deterministic). Unknown joint names are
  * rejected by `loadGltf` itself (`posable node "x" not found`); the check against
  * `animator.nodeNames` only matters on engines without mesh matrices (posable ignored). Each frame maps
  * `NodeState.joints` (Euler [rx, ry, rz], YXZ) to the quaternion q = qY * qX * qZ (the engine's
@@ -62,6 +62,32 @@
  * the whole pose on every call of setNodeRotations and setBlend, and offers no way to defer one: a
  * frame where clips AND joints both changed costs two applies (rotations first, then setBlend);
  * a frame where only one changed costs exactly one call.
+ *
+ * SOCKETS (`parentJoint`: a node attached to a joint of its `parent` model node)
+ * One SOCKET object per (model node, joint), an alpha-0 unit box named `previs:<model>:joint:<joint>`,
+ * parented to the model's PIVOT (never the scaled FIT: children must not be scaled); the child's pivot
+ * is parented to the socket instead of the model pivot. The model node is loaded even when it is a
+ * pure pivot (its objects then stay at alpha 0) and gets an animator even without animation or
+ * joints; every `loadGltf` of it (also the tiny-scale reload) gets the socket joints in `posable`
+ * after the `tracks.joints` names (deduplicated), so static rigs have the node and unknown names fail
+ * the load (`posable node "x" not found`; the `animator.nodeNames` check covers both lists).
+ * Each frame, after the model's pose (setNodeRotations / setBlend) and FIT are current, the player reads
+ * M = `animator.nodeMatrix(joint)` (loader space: load scale x posed glTF world, the space of the
+ * objects under FIT) and maps it through the FIT (scale k, position -k*c):
+ *   position = k * (t - c)   (t = M's translation, per axis; engine units in the pivot frame)
+ *   rotation = Gram-Schmidt of A = S(k) * M3 (M3 = M's upper 3x3; `orthonormalFrame`): y axis =
+ *              A's y column normalized, x = A's x column made perpendicular to it, z = x cross y
+ * Uniform k (contain) or no stretch, joint chains without shear: A = rotation x positive diagonal, the
+ * columns are orthogonal and R is exactly the joint's rotation with its scale removed. `stretch` with
+ * non-uniform k shears the joint frame in the pivot frame and no rotation is exact. APPROXIMATION:
+ * the joint's y axis (the bone axis of glTF / Blender rigs) follows the stretched mesh exactly; x and
+ * z stay perpendicular to it and can differ from the stretched mesh's x / z by the shear angle (the
+ * polar decomposition would instead keep the unstretched rotation for every unsheared chain, so props
+ * along the bone would leave the stretched bone). Mirrored frames (det A < 0) get z = x cross y, i.e. the
+ * joint z axis flipped; a degenerate A (y axis of size 0) keeps the previous rotation. R goes to setObjectTransform as Euler
+ * [rx, ry, rz] in YXZ order (R = Ry * Rx * Rz, `matrixToEulerYXZ`, z = 0 in gimbal lock). The
+ * matrix is read every frame (16 floats, no allocation) and the socket math and engine call are skipped
+ * while M and k are unchanged; the engine call also when the result is unchanged.
  *
  * CAMERA
  * Each frame calls `sdk.setCameraView({ eye, target, roll })` (meters * worldScale, roll in radians): an
@@ -73,11 +99,11 @@
  *
  * INVISIBLE OBJECTS
  * The engine has no per-object visibility flag in its API, so invisible = color alpha 0: pivots
- * and FIT objects are unit boxes with alpha 0; they go through the translucent pipeline
+ * and FIT and SOCKET objects are unit boxes with alpha 0 (always: the `visible` track of a node never touches them); they go through the translucent pipeline
  * (ALPHA_BLENDING, no depth write), which leaves the framebuffer unchanged. A shape hidden by its
  * `visible` track gets alpha 0 via `setObjectMaterial` (every loader object of a model). Pure pivot
  * nodes (`visible: false` with no visible=true key) get no mesh; a pure pivot model node is not
- * loaded at all.
+ * loaded at all, unless a node is attached to one of its joints (see SOCKETS).
  */
 import type { Charturbo, ObjectMaterialDescriptor, PrimitiveShape } from '../sdk/charturbo';
 import type { GltfSource, GltfLoadResult, GltfDecoders } from '../sdk/scene-gltf';
@@ -136,6 +162,22 @@ interface ModelObjects {
   segments: PrevisModelAnimation[];
   /** Clip weights last sent to the animator. */
   clips: ClipWeight[];
+  /** Current FIT scale (engine units per loader unit, per axis). */
+  k: Vec3;
+  /** nodeMatrix output buffer. */
+  scratch: Float32Array;
+}
+
+/** Alpha-0 object that follows one joint of a model node (see SOCKETS). */
+interface SocketObjects {
+  joint: string;
+  id: number;
+  /** Joint matrix and FIT scale of the last socket computation (null: none yet). */
+  matrix: Float32Array;
+  k: Vec3 | null;
+  /** Last values sent to the engine. */
+  pos: Vec3;
+  rot: Vec3;
 }
 
 interface NodeObjects {
@@ -149,6 +191,8 @@ interface NodeObjects {
   /** size * worldScale */
   meshScale: Vec3;
   meshVisible: boolean;
+  /** Sockets of a model node, one per joint used by a child's `parentJoint` (doc order). */
+  sockets: SocketObjects[];
 }
 
 const eqVec = (a: Vec3, b: Vec3): boolean => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
@@ -238,6 +282,30 @@ function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[
   for (const n of topoOrder(doc.nodes)) {
     const pos = scaled(n.position, ws);
     const rot: Vec3 = [...n.rotation];
+    let parentId = n.parent !== undefined ? (pivotIds.get(n.parent) ?? null) : null;
+    const host = n.parent !== undefined ? objects.get(n.parent) : undefined;
+    if (n.parentJoint !== undefined && host?.node.shape === 'model') {
+      // Hang from the joint's SOCKET (one per model node and joint) instead of the model pivot
+      let socket = host.sockets.find((s) => s.joint === n.parentJoint);
+      if (!socket) {
+        const id = sdk.addPrimitive({
+          shape: 'box',
+          name: `previs:${host.node.id}:joint:${n.parentJoint}`,
+          position: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+          color: [0, 0, 0, 0],
+          bodyType: 'static',
+          parentId: host.pivotId,
+          castShadow: false,
+          receiveShadow: false,
+        });
+        created.push(id);
+        socket = { joint: n.parentJoint, id, matrix: new Float32Array(16), k: null, pos: [0, 0, 0], rot: [0, 0, 0] };
+        host.sockets.push(socket);
+      }
+      parentId = socket.id;
+    }
     const pivotId = sdk.addPrimitive({
       shape: 'box',
       name: `previs:${n.id}`,
@@ -246,7 +314,7 @@ function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[
       scale: [1, 1, 1],
       color: [0, 0, 0, 0],
       bodyType: 'static',
-      parentId: n.parent !== undefined ? (pivotIds.get(n.parent) ?? null) : null,
+      parentId,
       castShadow: false,
       receiveShadow: false,
     });
@@ -274,7 +342,7 @@ function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[
       });
       created.push(meshId);
     }
-    objects.set(n.id, { node: n, pivotId, meshId, model: null, pos, rot, meshScale, meshVisible });
+    objects.set(n.id, { node: n, pivotId, meshId, model: null, pos, rot, meshScale, meshVisible, sockets: [] });
   }
   return objects;
 }
@@ -308,10 +376,11 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
   const anim = n.model?.animation;
   const jointTracks = n.tracks?.joints;
   const jointNames = jointTracks ? Object.keys(jointTracks) : [];
-  if (anim || jointNames.length > 0) animator = sdk.createGltfAnimator(result, { autoUpdate: false });
-  if (animator && jointNames.length > 0) {
+  const posable = posableNames(o);
+  if (anim || posable.length > 0) animator = sdk.createGltfAnimator(result, { autoUpdate: false });
+  if (animator && posable.length > 0) {
     const known = animator.nodeNames;
-    for (const name of jointNames) {
+    for (const name of posable) {
       if (!known.includes(name)) {
         const list = known.filter((s): s is string => s !== null);
         const shown = list.slice(0, 50).map((s) => JSON.stringify(s)).join(', ');
@@ -320,7 +389,20 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
     }
   }
   const joints = jointNames.map((name) => evalTrack(jointTracks![name], 0, [0, 0, 0] as Vec3));
-  const model: ModelObjects = { result, fitId, fit, center, extent, animator, jointNames, joints, segments, clips };
+  const model: ModelObjects = {
+    result,
+    fitId,
+    fit,
+    center,
+    extent,
+    animator,
+    jointNames,
+    joints,
+    segments,
+    clips,
+    k,
+    scratch: new Float32Array(16),
+  };
   if (animator && jointNames.length > 0) sendJoints(model, joints); // initial offsets = frame 0
   if (anim && animator) {
     model.segments = segments = normalizeAnimation(anim);
@@ -328,6 +410,85 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
     animator.setBlend(toBlend(segments, clips)); // initial pose = frame 0
   }
   o.model = model;
+  updateSockets(sdk, o.sockets, model); // frame-0 pose; nodeMatrix errors fail the load
+}
+
+/** `posable` of a model node: `tracks.joints` names, then socket joints not already listed. */
+function posableNames(o: NodeObjects): string[] {
+  const names = o.node.tracks?.joints ? Object.keys(o.node.tracks.joints) : [];
+  for (const s of o.sockets) if (!names.includes(s.joint)) names.push(s.joint);
+  return names;
+}
+
+const sameMatrix = (a: Float32Array, b: Float32Array): boolean => {
+  for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
+/** Moves every socket of a model to its joint's current posed frame (see SOCKETS); skips unchanged ones. */
+function updateSockets(sdk: Charturbo, sockets: SocketObjects[], m: ModelObjects): void {
+  for (const s of sockets) {
+    const mat = m.animator!.nodeMatrix(s.joint, m.scratch);
+    if (s.k !== null && eqVec(s.k, m.k) && sameMatrix(mat, s.matrix)) continue;
+    s.matrix.set(mat.subarray(0, 16));
+    s.k = [...m.k];
+    const { position, rotation } = socketTransform(mat, m.k, m.center, s.rot);
+    if (!eqVec(position, s.pos) || !eqVec(rotation, s.rot)) {
+      sdk.setObjectTransform(s.id, { position, rotation });
+      s.pos = position;
+      s.rot = rotation;
+    }
+  }
+}
+
+/**
+ * Socket transform in the model PIVOT frame for joint matrix `mat` (column-major, loader space) under a
+ * FIT of scale `k` and bounds center `c`: position k * (t - c), rotation = YXZ Euler of the orthonormalized
+ * S(k) * M3 (`orthonormalFrame`, see SOCKETS). `fallback` is returned as rotation when that frame is degenerate.
+ */
+export function socketTransform(mat: ArrayLike<number>, k: Vec3, c: Vec3, fallback: Vec3 = [0, 0, 0]): { position: Vec3; rotation: Vec3 } {
+  const position: Vec3 = [k[0] * (mat[12] - c[0]), k[1] * (mat[13] - c[1]), k[2] * (mat[14] - c[2])];
+  // A = S(k) * M3, row-major: A[r][c] = k_r * M[c * 4 + r]
+  const a: number[] = [];
+  for (let r = 0; r < 3; r++) for (let col = 0; col < 3; col++) a.push(k[r] * mat[col * 4 + r]);
+  const rot = orthonormalFrame(a);
+  return { position, rotation: rot ? matrixToEulerYXZ(rot) : [...fallback] };
+}
+
+/**
+ * Rotation (row-major 3x3) of the frame whose axes are the columns of `a` (row-major 3x3), by Gram-Schmidt
+ * in the order y, x: y = normalize(a_y), x = normalize(a_x - (a_x . y) y), z = x cross y (right-handed).
+ * Equals the column normalization when the columns are orthogonal (rotation x positive per-axis scale).
+ * Y first: glTF / Blender skeletons point bones along local +Y, so the bone axis is kept exactly.
+ * null when a_y or the part of a_x perpendicular to it vanishes (relative 1e-9) or `a` is not finite.
+ */
+export function orthonormalFrame(a: readonly number[]): number[] | null {
+  const cx = [a[0], a[3], a[6]];
+  const cy = [a[1], a[4], a[7]];
+  const ny = Math.hypot(cy[0], cy[1], cy[2]);
+  const nx0 = Math.hypot(cx[0], cx[1], cx[2]);
+  if (!Number.isFinite(ny) || !Number.isFinite(nx0) || !(ny > 0) || !(nx0 > 0)) return null;
+  const y = cy.map((v) => v / ny);
+  const dot = cx[0] * y[0] + cx[1] * y[1] + cx[2] * y[2];
+  const px = cx.map((v, i) => v - dot * y[i]);
+  const nx = Math.hypot(px[0], px[1], px[2]);
+  if (!(nx > 1e-9 * nx0)) return null;
+  const x = px.map((v) => v / nx);
+  const z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+  return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
+}
+
+/**
+ * Euler [rx, ry, rz] (radians, order YXZ: R = Ry * Rx * Rz, the engine's convention) of a row-major 3x3
+ * rotation. With R = Ry Rx Rz: R12 = -sin x, (R10, R11) = cos x (sin z, cos z), (R02, R22) = cos x (sin y, cos y).
+ * x = atan2(-R12, |(R10, R11)|) stays accurate near +-90 degrees; in gimbal lock (cos x < 1e-9) only y -+ z is
+ * defined, so z = 0 and y = atan2(-R20, R00).
+ */
+export function matrixToEulerYXZ(r: ArrayLike<number>): Vec3 {
+  const cx = Math.hypot(r[3], r[4]);
+  const x = Math.atan2(-r[5], cx);
+  if (cx < 1e-9) return [x, Math.atan2(-r[6], r[0]), 0];
+  return [x, Math.atan2(r[2], r[8]), Math.atan2(r[3], r[4])];
 }
 
 function normalizeAnimation(anim: PrevisModelAnimation | PrevisModelAnimation[]): PrevisModelAnimation[] {
@@ -398,6 +559,7 @@ function makePlayer(
         if (!eqVec(ms, o.meshScale)) {
           if (m) {
             const k = modelFitScale(m.fit, ms, m.extent);
+            m.k = k;
             sdk.setObjectTransform(m.fitId, {
               position: [-k[0] * m.center[0], -k[1] * m.center[1], -k[2] * m.center[2]],
               scale: k,
@@ -425,6 +587,8 @@ function makePlayer(
             m.animator.setBlend(toBlend(m.segments, cl));
             m.clips = cl;
           }
+          // After this frame's pose and FIT: children of joints render in the same frame
+          if (o.sockets.length > 0) updateSockets(sdk, o.sockets, m);
         }
       }
 
@@ -509,7 +673,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
     const n = o.node;
     const model = n.model!;
     const anim = model.animation;
-    const jointNames = n.tracks?.joints ? Object.keys(n.tracks.joints) : [];
+    const posable = posableNames(o);
     const check = (): void => {
       if (ctl.signal.aborted) throw abortError(ctl.signal);
     };
@@ -519,7 +683,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
       const r = await sdk.loadGltf(source, {
         signal: ctl.signal,
         animations: anim !== undefined,
-        ...(jointNames.length > 0 ? { posable: jointNames } : {}),
+        ...(posable.length > 0 ? { posable } : {}),
         ...(options.decoders ? { decoders: options.decoders } : {}),
         ...(scale !== undefined ? { scale } : {}),
       });
@@ -559,7 +723,8 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
   };
 
   const objects = buildNodes(sdk, doc, ws, created);
-  const jobs = [...objects.values()].filter((o) => o.node.shape === 'model' && o.node.model && hasShape(o.node));
+  // A pure pivot model is still loaded (invisible) when a node hangs from one of its joints
+  const jobs = [...objects.values()].filter((o) => o.node.shape === 'model' && o.node.model && (hasShape(o.node) || o.sockets.length > 0));
   await Promise.allSettled(jobs.map(loadNode));
   signal?.removeEventListener('abort', onAbort);
 

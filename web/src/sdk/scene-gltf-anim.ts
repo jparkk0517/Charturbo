@@ -2,7 +2,8 @@
 // The loader keeps animated subtrees as a rig: meshes under animated nodes stay in node-local
 // space and get a mesh matrix (glTF scale x node chain); skinned meshes stay in bind space and get
 // a joint palette (glTF scale x joint world x inverse bind matrix) that the engine skins on the
-// CPU. The animator recomputes both and pushes each to the engine in one batched call per update.
+// CPU. The animator recomputes both and pushes each to the engine in one batched call per update,
+// and reads back the posed model-space matrix of any rig node (`GltfAnimator.nodeMatrix`).
 
 /** Keyframe interpolation of a glTF animation sampler. */
 export type GltfInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
@@ -612,7 +613,8 @@ export class GltfAnimator {
     private readonly onDispose: (animator: GltfAnimator) => void
   ) {
     this.autoUpdate = options.autoUpdate ?? true;
-    this.pose = rig && (rig.targets.ids.length > 0 || rig.skinTargets.ids.length > 0) ? new RigPose(rig) : null;
+    // A rig without mesh matrices or skins (mesh-less `posable` nodes) still poses: it only evaluates, `send` skips empty batches
+    this.pose = rig && rig.parent.length > 0 ? new RigPose(rig) : null;
     this.nodes = nodeTable(model, this.pose ? rig : null);
     this.nodeNames = Object.freeze(this.nodes.names.slice());
   }
@@ -779,7 +781,7 @@ export class GltfAnimator {
     for (let k = 0; k < count; k++) {
       const e = rotations[k];
       if (e === null || typeof e !== 'object') failNode(`entry ${k} must be an object`);
-      const slot = this.resolveNode(e.node, k);
+      const slot = this.resolveNode(e.node, failNode, k);
       const label = this.nodes.label(slot);
       if (seen.has(slot)) failNode(`${label} is listed twice`);
       seen.add(slot);
@@ -888,8 +890,45 @@ export class GltfAnimator {
     this.send();
   }
 
-  /** Slot (index into `nodeNames`) of a node name or glTF node index. */
-  private resolveNode(node: unknown, k: number): number {
+  /**
+   * Model-space matrix (column-major 4x4, the loadGltf frame: load `scale` included, load position/rotation NOT included)
+   * of a rig node in the CURRENT pose (clip / blend / rotation overrides, rest pose before any). Writes into `out` when given.
+   * Mesh-less nodes work (empty attach points such as "hand_socket") when the model was loaded with `posable` naming
+   * them or an ancestor: the rig then has no mesh matrices, nothing is sent to the engine and this still returns the
+   * rest world (base x world) of any rig node, moved by `setNodeRotations` on it or its ancestors.
+   * Throws for unknown / ambiguous names, indices outside the loaded scene, or nodes outside the rig (with the same messages
+   * style as setNodeRotations, prefixed `GltfAnimator.nodeMatrix:`).
+   *
+   * Exactly `base x nodeWorld`: the loader scale matrix times the node's posed glTF world matrix (scene root to node,
+   * every node's local TRS / `matrix`), the same product the mesh matrices use (`base x world` of the mesh's node).
+   * It maps the node's local origin / axes into the object space of the model's meshes (the space their mesh matrices
+   * and skinned palettes map into); the scene places that space with the load `position` / `rotation` (the object
+   * transform every model object shares), which gives `GltfLoadResult.bounds`. For a skin joint,
+   * `nodeMatrix(joint) x inverseBind` is the joint's palette matrix. A skinned mesh node returns its own glTF frame,
+   * which skinning ignores (its vertices follow the joints). Static rig nodes give their load-time world unless an
+   * overridden ancestor moves them; matrix nodes follow their parents. The matrix is the pose this animator last
+   * computed (what it last sent to the engine); reading it never re-evaluates nor sends a pose, and does not allocate
+   * when `out` (a Float32Array of length >= 16; the first 16 floats are written) is given.
+   */
+  nodeMatrix(node: string | number, out?: Float32Array): Float32Array {
+    this.checkAlive('nodeMatrix');
+    if (out !== undefined && !(out instanceof Float32Array && out.length >= 16)) {
+      failMatrix(`out must be a Float32Array of length >= 16 (got ${describeOut(out)})`);
+    }
+    const slot = this.resolveNode(node, failMatrix, -1);
+    const r = this.nodes.rigNode[slot];
+    if (r < 0 || !this.pose) {
+      failMatrix(
+        `${this.nodes.label(slot)} is not in an animation rig: the model has no animated, skinned or posable meshes (a posable node needs a mesh in its subtree); load the model with ${POSABLE_LOAD_HINT} naming a node above a mesh`
+      );
+    }
+    const target = out ?? new Float32Array(16);
+    mul4(this.pose.rig.base, 0, this.pose.world, r * 16, target, 0);
+    return target;
+  }
+
+  /** Slot (index into `nodeNames`) of a node name or glTF node index (`k` < 0: a single node argument, not entry k). */
+  private resolveNode(node: unknown, fail: (message: string) => never, k: number): number {
     const t = this.nodes;
     if (typeof node === 'string') {
       const slots = t.byName.get(node);
@@ -897,19 +936,19 @@ export class GltfAnimator {
         const named = t.names.filter((n): n is string => n !== null);
         const shown = named.slice(0, 8).map((n) => `"${n}"`).join(', ');
         const more = named.length > 8 ? `, ... ${named.length - 8} more` : '';
-        failNode(`no node named "${node}" (${named.length > 0 ? `nodes: ${shown}${more}` : 'the model has no named nodes'})`);
+        fail(`no node named "${node}" (${named.length > 0 ? `nodes: ${shown}${more}` : 'the model has no named nodes'})`);
       }
       if (slots.length > 1) {
-        failNode(`node name "${node}" is ambiguous (${slots.length} nodes have it: glTF nodes ${slots.map((s) => t.gltf[s]).join(', ')}); use the glTF node index`);
+        fail(`node name "${node}" is ambiguous (${slots.length} nodes have it: glTF nodes ${slots.map((s) => t.gltf[s]).join(', ')}); use the glTF node index`);
       }
       return slots[0];
     }
     if (typeof node === 'number' && Number.isInteger(node) && node >= 0) {
       const slot = t.byIndex.get(node);
-      if (slot === undefined) failNode(`glTF node ${node} is not in the loaded scene (it has ${t.names.length} nodes)`);
+      if (slot === undefined) fail(`glTF node ${node} is not in the loaded scene (it has ${t.names.length} nodes)`);
       return slot;
     }
-    return failNode(`entry ${k} node must be a node name or a glTF node index (got ${String(node)})`);
+    return fail(`${k >= 0 ? `entry ${k} node` : 'node'} must be a node name or a glTF node index (got ${String(node)})`);
   }
 
   /** Rig node of a slot, or throws when the node cannot be posed. */
@@ -918,7 +957,7 @@ export class GltfAnimator {
     const label = t.label(slot);
     const r = t.rigNode[slot];
     if (r < 0) {
-      // No rig: no animated, skinned or posable mesh exists (posable nodes without meshes below them add none)
+      // Not in the rig: the model has no rig, or the node is outside the posed subtrees
       failNode(`${label} cannot move any mesh: the model has no animated, skinned or posable meshes (a posable node needs a mesh in its subtree); load the model with ${POSABLE_LOAD_HINT} naming a node above a mesh`);
     }
     const rig = this.rig!;
@@ -960,6 +999,17 @@ function fail(message: string): never {
 
 function failNode(message: string): never {
   throw new Error(`GltfAnimator.setNodeRotations: ${message}`);
+}
+
+function failMatrix(message: string): never {
+  throw new Error(`GltfAnimator.nodeMatrix: ${message}`);
+}
+
+function describeOut(out: unknown): string {
+  if (out instanceof Float32Array) return `a Float32Array of length ${out.length}`;
+  if (out === null) return 'null';
+  if (typeof out === 'object') return (out as object).constructor?.name ?? 'an object';
+  return typeof out;
 }
 
 /** Node lookup of one animator: slots follow `GltfLoadResult.nodes` (depth first, = rig order). */

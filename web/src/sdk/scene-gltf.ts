@@ -37,6 +37,9 @@ export interface GltfLoadOptions {
    * node indices, or `true` for every node. Their meshes (and everything below) stay in node-local space
    * with a mesh matrix, like animated nodes, also with `animations: false` or a file without clips.
    * Unknown or ambiguous names reject the load. Ignored (with a warning) when the engine has no mesh matrices.
+   * A named node without any mesh below it (an empty attach point such as "hand_socket") is accepted too: the
+   * model gets a rig anyway, so `GltfAnimator.nodeMatrix` reads that node (and the rest of the rig) and
+   * `setNodeRotations` may turn it; nothing visible moves and the animator sends nothing to the engine.
    */
   posable?: readonly (string | number)[] | true;
   /**
@@ -782,7 +785,7 @@ class GltfLoader {
     }
 
     let rig: GltfRig | null = null;
-    if (dynamicObjects.length > 0 || skinnedObjects.length > 0) {
+    if (dynamicObjects.length > 0 || skinnedObjects.length > 0 || posed.size > 0) {
       rig = buildRig(order, dynamic, base, clips, dynamicObjects, skins, skinnedObjects);
       // Rest pose (the vertices are node-local / bind-space until the first matrices land)
       if (dynamicObjects.length > 0) {

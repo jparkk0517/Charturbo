@@ -1,6 +1,6 @@
 # 3D scene / previs roadmap (delegation plan)
 
-Status 2026-11-02: Epics 1-4 DONE (`fe48f62` clip segments, `a56ca8e` exact camera, `b9080f8` compressed glTF, Epic 4 joint poses); Epic 5 deferred. Baseline was `fc04160` (previs glTF model nodes). Each task below is sized for ONE subagent run
+Status 2026-11-03: Epics 1-4 and 6 DONE (`fe48f62` clip segments, `a56ca8e` exact camera, `b9080f8` compressed glTF, Epic 4 joint poses); Epic 5 deferred. Baseline was `fc04160` (previs glTF model nodes). Each task below is sized for ONE subagent run
 (about 30 min to 2 h) and lists everything its brief needs. The supervisor writes contracts, runs waves,
 verifies, commits and pushes to `main`.
 
@@ -115,3 +115,18 @@ weight channels; 5.3 haiku docs. Revisit when a use case appears.
 
 Wave A: 1.1, 1.2, 2.1 in parallel → Wave B: 1.3, 2.2 → Wave C: 1.4, 2.3 → Wave D: 2.4 (+ Epic 3 after decision)
 → Epic 4 → (Epic 5 deferred).
+
+## Epic 6. Props on glTF joints (sword in a model's hand) — DONE
+
+Problem (found authoring the gate-raid action previs): a previs node can only be parented to another node's
+origin, so a model's hand cannot hold a prop; the giant could not carry a weapon.
+
+Contract (supervisor, `web/src/previs/types.ts`): `PrevisNode.parentJoint?: string` — glTF node name in the
+`parent` model node; the child's position / rotation are local to that joint's current posed frame (clip,
+blend, `tracks.joints`), joint scale removed.
+
+| ID | Tier | Task | Files | Depends | Done when |
+| --- | --- | --- | --- | --- | --- |
+| 6.1 | opus | Animator read-back: `GltfAnimator.nodeMatrix(node, out?)` = model-space matrix of a rig node in the current pose (load scale included), for dynamic and static rig nodes, skinned joints included | `scene-gltf-anim.ts` + tests | — | matches hand-computed chains under clip, blend and overrides; static node = rest world |
+| 6.2 | opus | Previs: validate `parentJoint`; player creates a socket pivot per (model node, joint) under the model's pivot, updates it every frame after the pose from fit (k, center) and `nodeMatrix` with scale removed; joint names forwarded via `posable`; tests + real render of a prop in the walker's hand during `walk` | previs validate/player + tests | 6.1, contract | prop stays in the hand over the walk cycle in stills; pixel/position check |
+| 6.3 | sonnet | Docs + SKILL + CHANGELOG; gate-raid example gives the giant a club in `lowerArm.R` / hand | docs, `gate-raid.gen.ts` | 6.2 | still shows the club following the swing |

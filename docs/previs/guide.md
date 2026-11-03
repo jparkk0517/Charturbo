@@ -39,7 +39,7 @@ Source of truth: `web/src/previs/types.ts`. Units: meters, radians, sRGB colors 
 | `nodes` | `PrevisNode[]` |
 | `shots` | `Shot[]` sorted, covering `[0, duration)` with no gap or overlap |
 
-**Node:** `id` (`[A-Za-z0-9_.-]+`, unique), `shape` (`box`/`sphere`/`cylinder`/`model`), `model` (required for `model`, forbidden otherwise), `color`, `position`, `rotation`, `size`, optional `parent`, `role`, `visible`, `tracks` (`position`, `rotation`, `size`, `visible`, and `joints` on `model` nodes).
+**Node:** `id` (`[A-Za-z0-9_.-]+`, unique), `shape` (`box`/`sphere`/`cylinder`/`model`), `model` (required for `model`, forbidden otherwise), `color`, `position`, `rotation`, `size`, optional `parent`, `parentJoint` (glTF joint name; needs a `model` parent), `role`, `visible`, `tracks` (`position`, `rotation`, `size`, `visible`, and `joints` on `model` nodes).
 
 **Shot:** `id`, `start`, `end`, `camera: { position: Track, target, fov?, roll? }`. `target` is `{ track }` (look-at points) or `{ follow: nodeId, offset? }`. `fov` is a vertical angle in degrees, default 45. `roll?` is a `Track<number>` in radians, default 0; positive tilts the camera's up toward screen right, so the scene appears to turn counterclockwise. Same track rules as `fov`.
 
@@ -119,6 +119,15 @@ Example: `web/previs/examples/model-demo.json` (models in `web/previs/examples/m
 ```json
 "tracks": { "joints": { "upperArm.R": [ { "t": 0.5, "v": [0, 0, 0] }, { "t": 1.0, "v": [-1.2, 0, 0] } ] } }
 ```
+
+**Props on joints.** `parentJoint` on a child of a `shape: "model"` node attaches it to that glTF joint: the child follows the joint's current posed frame (clip, blend, `tracks.joints`) with the joint's scale removed. Use it for weapons and props held by a model. `position`/`rotation` are in meters in the joint frame and are NOT scaled by the model's `fit`. When the model is drawn at another size than its natural size, multiply offsets along the bone by k = fitted size / natural size (contain: `k = size.y / naturalHeight`, e.g. walker 1.75 m drawn at 3.2 m: `k = 3.2 / 1.75`, forearm end `y = -0.28 * k`). Example: a stick held in the walker's right forearm (natural size), pointing forward:
+
+```json
+{ "id": "stick", "shape": "box", "parent": "walker", "parentJoint": "lowerArm.R", "color": [0.1, 0.85, 0.95],
+  "position": [0, -0.28, 0.3], "rotation": [1.5707963267948966, 0, 0], "size": [0.04, 0.6, 0.04] }
+```
+
+Restrictions: `parentJoint` without a `model` parent is rejected, and so is a camera `follow` of a joint-attached node or its descendants; follow the model node with an offset instead. Programmatic pose reads: `GltfAnimator.nodeMatrix(node)`.
 
 **Compressed models.** Draco (`KHR_draco_mesh_compression`) and meshopt (`EXT_meshopt_compression`) `.glb` files work as-is in `npm run previs:render` and the viewer: each run detects the extensions in the model file and loads only the decoder it needs (`draco3d` and `meshoptimizer` are devDependencies). Programmatic use passes `decoders: { meshopt?, draco? }` to `loadPrevisPlayer`, which forwards them to every model load. The SDK ships no decoder: `meshopt` is `MeshoptDecoder` from `meshoptimizer`, `draco` is the module `await createDecoderModule()` from `draco3d` resolves to. A file that requires an extension without its decoder fails with `loadGltf: EXT_meshopt_compression is required; pass options.decoders.meshopt ...` (or the Draco equivalent). Not supported: `KHR_meshopt_compression`, Draco point clouds, Draco on triangle strips/fans.
 
