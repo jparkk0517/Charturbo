@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 추가 — 텍스처 렌더 패스 (--passes=textured · lighting · look)
+
+- 렌더 스크립트에 `--passes=textured`를 추가했습니다. glTF 모델은 자체 머티리얼과 텍스처를 유지하고, 프리미티브는 `look.color ?? color`로 조명을 받습니다. 출력은 depth와 같은 방식으로 beauty 옆에 `<out-stem>.textured.mp4`(png-seq는 `<out-stem>.textured/`, `--split-shots`는 `<out-stem>.<shot>.textured.mp4`, `--still`은 `<out-stem>.textured.png`)로 쓰입니다. 한 페이지 로드 안에서 beauty, depth, textured 순으로 실행하므로 textured를 추가해도 beauty와 depth 바이트는 바뀌지 않습니다. 기존 `--no-aa`는 textured의 4x MSAA에도 적용됩니다.
+- 문서 수준 `lighting`(`key { dir, intensity, shadows }` · `env { sky, ground, intensity }` · `rim`(점광 최대 8개, 세기는 미터 단위이고 엔진 값은 `intensity × worldScale²`) · `exposure` · `toneMapping`)과 노드별 `look { color, roughness, metallic, show }`를 추가했습니다. 엔진은 방향광이 하나뿐이고 색이 없으며, 채움광은 반구 환경광입니다. `look.show`('both' | 'flat' | 'textured')로 플랫 패스에는 상자 대역을, 텍스처 패스에는 모델을 그리는 식으로 패스마다 노드를 나눕니다. 검증: 참조(`parent`, `tracks.parent`)는 같은 패스에 그려지는 노드여야 하고, 카메라 `follow` 대상은 `'both'`여야 하며, 모델 노드에는 `look.color` · `roughness` · `metallic`을 쓸 수 없습니다. 플랫 패스는 `lighting`과 `look` 색을 무시하며 이전과 바이트 단위로 같습니다. 플레이어에 `look: 'flat' | 'textured'` 옵션, 렌더 페이지에 `window.previs.setLook()`이 생겼습니다.
+- textured는 재실행 간 비트 단위로 같지 않습니다. 몇 픽셀이 1/255 다를 수 있습니다(Chrome WebGPU / Metal에서 측정). `npm run previs:check-textured`가 beauty 불변, 재실행 허용 오차(픽셀 0.01 % 이하), 노출(클립 1 % · 뭉개짐 5 % 이하, `lighting`이 있는 문서만 평균 luma 0.25..0.65), 실루엣 IoU 0.98 이상을 검사하며 하나라도 어기면 종료 코드 1입니다.
+- 예제 `previs/examples/textured-demo.json`(생성기 `textured-demo.gen.ts`)과 KayKit CC0 모델(`previs/examples/models/kaykit/`)을 추가했습니다. 한계: 방향광 하나, rim 외에는 광원 색 없음, 후처리 효과 없음, 노드마다 텍스처를 중복 로드합니다. 자세한 내용은 `docs/previs/guide.md`의 「Textured pass」 절을 참고하세요.
+
 ### 추가 — 깊이 패스 근거리 클립 (--depth-near-clip)
 
 - 렌더 스크립트에 옵트인 `--depth-near-clip=<미터>`를 추가했습니다. 측정 범위(`--depth-range=shot` 또는 `frame`)에서만 적용되며, 측정한 `[Dnear, Dfar]`에서 `near`를 `max(Dnear, 값)`으로 올립니다(`far`는 그대로). 값보다 가까운 픽셀은 흰색(255)으로 고정되므로, 렌즈 앞의 가까운 소품 하나가 나머지 장면의 회색 범위를 차지하지 않습니다. 값은 유한한 `> 0`이어야 하며 아니면 종료 코드 2입니다. 고정 `--depth-range=<near>..<far>`와 함께 쓰거나 `--passes`에 `depth`가 없어도 종료 코드 2입니다. 값이 샷(또는 프레임)의 측정 `far` 이상이면 샷 이름과 두 수치를 알리고 종료 코드 1입니다. `depth.json` 항목에 `near_clip_m`(플래그 값)과 `measured_near_m`(측정한 원래 near)가 추가되며, `near_m`은 실제 사용한 값입니다. 플래그가 없으면 출력은 이전과 바이트 단위로 같습니다. 자세한 내용은 `docs/previs/guide.md`의 「Depth pass」 절을 참고하세요.

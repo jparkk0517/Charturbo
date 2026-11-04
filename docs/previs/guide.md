@@ -27,7 +27,8 @@ npm run previs:render -- doc.json out.mp4 --split-shots          # one file per 
 | `--split-shots` | One file per shot: `<stem>.<shotId>.<ext>` (png-seq: `<out>/<shotId>/`) plus `<stem>.cuts.json` = `[{ shot, start, end, frames: [first, last] }]` (global frame indices; seconds include handles). A shot shorter than one frame is skipped (warning, no file, `frames: []`). Not combinable with `--shot`, `--range` or `--frames` |
 | `--camera-json=<file>` | Per-frame camera export: `{ frame, t, shot, eye, target, up, roll, fovDeg, aspect, near, far, worldScale, view[16], projection[16] }`. eye/target in meters; near/far/matrices in engine units (column-major, reverse-Z, clip = projection * view * [p, 1]); a top-level `units` field states this |
 | `--backend=webgpu\|webgl2` | Default `webgpu`; falls back to `webgl2` with a warning when not given explicitly |
-| `--no-aa` | Disable the 4x MSAA of the main pass |
+| `--no-aa` | Disable the 4x MSAA of the main pass (beauty and textured) |
+| `--passes=beauty,depth,textured` | Extra outputs next to the beauty output; see "Depth pass" and "Textured pass" |
 | `--chrome=<path>` | Chrome binary (or env `CHROME_PATH`) |
 
 Exit codes: `0` ok, `1` render / Chrome / ffmpeg failure, `2` usage error or invalid doc (unknown shot, bad format, bad range). Issues are printed one per line as `path: message`; the last stdout line is `frames=.. fps=.. size=WxH out=.. format=..`.
@@ -42,7 +43,7 @@ npm run previs:render -- previs/examples/gate-raid.json out/raid --passes=beauty
 
 | Flag | Description |
 | --- | --- |
-| `--passes=beauty\|depth\|beauty,depth` | Default `beauty`. `depth` writes only the depth output (`<out>` is then only the base name). `beauty,depth` writes both; beauty bytes are the same as a beauty-only run |
+| `--passes=beauty\|depth\|beauty,depth` | Default `beauty`. `textured` is a third pass, see "Textured pass". `depth` writes only the depth output (`<out>` is then only the base name). `beauty,depth` writes both; beauty bytes are the same as a beauty-only run |
 | `--depth-range=shot\|frame\|<near>..<far>` | Default `shot`. `shot`: one range per output job (a split shot incl. handles, or the whole render), from the foreground min / max depth over its frames. `frame`: per frame. `<near>..<far>`: fixed, in meters, `0 < near < far`. A measured `near == far` (one flat surface) fails; pass a fixed range. Without `depth` in `--passes` this flag exits 2 |
 | `--depth-near-clip=<meters>` | Opt-in, no default. Only with a measured range (`--depth-range=shot` or `frame`): after measuring `[Dnear, Dfar]`, `near` becomes `max(Dnear, meters)`; `far` is unchanged. Pixels nearer than `meters` clamp to white (255), so one close object (a prop in the lens) no longer takes the gray range from the rest of the scene. The value must be finite and `> 0`, else exit 2. With a fixed `--depth-range=<near>..<far>` or without `depth` in `--passes` it exits 2. If `meters` is at or beyond the measured `far` of a shot / frame, it exits 1 and names the shot and both numbers. Absent: output is unchanged |
 | `--depth-encoding=inverse\|linear` | Default `inverse`. Without `depth` in `--passes` this flag exits 2 |
@@ -66,6 +67,97 @@ Rules:
 - Only geometry that writes depth appears: opaque meshes, opaque graph nodes, bars and 3D markers / fills. Translucent meshes, 2D lines and overlays write no depth, so they show as background.
 - `--format=mp4` is yuv420p limited range (0..255 becomes 16..235), so the gray levels are coarser. When exact values matter (masks, training data, measurements), use `--format=png-seq` or `--format=mp4-lossless`.
 - Models: ControlNet depth ([lllyasviel/sd-controlnet-depth](https://huggingface.co/lllyasviel/sd-controlnet-depth)) and Wan VACE ([VACE depth annotators](https://github.com/ali-vilab/VACE/blob/main/vace/annotators/depth.py), MiDaS / Depth Anything V2 inverse depth) use near = white. Wan VACE preprocessing normalizes depth per frame, so `--depth-range=frame` matches it exactly. The LTX-Video depth IC-LoRA guide asks for a consistent range across frames (the default `shot`) but does not state the polarity.
+
+## Textured pass
+
+`--passes=textured` renders the same doc and camera lit, for looks beyond flat role colors: glTF models keep their own materials and textures, and primitives (box, sphere, cylinder, ...) are lit in `look.color ?? color`. It is written next to the beauty output and does not change the flat passes. The flat pass (beauty, depth) stays the flat-color recipe; the doc's `lighting` and `look.color` / `roughness` / `metallic` are ignored there.
+
+```bash
+npm run previs:render -- previs/examples/textured-demo.json out/demo.mp4 --split-shots --passes=beauty,textured
+npm run previs:render -- previs/examples/textured-demo.json --stills=0.5,2,3.5 --out=out/ --passes=beauty,textured
+```
+
+| Flag | Description |
+| --- | --- |
+| `--passes=beauty,depth,textured` | Any non-empty, duplicate-free comma list (anything else: exit 2). `--passes=textured` writes only the textured output (`<out>` is then only the base name). `--shot`, `--range`, `--handles`, `--frames`, `--force` and `--format` apply as for beauty. `--camera-json` is unchanged (the camera is shared) |
+| `--no-aa` | Also disables the 4x MSAA of the textured pass (it uses the beauty render pass, MSAA 4 by default) |
+
+Output files (`<stem>` is `<out>` without its extension):
+
+| Case | File |
+| --- | --- |
+| mp4 formats | `<stem>.textured.mp4` |
+| `--format=png-seq` | `<stem>.textured/` (`frame_NNNNNN.png`) |
+| `--split-shots`, mp4 | `<stem>.<shotId>.textured.mp4` |
+| `--split-shots`, png-seq | `<stem>.textured/<shotId>/` |
+| `--still` | `<stem>.textured.png` (`<stem>` = `--out` without a trailing `.png`; `--out=preview` and `--out=preview.png` both give `preview.textured.png`) |
+| `--stills` | a sibling `.textured.png` per still (stdout `out=` lists one primary file per still: beauty, else depth, else textured, like `--still`) |
+
+Order in one page load: all beauty jobs, all depth jobs, then the page swaps to the textured player (`window.previs.setLook('textured')`, see `web/previs/render.ts`) and runs all textured jobs.
+
+Split-shots outputs of all requested passes must have distinct names (shot `a` textured `<stem>.a.textured.mp4` collides with shot `a.textured` beauty, same for `.depth`, and png-seq directories): the render exits 2 before rendering. If `setLook` rejects, the page is broken: later `frame` / `measureFrame` / `contact` calls throw `setLook('<look>') failed: <cause>; reload the page` until a `setLook` succeeds.
+
+### `lighting` (doc level, optional)
+
+The engine has ONE directional light and it has no color; fill comes from a hemisphere environment; only rim lights are colored. Defaults apply per missing field; a doc without `lighting` uses all defaults.
+
+| Field | Description |
+| --- | --- |
+| `key.dir?` | Direction TOWARD the light, world space, finite, not all zero (need not be unit length). Default `[0.45, 0.85, 0.55]` |
+| `key.intensity?` | `0..4`, default `1` |
+| `key.shadows?` | Default `true`. Directional shadows: map size 2048, bounds fit every caster and receiver, bias 0.5, normal bias 1, softness 1.5, darkness 1; point-light shadows are off |
+| `env.sky?` | Hemisphere sky color, each channel `0..1`, default `[0.6, 0.66, 0.76]` |
+| `env.ground?` | Hemisphere ground color, each channel `0..1`, default `[0.24, 0.22, 0.2]` |
+| `env.intensity?` | `0..16`, default `1` |
+| `rim?` | Array of point lights, at most 8 |
+| `rim[].position` | Meters, world space |
+| `rim[].color?` | Each channel `0..1`, default `[1, 1, 1]` |
+| `rim[].intensity` | `>= 0`, meter units: irradiance is about `intensity / d_m^2` at `d_m` meters. The engine value is `intensity * worldScale^2`, at most `1e6`: with the default `worldScale` 10, `intensity <= 10000` (validated up front, the message states the limit for your `worldScale`) |
+| `rim[].range?` | Meters, `> 0`: distance beyond which the light has no effect. Default unlimited. The engine value is `range * worldScale >= 0.01`: with the default `worldScale` 10, `range >= 0.001` m |
+| `exposure?` | Linear multiplier before tone mapping, `0..16`, default `1` |
+| `toneMapping?` | `'aces'` (default), `'reinhard'` or `'none'` |
+
+### `look` (per node, optional)
+
+A node without `look` is the same in both passes. Types: `PrevisLook` in `web/src/previs/types.ts`.
+
+| Field | Description |
+| --- | --- |
+| `look.color?` | Base color of the textured pass, each channel `0..1`. Default: the node's `color`. Not allowed on `shape: 'model'` nodes |
+| `look.roughness?` | `0..1`, default `0.8`. Not allowed on model nodes |
+| `look.metallic?` | `0..1`, default `0`. Not allowed on model nodes |
+| `look.show?` | `'both'` (default), `'flat'` or `'textured'`. The flat pass (beauty, depth) draws `both` and `flat` nodes; the textured pass draws `both` and `textured` nodes. A node that is not drawn in a pass does not exist there (no engine object) |
+
+Rules (checked by `validateDoc`):
+
+- A node may reference (`parent`, `tracks.parent`) only nodes drawn in every pass it is drawn in. Give both nodes the same `look.show`, or set the referenced one to `both`.
+- The camera `follow` target must have `look.show: 'both'`, because the camera is shared by all passes (or use a target `track`).
+- `look.color`, `look.roughness` and `look.metallic` on a `shape: 'model'` node are rejected.
+
+Pattern: a model that only exists in the textured pass gets a flat stand-in in the flat pass, with the same role color:
+
+```json
+{ "id": "warrior", "shape": "model", "role": "warrior", "color": [0.2, 0.4, 0.9], "look": { "show": "textured" },
+  "model": { "src": "models/kaykit/Skeleton_Warrior.glb", "fit": "contain", "groundLock": true },
+  "position": [1.8, 0.85, -1.8], "rotation": [0, 0, 0], "size": [1.45, 1.6, 0.7] },
+{ "id": "warrior_proxy", "shape": "box", "role": "warrior", "color": [0.2, 0.4, 0.9], "look": { "show": "flat" },
+  "position": [1.8, 0.8, -1.8], "rotation": [0, 0, 0], "size": [0.6, 1.6, 0.4] }
+```
+
+Example: `web/previs/examples/textured-demo.json` (generated by `textured-demo.gen.ts`; KayKit CC0 models in `web/previs/examples/models/kaykit/`, see its `README.md`).
+
+### Guarantees and checks
+
+- Adding `textured` to `--passes` never changes beauty or depth bytes.
+- The textured pass is NOT bit-exact across reruns: a few pixels may differ by 1/255 (measured on Chrome WebGPU / Metal; rarely one edge pixel by about 20/255). Beauty and depth are exact.
+- `npm run previs:check-textured` renders png-seq of `textured-demo.json`, `model-demo.json` and `gate-raid.json` (default first 24 frames, `--frames=N`) and checks: (1) beauty bytes equal with and without textured; (2) beauty bytes equal across a rerun, textured frames differ in at most 0.01 % of pixels; (3) exposure over non-background pixels: clipped (any channel 255) <= 1 %, crushed (all channels < 5) <= 5 %, mean luma 0.25..0.65, the luma range enforced only for docs with a `lighting` block (others get a warning); (4) silhouette IoU >= 0.98 between beauty and textured foreground, only for docs without a `look.show` of `'flat'` or `'textured'` (an explicit `'both'` keeps the check). Any failure exits 1. `--selftest` feeds synthetic images to every check without rendering; `--keep=<dir>` keeps the renders; `--backend=webgpu|webgl2`.
+
+Limits of the textured pass:
+
+- One directional light; no light colors except rim lights (point lights, at most 8).
+- No post effects (no bloom, SSAO, depth of field, color grading); only `exposure` and `toneMapping`.
+- Model textures are loaded per node: two nodes with the same `src` load their textures twice (duplicated GPU memory).
+- Motion and camera come from the same tracks in every pass; `look.show` only chooses which nodes are drawn.
 
 ## Document format
 
@@ -274,7 +366,7 @@ Clip segments: `animation` may be an array. Segments are sorted by strictly incr
 
 Behavior:
 
-- Drawn in the node's flat `color` (the rest of the previs rules apply); textures and material colors are ignored. The player loads with `textures: false`, so no texture is read: large-texture models stay within the 256 MiB texture budget, and files that REQUIRE only texture extensions (`KHR_texture_basisu`, `EXT_texture_webp`, `EXT_texture_avif`, `MSFT_texture_dds`) load.
+- Flat pass (beauty, depth): drawn in the node's flat `color` (the rest of the previs rules apply); textures and material colors are ignored. The textured pass (see "Textured pass") keeps the model's own materials and textures instead. The flat player loads with `textures: false`, so no texture is read: large-texture models stay within the 256 MiB texture budget, and files that REQUIRE only texture extensions (`KHR_texture_basisu`, `EXT_texture_webp`, `EXT_texture_avif`, `MSFT_texture_dds`) load.
 - The rest-pose bounds are centered on the node origin and scaled to `size` per `fit`. `size` tracks work. An animated clip can extend beyond the `size` box (fit uses the rest pose, not the clip).
 - Clip time = `max(0, t - start) * speed`, wrapped by `loop`. An unknown clip fails the load and lists the available clips: `unknown animation clip "x" (available: ...)`.
 - Relative `src` resolves against the doc file's directory in `npm run previs:render`; a missing file fails the render. In the browser viewer (`npm run previs:viewer`) drop or pick the model files with the doc; `src` matches by relative path, then by basename. Use `.glb` there (a `.gltf` with external `.bin` / images cannot resolve them from loose files).
@@ -303,11 +395,11 @@ Restrictions: `parentJoint` without a `model` parent is rejected, and so is a ca
 
 ## Validation
 
-`validateDoc(json)` (`web/src/previs/validate.ts`) returns `{ ok: true, doc }` or `{ ok: false, issues }` with at most 50 issues, each `{ path, message }`, for example `nodes[3].tracks.position[2].t: keyframe times must strictly increase ...`. It checks types and ranges, unique ids, existing `parent`/`role`/`follow` ids, parent cycles, strictly increasing keys, shot coverage, role color distance and `model` fields (`model` required iff `shape` is `model`; `fit`, `clip`, `start`, `speed`, `loop` values). The CLI runs it first and exits `2` on failure.
+`validateDoc(json)` (`web/src/previs/validate.ts`) returns `{ ok: true, doc }` or `{ ok: false, issues }` with at most 50 issues, each `{ path, message }`, for example `nodes[3].tracks.position[2].t: keyframe times must strictly increase ...`. It checks types and ranges, unique ids, existing `parent`/`role`/`follow` ids, parent cycles, strictly increasing keys, shot coverage, role color distance and `model` fields (`model` required iff `shape` is `model`; `fit`, `clip`, `start`, `speed`, `loop` values). With `lighting` / `look` it also checks their ranges, `look.show` references and the model-node `look` restriction (see "Textured pass"). The CLI runs it first and exits `2` on failure.
 
 ## Flat-color rendering
 
-A node renders as exactly its `color`. The player uses shading model `pbr` with `toneMapping: 'none'`, exposure 1, environment/ambient/directional/point intensity 0, material emissive 1, metallic 0, roughness 1, so output equals the base color at every viewing angle. Shadows, helpers, graph and physics are off. Measured error is <= 0.5/255 on face-on swatches and on faces tilted 40, 61 and 77 degrees (`web/previs/examples/flat-swatches.json`). The `classic` model is not used: its fresnel rim lifts channels (up to 16/255 at 77 degrees).
+This is the flat pass (beauty, depth); for the lit pass see "Textured pass". A node renders as exactly its `color`. The player uses shading model `pbr` with `toneMapping: 'none'`, exposure 1, environment/ambient/directional/point intensity 0, material emissive 1, metallic 0, roughness 1, so output equals the base color at every viewing angle. Shadows, helpers, graph and physics are off. Measured error is <= 0.5/255 on face-on swatches and on faces tilted 40, 61 and 77 degrees (`web/previs/examples/flat-swatches.json`). The `classic` model is not used: its fresnel rim lifts channels (up to 16/255 at 77 degrees).
 
 ## Handoff
 
@@ -331,7 +423,7 @@ With 2 or more shots, the prompt also carries a shot list (`- s1: 0.00 s–1.46 
 - `jump()` without `base` moves the root to the origin; always pass `base` (the node's rest position).
 - `fov` is vertical. In portrait output (height > width) the horizontal view is narrow; raise `fov` or move the camera back, and verify with `--still`.
 - No per-object visibility API: hiding = alpha 0. A `visible` track holds its first key before that key, so add `{ "t": 0, "v": false }` (see Hidden shapes).
-- Model nodes: clip segments with cross-fade are supported (array form above); textures are not loaded and material colors are dropped; only the rest pose drives `fit`.
+- Model nodes: clip segments with cross-fade are supported (array form above); in the flat pass textures are not loaded and material colors are dropped (the textured pass keeps them); only the rest pose drives `fit`.
 - Motions on the same node and property must not overlap in time; `applyMotion` does not detect it and interleaves keys. Sequence them (for example two `walk`s on one root, back to back).
 - `ease: "smooth"` is rejected on `size` tracks and `camera.fov`. `camera.shake` needs `freq` (Hz, `> 0`); `amp` is meters.
 - `groundLock` moves the model's drawn position, not its authored origin; turn it off for jumps.

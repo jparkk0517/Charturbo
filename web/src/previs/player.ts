@@ -142,6 +142,43 @@
  * `visible` track gets alpha 0 via `setObjectMaterial` (every loader object of a model). Pure pivot
  * nodes (`visible: false` with no visible=true key) get no mesh; a pure pivot model node is not
  * loaded at all, unless a node is attached to one of its joints (see SOCKETS).
+ *
+ * LOOKS (`PrevisLoadOptions.look` / `createPrevisPlayer(..., { look })`, default 'flat')
+ * A player draws the nodes of its look only: 'flat' the nodes with `look.show` 'both' | 'flat', 'textured'
+ * 'both' | 'textured'; the others are dropped from the doc before anything is created (no engine call, no
+ * state in the returned FrameState). The validator guarantees that a drawn node references (parent,
+ * tracks.parent, camera follow) only drawn nodes. Everything else (tracks, hierarchy, sockets, re-parenting,
+ * ground lock, clips, camera) is the same code path in both looks. The flat look is the FLAT COLOR RECIPE
+ * above, unchanged: a doc without `look.show` 'textured' nodes makes exactly the calls it made before looks
+ * existed (`doc.lighting` and `look.color/roughness/metallic` are ignored).
+ * TEXTURED LOOK (lit, `doc.lighting`, defaults in types.ts PrevisLighting)
+ *   setShading: model 'pbr', toneMapping (default 'aces'), exposure (default 1), environment = the sky / ground
+ *     hemisphere (map null, rotation 0) with env.sky / env.ground / env.intensity (defaults [0.6, 0.66, 0.76],
+ *     [0.24, 0.22, 0.2], 1). PBR takes its ambient from the environment only (`ambientIntensity` is classic
+ *     only, see `Charturbo.setShading`), so ambientIntensity is 0 as in the flat look.
+ *   setLighting: directional = key (direction toward the light, normalized, default [0.45, 0.85, 0.55];
+ *     intensity default 1; white: the engine has one uncolored directional light), the setLighting point light
+ *     off (pointIntensity 0).
+ *   setShadows: directional shadows enabled unless `key.shadows === false`, mapSize 2048, bounds 'auto' (fits
+ *     every caster and receiver), bias 0.5, normalBias 1, softness 1.5, darkness 1 (the SDK defaults, set
+ *     explicitly so the result does not depend on earlier calls), point-light shadows off.
+ *   rim: one `addPointLight` per light (at most 8, the engine limit MAX_POINT_LIGHTS). PBR attenuation of an
+ *     extra point light (shader.rs fs_mesh_pbr) is intensity_e * w^2 / (d_e^2 + 1) with the range window
+ *     w = clamp(1 - (d_e / range_e)^4, 0, 1). With d_e = d_m * ws (ws = worldScale) and the doc unit "irradiance
+ *     about intensity / d_m^2" this gives intensity_e = intensity * ws^2 (the +1 is 1/ws^2 m^2, negligible
+ *     beyond ~0.3 m). position_e = position * ws; range_e = range * ws, no range = 1e6 units (the SDK maximum,
+ *     w ~ 1 everywhere in a previs set; ranges beyond it are clamped to it). Color as given (sRGB, default white).
+ *     An engine intensity above the SDK maximum 1e6 is an error.
+ *   Primitives: color look.color ?? color, roughness look.roughness ?? 0.8, metallic look.metallic ?? 0,
+ *     emissive 0, castShadow and receiveShadow true. Pivot / FIT / SOCKET helpers stay alpha-0 boxes with
+ *     castShadow false (translucent objects never cast anyway).
+ *   Models: loaded with `textures: true` and keep the loader's materials (no FLAT_GLTF_MATERIAL); the loader's
+ *     meshes cast and receive by default. Their loader color (`getObjectRecord(id).color`, read once at load)
+ *     is the visible color: the `visible` track sends that color with alpha 0 (hidden) or its own alpha.
+ *   dispose (also every failed load) restores what the textured look set: the extra point lights it added
+ *     are removed, then setShadows / setShading / setLighting get the `getShadows` / `getShading` /
+ *     `getLighting` values from before the player, and the theme. (Graph, rigid physics and helpers are
+ *     switched off by both looks and restored by neither, as before.)
  */
 import type { Charturbo, ObjectMaterialDescriptor, PrimitiveShape } from '../sdk/charturbo';
 import type { GltfSource, GltfLoadResult, GltfDecoders } from '../sdk/scene-gltf';
@@ -167,11 +204,25 @@ import type { ClipWeight, FrameState, NodeState, PrevisDoc, PrevisModelAnimation
 export interface PrevisPlayer {
   /** Applies the doc at `time` seconds to the scene (call `sdk.render()` afterwards). */
   frame(time: number): FrameState;
-  /** Removes the created objects and glTF models (with their animators) and restores the theme (background). */
+  /**
+   * Removes the created objects and glTF models (with their animators) and restores the theme (background);
+   * the textured look also restores shading, lighting, shadows and removes its point lights (see LOOKS).
+   */
   dispose(): void;
 }
 
+/** Which pass a player draws (see LOOKS): 'flat' (default) or 'textured' (lit). */
+export type PrevisPlayerLook = 'flat' | 'textured';
+
+/** Options of `createPrevisPlayer`. */
+export interface PrevisPlayerOptions {
+  /** Default 'flat'. */
+  look?: PrevisPlayerLook;
+}
+
 export interface PrevisLoadOptions {
+  /** Default 'flat'. 'textured': lit pass with the models' own materials (see LOOKS). */
+  look?: PrevisPlayerLook;
   /** Maps a node's model.src to what sdk.loadGltf accepts. Default: the src string itself (URL). */
   resolveModel?: (src: string) => GltfSource | Promise<GltfSource>;
   /** Passed to every `sdk.loadGltf` call (Draco / meshopt compressed models; see `GltfLoadOptions.decoders`). */
@@ -233,6 +284,8 @@ interface ModelObjects {
   poseVersion: number;
   /** Inputs of `lift`: [poseVersion, k (3), pivot world q (4), p_y]; null: not computed yet. */
   liftKey: number[] | null;
+  /** Textured look: the loader's color of each `result.objects` entry (shown color); null in the flat look. */
+  colors: Rgba[] | null;
 }
 
 /** Alpha-0 object that follows one joint of a model node (see SOCKETS). */
@@ -252,6 +305,8 @@ interface NodeObjects {
   node: PrevisNode;
   pivotId: number;
   meshId: number | null;
+  /** Shown color of the primitive mesh: `color`, or in the textured look `look.color ?? color`. */
+  meshColor: Rgb;
   model: ModelObjects | null;
   /** Last values sent to the engine; per-frame calls are skipped while unchanged. */
   pos: Vec3;
@@ -268,9 +323,13 @@ interface NodeObjects {
   parentKey: number;
 }
 
+type Rgba = [number, number, number, number];
+
 const eqVec = (a: Vec3, b: Vec3): boolean => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 const scaled = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
-const rgba = (c: Rgb, visible: boolean): [number, number, number, number] => [c[0], c[1], c[2], visible ? 1 : 0];
+const rgba = (c: Rgb, visible: boolean): Rgba => [c[0], c[1], c[2], visible ? 1 : 0];
+/** A loader color shown (its own alpha) or hidden (alpha 0); textured look. */
+const shownColor = (c: Rgba, visible: boolean): Rgba => [c[0], c[1], c[2], visible ? c[3] : 0];
 
 /** Parents before children (document order otherwise); tolerates cycles/unknown parents. */
 function topoOrder(nodes: PrevisNode[]): PrevisNode[] {
@@ -335,8 +394,36 @@ function boundsOf(r: GltfLoadResult): { center: Vec3; extent: Vec3 } {
   return { center, extent };
 }
 
-/** Flat look (see header); returns the theme to restore. */
-function setupScene(sdk: Charturbo, doc: PrevisDoc): ReturnType<Charturbo['getTheme']> {
+/** Textured look defaults (see types.ts PrevisLighting). */
+const KEY_DIR: Vec3 = [0.45, 0.85, 0.55];
+const ENV_SKY: Rgb = [0.6, 0.66, 0.76];
+const ENV_GROUND: Rgb = [0.24, 0.22, 0.2];
+const TEXTURED_ROUGHNESS = 0.8;
+/** Directional shadow map edge of the textured look (texels; the SDK clamps it to the device limit). */
+const TEXTURED_SHADOW_MAP = 2048;
+/** `addPointLight` limits (scene-lights.ts): range stands in for "unlimited", intensity is the maximum. */
+const MAX_LIGHT_RANGE = 1e6;
+const MAX_LIGHT_INTENSITY = 1e6;
+
+function checkLook(fn: string, look: unknown): PrevisPlayerLook {
+  if (look === undefined) return 'flat';
+  if (look !== 'flat' && look !== 'textured') throw new Error(`${fn}: look must be 'flat' or 'textured'; got ${JSON.stringify(look)}`);
+  return look;
+}
+
+/** The doc with only the nodes `look` draws (`look.show`, see LOOKS); the same object when it draws every node. */
+function docForLook(doc: PrevisDoc, look: PrevisPlayerLook): PrevisDoc {
+  const drawn = (n: PrevisNode): boolean => {
+    const show = n.look?.show ?? 'both';
+    return show === 'both' || show === look;
+  };
+  return doc.nodes.every(drawn) ? doc : { ...doc, nodes: doc.nodes.filter(drawn) };
+}
+
+/** Sets up the scene for `look` (see header); returns what undoes it (dispose and failed loads). */
+function setupScene(sdk: Charturbo, doc: PrevisDoc, look: PrevisPlayerLook, ws: number): () => void {
+  if (look === 'textured') return setupTextured(sdk, doc, ws);
+  // Flat look (FLAT COLOR RECIPE)
   const prevTheme = sdk.getTheme();
   sdk.setGraphVisible(false);
   sdk.setRigidPhysics(false);
@@ -345,11 +432,84 @@ function setupScene(sdk: Charturbo, doc: PrevisDoc): ReturnType<Charturbo['getTh
   sdk.setShading({ model: 'pbr', toneMapping: 'none', exposure: 1, environment: { intensity: 0 } });
   sdk.setLighting({ ambientIntensity: 0, directionalIntensity: 0, pointIntensity: 0 });
   sdk.setTheme({ ...prevTheme, surface: [doc.background[0], doc.background[1], doc.background[2], 1] });
-  return prevTheme;
+  return () => sdk.setTheme(prevTheme);
+}
+
+/** Textured look (see TEXTURED LOOK); returns the restore of everything it changed. */
+function setupTextured(sdk: Charturbo, doc: PrevisDoc, ws: number): () => void {
+  const L = doc.lighting ?? {};
+  const prevTheme = sdk.getTheme();
+  const prevShading = sdk.getShading();
+  const prevLighting = sdk.getLighting();
+  const prevShadows = sdk.getShadows();
+  const lights: number[] = [];
+  const restore = (): void => {
+    for (let i = lights.length - 1; i >= 0; i--) sdk.removePointLight(lights[i]);
+    lights.length = 0;
+    sdk.setShadows(prevShadows);
+    sdk.setShading(prevShading);
+    sdk.setLighting(prevLighting);
+    sdk.setTheme(prevTheme);
+  };
+  try {
+    sdk.setGraphVisible(false);
+    sdk.setRigidPhysics(false);
+    sdk.setHelpers({ showGrid: false, showAxes: false });
+    sdk.setShadows({
+      enabled: L.key?.shadows !== false,
+      mapSize: TEXTURED_SHADOW_MAP,
+      bias: 0.5,
+      normalBias: 1,
+      softness: 1.5,
+      darkness: 1,
+      bounds: 'auto',
+      point: { enabled: false },
+    });
+    sdk.setShading({
+      model: 'pbr',
+      toneMapping: L.toneMapping ?? 'aces',
+      exposure: L.exposure ?? 1,
+      environment: {
+        sky: [...(L.env?.sky ?? ENV_SKY)],
+        ground: [...(L.env?.ground ?? ENV_GROUND)],
+        intensity: L.env?.intensity ?? 1,
+        map: null,
+        rotation: 0,
+      },
+    });
+    const d = L.key?.dir ?? KEY_DIR;
+    const len = Math.hypot(d[0], d[1], d[2]);
+    sdk.setLighting({
+      ambientIntensity: 0,
+      directionalDirection: [d[0] / len, d[1] / len, d[2] / len],
+      directionalIntensity: L.key?.intensity ?? 1,
+      pointIntensity: 0,
+    });
+    (L.rim ?? []).forEach((r, i) => {
+      const intensity = r.intensity * ws * ws;
+      if (!(intensity <= MAX_LIGHT_INTENSITY)) {
+        throw new Error(`lighting.rim[${i}].intensity ${r.intensity} x worldScale^2 (${ws * ws}) = ${intensity} exceeds the engine maximum ${MAX_LIGHT_INTENSITY}`);
+      }
+      lights.push(
+        sdk.addPointLight({
+          position: scaled(r.position, ws),
+          color: [...(r.color ?? [1, 1, 1])],
+          intensity,
+          range: r.range !== undefined ? Math.min(r.range * ws, MAX_LIGHT_RANGE) : MAX_LIGHT_RANGE,
+        }),
+      );
+    });
+    sdk.setTheme({ ...prevTheme, surface: [doc.background[0], doc.background[1], doc.background[2], 1] });
+  } catch (e) {
+    restore();
+    throw e;
+  }
+  return restore;
 }
 
 /** Creates pivots and primitive meshes (model nodes get their FIT later); pushes ids onto `created`. */
-function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[]): Map<string, NodeObjects> {
+function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[], look: PrevisPlayerLook): Map<string, NodeObjects> {
+  const textured = look === 'textured';
   const objects = new Map<string, NodeObjects>();
   const pivotIds = new Map<string, number>();
   for (const n of topoOrder(doc.nodes)) {
@@ -379,21 +539,23 @@ function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[
     const meshScale = scaled(n.size, ws);
     const meshVisible = n.visible !== false;
     let meshId: number | null = null;
+    const meshColor: Rgb = textured ? (n.look?.color ?? n.color) : n.color;
     if (hasShape(n) && n.shape !== 'model') {
+      // Flat: FLAT COLOR RECIPE; textured: lit PBR material that casts and receives (see TEXTURED LOOK)
       meshId = sdk.addPrimitive({
         shape: n.shape as PrimitiveShape,
         name: `previs:${n.id}:mesh`,
         position: [0, 0, 0],
         rotation: [0, 0, 0],
         scale: meshScale,
-        color: rgba(n.color, meshVisible),
-        metallic: 0,
-        roughness: 1,
-        emissive: 1,
+        color: rgba(meshColor, meshVisible),
+        metallic: textured ? (n.look?.metallic ?? 0) : 0,
+        roughness: textured ? (n.look?.roughness ?? TEXTURED_ROUGHNESS) : 1,
+        emissive: textured ? 0 : 1,
         bodyType: 'static',
         parentId: pivotId,
-        castShadow: false,
-        receiveShadow: false,
+        castShadow: textured,
+        receiveShadow: textured,
       });
       created.push(meshId);
     }
@@ -401,6 +563,7 @@ function buildNodes(sdk: Charturbo, doc: PrevisDoc, ws: number, created: number[
       node: n,
       pivotId,
       meshId,
+      meshColor,
       model: null,
       pos,
       rot,
@@ -517,8 +680,11 @@ function captureParents(doc: PrevisDoc, ws: number, objects: Map<string, NodeObj
   return resolver;
 }
 
-/** Puts a loaded model under a new FIT object of node `o` and applies the flat look and its clip. */
-function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, created: number[]): void {
+/**
+ * Puts a loaded model under a new FIT object of node `o` and applies its clip and the look's material: flat
+ * `FLAT_GLTF_MATERIAL` + node color; textured the loader's own materials (alpha 0 while hidden).
+ */
+function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, created: number[], look: PrevisPlayerLook): void {
   const n = o.node;
   const { center, extent } = boundsOf(result);
   const fit = n.model?.fit ?? 'contain';
@@ -536,9 +702,21 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
     receiveShadow: false,
   });
   created.push(fitId);
-  for (const id of result.objects) {
-    sdk.setObjectParent(id, fitId);
-    sdk.setObjectMaterial(id, { ...FLAT_GLTF_MATERIAL, color: rgba(n.color, o.meshVisible) });
+  let colors: Rgba[] | null = null;
+  if (look === 'textured') {
+    // Keep the loader's materials; its color (alpha included) is the shown color of the `visible` track
+    colors = [];
+    for (const id of result.objects) {
+      sdk.setObjectParent(id, fitId);
+      const c = sdk.getObjectRecord(id)?.color ?? [1, 1, 1, 1];
+      colors.push([c[0], c[1], c[2], c[3]]);
+      if (!o.meshVisible) sdk.setObjectMaterial(id, { color: shownColor(colors[colors.length - 1], false) });
+    }
+  } else {
+    for (const id of result.objects) {
+      sdk.setObjectParent(id, fitId);
+      sdk.setObjectMaterial(id, { ...FLAT_GLTF_MATERIAL, color: rgba(n.color, o.meshVisible) });
+    }
   }
   let animator: GltfAnimator | null = null;
   let segments: PrevisModelAnimation[] = [];
@@ -580,6 +758,7 @@ function attachModel(sdk: Charturbo, o: NodeObjects, result: GltfLoadResult, cre
     drawn: true,
     poseVersion: 0,
     liftKey: null,
+    colors,
   };
   // Hidden at load: pose only (the first frame that shows it enables drawing, see POSE-ONLY)
   if (animator && !o.meshVisible) {
@@ -739,7 +918,7 @@ function makePlayer(
   sdk: Charturbo,
   doc: PrevisDoc,
   ws: number,
-  prevTheme: ReturnType<Charturbo['getTheme']>,
+  restore: () => void,
   objects: Map<string, NodeObjects>,
   created: number[],
   resolver: ParentResolver | null,
@@ -813,9 +992,15 @@ function makePlayer(
           o.meshScale = ms;
         }
         if (st.visible !== o.meshVisible) {
-          const color = rgba(o.node.color, st.visible);
-          if (m) for (const oid of m.result.objects) sdk.setObjectMaterial(oid, { color });
-          else sdk.setObjectMaterial(o.meshId!, { color });
+          if (m?.colors) {
+            // Textured: the loader's own color, alpha 0 while hidden
+            const objs = m.result.objects;
+            for (let i = 0; i < objs.length; i++) sdk.setObjectMaterial(objs[i], { color: shownColor(m.colors[i], st.visible) });
+          } else {
+            const color = rgba(o.meshColor, st.visible);
+            if (m) for (const oid of m.result.objects) sdk.setObjectMaterial(oid, { color });
+            else sdk.setObjectMaterial(o.meshId!, { color });
+          }
           o.meshVisible = st.visible;
         }
         if (m?.animator) {
@@ -904,29 +1089,44 @@ function makePlayer(
       for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
       created.length = 0;
       objects.clear();
-      sdk.setTheme(prevTheme);
+      restore();
     },
   };
 }
 
 const hasModels = (doc: PrevisDoc): boolean => doc.nodes.some((n) => n.shape === 'model');
 
-/** Sync player for docs without `model` nodes (use `loadPrevisPlayer` for those). */
-export function createPrevisPlayer(sdk: Charturbo, doc: PrevisDoc): PrevisPlayer {
+/** Sync player for docs without `model` nodes drawn in its look (use `loadPrevisPlayer` for those). */
+export function createPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, options: PrevisPlayerOptions = {}): PrevisPlayer {
+  const look = checkLook('createPrevisPlayer', options.look);
+  const doc = docForLook(fullDoc, look);
   if (hasModels(doc)) throw new Error('createPrevisPlayer: doc has model nodes, use loadPrevisPlayer');
   const ws = doc.worldScale ?? DEFAULT_WORLD_SCALE;
-  const prevTheme = setupScene(sdk, doc);
+  let restore: () => void;
+  try {
+    restore = setupScene(sdk, doc, look, ws);
+  } catch (e) {
+    // Only the textured setup can throw (rim lights out of the engine's range); it has undone itself
+    throw look === 'textured' ? new Error(`createPrevisPlayer: ${messageOf(e)}`, { cause: e }) : e;
+  }
   const created: number[] = [];
-  const objects = buildNodes(sdk, doc, ws, created);
+  let objects: Map<string, NodeObjects>;
+  try {
+    objects = buildNodes(sdk, doc, ws, created, look);
+  } catch (e) {
+    for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
+    restore();
+    throw e;
+  }
   let resolver: ParentResolver | null;
   try {
     resolver = captureParents(doc, ws, objects);
   } catch (e) {
     for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
-    sdk.setTheme(prevTheme);
+    restore();
     throw new Error(`createPrevisPlayer: ${messageOf(e)}`, { cause: e });
   }
-  return makePlayer(sdk, doc, ws, prevTheme, objects, created, resolver);
+  return makePlayer(sdk, doc, ws, restore, objects, created, resolver);
 }
 
 const abortError = (signal: AbortSignal): unknown =>
@@ -935,15 +1135,24 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 
 /**
  * Player for any doc: loads the glTF files of `model` nodes (in parallel; resolved sources are
- * cached per `src`, each node gets its own load) and then behaves like `createPrevisPlayer`. On a
- * failure or abort everything created so far is removed, the theme restored and the promise
+ * cached per `src`, each node gets its own load) and then behaves like `createPrevisPlayer`. `options.look`
+ * picks the pass (see LOOKS). On a failure or abort everything created so far is removed, the theme (and in
+ * the textured look shading, lighting, shadows and point lights) restored and the promise
  * rejects with `loadPrevisPlayer: node "<id>" (<src>): <cause>`.
  */
-export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: PrevisLoadOptions = {}): Promise<PrevisPlayer> {
+export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, options: PrevisLoadOptions = {}): Promise<PrevisPlayer> {
   const { signal } = options;
+  const look = checkLook('loadPrevisPlayer', options.look);
   if (signal?.aborted) throw new Error(`loadPrevisPlayer: ${messageOf(abortError(signal))}`, { cause: abortError(signal) });
+  const doc = docForLook(fullDoc, look);
   const ws = doc.worldScale ?? DEFAULT_WORLD_SCALE;
-  const prevTheme = setupScene(sdk, doc);
+  let restore: () => void;
+  try {
+    restore = setupScene(sdk, doc, look, ws);
+  } catch (e) {
+    // Only the textured setup can throw (rim lights out of the engine's range); it has undone itself
+    throw look === 'textured' ? new Error(`loadPrevisPlayer: ${messageOf(e)}`, { cause: e }) : e;
+  }
   const created: number[] = [];
   const loaded = new Set<GltfLoadResult>();
   // Aborts the sibling loads on the first failure, and on the caller's signal
@@ -976,8 +1185,8 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
       const r = await sdk.loadGltf(source, {
         signal: ctl.signal,
         animations: anim !== undefined,
-        // Flat colors drop every map: skip images (texture budget, texture-only extensions)
-        textures: false,
+        // Flat colors drop every map: skip images (texture budget, texture-only extensions); textured keeps them
+        textures: look === 'textured',
         ...(posable.length > 0 ? { posable } : {}),
         ...(options.decoders ? { decoders: options.decoders } : {}),
         ...(scale !== undefined ? { scale } : {}),
@@ -1019,7 +1228,15 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
     }
   };
 
-  const objects = buildNodes(sdk, doc, ws, created);
+  let objects: Map<string, NodeObjects>;
+  try {
+    objects = buildNodes(sdk, doc, ws, created, look);
+  } catch (e) {
+    signal?.removeEventListener('abort', onAbort);
+    for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
+    restore();
+    throw e;
+  }
   // A pure pivot model is still loaded (invisible) when a node hangs from one of its joints
   const jobs = [...objects.values()].filter((o) => o.node.shape === 'model' && o.node.model && (hasShape(o.node) || o.sockets.length > 0));
   await Promise.allSettled(jobs.map(loadNode));
@@ -1028,7 +1245,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
   const fail = (node: PrevisNode, cause: unknown): never => {
     for (const r of loaded) sdk.disposeGltf(r);
     for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
-    sdk.setTheme(prevTheme);
+    restore();
     throw new Error(`loadPrevisPlayer: node "${node.id}" (${node.model?.src}): ${messageOf(cause)}`, { cause });
   };
   if (failure) {
@@ -1037,7 +1254,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
   }
   for (const o of jobs) {
     try {
-      attachModel(sdk, o, results.get(o)!, created);
+      attachModel(sdk, o, results.get(o)!, created, look);
     } catch (e) {
       return fail(o.node, e);
     }
@@ -1048,8 +1265,8 @@ export async function loadPrevisPlayer(sdk: Charturbo, doc: PrevisDoc, options: 
   } catch (e) {
     for (const r of loaded) sdk.disposeGltf(r);
     for (let i = created.length - 1; i >= 0; i--) sdk.removeObject(created[i]);
-    sdk.setTheme(prevTheme);
+    restore();
     throw new Error(`loadPrevisPlayer: ${messageOf(e)}`, { cause: e });
   }
-  return makePlayer(sdk, doc, ws, prevTheme, objects, created, resolver);
+  return makePlayer(sdk, doc, ws, restore, objects, created, resolver);
 }

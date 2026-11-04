@@ -752,6 +752,15 @@ export class GltfAnimator {
     this.nodeNames = Object.freeze(this.nodes.names.slice());
   }
 
+  /**
+   * Parent of every node, in the `nodeNames` order (depth first): the parent's index in that
+   * same order, -1 for a scene root. Read-only frozen copy of the rig's parent table; empty when
+   * the model has no rig (no animated, skinned or posed nodes).
+   */
+  get nodeParents(): readonly number[] {
+    return Object.freeze(Array.from(this.rig?.parent ?? []));
+  }
+
   /** The model's clips */
   get animations(): GltfAnimationInfo[] {
     return (this.rig?.clips ?? []).map((c) => ({ name: c.name, duration: c.duration }));

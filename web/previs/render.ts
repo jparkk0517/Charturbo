@@ -12,12 +12,22 @@
  *                                bar below (`t=<seconds> <shotId>`), composed on a 2D canvas (see scripts/previs-render.mjs --contact)
  *   window.previs.frame(i, { depth: { encoding: 'inverse'|'linear', near_m, far_m } }) -> PNG of the depth pass of frame i
  *                                (gray R=G=B, near = white, background 0; range in meters, engine units = meters * worldScale)
+ *   window.previs.setLook('flat' | 'textured') -> Promise<void>: disposes the current player and loads a new one with the same
+ *                                options plus `look` (PrevisLoadOptions.look; the doc's `lighting` / `look` drive the textured one,
+ *                                see src/previs/types.ts). The page starts 'flat'. Every later frame / measureFrame / contact
+ *                                call uses the new player. Idempotent for the current look. If the load rejects, the page is broken: frame / measureFrame /
+ *                                contact throw `setLook('<look>') failed: <cause>; reload the page` until a setLook succeeds (any look retries).
+ *
+ * Passes: 'beauty' = flat look, MSAA 4 (unless aa=0); 'depth' = flat look always, MSAA off; 'textured' = look 'textured' through
+ * the beauty render pass (frame(i) without `depth` after setLook('textured')), MSAA 4 (unless aa=0). A depth call
+ * (frame with `depth`, measureFrame) while the look is 'textured' throws: depth needs setLook('flat') first. The script runs
+ * beauty -> depth -> setLook('textured') -> textured, so beauty and depth bytes never depend on the textured pass.
  *
  * Inspect mode (`window.__previsInspect = { src }` instead of `__previsDoc`): loads one model like the player does and
  * stores `window.__previs.inspect` = { nodes: [{ index, name, depth, mesh, skinned, joint }], clips, bounds }; no doc, no frames.
  *
  * The depth pass needs MSAA off: entering it (frame with `depth`, measureFrame) calls `setAntialias(1)`; the next
- * `frame(i)` without `depth` restores beauty and the initial anti-aliasing (4 unless `aa=0`).
+ * `frame(i)` without `depth` restores beauty and the initial anti-aliasing (4 unless `aa=0`), also for the textured look.
  *
  * The canvas is exactly doc.size CSS px == backing px (devicePixelRatio forced to 1). A frame is
  * rendered and copied in the same task by `toDataURL` (a WebGPU canvas loses its contents once
@@ -27,7 +37,7 @@
 import { Charturbo } from 'charturbo';
 import { docDuration, evaluateFrame, frameCount } from '../src/previs/evaluate';
 import { DEFAULT_WORLD_SCALE, engineCameraMatrices } from './camera';
-import { loadPrevisPlayer } from '../src/previs/player';
+import { loadPrevisPlayer, type PrevisPlayerLook } from '../src/previs/player';
 import type { PrevisPlayer } from '../src/previs/player';
 import type { Issue, PrevisDoc } from '../src/previs/types';
 import { modelSrcsToLoad } from '../src/previs/models';
@@ -48,6 +58,7 @@ interface DepthFrameOptions {
   near_m: number;
   far_m: number;
 }
+
 
 interface PrevisState {
   done: boolean;
@@ -88,6 +99,7 @@ declare global {
       camera(i: number): Record<string, unknown>;
       measureFrame(i: number): { near_m: number; far_m: number } | null;
       contact(spec: ContactSpec): Promise<string>;
+      setLook(look: PrevisPlayerLook): Promise<void>;
     };
   }
 }
@@ -203,10 +215,14 @@ async function run(): Promise<PrevisState> {
     else bytes.set(src, new Uint8Array(0));
   }
   const decoders = await loadDecodersFor(exts);
-  const player: PrevisPlayer = await loadPrevisPlayer(sdk, doc, {
-    resolveModel: (src) => (bytes.get(src)?.length ? bytes.get(src)! : src in served ? new URL(served[src], location.href).href : src),
-    decoders,
-  });
+  const loadPlayer = (look: PrevisPlayerLook): Promise<PrevisPlayer> =>
+    loadPrevisPlayer(sdk, doc, {
+      resolveModel: (src) => (bytes.get(src)?.length ? bytes.get(src)! : src in served ? new URL(served[src], location.href).href : src),
+      decoders,
+      look,
+    });
+  let look: PrevisPlayerLook = 'flat';
+  let player: PrevisPlayer = await loadPlayer(look);
   const frames = frameCount(doc);
   const worldScale = doc.worldScale ?? DEFAULT_WORLD_SCALE;
   const info: PrevisInfo = { frames, fps: doc.fps, width, height, duration: docDuration(doc), worldScale };
@@ -224,6 +240,16 @@ async function run(): Promise<PrevisState> {
     sdk.setRenderPass('beauty');
     if (antialias) sdk.setAntialias(4);
     inDepth = false;
+  };
+
+  // A failed setLook leaves no usable player: every pixel call throws until a setLook succeeds
+  let broken: string | null = null;
+  const needPlayer = () => {
+    if (broken !== null) throw new Error(broken);
+  };
+
+  const needFlat = () => {
+    if (look !== 'flat') throw new Error("depth pass needs the flat look: call setLook('flat') first");
   };
 
   const camState = { prev: null as ReturnType<typeof engineCameraMatrices> | null };
@@ -253,7 +279,9 @@ async function run(): Promise<PrevisState> {
       };
     },
     measureFrame(i) {
+      needPlayer();
       checkFrame(i);
+      needFlat();
       enterDepth();
       sdk.setRenderPass('depth', { encoding: 'packed' });
       player.frame(i / doc.fps);
@@ -261,6 +289,7 @@ async function run(): Promise<PrevisState> {
       return r ? { near_m: r.near / worldScale, far_m: r.far / worldScale } : null;
     },
     async contact(spec) {
+      needPlayer();
       const { cols, rows, tileW, tileH, labelH } = spec;
       const sheet = document.createElement('canvas');
       sheet.width = cols * tileW;
@@ -293,9 +322,24 @@ async function run(): Promise<PrevisState> {
       }
       return sheet.toDataURL('image/png');
     },
+    async setLook(next) {
+      if (next !== 'flat' && next !== 'textured') throw new RangeError(`look must be flat or textured, got ${String(next)}`);
+      if (next === look && broken === null) return;
+      if (broken === null) player.dispose();
+      try {
+        player = await loadPlayer(next);
+      } catch (e) {
+        broken = `setLook('${next}') failed: ${e instanceof Error ? e.message : String(e)}; reload the page`;
+        throw e;
+      }
+      broken = null;
+      look = next;
+    },
     async frame(i, opts) {
+      needPlayer();
       checkFrame(i);
       if (opts?.depth) {
+        needFlat();
         enterDepth();
         const d = opts.depth;
         sdk.setRenderPass('depth', { encoding: d.encoding, near: d.near_m * worldScale, far: d.far_m * worldScale });

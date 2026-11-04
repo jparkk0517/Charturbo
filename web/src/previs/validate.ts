@@ -41,6 +41,10 @@ function totalEnd(shots: unknown[]): number {
   return m;
 }
 
+/** Engine limits of a point light (src/sdk/scene-lights.ts) in engine units = meters * worldScale. */
+const RIM_MAX_INTENSITY = 1e6;
+const RIM_MIN_RANGE = 0.01;
+
 export function validateDoc(
   input: unknown,
 ): { ok: true; doc: PrevisDoc } | { ok: false; issues: Issue[] } {
@@ -101,6 +105,77 @@ export function validateDoc(
           avoidIdx.push(i);
         }
       });
+    }
+  }
+
+  // Lighting (textured pass only)
+  if (d.lighting !== undefined) {
+    const lp = 'lighting';
+    const unknownKeys = (o: Record<string, unknown>, path: string, allowed: string[], what: string) => {
+      for (const key of Object.keys(o)) {
+        if (!allowed.includes(key)) add(`${path}.${key}`, `unknown ${what} key "${key}"; allowed: ${allowed.join(', ')}`);
+      }
+    };
+    const range = (o: Record<string, unknown>, k: string, path: string, max: number) => {
+      const x = o[k];
+      if (x !== undefined && !(isNum(x) && x >= 0 && x <= max)) add(`${path}.${k}`, `${k} must be a finite number in 0..${max}; got ${JSON.stringify(x)}`);
+    };
+    const L = d.lighting;
+    if (!isObj(L)) add(lp, 'lighting must be an object { key?, env?, rim?, exposure?, toneMapping? }');
+    else {
+      unknownKeys(L, lp, ['key', 'env', 'rim', 'exposure', 'toneMapping'], 'lighting');
+      if (L.key !== undefined) {
+        const kp = `${lp}.key`;
+        if (!isObj(L.key)) add(kp, 'key must be an object { dir?, intensity?, shadows? }');
+        else {
+          unknownKeys(L.key, kp, ['dir', 'intensity', 'shadows'], 'lighting.key');
+          if (L.key.dir !== undefined && vec3(L.key.dir, `${kp}.dir`)) {
+            const [x, y, z] = L.key.dir as number[];
+            if (x === 0 && y === 0 && z === 0) add(`${kp}.dir`, 'dir must not be the zero vector (it points toward the light); use [0.45, 0.85, 0.55] for the default');
+          }
+          range(L.key, 'intensity', kp, 4);
+          if (L.key.shadows !== undefined && typeof L.key.shadows !== 'boolean') add(`${kp}.shadows`, 'shadows must be true or false');
+        }
+      }
+      if (L.env !== undefined) {
+        const ep = `${lp}.env`;
+        if (!isObj(L.env)) add(ep, 'env must be an object { sky?, ground?, intensity? }');
+        else {
+          unknownKeys(L.env, ep, ['sky', 'ground', 'intensity'], 'lighting.env');
+          if (L.env.sky !== undefined) rgb(L.env.sky, `${ep}.sky`);
+          if (L.env.ground !== undefined) rgb(L.env.ground, `${ep}.ground`);
+          range(L.env, 'intensity', ep, 16);
+        }
+      }
+      if (L.rim !== undefined) {
+        const ws = isNum(d.worldScale) && d.worldScale > 0 ? d.worldScale : 10; // invalid worldScale is reported above
+        const rp = `${lp}.rim`;
+        if (!Array.isArray(L.rim)) add(rp, 'rim must be an array of { position, color?, intensity, range? }');
+        else {
+          if (L.rim.length > 8) add(rp, `rim allows at most 8 lights; got ${L.rim.length}. Remove ${L.rim.length - 8}`);
+          L.rim.forEach((r, i) => {
+            const p = `${rp}[${i}]`;
+            if (!isObj(r)) return add(p, 'rim light must be an object { position, color?, intensity, range? }');
+            unknownKeys(r, p, ['position', 'color', 'intensity', 'range'], 'rim light');
+            if (r.position === undefined) add(`${p}.position`, 'rim light requires position [x, y, z] in meters');
+            else vec3(r.position, `${p}.position`);
+            if (r.color !== undefined) rgb(r.color, `${p}.color`);
+            if (r.intensity === undefined) add(`${p}.intensity`, 'rim light requires intensity (number >= 0)');
+            else if (!(isNum(r.intensity) && r.intensity >= 0)) add(`${p}.intensity`, `intensity must be a finite number >= 0; got ${JSON.stringify(r.intensity)}`);
+            else if (r.intensity * ws * ws > RIM_MAX_INTENSITY) {
+              add(`${p}.intensity`, `intensity ${r.intensity} x worldScale^2 (${ws * ws}) = ${r.intensity * ws * ws} exceeds the engine maximum ${RIM_MAX_INTENSITY}; with worldScale ${ws} intensity must be <= ${RIM_MAX_INTENSITY / (ws * ws)}`);
+            }
+            if (r.range !== undefined && !(isNum(r.range) && r.range > 0)) add(`${p}.range`, `range must be a finite number of meters > 0; got ${JSON.stringify(r.range)}`);
+            else if (r.range !== undefined && (r.range as number) * ws < RIM_MIN_RANGE) {
+              add(`${p}.range`, `range ${r.range} m x worldScale ${ws} = ${(r.range as number) * ws} is below the engine minimum ${RIM_MIN_RANGE}; with worldScale ${ws} range must be >= ${RIM_MIN_RANGE / ws} m`);
+            }
+          });
+        }
+      }
+      range(L, 'exposure', lp, 16);
+      if (L.toneMapping !== undefined && !['aces', 'reinhard', 'none'].includes(L.toneMapping as string)) {
+        add(`${lp}.toneMapping`, `toneMapping must be aces, reinhard or none; got ${JSON.stringify(L.toneMapping)}`);
+      }
     }
   }
 
@@ -284,6 +359,29 @@ export function validateDoc(
       add(`${p}.rotationPath`, `rotationPath must be direct or shortest; got ${JSON.stringify(n.rotationPath)}`);
     }
     if (n.visible !== undefined && typeof n.visible !== 'boolean') add(`${p}.visible`, 'visible must be true or false');
+    if (n.look !== undefined) {
+      const lp = `${p}.look`;
+      const l = n.look;
+      if (!isObj(l)) add(lp, 'look must be an object { color?, roughness?, metallic?, show? }');
+      else {
+        for (const key of Object.keys(l)) {
+          if (!['color', 'roughness', 'metallic', 'show'].includes(key)) add(`${lp}.${key}`, `unknown look key "${key}"; allowed: color, roughness, metallic, show`);
+        }
+        const modelMsg = (k: string) => `look.${k} is not allowed on shape "model" nodes: model nodes keep their own materials in the textured pass. Remove "${k}"`;
+        if (l.color !== undefined) {
+          if (n.shape === 'model') add(`${lp}.color`, modelMsg('color'));
+          else rgb(l.color, `${lp}.color`);
+        }
+        for (const k of ['roughness', 'metallic'] as const) {
+          if (l[k] === undefined) continue;
+          if (n.shape === 'model') add(`${lp}.${k}`, modelMsg(k));
+          else if (!(isNum(l[k]) && (l[k] as number) >= 0 && (l[k] as number) <= 1)) add(`${lp}.${k}`, `${k} must be a finite number in 0..1; got ${JSON.stringify(l[k])}`);
+        }
+        if (l.show !== undefined && !['both', 'flat', 'textured'].includes(l.show as string)) {
+          add(`${lp}.show`, `show must be both, flat or textured; got ${JSON.stringify(l.show)}`);
+        }
+      }
+    }
     if (n.tracks !== undefined) {
       if (!isObj(n.tracks)) return add(`${p}.tracks`, 'tracks must be an object');
       const t = n.tracks;
@@ -419,6 +517,37 @@ export function validateDoc(
     if (k && !jointUse.has(id)) jointUse.set(id, { joint: k.joint!, model: k.node!, t: k.t });
   }
 
+  // Look membership: a node drawn in a pass may only reference nodes drawn in that pass
+  const showOf = new Map<string, string>();
+  for (const n of nodes) {
+    if (!isObj(n) || typeof n.id !== 'string') continue;
+    const s = isObj(n.look) && typeof n.look.show === 'string' && ['both', 'flat', 'textured'].includes(n.look.show) ? n.look.show : 'both';
+    showOf.set(n.id, s);
+  }
+  const inLook = (id: string, look: 'flat' | 'textured') => {
+    const s = showOf.get(id);
+    return s === undefined || s === 'both' || s === look;
+  };
+  nodes.forEach((n, i) => {
+    if (!isObj(n) || typeof n.id !== 'string') return;
+    const id = n.id;
+    const own = showOf.get(id);
+    if (own === undefined) return;
+    for (const look of ['flat', 'textured'] as const) {
+      if (!inLook(id, look)) continue;
+      const check = (ref: unknown, path: string, what: string) => {
+        if (typeof ref !== 'string' || !nodeIds.has(ref) || ref === id || inLook(ref, look)) return;
+        add(path, `look.show "${own}": ${what} "${ref}" is not drawn in the ${look} pass (it has look.show "${showOf.get(ref)}"), but node "${id}" is. Give both nodes the same look.show, or set "${ref}" look.show to "both"`);
+      };
+      check(n.parent, `nodes[${i}].parent`, 'parent');
+      if (isObj(n.tracks) && Array.isArray(n.tracks.parent)) {
+        n.tracks.parent.forEach((k, ki) => {
+          if (isObj(k) && isObj(k.v)) check(k.v.node, `nodes[${i}].tracks.parent[${ki}].v.node`, 'tracks.parent node');
+        });
+      }
+    }
+  });
+
   // Shots
   if (!Array.isArray(d.shots) || d.shots.length === 0) {
     add('shots', 'shots must be a non-empty array; add at least one shot { id, start: 0, end, camera }');
@@ -472,6 +601,12 @@ export function validateDoc(
         if (typeof c.target.follow !== 'string' || !nodeIds.has(c.target.follow)) {
           add(`${p}.camera.target.follow`, `follow "${String(c.target.follow)}" is not a node id; use an existing node id`);
         } else {
+          if (showOf.get(c.target.follow) !== 'both') {
+            add(
+              `${p}.camera.target.follow`,
+              `follow "${c.target.follow}" has look.show "${showOf.get(c.target.follow)}"; the camera is shared by every pass, so its follow target must have look.show "both". Set "look.show": "both" or use a target "track"`,
+            );
+          }
           // The evaluator places nodes without joint poses: a joint-attached node (or descendant) has no known position
           const seen = new Set<string>();
           let found = false;

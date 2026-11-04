@@ -136,6 +136,12 @@ export interface PrevisNode {
   role?: string;
   /** Flat color. */
   color: Rgb;
+  /**
+   * Per-pass look. Optional; omit for the same node in both passes with the flat `color`. The flat
+   * pass (beauty, depth) draws nodes whose `look.show` is 'both' | 'flat'; the textured (lit) pass
+   * draws 'both' | 'textured'.
+   */
+  look?: PrevisLook;
   /** Rest transform, used where no track exists. */
   position: Vec3;
   rotation: Vec3;
@@ -187,6 +193,28 @@ export interface PrevisNode {
      */
     parent?: Track<PrevisParentRef | null>;
   };
+}
+
+/** Which render passes draw a node. */
+export type PrevisLookShow = 'both' | 'flat' | 'textured';
+
+/**
+ * Look of a node in the textured (lit) pass. `color`, `roughness` and `metallic` only affect the
+ * textured pass (the flat pass ignores them); `show` is honored by both passes.
+ */
+export interface PrevisLook {
+  /** Base color of the textured pass, each channel 0..1. Default: the node's flat `color`. Not allowed on `shape: 'model'` nodes (they keep their own materials). */
+  color?: Rgb;
+  /** 0..1, default 0.8. Not allowed on model nodes. */
+  roughness?: number;
+  /** 0..1, default 0. Not allowed on model nodes. */
+  metallic?: number;
+  /**
+   * Default 'both'. 'flat': drawn only by the flat pass (beauty, depth); 'textured': drawn only by
+   * the textured pass. A node may only reference nodes (`parent`, `tracks.parent`) drawn in every
+   * pass it is drawn in; the camera `follow` target must be 'both'.
+   */
+  show?: PrevisLookShow;
 }
 
 /** A parent assignment of `tracks.parent`. */
@@ -265,6 +293,45 @@ export interface CameraShake {
   seed?: number;
 }
 
+/** Lighting of the textured pass. The flat renderer ignores it. */
+export interface PrevisLighting {
+  /** Directional key light with optional shadow. */
+  key?: {
+    /** Direction TOWARD the light, world space, finite and not all zero (need not be unit length). Default [0.45, 0.85, 0.55]. */
+    dir?: Vec3;
+    /** 0..4, default 1. */
+    intensity?: number;
+    /** Default true. */
+    shadows?: boolean;
+  };
+  /** Hemisphere ambient light. */
+  env?: {
+    /** Each channel 0..1. Default [0.6, 0.66, 0.76]. */
+    sky?: Rgb;
+    /** Each channel 0..1. Default [0.24, 0.22, 0.2]. */
+    ground?: Rgb;
+    /** 0..16, default 1. */
+    intensity?: number;
+  };
+  /** Point lights, at most 8. */
+  rim?: PrevisRimLight[];
+  /** Linear exposure multiplier before tone mapping, 0..16, default 1. */
+  exposure?: number;
+  /** Default 'aces'. */
+  toneMapping?: 'aces' | 'reinhard' | 'none';
+}
+
+export interface PrevisRimLight {
+  /** World position in meters. */
+  position: Vec3;
+  /** Each channel 0..1. Default [1, 1, 1]. */
+  color?: Rgb;
+  /** >= 0, meter units: irradiance is about intensity / d_m^2 at d_m meters. */
+  intensity: number;
+  /** Meters, > 0: distance beyond which the light has no effect. Default unlimited. */
+  range?: number;
+}
+
 export interface PrevisDoc {
   version: 1;
   /** Free text, shown in reports only. */
@@ -277,6 +344,8 @@ export interface PrevisDoc {
   worldScale?: number;
   /** Real-world colors to keep roles away from (skin, outfit, set), see the handoff. */
   avoidColors?: Rgb[];
+  /** Textured (lit) pass only; the flat pass ignores it. */
+  lighting?: PrevisLighting;
   roles: PrevisRole[];
   nodes: PrevisNode[];
   shots: Shot[];

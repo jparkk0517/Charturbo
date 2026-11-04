@@ -5,7 +5,7 @@
 //   node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2]
 //        [--frames=N] [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots]
 //        [--force] [--camera-json=<file>] [--chrome=path] [--no-aa]
-//        [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear] [--depth-near-clip=<meters>]
+//        [--passes=<beauty,depth,textured>] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear] [--depth-near-clip=<meters>]
 //   node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]
 //   node scripts/previs-render.mjs <doc.json> --stills=<s>,<s>,... --out=<dir | pattern.png> [--backend=..] [--passes=..]
 //   node scripts/previs-render.mjs <doc.json> --contact=<cols>x<rows> --out=<sheet.png> [--shot=<id> | --range=<a>..<b>]
@@ -32,8 +32,18 @@
 //             directory that already holds such files is a usage error (exit 2)
 //             A shot shorter than one frame under --split-shots is skipped (warning, frames: [] in cuts.json).
 // --still=S   render ONE frame at time S seconds to --out (PNG), no ffmpeg (cheap preview)
-// --no-aa     disable the 4x MSAA of the main pass (beauty only; with --passes=depth it has no effect: exit 2)
-// --passes     beauty (default), depth, or beauty,depth. Depth = AI-video conditioning map (see src/sdk/scene-depth.ts): gray
+// --no-aa     disable the 4x MSAA of the main pass (beauty and textured; with --passes=depth it has no effect: exit 2)
+// --passes     any non-empty, duplicate-free comma list of beauty (default), depth, textured (anything else: exit 2).
+//             Textured = lit render where glTF models keep their own materials / textures (the player's look 'textured'; the
+//             doc's `lighting` and `look` drive it, see PrevisLighting / PrevisLook in src/previs/types.ts), same beauty render
+//             pass with 4x MSAA (off with --no-aa). Written next to the beauty output exactly like depth: <out-stem>.textured.mp4
+//             (png-seq: <out-stem>.textured/), with --split-shots <out-stem>.<shot>.textured.mp4 (png-seq:
+//             <out-stem>.textured/<shot>/); --still: <out-stem>.textured.png; --stills: a sibling .textured.png per still.
+//             --passes=textured writes only the textured output (<out> is the base name). --shot / --range / --handles /
+//             --frames / --force / --format apply as for beauty; --camera-json is unchanged (the camera is shared).
+//             ORDER inside ONE page load: all beauty jobs, all depth jobs, then the page swaps to the textured player
+//             (window.previs.setLook('textured')) and runs all textured jobs. Adding textured never changes beauty or depth bytes.
+//             Depth = AI-video conditioning map (see src/sdk/scene-depth.ts): gray
 //             R=G=B, near = white, background (no geometry) = 0, opaque meshes only. Written next to the beauty output:
 //             <out-stem>.depth.mp4 (or <out-stem>.depth/ with --format=png-seq; same --format codec as beauty, mp4 is
 //             yuv420p limited range so 0..255 becomes 16..235; use png-seq or mp4-lossless for exact codes) and, with
@@ -60,12 +70,16 @@
 //             `frames` lists { frame, near_m, far_m } per frame).
 //             --still=<s> with depth: renders that one frame, range from that frame alone ('shot' = 'frame'; or fixed);
 //             --passes=depth writes only <out-stem>.depth.png (+ <out-stem>.depth.json), beauty,depth writes <out> too.
+//             <out-stem> = --out without a trailing .png (so --out=preview and --out=preview.png both give preview.depth.png /
+//             preview.textured.png); an --out not ending in .png still gets the beauty file written under exactly that name.
 // --stills=a,b,c  several stills (seconds, GLOBAL clock, each >= 0) in ONE Chrome launch. --out is a DIRECTORY (created):
 //             <out>/still_<t>.png with t = the given number formatted toFixed(2) ("1.50"); or a pattern ending in .png that
 //             contains {t} (replaced the same way), e.g. --out=shots/{t}s.png. Frame index of each = the --still rule
 //             (round(t * fps), clamped to the doc). Two times that format to the same name are a usage error. Bytes equal a
 //             separate --still run of the same t. --passes=depth / beauty,depth writes the .depth.png (+ .depth.json)
 //             siblings exactly like --still (range from that frame alone, or the fixed --depth-range); --backend works.
+//             --passes=textured / beauty,textured writes a sibling <name>.textured.png per still. stdout out= lists ONE
+//             primary file per still (beauty, else depth, else textured), exactly like --still's single out=.
 //             Exclusive with --still / --contact. Same ignored-flag rules as --still.
 // --contact=CxR  contact sheet (cols x rows) of C*R beauty stills in ONE Chrome launch, composed in the page on a 2D canvas
 //             and written to --out=<sheet.png>. Spacing over the span [start, end) (the whole doc, or --shot, or --range=A..B
@@ -448,7 +462,7 @@ async function main() {
     throw new Failure(
       'usage: node scripts/previs-render.mjs <doc.json> <out> [--format=mp4|mp4-lossless|png-seq] [--backend=webgpu|webgl2] [--frames=N]\n' +
         '         [--shot=<id> | --range=<a>..<b>] [--handles=<seconds>] [--split-shots] [--camera-json=<file>] [--chrome=path] [--no-aa]\n' +
-        '         [--passes=beauty|depth|beauty,depth] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear] [--depth-near-clip=<meters>]\n' +
+        '         [--passes=<beauty,depth,textured>] [--depth-range=shot|frame|<near>..<far>] [--depth-encoding=inverse|linear] [--depth-near-clip=<meters>]\n' +
         '       node scripts/previs-render.mjs <doc.json> --still=<seconds> --out=<out.png> [--backend=..] [--passes=..]\n' +
         '       node scripts/previs-render.mjs <doc.json> --stills=<s>,<s>,.. --out=<dir | pattern.png> [--backend=..] [--passes=..]\n' +
         '       node scripts/previs-render.mjs <doc.json> --contact=<cols>x<rows> --out=<sheet.png> [--shot=<id> | --range=<a>..<b>] [--tile-width=<px>]\n' +
@@ -462,11 +476,12 @@ async function main() {
     throw new Failure(`--format must be mp4, mp4-lossless or png-seq, got ${format}`, 2);
   }
   const passList = (option('passes') ?? 'beauty').split(',');
-  if (passList.some((p) => p !== 'beauty' && p !== 'depth') || new Set(passList).size !== passList.length) {
-    throw new Failure(`--passes must be beauty, depth or beauty,depth, got ${option('passes')}`, 2);
+  if (passList.some((p) => p !== 'beauty' && p !== 'depth' && p !== 'textured') || new Set(passList).size !== passList.length) {
+    throw new Failure(`--passes must be a non-empty, duplicate-free comma list of beauty, depth, textured (e.g. beauty,depth,textured), got ${option('passes')}`, 2);
   }
   const wantBeauty = passList.includes('beauty');
   const wantDepth = passList.includes('depth');
+  const wantTextured = passList.includes('textured');
   const depthRangeOpt = option('depth-range');
   const depthEncOpt = option('depth-encoding');
   const nearClipOpt = option('depth-near-clip');
@@ -476,8 +491,8 @@ async function main() {
       ['depth-encoding', depthEncOpt !== undefined],
       ['depth-near-clip', nearClipOpt !== undefined],
     ].find(([, g]) => g);
-    if (given) throw new Failure(`--${given[0]} needs depth in --passes (--passes=depth or --passes=beauty,depth)`, 2);
-  } else if (!wantBeauty && flag('no-aa')) {
+    if (given) throw new Failure(`--${given[0]} needs depth in --passes (e.g. --passes=depth or --passes=beauty,depth,textured)`, 2);
+  } else if (!wantBeauty && !wantTextured && flag('no-aa')) {
     throw new Failure('--no-aa has no effect with --passes=depth (the depth pass always renders without MSAA); remove it', 2);
   }
   const depthEncoding = depthEncOpt ?? 'inverse';
@@ -771,7 +786,7 @@ async function main() {
     });
 
     const q = new URLSearchParams({ backend });
-    if (flag('no-aa') || !wantBeauty) q.set('aa', '0');
+    if (flag('no-aa') || (!wantBeauty && !wantTextured)) q.set('aa', '0');
     const loaded = cdp.once('Page.loadEventFired', 120_000);
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${vitePort}/render.html?${q}` });
     await loaded;
@@ -891,6 +906,9 @@ async function main() {
       return entry;
     }
 
+    // Textured pass: swap the page's player to the textured look (after every flat job: beauty, depth)
+    const setTextured = () => cdp.evaluate(`window.previs.setLook('textured')`, 300_000);
+
     // The --still rule: frame index of time t
     const frameOfTime = (t) => Math.min(meta.frames - 1, Math.max(0, Math.round(t * meta.fps)));
     if (stillsOpt !== undefined) {
@@ -907,8 +925,19 @@ async function main() {
           fs.writeFileSync(`${base}.depth.json`, JSON.stringify([entry], null, 2) + '\n');
           if (!wantBeauty) rep = `${base}.depth.png`;
         }
+        if (wantTextured && !wantBeauty && !wantDepth) rep = file.replace(/\.png$/i, '.textured.png');
         reported.push(rep);
         info(`still t=${stillTimes[k].toFixed(2)} frame ${i} -> ${rep}`);
+      }
+      // Textured last (one player reload for all stills; beauty / depth above ran with the flat look)
+      if (wantTextured) {
+        await setTextured();
+        for (let k = 0; k < stillTimes.length; k++) {
+          const i = frameOfTime(stillTimes[k]);
+          const out = stillNames[k].replace(/\.png$/i, '.textured.png');
+          fs.writeFileSync(out, await grab(i));
+          info(`still t=${stillTimes[k].toFixed(2)} frame ${i} -> ${out}`);
+        }
       }
       console.log(`frames=${stillTimes.length} fps=${meta.fps} size=${meta.width}x${meta.height} out=${reported.join(',')} backend=${state.backend} format=png`);
       return;
@@ -949,6 +978,12 @@ async function main() {
         const entry = await renderDepth(null, [i], (_k, png) => fs.writeFileSync(`${base}.depth.png`, png), () => {});
         fs.writeFileSync(`${base}.depth.json`, JSON.stringify([entry], null, 2) + '\n');
         if (!wantBeauty) reportedStill = `${base}.depth.png`;
+      }
+      if (wantTextured) {
+        const texturedOut = `${stillOut.replace(/\.png$/i, '')}.textured.png`;
+        await setTextured();
+        fs.writeFileSync(texturedOut, await grab(i));
+        if (!wantBeauty && !wantDepth) reportedStill = texturedOut;
       }
       console.log(`frames=1 fps=${meta.fps} size=${meta.width}x${meta.height} out=${reportedStill} frame=${i} backend=${state.backend} format=png`);
       return;
@@ -1009,9 +1044,34 @@ async function main() {
         : format === 'png-seq'
           ? `${stem}.depth`
           : `${stem}.depth${ext}`;
+    const texturedOutOf = (j) =>
+      splitShots
+        ? format === 'png-seq'
+          ? path.join(`${stem}.textured`, safeName(j.shot))
+          : `${stem}.${safeName(j.shot)}.textured${ext}`
+        : format === 'png-seq'
+          ? `${stem}.textured`
+          : `${stem}.textured${ext}`;
     const passJobs = [];
     if (wantBeauty) passJobs.push({ kind: 'beauty', jobs: jobs.map((j) => ({ ...j })) });
     if (wantDepth) passJobs.push({ kind: 'depth', jobs: jobs.map((j) => ({ ...j, out: depthOutOf(j) })) });
+    if (wantTextured) passJobs.push({ kind: 'textured', jobs: jobs.map((j) => ({ ...j, out: texturedOutOf(j) })) });
+
+    // No two outputs (any shot, any requested pass) may share a name, e.g. shot "a" textured vs shot "a.textured" beauty
+    {
+      const seenOut = new Map(); // lower-cased resolved output -> description (case-insensitive file systems)
+      for (const { kind, jobs: pj } of passJobs) {
+        for (const j of pj) {
+          if (j.skip) continue;
+          const key = path.resolve(j.out).toLowerCase();
+          const what = `${kind} output${j.shot ? ` of shot "${j.shot}"` : ''}`;
+          if (seenOut.has(key)) {
+            throw new Failure(`the ${what} and the ${seenOut.get(key)} map to the same name "${j.out}" (case-insensitive); rename a shot or change --out`, 2);
+          }
+          seenOut.set(key, what);
+        }
+      }
+    }
 
     // png-seq: never mix new frames with stale ones from an earlier run
     if (format === 'png-seq') {
@@ -1046,6 +1106,7 @@ async function main() {
     };
     const depthSidecar = [];
     for (const { kind, jobs: pj } of passJobs) {
+      if (kind === 'textured') await setTextured();
       for (const job of pj) {
         if (job.skip) continue;
         let ff = null;
@@ -1066,7 +1127,7 @@ async function main() {
           if (ff) await ff.write(png);
           else fs.writeFileSync(path.join(job.out, `frame_${String(k).padStart(6, '0')}.png`), png);
         };
-        if (kind === 'beauty') {
+        if (kind === 'beauty' || kind === 'textured') {
           for (let k = 0; k < job.last - job.first + 1; k++) {
             const i = job.first + k;
             await emit(k, await grab(i));

@@ -212,3 +212,33 @@ describe('GltfAnimator.posedMinAlong', () => {
     expect(ms).toBeLessThan(50);
   });
 });
+
+describe('GltfAnimator.nodeParents', () => {
+  it('parent slot per node (walker.glb): length, roots, known children, read-only', async () => {
+    const scene = drawnScene();
+    const r = await scene.sdk.loadGltf(model('walker.glb'), { textures: false, scale: 1.7 });
+    const anim = scene.sdk.createGltfAnimator(r, { autoUpdate: false });
+    const parents = anim.nodeParents;
+    const names = anim.nodeNames;
+    expect(parents.length).toBe(r.nodes.length);
+    expect(parents.length).toBe(names.length);
+    // roots are -1
+    expect(parents[names.indexOf('walker')]).toBe(-1);
+    // known children: parent is the slot of the named parent
+    const slot = (name: string) => names.indexOf(name);
+    expect(parents[slot('hips')]).toBe(slot('walker'));
+    expect(parents[slot('torso')]).toBe(slot('hips'));
+    expect(parents[slot('lowerLeg.R')]).toBe(slot('upperLeg.R'));
+    expect(parents[slot('upperLeg.R')]).toBe(slot('hips'));
+    expect(parents[slot('lowerArm.L')]).toBe(slot('upperArm.L'));
+    // exactly one root
+    expect(parents.filter((p) => p === -1).length).toBe(1);
+    // read-only: frozen, mutation attempt throws and leaves the value unchanged
+    expect(Object.isFrozen(parents)).toBe(true);
+    expect(() => {
+      (parents as number[])[slot('hips')] = 99;
+    }).toThrow(TypeError);
+    expect(anim.nodeParents[slot('hips')]).toBe(slot('walker'));
+    expect(anim.nodeParents).toEqual(parents);
+  });
+});

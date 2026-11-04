@@ -168,6 +168,7 @@
     "previs:render": "node scripts/previs-render.mjs",
     "previs:new": "node previs/new.mjs",
     "previs:check": "node scripts/previs-check.mjs",
+    "previs:check-textured": "node scripts/previs-check-textured.mjs",
     "previs:viewer": "vite --config previs/vite.config.ts --open /viewer.html"
   },
   "peerDependencies": {
