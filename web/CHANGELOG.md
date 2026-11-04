@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 변경 — gate-raid 텍스처 버전
+
+- `previs/examples/gate-raid.json`에 텍스처 패스용 노드와 `lighting`을 추가했습니다. 주인공은 Quaternius 캐릭터(`model.retarget`, `attach`)가 검(KayKit `sword_1handed`)을 들고, 거인과 그림자 병사는 KayKit Skeleton_Warrior(도끼) · Skeleton_Minion 클립으로 그립니다. 기존 대역 블록은 `look.show: 'flat'`, 배경은 `look.color`로 텍스처 색만 지정합니다. 플랫 beauty와 depth 출력은 이전과 바이트 단위로 같습니다. 한계: KayKit 거인은 chibi 비율이라 플랫 대역과 실루엣이 크게 다르고, 손이 닿지 않는 줍기 구간(0.75–1.35 s)에서 검은 마네킹 손을 따라갑니다.
+
 ### 추가 — 스킨 캐릭터 리타깃 (model.retarget)
 
 - glTF 스킨 캐릭터가 같은 문서의 관절 마네킹(`createMannequin({ limbs: 'jointed' })`) 동작을 따라가도록 `model.retarget { source, map: 'ue' | 'kaykit', attach? }`을 추가했습니다. 관절마다 rest 방향을 최단 호로 맞춘 뒤 회전 변화량을 옮기고, 팔·다리는 해석적 two-bone IK로 손목을 마네킹 손에, 발목을 마네킹 발(+ 발목 높이)에 맞춥니다. 팔꿈치·무릎의 굽힘 평면은 FK 결과를 따르고, 너무 먼 목표는 팔·다리를 완전히 펴고, 너무 가까운 목표는 완전히 접은 상태로 둡니다. 발 pivot이 바닥 근처(0.02 m 이하에서 완전, 0.08 m까지 점차)면 발바닥을 수평으로 둡니다. 크기는 다리 길이 비율로 균일하게 맞추고, 엉덩이 뼈를 마네킹 엉덩이 위에 둡니다. `attach: true`면 캐릭터를 그리는 패스(보통 `look.show: 'textured'`라 텍스처 패스)에서만 마네킹 손에 `tracks.parent`로 매단 소품이 캐릭터 손 뼈를 따라갑니다. 플랫 패스와 순수 평가(`evaluateFrame` · `worldTransform`)는 마네킹 기준 그대로이고, 카메라 `follow`도 모든 패스에서 마네킹 기준입니다. retarget이 없는 문서는 이전과 같은 SDK 호출을 냅니다. SDK에는 `GltfAnimator.skinned` getter가 추가됐습니다.

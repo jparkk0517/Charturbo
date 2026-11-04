@@ -5,6 +5,10 @@
 // Showcase of the authoring features: jointed hero (pickUp, crouch), re-parented props (tracks.parent: the sword
 // is picked up from the floor, the club leaves the giant's hand and tumbles), model.groundLock, smooth camera
 // moves, camera shake, rotationPath 'shortest', markers and shot notes for the handoff.
+// Textured pass (look.show, lighting, model.retarget; see the section "textured pass" below): the blocks above are
+// flat-only and lit CC0 models stand in for them, so beauty / depth stay the flat blockout:
+//   npm run previs:render -- previs/examples/gate-raid.json --stills=0.75,3.8,5.3,7.9 --out=out/ --passes=beauty,textured
+//   npm run previs:render -- previs/examples/gate-raid.json out/raid.mp4 --split-shots --passes=beauty,textured
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -659,6 +663,215 @@ let clubLandT = 0;
   if (s.min < -0.005 || c.min < -0.005) throw new Error('a prop goes through the floor');
 }
 
+// ---- textured pass (`--passes=textured`): skinned / textured stand-ins, drawn ONLY there (look.show) ----
+// Every block above keeps its motion; the visible ones get look.show 'flat' below, so beauty and depth are unchanged.
+// The textured pass draws instead: the Quaternius Superhero retargeted onto the hero mannequin, a KayKit sword in its
+// hand, a KayKit Skeleton_Warrior for the giant (clips, the same world tracks) with a KayKit two-handed axe for the
+// club, and three Skeleton_Minion shadow warriors on the same rise tracks. Primitives (set, gate) stay in both passes
+// with a lit `look.color`. All models are CC0 (models/quaternius, models/kaykit; see their README.md).
+const K_DIR = 'models/kaykit/';
+type Pose = { p: Vec3; q: Quat };
+const compose = (a: Pose, b: Pose): Pose => ({ p: add(a.p, qrot(a.q, b.p)), q: qmul(a.q, b.q) });
+
+// -- hero sword (sword_1handed.gltf: grip at the file origin, blade along +y; rest bounds below) --
+// Placed rigidly in the frame of the flat sword box (grip at its +y end): flipped end for end (F: file y -> box -y,
+// the blade width onto box z, so the blade lies flat on the floor and its edge leads the swing), the handle centre on
+// the palm 7 cm below the wrist pivot (the box grip sits on the pivot itself; the mannequin has no hand block).
+// Parent keys: at T_GRAB a `snap` key onto the hand PIVOT with absolute hand-frame tracks (= the box's motion composed
+// with that offset; attach does not rewrite snap keys), then at T_RISE a plain key onto the same pivot, which
+// retarget.attach turns into the rig's hand_r bone (world kept): from there the sword rides the drawn hand. Before
+// T_RISE the retargeted hand misses the pivot (the rig arm cannot reach the floor grip: up to ~0.13 m at the grab),
+// so the sword follows the mannequin's hand there, exactly as the flat box does.
+const SWORD_MIN: Vec3 = [-0.2517, -0.3658, -0.0653];
+const SWORD_MAX: Vec3 = [0.2517, 1.4095, 0.0653];
+const SWORD_S = 0.53; // file units -> meters: 0.94 m overall, 0.75 m blade
+const SWORD_TEX_SIZE = scale(sub(SWORD_MAX, SWORD_MIN), SWORD_S).map((v) => +v.toFixed(4)) as Vec3;
+const SWORD_HANDLE = -0.15; // file y of the handle centre
+const PALM: Vec3 = [0, -0.07, 0]; // hand frame
+const SWORD_LIFT = 0.012; // along box x (= up while it lies on the floor): the 7 cm thick guard clears the floor
+const swordOff: Pose = {
+  p: add([SWORD_LIFT, half - ((SWORD_MIN[1] + SWORD_MAX[1]) / 2 - SWORD_HANDLE) * SWORD_S, 0], qrot(qconj(eulerYXZToQuat([GRIP, 0, 0])), PALM)),
+  q: [Math.SQRT1_2, 0, Math.SQRT1_2, 0], // 180 deg about (1, 0, 1)/sqrt 2: x -> z, y -> -y, z -> x
+};
+const swordFloor = compose({ p: SWORD_FLOOR, q: eulerYXZToQuat(SWORD_FLOOR_ROT) }, swordOff);
+const r6v = (v: Vec3): Vec3 => v.map((x) => +x.toFixed(6)) as Vec3;
+const swordTex: PrevisNode = (() => {
+  const pos: Track<Vec3> = [{ t: 0, v: r6v(swordFloor.p), ease: 'step' }];
+  let prev = quatToEulerYXZ(swordFloor.q);
+  const rot: Track<Vec3> = [{ t: 0, v: r6v(prev), ease: 'step' }];
+  let low = { y: Infinity, t: 0 };
+  for (const t of frameTimes(T_GRAB, T_SET)) {
+    const h = wt(pick.hand, t);
+    const s = wt('sword', t);
+    const local = compose({ p: qrot(qconj(h.quaternion), sub(s.position, h.position)), q: qmul(qconj(h.quaternion), s.quaternion) }, swordOff);
+    prev = eulerNear(local.q, prev);
+    pos.push({ t, v: r6v(local.p) });
+    rot.push({ t, v: r6v(prev) });
+  }
+  // lowest corner of the model's bounds while it follows the mannequin (the bone part is checked in the render)
+  for (const t of frameTimes(0, T_RISE)) {
+    const w = t < T_GRAB ? swordFloor : compose({ p: wt(pick.hand, t).position, q: wt(pick.hand, t).quaternion }, { p: evalTrack(pos, t, [0, 0, 0] as Vec3), q: eulerYXZToQuat(evalTrack(rot, t, [0, 0, 0] as Vec3)) });
+    const y = lowestCorner(w.p, w.q, SWORD_TEX_SIZE);
+    if (y < low.y) low = { y: +y.toFixed(4), t };
+  }
+  console.log('textured sword lowest bounds corner before T_RISE (m)', JSON.stringify(low));
+  if (low.y < -0.005) throw new Error('the textured sword goes through the floor');
+  return {
+    id: 'sword_tex',
+    shape: 'model',
+    role: 'sword',
+    color: cSword,
+    look: { show: 'textured' },
+    model: { src: K_DIR + 'sword_1handed.gltf', fit: 'contain' },
+    position: r6v(swordFloor.p),
+    rotation: r6v(quatToEulerYXZ(swordFloor.q)),
+    size: SWORD_TEX_SIZE,
+    tracks: {
+      parent: [{ t: T_GRAB, v: { node: pick.hand, snap: true } }, { t: T_RISE, v: { node: pick.hand } }],
+      position: pos,
+      rotation: rot,
+    },
+  };
+})();
+
+// -- hero: skinned character driven by the jointed mannequin (model.retarget), sword props ride its hand bone --
+const heroSkin: PrevisNode = {
+  id: 'hero_skin',
+  shape: 'model',
+  role: 'hero',
+  color: cHero,
+  look: { show: 'textured' },
+  model: { src: 'models/quaternius/Superhero_Male_FullBody.gltf', retarget: { source: 'hero', map: 'ue', attach: true } },
+  position: [0, 0, 0],
+  rotation: [0, 0, 0],
+  size: [1, 1.8, 0.4],
+};
+
+// -- giant: Skeleton_Warrior (rest bounds 1.94 x 2.59 x 1.46 file units, helmet included; contain is height-limited) on
+// the walker's world tracks (emerge, stop, toe-pivot topple) with clips instead of the hand-posed joints: walk, a
+// two-handed idle, the two-handed chop timed so the axe meets the floor on T_SLAM, idle again --
+const WARRIOR_REST_H = 2.5904;
+const GIANT_TEX_K = GIANT_H / WARRIOR_REST_H;
+// clip seconds of 2H_Melee_Attack_Chop at which the axe head reaches the floor; measured on the drawn mesh (textured
+// player, axe at AXE_F): it then stays within ~2 cm of the floor for ~0.2 s, like the flat club's hold
+const CHOP_HIT = 0.9;
+const CHOP_LEN = 1.633;
+const T_CHOP = r4(T_SLAM - CHOP_HIT);
+const giantTex: PrevisNode = {
+  id: 'giant_tex',
+  shape: 'model',
+  role: 'giant',
+  color: cGiant,
+  look: { show: 'textured' },
+  model: {
+    src: K_DIR + 'Skeleton_Warrior.glb',
+    fit: 'contain',
+    groundLock: true,
+    animation: [
+      { clip: 'Walking_A', start: T_EMERGE, speed: 1.3, loop: 'repeat' },
+      { clip: '2H_Melee_Idle', start: T_STOP - 0.35, blendIn: 0.25, loop: 'repeat' },
+      { clip: '2H_Melee_Attack_Chop', start: T_CHOP, blendIn: 0.15, loop: 'once' },
+      { clip: '2H_Melee_Idle', start: r4(T_CHOP + CHOP_LEN - 0.05), blendIn: 0.3, loop: 'repeat' },
+    ],
+  },
+  position: giant.position,
+  rotation: [0, 0, 0],
+  size: [2.5, GIANT_H, 1.9],
+  visible: false,
+  tracks: { visible: giant.tracks!.visible, position: giant.tracks!.position, rotation: giant.tracks!.rotation },
+};
+
+// -- axe (axe_2handed.gltf: grip at the file origin, head along +y) on the warrior's handslot.r, the KayKit weapon
+// socket (weapons sit on it at the file origin). Offsets are meters in the joint frame. At the giant's scale the chop
+// buries the head 0.21 m in the floor, so the axe is drawn at AXE_F of it (the head then just meets the floor) --
+const AXE_F = 0.78;
+const AXE_MIN: Vec3 = [-0.6198, -0.433, -0.1309];
+const AXE_MAX: Vec3 = [0.6198, 1.2916, 0.1309];
+const AXE_SIZE = scale(sub(AXE_MAX, AXE_MIN), GIANT_TEX_K * AXE_F).map((v) => +v.toFixed(4)) as Vec3;
+const AXE_OFF: Vec3 = [0, +(((AXE_MIN[1] + AXE_MAX[1]) / 2) * GIANT_TEX_K * AXE_F).toFixed(4), 0];
+const axeTex: PrevisNode = {
+  id: 'axe_tex',
+  shape: 'model',
+  role: 'club',
+  color: cClub,
+  look: { show: 'textured' },
+  parent: 'giant_tex',
+  parentJoint: 'handslot.r',
+  model: { src: K_DIR + 'axe_2handed.gltf', fit: 'contain' },
+  position: AXE_OFF,
+  rotation: [0, 0, 0],
+  size: AXE_SIZE,
+  visible: false,
+  tracks: { visible: [{ t: 0, v: false }, { t: T_EMERGE, v: true }] },
+};
+// Release at T_REL like the club: world capture (tracks.parent null), then a ballistic arc out to the giant's left, clear
+// of its fall, one tumble and a bounce, landing flat with the haft along the hall. The arc is written relative to the
+// release point, so it needs the axe's WORLD pose at T_REL. The giant there plays the 2H_Melee_Idle clip (with ground
+// lock), which only the player poses: AXE_REL is that pose MEASURED on the textured player (drawn scene, frame at
+// T_REL; re-measure it when the giant's clips, scale, tracks or AXE_F change).
+const AXE_REL: Pose = { p: [-0.0594, 0.9766, -2.8217], q: [-0.10367, -0.51777, -0.56727, 0.63196] };
+const AXE_HALF_T = (AXE_SIZE[2] / 2) as number; // lying flat: half the thickness
+const AXE_LAND: Vec3 = [2.4, +(AXE_HALF_T + 0.005).toFixed(4), -2.4];
+let axeLandT = 0;
+{
+  const G = 9.81;
+  const vy = 1.4;
+  const w0 = AXE_REL.p;
+  const tf = (vy + Math.sqrt(vy * vy + 2 * G * (w0[1] - AXE_LAND[1]))) / G;
+  axeLandT = r4(T_REL + tf);
+  const vx = (AXE_LAND[0] - w0[0]) / tf;
+  const vz = (AXE_LAND[2] - w0[2]) / tf;
+  // lying flat (file z up), haft along yaw 0.3 (nearly along the hall, beside the fallen giant). No full tumble: the
+  // 1.7 m axe leaves the hand only ~1 m up, so a whole turn would sweep its head through the floor
+  const qFlat = eulerYXZToQuat([Math.PI / 2, 0.3, 0]);
+  const rLand = eulerNear(qmul(qconj(AXE_REL.q), qFlat), [0, 0, 0]);
+  const pos: Track<Vec3> = [];
+  const rot: Track<Vec3> = [];
+  const spinEnd = axeLandT - 0.08;
+  let low = Infinity;
+  for (const t of frameTimes(T_REL, axeLandT)) {
+    const s = t - T_REL;
+    const pw: Vec3 = [w0[0] + vx * s, w0[1] + vy * s - 0.5 * G * s * s, w0[2] + vz * s];
+    pos.push({ t, v: r6v(add(AXE_OFF, sub(pw, w0))) });
+    const u = Math.min(1, s / (spinEnd - T_REL));
+    const r = rLand.map((c) => c * u) as Vec3;
+    rot.push({ t, v: r6v(r) });
+    low = Math.min(low, lowestCorner(pw, qmul(AXE_REL.q, eulerYXZToQuat(r)), AXE_SIZE));
+  }
+  const landDelta = sub(AXE_LAND, w0);
+  const slide: Vec3 = [0.15, 0, 0.05];
+  const B = 0.24;
+  for (const t of frameTimes(axeLandT, r4(axeLandT + B)).slice(1)) {
+    const u = (t - axeLandT) / B;
+    pos.push({ t, v: r6v(add(AXE_OFF, add(landDelta, [slide[0] * u, 0.1 * 4 * u * (1 - u), slide[2] * u]))) });
+  }
+  axeTex.tracks = { ...axeTex.tracks, parent: [{ t: T_REL, v: null }], position: pos, rotation: rot };
+  console.log('axe release', JSON.stringify({ v: [vx, vy, vz].map((v) => +v.toFixed(2)), lands: axeLandT, lowestBoundsCorner: +low.toFixed(3) }));
+  if (low < -0.005) throw new Error('the textured axe goes through the floor in flight');
+}
+
+// -- shadow warriors: Skeleton_Minion (rest bounds 1.94 x 2.17 x 0.91 file units) on the same rise tracks --
+const shadowTex: PrevisNode[] = warriors.map((w, i) => ({
+  id: `${w.id}_tex`,
+  shape: 'model',
+  role: 'shadow',
+  color: cShadow,
+  look: { show: 'textured' },
+  model: { src: K_DIR + 'Skeleton_Minion.glb', fit: 'contain', animation: { clip: 'Idle_Combat', start: RISE[i], loop: 'repeat' } },
+  position: w.position,
+  rotation: w.rotation,
+  size: [1.75, WARRIOR_H, 0.85],
+  visible: false,
+  tracks: w.tracks,
+}));
+
+// -- flat stand-ins: drawn by beauty / depth only (their pivots and every motion unchanged) --
+for (const n of [...heroNodes.filter((h) => h.visible !== false), sword, giant, club, ...warriors]) n.look = { show: 'flat' };
+// -- primitives: a lit stone look for the textured pass (the flat role colors are kept for beauty / depth) --
+for (const n of set) n.look = { color: n.id.startsWith('pillar') ? [0.36, 0.34, 0.33] : n.id === 'floor' ? [0.3, 0.29, 0.28] : [0.32, 0.31, 0.3], roughness: 0.9 };
+gate.look = { color: [0.5, 0.42, 0.9], roughness: 0.6 };
+const texturedNodes: PrevisNode[] = [heroSkin, swordTex, giantTex, axeTex, ...shadowTex];
+
 // ---- cameras ----
 const sample = (a: number, b: number, step: number, f: (t: number) => Vec3): Track<Vec3> => {
   const out: Track<Vec3> = [];
@@ -797,8 +1010,16 @@ const doc: PrevisDoc = {
   background: BG,
   worldScale: 10,
   avoidColors: avoid,
+  // textured pass only (beauty / depth ignore it)
+  lighting: {
+    key: { dir: [0.35, 0.9, 0.45], intensity: 1.2, shadows: true },
+    env: { sky: [0.42, 0.46, 0.62], ground: [0.18, 0.16, 0.16], intensity: 1.0 },
+    rim: [{ position: [0, 2.2, -4.6], color: [0.55, 0.45, 1.0], intensity: 6, range: 9 }],
+    exposure: 1.35,
+    toneMapping: 'aces',
+  },
   roles,
-  nodes,
+  nodes: [...nodes, ...texturedNodes],
   shots,
   markers,
 };
