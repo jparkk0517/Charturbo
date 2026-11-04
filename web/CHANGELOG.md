@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 추가 — 스킨 캐릭터 리타깃 (model.retarget)
+
+- glTF 스킨 캐릭터가 같은 문서의 관절 마네킹(`createMannequin({ limbs: 'jointed' })`) 동작을 따라가도록 `model.retarget { source, map: 'ue' | 'kaykit', attach? }`을 추가했습니다. 관절마다 rest 방향을 최단 호로 맞춘 뒤 회전 변화량을 옮기고, 팔·다리는 해석적 two-bone IK로 손목을 마네킹 손에, 발목을 마네킹 발(+ 발목 높이)에 맞춥니다. 팔꿈치·무릎의 굽힘 평면은 FK 결과를 따르고, 너무 먼 목표는 팔·다리를 완전히 펴고, 너무 가까운 목표는 완전히 접은 상태로 둡니다. 발 pivot이 바닥 근처(0.02 m 이하에서 완전, 0.08 m까지 점차)면 발바닥을 수평으로 둡니다. 크기는 다리 길이 비율로 균일하게 맞추고, 엉덩이 뼈를 마네킹 엉덩이 위에 둡니다. `attach: true`면 캐릭터를 그리는 패스(보통 `look.show: 'textured'`라 텍스처 패스)에서만 마네킹 손에 `tracks.parent`로 매단 소품이 캐릭터 손 뼈를 따라갑니다. 플랫 패스와 순수 평가(`evaluateFrame` · `worldTransform`)는 마네킹 기준 그대로이고, 카메라 `follow`도 모든 패스에서 마네킹 기준입니다. retarget이 없는 문서는 이전과 같은 SDK 호출을 냅니다. SDK에는 `GltfAnimator.skinned` getter가 추가됐습니다.
+- 한계: 캐릭터 비율이 마네킹과 다르면 오차가 남습니다(Quaternius 기준 늘어뜨린 팔 0.016 m, 높이 든 팔 최대 0.17 m 미달). 상체 기울기 보정(full-body IK)은 없습니다. 마네킹의 `walk`는 두 발을 동시에 띄우는 구간이 있어 캐릭터도 뜹니다.
+- 예제 `previs/examples/retarget-demo.json`(생성기 `retarget-demo.gen.ts`)과 Quaternius CC0 캐릭터(`previs/examples/models/quaternius/`)를 추가했습니다. 자세한 내용은 `docs/previs/guide.md`의 「Retargeting a skinned character」 절을 참고하세요.
+
 ### 추가 — 텍스처 렌더 패스 (--passes=textured · lighting · look)
 
 - 렌더 스크립트에 `--passes=textured`를 추가했습니다. glTF 모델은 자체 머티리얼과 텍스처를 유지하고, 프리미티브는 `look.color ?? color`로 조명을 받습니다. 출력은 depth와 같은 방식으로 beauty 옆에 `<out-stem>.textured.mp4`(png-seq는 `<out-stem>.textured/`, `--split-shots`는 `<out-stem>.<shot>.textured.mp4`, `--still`은 `<out-stem>.textured.png`)로 쓰입니다. 한 페이지 로드 안에서 beauty, depth, textured 순으로 실행하므로 textured를 추가해도 beauty와 depth 바이트는 바뀌지 않습니다. 기존 `--no-aa`는 textured의 4x MSAA에도 적용됩니다.

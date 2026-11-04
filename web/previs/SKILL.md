@@ -48,6 +48,8 @@ Goal: a cheap flat-color blockout video that fixes camera, movement and timing, 
 - Weapons/props held by a model: child box with `parent: <model id>` + `parentJoint: '<joint name>'`; it follows the posed joint. Offsets are meters in the joint frame, not scaled by `fit`: when the model is drawn at another size than natural, scale offsets along the bone by k = size / natural size (walker: `k = size.y / 1.75`). Camera `follow` of a joint-attached node is rejected; follow the model node.
 - For hand-posed tweaks on top of clips (raise an arm, turn the head), use `tracks.joints` on the model node: joint name → track of Euler `[rx, ry, rz]` radians, additive in the joint's local frame. Joint names are the glTF node names; the load error `posable node "<name>" not found (nodes: ...)` lists them (up to 64), or use the SDK's `GltfAnimator.nodeNames`.
 
+- Skinned character driven by a jointed mannequin: `model: { src, retarget: { source: '<mannequin id>', map: 'ue'|'kaykit', attach?: true } }` with `position`/`rotation` `[0, 0, 0]` and no `fit`/`animation`/`groundLock`/transform tracks; mannequin blocks `look.show: 'flat'`, the character `'textured'`. Arms / legs are fitted by two-bone IK (hands on the hand pivots, ankles above the foot pivots, planted feet level). `attach: true` makes props switched onto a mannequin pivot by `tracks.parent` ride the character's bone in its pass. See guide "Retargeting a skinned character" and `previs/examples/retarget-demo.gen.ts`.
+
 ## Authoring tips
 
 - Pick-ups and hand-offs: use `tracks.parent` (`{ node: "<hand pivot>" }`, then `null` for the throw) instead of hiding and showing two copies of the prop. Put the prop at the grab point before the switch. See guide "Re-parenting (tracks.parent)".

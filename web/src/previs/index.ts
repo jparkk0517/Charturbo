@@ -18,6 +18,7 @@ export type {
   PrevisModelAnimation,
   ClipWeight,
   PrevisModel,
+  PrevisRetarget,
   PrevisNode,
   PrevisParentRef,
   PrevisRole,
@@ -61,12 +62,13 @@ export { rgbToLab, colorDistance, validateDoc } from './validate.ts';
 
 export { suggestRoleColors, colorName, buildHandoff } from './handoff.ts';
 
-export { createMannequin, walk, jump, raiseArm, shrug, lookAt, twoBoneIK, crouch, pickUp, applyMotion, attachProp, twoToneBox } from './mannequin.ts';
+export { createMannequin, jointedJointIds, walk, jump, raiseArm, shrug, lookAt, twoBoneIK, crouch, pickUp, applyMotion, attachProp, twoToneBox } from './mannequin.ts';
 export type {
   Limbs,
   MannequinOptions,
   MannequinJoints,
   Mannequin,
+  JointedJoints,
   MotionTracks,
   MotionFragments,
   WalkOptions,
@@ -83,3 +85,16 @@ export type {
 } from './mannequin.ts';
 
 export { nodeLoadsModel, modelSrcsToLoad } from './models.ts';
+
+export {
+  KAYKIT_RETARGET_MAP,
+  UE_RETARGET_MAP,
+  RETARGET_MAPS,
+  mannequinFrames,
+  prepareRetarget,
+  rigFromWorldMatrices,
+  rigRestPose,
+  shortestArc,
+  quatRotate,
+} from './retarget.ts';
+export type { RetargetTrs, RetargetRig, RetargetJoint, MannequinJointFrame, Retargeter } from './retarget.ts';

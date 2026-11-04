@@ -119,6 +119,36 @@ function block(
   return n;
 }
 
+/** The 16 pivots (plus root) of a `limbs: 'jointed'` mannequin, i.e. every `MannequinJoints` key. */
+export type JointedJoints = Required<MannequinJoints>;
+
+/**
+ * Pivot ids of a `limbs: 'jointed'` mannequin built with `createMannequin({ id })`: `${id}.root`, `.hips`, `.spine`,
+ * `.head`, `.shoulderX`, `.elbowX`, `.handX`, `.hipX`, `.kneeX`, `.footX` (X = L | R). Equals `createMannequin(...).joints`
+ * of a jointed mannequin; used to find a mannequin in a doc by its id prefix (`PrevisModel.retarget.source`).
+ */
+export function jointedJointIds(id: string): JointedJoints {
+  const j = (name: string) => `${id}.${name}`;
+  return {
+    root: j('root'),
+    hips: j('hips'),
+    spine: j('spine'),
+    head: j('head'),
+    handL: j('handL'),
+    handR: j('handR'),
+    shoulderL: j('shoulderL'),
+    shoulderR: j('shoulderR'),
+    hipL: j('hipL'),
+    hipR: j('hipR'),
+    elbowL: j('elbowL'),
+    elbowR: j('elbowR'),
+    kneeL: j('kneeL'),
+    kneeR: j('kneeR'),
+    footL: j('footL'),
+    footR: j('footR'),
+  };
+}
+
 /**
  * Build a mannequin. Node ids: `${id}.root`, `.hips`, `.spine`, `.head` (pivots), `.lower`, `.upper`,
  * `.head.mesh` (blocks); with arms `.shoulderL/R`, `.armL/R`, `.handL/R`; with full also `.hipL/R`,

@@ -242,3 +242,14 @@ describe('GltfAnimator.nodeParents', () => {
     expect(anim.nodeParents).toEqual(parents);
   });
 });
+
+describe('GltfAnimator.skinned', () => {
+  it('true for a skinned model (tail.glb), false for a rigid rig (walker.glb) and a static model (mug.glb)', async () => {
+    const scene = drawnScene();
+    const make = async (name: string, opts: object = {}) =>
+      scene.sdk.createGltfAnimator(await scene.sdk.loadGltf(model(name), { textures: false, ...opts }), { autoUpdate: false });
+    expect((await make('tail.glb')).skinned).toBe(true);
+    expect((await make('walker.glb')).skinned).toBe(false);
+    expect((await make('mug.glb')).skinned).toBe(false);
+  });
+});

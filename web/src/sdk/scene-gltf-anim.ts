@@ -761,6 +761,11 @@ export class GltfAnimator {
     return Object.freeze(Array.from(this.rig?.parent ?? []));
   }
 
+  /** True when the model draws skinned meshes (a glTF skin); false for rigid-only or mesh-less rigs and static models. */
+  get skinned(): boolean {
+    return (this.rig?.skinTargets.ids.length ?? 0) > 0;
+  }
+
   /** The model's clips */
   get animations(): GltfAnimationInfo[] {
     return (this.rig?.clips ?? []).map((c) => ({ name: c.name, duration: c.duration }));

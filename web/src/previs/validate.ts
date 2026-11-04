@@ -1,4 +1,5 @@
 import type { Issue, PrevisDoc, Rgb } from './types';
+import { jointedJointIds } from './mannequin.ts';
 
 const MAX_ISSUES = 50;
 const EPS = 1e-9;
@@ -258,6 +259,8 @@ export function validateDoc(
     }
   });
   const parentOf = new Map<string, string>();
+  /** Model nodes with a `retarget` (valid source string). */
+  const retargets: { i: number; id: string; source: string; attach: boolean }[] = [];
   /** Nodes with a valid `parentJoint`: id -> joint name (the camera cannot follow them, see shots). */
   const jointOf = new Map<string, string>();
   /** Valid `tracks.parent` keys per node (node null = world), in key order. */
@@ -282,6 +285,38 @@ export function validateDoc(
         }
         if (m.groundLock !== undefined && typeof m.groundLock !== 'boolean') {
           add(`${mp}.groundLock`, `groundLock must be true or false; got ${JSON.stringify(m.groundLock)}`);
+        }
+        if (m.retarget !== undefined) {
+          const rp = `${mp}.retarget`;
+          const r = m.retarget;
+          if (!isObj(r)) add(rp, 'retarget must be an object { source, map }, e.g. { "source": "hero", "map": "ue" }');
+          else {
+            for (const key of Object.keys(r)) if (!['source', 'map', 'attach'].includes(key)) add(`${rp}.${key}`, `unknown retarget key "${key}"; allowed: source, map, attach`);
+            if (r.attach !== undefined && typeof r.attach !== 'boolean') add(`${rp}.attach`, `attach must be true or false; got ${JSON.stringify(r.attach)}`);
+            if (typeof r.source !== 'string' || r.source === '') {
+              add(`${rp}.source`, `source must be the id prefix of a jointed mannequin in the doc (e.g. "hero" for hero.root, hero.hips, ...); got ${JSON.stringify(r.source)}`);
+            } else if (typeof n.id === 'string') retargets.push({ i, id: n.id, source: r.source, attach: r.attach === true });
+            if (r.map !== 'ue' && r.map !== 'kaykit') add(`${rp}.map`, `map must be ue (pelvis, spine_01, upperarm_l, ...) or kaykit (hips, upperarm.l, ...); got ${JSON.stringify(r.map)}`);
+            // The model follows the mannequin: its own transform, fitting, clips and joint offsets would fight it
+            const own = (path: string, what: string) =>
+              add(path, `${what} is not allowed with model.retarget: the model is placed on the mannequin root, scaled by the leg ratio and posed by the mannequin. Remove it`);
+            if (m.animation !== undefined) own(`${mp}.animation`, 'animation (clips)');
+            if (m.groundLock !== undefined) own(`${mp}.groundLock`, 'groundLock');
+            if (m.fit !== undefined) own(`${mp}.fit`, 'fit');
+            if (n.parent !== undefined) own(`${p}.parent`, 'parent');
+            if (n.parentJoint !== undefined) own(`${p}.parentJoint`, 'parentJoint');
+            for (const k of ['position', 'rotation'] as const) {
+              const v = n[k];
+              if (Array.isArray(v) && v.length === 3 && v.every(isNum) && v.some((x) => x !== 0)) {
+                add(`${p}.${k}`, `${k} must be [0, 0, 0] with model.retarget (the model takes the mannequin root's world transform); got ${JSON.stringify(v)}. Move the mannequin instead`);
+              }
+            }
+            if (isObj(n.tracks)) {
+              for (const k of ['position', 'rotation', 'size', 'joints', 'parent'] as const) {
+                if (n.tracks[k] !== undefined) own(`${p}.tracks.${k}`, `tracks.${k}`);
+              }
+            }
+          }
         }
         if (m.animation !== undefined) {
           const ap = `${mp}.animation`;
@@ -515,6 +550,91 @@ export function validateDoc(
   for (const [id, ks] of parentKeys) {
     const k = ks.find((x) => x.joint !== undefined);
     if (k && !jointUse.has(id)) jointUse.set(id, { joint: k.joint!, model: k.node!, t: k.t });
+  }
+
+  // Retarget: the source mannequin's pivots (each below its root through static parents) and no reference to the model
+  if (retargets.length > 0) {
+    const nodeAt = new Map<string, Record<string, unknown>>();
+    for (const n of nodes) if (isObj(n) && typeof n.id === 'string' && !nodeAt.has(n.id)) nodeAt.set(n.id, n);
+    const retargeted = new Set(retargets.map((r) => r.id));
+    const attachOf = new Map<string, string>();
+    for (const { i, id, source, attach } of retargets) {
+      if (!attach) continue;
+      const other = attachOf.get(source);
+      if (other !== undefined) {
+        add(`nodes[${i}].model.retarget.attach`, `models "${other}" and "${id}" both attach to mannequin "${source}"; props can follow only one model's bones. Set attach on one of them`);
+      } else attachOf.set(source, id);
+    }
+    for (const { i, source } of retargets) {
+      const sp = `nodes[${i}].model.retarget.source`;
+      const ids = jointedJointIds(source);
+      const missing = Object.values(ids).filter((x) => !nodeIds.has(x));
+      if (missing.length > 0) {
+        add(sp, `source "${source}" is not a jointed mannequin: missing node${missing.length > 1 ? 's' : ''} ${missing.map((x) => `"${x}"`).join(', ')}. Build it with createMannequin({ id: "${source}", limbs: 'jointed' })`);
+        continue;
+      }
+      for (const [key, jid] of Object.entries(ids)) {
+        if (key === 'root') continue;
+        // Static chain up to the root, no re-parenting below it: the rest pose and the per-frame pose read it
+        let cur: string | undefined = jid;
+        const seen = new Set<string>();
+        let bad: string | null = null;
+        while (cur !== undefined && cur !== ids.root && !seen.has(cur)) {
+          seen.add(cur);
+          const node = nodeAt.get(cur);
+          if (node && (node.parentJoint !== undefined || (isObj(node.tracks) && node.tracks.parent !== undefined))) {
+            bad = `node "${cur}" has ${node.parentJoint !== undefined ? 'parentJoint' : 'tracks.parent'}`;
+            break;
+          }
+          cur = parentOf.get(cur);
+        }
+        if (bad === null && cur !== ids.root) bad = `it is not below "${ids.root}" through "parent" links`;
+        if (bad !== null) {
+          add(sp, `source "${source}": joint "${jid}" cannot drive the model: ${bad}. The mannequin's pivots must hang from its root through static "parent" links (as createMannequin builds them)`);
+        }
+      }
+      // The root's world transform is evaluated without joint poses (the mannequin may not be drawn in the model's pass)
+      const reach = new Set<string>([ids.root]);
+      const queue = [ids.root];
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        const use = jointUse.get(cur);
+        if (use) {
+          add(sp, `source "${source}": the mannequin root ${cur === ids.root ? '' : `(through node "${cur}") `}hangs from joint "${use.joint}" of model "${use.model}"${use.t !== undefined ? ` (tracks.parent from t=${fmt(use.t)})` : ''}; a retarget source must not depend on joint poses. Parent the root to a node or the world`);
+          break;
+        }
+        if (retargeted.has(cur)) {
+          add(sp, `source "${source}": the mannequin root hangs from the retargeted model "${cur}"; parent it to another node or the world`);
+          break;
+        }
+        for (const x of [parentOf.get(cur), ...(parentKeys.get(cur) ?? []).map((k) => k.node)]) {
+          if (typeof x === 'string' && !reach.has(x)) {
+            reach.add(x);
+            queue.push(x);
+          }
+        }
+      }
+    }
+    // Nothing may hang from or follow a retargeted model: its node origin is not where it is drawn
+    nodes.forEach((n, i) => {
+      if (!isObj(n) || typeof n.id !== 'string') return;
+      const msg = (ref: string) =>
+        `"${ref}" is a retargeted model (model.retarget): it is drawn on its mannequin, not at its node origin, so nodes cannot hang from it. Parent to the mannequin's pivots (e.g. "${retargets.find((r) => r.id === ref)!.source}.handR") instead`;
+      if (typeof n.parent === 'string' && retargeted.has(n.parent)) add(`nodes[${i}].parent`, msg(n.parent));
+      if (isObj(n.tracks) && Array.isArray(n.tracks.parent)) {
+        n.tracks.parent.forEach((k, ki) => {
+          if (isObj(k) && isObj(k.v) && typeof k.v.node === 'string' && retargeted.has(k.v.node)) add(`nodes[${i}].tracks.parent[${ki}].v.node`, msg(k.v.node));
+        });
+      }
+    });
+    if (Array.isArray(d.shots)) {
+      d.shots.forEach((s, i) => {
+        const f = isObj(s) && isObj(s.camera) && isObj(s.camera.target) ? s.camera.target.follow : undefined;
+        if (typeof f === 'string' && retargeted.has(f)) {
+          add(`shots[${i}].camera.target.follow`, `follow "${f}" is a retargeted model (drawn on its mannequin, not at its node origin); follow the mannequin root or hips (e.g. "${retargets.find((r) => r.id === f)!.source}.hips") instead`);
+        }
+      });
+    }
   }
 
   // Look membership: a node drawn in a pass may only reference nodes drawn in that pass

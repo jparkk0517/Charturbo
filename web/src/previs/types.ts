@@ -110,6 +110,46 @@ export interface PrevisModel {
    * `worldTransform` still see the authored position.
    */
   groundLock?: boolean;
+  /**
+   * Drive this model's skeleton from a jointed mannequin of the doc (pose retargeting, `retarget.ts`): every frame
+   * the mannequin joints' rotations (relative to its rest pose, in the mannequin root frame) are transferred onto the
+   * mapped bones; unmapped bones keep their rest local rotation. Then a two-bone IK puts each hand bone (wrist) on the
+   * mannequin hand pivot and each ankle on the mannequin foot pivot lifted by the rig's rest ankle height (a goal out of
+   * reach leaves the limb straight toward it), and a foot whose pivot is within 0.02 m of the ground is level (rest foot
+   * rotation under the root's yaw), above 0.08 m it follows the shin, blended in between. The model needs a skin
+   * (skinned glTF).
+   *
+   * PLACEMENT: the model ignores its own node transform. Its frame is the mannequin ROOT's world frame (position and
+   * rotation, parents and `tracks.parent` included); it is drawn at the uniform scale k = mannequin leg length /
+   * rig leg length (hip joint to ankle) and translated so its hips bone lies on the mannequin hips pivot. So
+   * `position` / `rotation` must be [0, 0, 0], and `fit`, `groundLock`, `animation`, `parent`, `parentJoint` and
+   * the `position` / `rotation` / `size` / `joints` / `parent` tracks are not allowed; `size` is ignored. No node may
+   * use it as a parent or camera `follow` target (attach to the mannequin's pivots instead). `visible` works.
+   * The mannequin's own `look.show` does not matter: the pose is evaluated from the doc, so a 'flat' mannequin may
+   * drive a 'textured' model.
+   */
+  retarget?: PrevisRetarget;
+}
+
+/** Source and joint map of `PrevisModel.retarget`. */
+export interface PrevisRetarget {
+  /**
+   * Id prefix of a `limbs: 'jointed'` mannequin in the doc (`createMannequin({ id })`), e.g. "hero": the nodes
+   * `hero.root`, `.hips`, `.spine`, `.head`, `.shoulderX`, `.elbowX`, `.handX`, `.hipX`, `.kneeX`, `.footX` must exist,
+   * each joint below `hero.root` through static `parent` links.
+   */
+  source: string;
+  /** Bone naming of the model: 'ue' (pelvis, spine_01, upperarm_l, ...; Quaternius, Unreal) or 'kaykit' (hips, upperarm.l, ...). */
+  map: 'ue' | 'kaykit';
+  /**
+   * Default false. True: in every pass that draws this model, a `tracks.parent` key (without `joint`, not `snap`) that
+   * switches a node onto a pivot of the source mannequin that the map drives (e.g. `hero.handR`) hangs the node from the
+   * matching rig bone of this model instead (`hand_r`), so a picked-up prop stays in the textured hand although the rig's
+   * proportions differ from the mannequin's. The capture keeps the world transform at the switch, as for any key.
+   * Passes that do not draw the model, and the pure evaluator (`evaluateFrame`, `worldTransform`), keep the mannequin
+   * pivot. Static `parent` / `parentJoint` and `snap` keys always keep the mannequin pivot. At most one model per source.
+   */
+  attach?: boolean;
 }
 
 export interface PrevisNode {

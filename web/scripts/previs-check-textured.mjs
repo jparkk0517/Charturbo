@@ -3,7 +3,7 @@
 //
 //   node scripts/previs-check-textured.mjs [doc.json ...] [--frames=N] [--backend=webgpu|webgl2] [--keep=<dir>] [--selftest]
 //
-// Default docs: previs/examples/textured-demo.json, model-demo.json, gate-raid.json; default --frames=24 (the first N
+// Default docs: previs/examples/textured-demo.json, model-demo.json, gate-raid.json, retarget-demo.json; default --frames=24 (the first N
 // frames of each doc, for speed). Per doc it renders (previs-render.mjs --format=png-seq): beauty only (A), beauty +
 // textured (B), and beauty + textured again (C). Checks (any failure -> exit 1, else 0):
 //   1 beauty    : every beauty png of A equals B byte for byte (sha1) -> adding the textured pass never changes beauty.
@@ -33,7 +33,7 @@ import { decodePng } from '../e2e/lib/image.mjs';
 const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const renderer = path.join(webDir, 'scripts', 'previs-render.mjs');
 const EX = path.join(webDir, 'previs', 'examples');
-const DEFAULT_DOCS = ['textured-demo.json', 'model-demo.json', 'gate-raid.json'].map((f) => path.join(EX, f));
+const DEFAULT_DOCS = ['textured-demo.json', 'model-demo.json', 'gate-raid.json', 'retarget-demo.json'].map((f) => path.join(EX, f));
 
 export const LIMITS = { clipped: 0.01, crushed: 0.05, lumaMin: 0.25, lumaMax: 0.65, iou: 0.98, rerunPixels: 1e-4 };
 
