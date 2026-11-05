@@ -7,6 +7,7 @@ const root = import.meta.dirname;
 const src = resolve(root, '../src');
 
 export default defineConfig({
+  // root = web/previs: the viewer (viewer.html) fetches examples/**/*.json and their models from here as static files
   root,
   base: './',
   resolve: {

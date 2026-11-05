@@ -1,20 +1,30 @@
 html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
 body { display: flex; flex-direction: column; }
+#top { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: #1b1b1b; border-bottom: 1px solid #2a2a2a; }
+#title { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#look.on { border-color: #6af; color: #cdf; }
 #drop { margin: 8px; padding: 10px; border: 2px dashed #444; border-radius: 8px; text-align: center; }
-#drop p { margin: 0 0 6px; }
+#drop p { margin: 0; }
 #drop.over { border-color: #6af; background: #1a2230; }
 body.loaded #drop { display: none; }
+body.loaded #drop.over { display: block; }
 .btn { display: inline-block; padding: 4px 12px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
-.btn.small { margin-left: auto; }
 #issues { margin: 8px; padding: 8px 8px 8px 28px; background: #2a1414; border: 1px solid #733; border-radius: 6px; color: #fbb; font-family: ui-monospace, monospace; max-height: 30vh; overflow: auto; }
 #msg { margin: 8px; padding: 8px; background: #2a2214; border: 1px solid #773; border-radius: 6px; color: #fd9; }
-#stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+#stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 #stage canvas { display: block; }
+#stage canvas[hidden] { display: none; }
+#loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 6px 14px; background: rgba(0, 0, 0, 0.7); border: 1px solid #555; border-radius: 6px; z-index: 1; }
 #bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #1b1b1b; }
-#bar[hidden], #issues[hidden], #msg[hidden] { display: none; }
-#seek { flex: 1; }
-#time { font-variant-numeric: tabular-nums; min-width: 9em; }
+#bar[hidden], #issues[hidden], #msg[hidden], #loading[hidden], #scene[hidden], #marks[hidden] { display: none; }
+#seekwrap { position: relative; flex: 1; display: flex; align-items: center; }
+#seek { flex: 1; margin: 0; }
+/* scene boundaries; 8px = half the range thumb, so a mark sits where the thumb center does at that time */
+#marks { position: absolute; left: 8px; right: 8px; top: -4px; bottom: -4px; pointer-events: none; }
+#marks i { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fa4; opacity: 0.85; }
+#time { font-variant-numeric: tabular-nums; min-width: 11em; }
 #shot { color: #8cf; min-width: 6em; }
+#perf { color: #888; font-variant-numeric: tabular-nums; min-width: 8em; text-align: right; }
 button, select { background: #2a2a2a; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 10px; }
 #picker { margin: 8px; padding: 8px; background: #14202a; border: 1px solid #378; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #picker p { margin: 0; flex-basis: 100%; }

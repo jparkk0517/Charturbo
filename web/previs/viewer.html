@@ -7,18 +7,27 @@
     <link rel="stylesheet" href="./viewer.css" />
   </head>
   <body>
-    <div id="drop">
-      <p>previs JSON 파일(과 glTF 모델 .glb 파일들)을 여기에 끌어다 놓거나 (폴더도 가능)</p>
+    <header id="top">
+      <select id="docs" title="서버 예제 (examples/*.json, examples/film/*.json)"></select>
+      <button id="look" type="button" title="flat ↔ textured (단축키 t)">look: flat</button>
       <label class="btn">파일 선택<input id="file" type="file" multiple hidden /></label>
+      <span id="title"></span>
+    </header>
+    <div id="drop">
+      <p>예제를 고르거나, previs JSON(또는 재생목록 JSON)과 glTF 모델 .glb 파일들을 여기에 끌어다 놓으세요 (폴더도 가능)</p>
     </div>
     <div id="picker" hidden></div>
     <ul id="issues" hidden></ul>
     <div id="msg" hidden></div>
-    <div id="stage"></div>
+    <div id="stage"><div id="loading" hidden>불러오는 중…</div></div>
     <div id="bar" hidden>
-      <button id="play">재생</button>
-      <input id="seek" type="range" min="0" max="1" step="any" value="0" />
-      <span id="time">0.00 / 0.00</span>
+      <button id="play" type="button">재생</button>
+      <div id="seekwrap">
+        <input id="seek" type="range" min="0" max="1" step="any" value="0" />
+        <div id="marks"></div>
+      </div>
+      <span id="time">0:00.00 / 0:00.00</span>
+      <select id="scene" hidden title="씬으로 이동"></select>
       <span id="shot"></span>
       <label><input id="loop" type="checkbox" checked /> 반복</label>
       <select id="speed">
@@ -27,7 +36,7 @@
         <option value="1" selected>1x</option>
         <option value="2">2x</option>
       </select>
-      <label class="btn small">파일 추가/교체<input id="file2" type="file" multiple hidden /></label>
+      <span id="perf"></span>
     </div>
     <script type="module" src="./viewer.ts"></script>
   </body>
