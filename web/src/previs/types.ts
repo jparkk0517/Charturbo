@@ -127,6 +127,13 @@ export interface PrevisModel {
    * use it as a parent or camera `follow` target (attach to the mannequin's pivots instead). `visible` works.
    * The mannequin's own `look.show` does not matter: the pose is evaluated from the doc, so a 'flat' mannequin may
    * drive a 'textured' model.
+   *
+   * MODEL SOURCE (`source` = the id of another `shape: 'model'` node, with `sourceMap`): the same transfer reads the
+   * source model's POSED bones every frame instead of mannequin pivots (clips, blends, `tracks.joints`, ground lock and
+   * the node's own position / rotation tracks included). The model then sits on the source node's world frame, scaled by
+   * source leg length (meters, as drawn) / rig leg length, its hips on the source's hips bone. In passes that do not draw
+   * the source, the source is still loaded and posed but never drawn (pose only), and nodes drawn there may hang from it
+   * (e.g. a club on its forearm joint).
    */
   retarget?: PrevisRetarget;
 }
@@ -134,13 +141,21 @@ export interface PrevisModel {
 /** Source and joint map of `PrevisModel.retarget`. */
 export interface PrevisRetarget {
   /**
-   * Id prefix of a `limbs: 'jointed'` mannequin in the doc (`createMannequin({ id })`), e.g. "hero": the nodes
+   * Either the id prefix of a `limbs: 'jointed'` mannequin in the doc (`createMannequin({ id })`), e.g. "hero": the nodes
    * `hero.root`, `.hips`, `.spine`, `.head`, `.shoulderX`, `.elbowX`, `.handX`, `.hipX`, `.kneeX`, `.footX` must exist,
-   * each joint below `hero.root` through static `parent` links.
+   * each joint below `hero.root` through static `parent` links; or the id of a `shape: 'model'` node (MODEL SOURCE, needs
+   * `sourceMap`). A model source must not itself have `retarget`, must be placed in the world (no `parent`,
+   * `parentJoint`, `tracks.parent`), use `fit` 'contain' and have no `size` track.
    */
   source: string;
   /** Bone naming of the model: 'ue' (pelvis, spine_01, upperarm_l, ...; Quaternius, Unreal) or 'kaykit' (hips, upperarm.l, ...). */
   map: 'ue' | 'kaykit';
+  /**
+   * Model source only (required there, rejected for a mannequin source): bone naming of the SOURCE model. 'walker'
+   * (`models/walker.glb`: hips, torso, head, upperArm.X, lowerArm.X, upperLeg.X, lowerLeg.X; hands and ankles are the
+   * ends of the forearm and shin nodes), 'ue' or 'kaykit' (the bones of the target maps of the same name).
+   */
+  sourceMap?: 'walker' | 'ue' | 'kaykit';
   /**
    * Default false. True: in every pass that draws this model, a `tracks.parent` key (without `joint`, not `snap`) that
    * switches a node onto a pivot of the source mannequin that the map drives (e.g. `hero.handR`) hangs the node from the
@@ -148,6 +163,7 @@ export interface PrevisRetarget {
    * proportions differ from the mannequin's. The capture keeps the world transform at the switch, as for any key.
    * Passes that do not draw the model, and the pure evaluator (`evaluateFrame`, `worldTransform`), keep the mannequin
    * pivot. Static `parent` / `parentJoint` and `snap` keys always keep the mannequin pivot. At most one model per source.
+   * Not allowed with a model source.
    */
   attach?: boolean;
 }

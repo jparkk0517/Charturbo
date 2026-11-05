@@ -32,7 +32,9 @@
  * - Goals in rig model space (hips bone at rest, scale k): g = P0_hips + (p_joint - p_hips) / k. Hand: the mannequin
  *   hand pivot is the wrist, and so is the origin of the rig's hand bone. Foot: the mannequin foot pivot is the
  *   GROUND point under the ankle, the rig foot bone is the ankle, so the goal is lifted by the rig's rest ankle height
- *   P0_foot.y (the rig is assumed to stand on y = 0 at rest) along world up (root frame: q_root^-1 * +y).
+ *   P0_foot.y (the rig is assumed to stand on y = 0 at rest) along world up (root frame: q_root^-1 * +y). A model source's
+ *   foot frames are ankles, not ground points: `sourceAnkleHeight` hs (meters) moves them down to the ground point first
+ *   (goal lift P0_foot.y - hs / k, planted height - hs); 0 for a mannequin.
  * - Analytic two-bone IK (law of cosines) in the bend plane of the FK result: pole = the FK mid joint's offset from
  *   the a -> c line; when FK is straight (|pole| < 1e-4 (l1 + l2)), the rest pose's pole turned by the root bone's FK
  *   rotation change; when that is straight too, the limb's default (knees +z, elbows -z, root frame) turned likewise.
@@ -41,6 +43,12 @@
  * - End bones keep their FK world rotation (hands). Feet: slerp(FK, level, w) with level = the rest foot rotation
  *   under the root's yaw only (sole flat in world), w = 1 - smoothstep(PLANT_LOW, PLANT_HIGH, world height of the
  *   mannequin foot pivot). Everything is a pure function of the inputs (deterministic).
+ *
+ * MODEL SOURCES (`modelSourceFrames`, `RETARGET_SOURCE_MAPS`)
+ * - The "mannequin" frames can come from a posed glTF model instead: each canonical joint reads one source bone's world
+ *   matrix (rotation = columns normalized, position = the matrix applied to an optional bone-local `tip`, for rigs
+ *   without hand / ankle nodes such as walker.glb). Rest frames = the same of the rest matrices; everything above applies
+ *   unchanged (Δ_j is then the source bone's rotation change, the alignment uses the source's rest bone directions).
  *
  * Limits
  * - Rotations ignore node scale (exact for unit / uniform scales, as in KayKit where |s - 1| < 1e-6).
@@ -140,6 +148,12 @@ export interface RetargetPoseOptions {
   plant?: boolean;
   /** World transform of the mannequin root (meters); gives world up and the foot heights. Default identity. */
   root?: { q: Quat; p: Vec3 };
+  /**
+   * Height (meters, along world up) of the source foot frames above the ground point under them, when standing: 0
+   * (default) for mannequin foot pivots, which ARE ground points; a model source's ankle rest height x its scale
+   * (`modelSourceRest`). Foot goals and planted-foot heights are taken from that ground point.
+   */
+  sourceAnkleHeight?: number;
 }
 
 export interface RetargetLimbResult {
@@ -229,6 +243,112 @@ export const RETARGET_MAPS: Readonly<Record<'ue' | 'kaykit', readonly RetargetJo
   ue: UE_RETARGET_MAP,
   kaykit: KAYKIT_RETARGET_MAP,
 });
+
+// ---------------------------------------------------------------------------------------------
+// Model sources: canonical joint frames read from a posed glTF model (see modelSourceFrames)
+// ---------------------------------------------------------------------------------------------
+
+/** One canonical (mannequin) joint read from a bone of a SOURCE model: `joint` <- the bone's frame at `tip`. */
+export interface RetargetSourceJoint {
+  /** Canonical joint name (a `MannequinJoints` key: `hips`, `spine`, `head`, `shoulderL`, ..., `footR`). */
+  joint: string;
+  /** Source rig node name. */
+  bone: string;
+  /** Point on the bone in its local frame (file units); default the bone origin. For rigs without a hand / ankle bone. */
+  tip?: Vec3;
+}
+
+const walkerSide = (s: 'L' | 'R'): RetargetSourceJoint[] => {
+  // The walker's ".R" limbs sit at +x and it faces +z, so they are the character's LEFT in the mannequin root frame
+  // (left = +x); the map goes by geometry, not by the node names.
+  const b = s === 'L' ? 'R' : 'L';
+  return [
+    { joint: `shoulder${s}`, bone: `upperArm.${b}` },
+    { joint: `elbow${s}`, bone: `lowerArm.${b}` },
+    // No hand bone: the hand pivot is the far end of the 0.28 forearm + hand segment
+    { joint: `hand${s}`, bone: `lowerArm.${b}`, tip: [0, -0.28, 0] },
+    { joint: `hip${s}`, bone: `upperLeg.${b}` },
+    { joint: `knee${s}`, bone: `lowerLeg.${b}` },
+    // No foot bone: the ankle is the lower end of the 0.44 shin (0.04 above the sole at rest)
+    { joint: `foot${s}`, bone: `lowerLeg.${b}`, tip: [0, -0.44, 0] },
+  ];
+};
+
+/**
+ * Source map of `models/walker.glb` (previs/examples/models.gen.ts buildWalker: rigid node hierarchy, no skin, no hand
+ * or foot nodes). `spine` reads `torso`; hands and feet are points at the ends of the forearm and shin nodes and turn
+ * with them.
+ */
+export const WALKER_SOURCE_MAP: readonly RetargetSourceJoint[] = Object.freeze([
+  { joint: 'hips', bone: 'hips' },
+  { joint: 'spine', bone: 'torso' },
+  { joint: 'head', bone: 'head' },
+  ...walkerSide('L'),
+  ...walkerSide('R'),
+]);
+
+/** Source maps by `PrevisRetarget.sourceMap` name: 'ue' / 'kaykit' read the bones of the target maps of the same name. */
+export const RETARGET_SOURCE_MAPS: Readonly<Record<'walker' | 'ue' | 'kaykit', readonly RetargetSourceJoint[]>> = Object.freeze({
+  walker: WALKER_SOURCE_MAP,
+  ue: Object.freeze(UE_RETARGET_MAP.map((e) => ({ joint: e.joint, bone: e.bone }))),
+  kaykit: Object.freeze(KAYKIT_RETARGET_MAP.map((e) => ({ joint: e.joint, bone: e.bone }))),
+});
+
+/**
+ * Canonical joint frames of a POSED source model, in its model space (the space of `matrix`, e.g. the loader space of
+ * `GltfAnimator.nodeMatrix`): rotation = the bone's world rotation (its 3x3 with the columns normalized: exact for a
+ * rotation times a positive scale, i.e. glTF TRS chains without shear or mirroring), position = the bone matrix applied
+ * to `tip`. Feet are the ANKLES (not ground points as the mannequin's foot pivots): pass their rest height to
+ * `solvePose` as `sourceAnkleHeight` (see `modelSourceRest`). `matrix` may reuse one output buffer: each matrix is read
+ * before the next call.
+ */
+export function modelSourceFrames(
+  map: readonly RetargetSourceJoint[],
+  matrix: (bone: string) => ArrayLike<number>,
+): Record<string, MannequinJointFrame> {
+  const out: Record<string, MannequinJointFrame> = {};
+  for (const e of map) {
+    const m = matrix(e.bone);
+    if (!m || m.length < 16) throw new Error(`retarget: no matrix for source bone "${e.bone}"`);
+    const tip = e.tip ?? [0, 0, 0];
+    const cols: Vec3[] = [0, 1, 2].map((c) => [m[c * 4], m[c * 4 + 1], m[c * 4 + 2]] as Vec3);
+    const n = cols.map(len);
+    if (!n.every((v) => v > 1e-12 && Number.isFinite(v))) throw new RangeError(`retarget: source bone "${e.bone}" has a zero or non-finite scale`);
+    const r: M3 = [
+      cols[0][0] / n[0], cols[1][0] / n[1], cols[2][0] / n[2],
+      cols[0][1] / n[0], cols[1][1] / n[1], cols[2][1] / n[2],
+      cols[0][2] / n[0], cols[1][2] / n[1], cols[2][2] / n[2],
+    ];
+    const pos: Vec3 = [
+      m[12] + m[0] * tip[0] + m[4] * tip[1] + m[8] * tip[2],
+      m[13] + m[1] * tip[0] + m[5] * tip[1] + m[9] * tip[2],
+      m[14] + m[2] * tip[0] + m[6] * tip[1] + m[10] * tip[2],
+    ];
+    out[e.joint] = { rot: quatFromM3(r), pos };
+  }
+  return out;
+}
+
+/**
+ * Rest frames of a source model (`modelSourceFrames` of the REST matrices) and its ankle rest height: the mean model-space
+ * y of the `footL` / `footR` points (the rig is assumed to stand on y = 0 at rest, as the target rig); 0 without feet.
+ */
+export function modelSourceRest(
+  map: readonly RetargetSourceJoint[],
+  matrix: (bone: string) => ArrayLike<number>,
+): { frames: Record<string, MannequinJointFrame>; ankleHeight: number } {
+  const frames = modelSourceFrames(map, matrix);
+  const feet = ['footL', 'footR'].filter((j) => frames[j]);
+  const ankleHeight = feet.length ? feet.reduce((a, j) => a + frames[j].pos[1], 0) / feet.length : 0;
+  return { frames, ankleHeight };
+}
+
+/** Frames with every position mapped to s * pos + t (rotations unchanged): model space -> a scaled, shifted frame. */
+export function scaleFrames(frames: Readonly<Record<string, MannequinJointFrame>>, s: number, t: Vec3 = [0, 0, 0]): Record<string, MannequinJointFrame> {
+  const out: Record<string, MannequinJointFrame> = {};
+  for (const [j, f] of Object.entries(frames)) out[j] = { rot: f.rot, pos: [s * f.pos[0] + t[0], s * f.pos[1] + t[1], s * f.pos[2] + t[2]] };
+  return out;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Small math (quaternions [x, y, z, w], row-major 3x3)
@@ -716,6 +836,8 @@ export function prepareRetarget(
     const plant = options.plant !== false;
     const rootQ = qnorm(options.root?.q ?? ID);
     const rootP = options.root?.p ?? [0, 0, 0];
+    const hs = options.sourceAnkleHeight ?? 0;
+    if (!Number.isFinite(hs)) throw new RangeError('retarget: sourceAnkleHeight must be finite');
     const up = quatRotate(qconj(rootQ), [0, 1, 0]);
     // level = root yaw only, expressed in the root frame: q_root^-1 * yaw(q_root)
     const fwd = quatRotate(rootQ, [0, 0, 1]);
@@ -740,7 +862,9 @@ export function prepareRetarget(
       let miss = 0;
       if (ik) {
         let goal = goalOf(L.end);
-        if (L.leg) goal = add(goal, [up[0] * P0[c][1], up[1] * P0[c][1], up[2] * P0[c][1]]);
+        // Foot: the ground point under the source ankle (source foot frame - up * hs) lifted by the rig's ankle height
+        const lift = P0[c][1] - hs / k;
+        if (L.leg) goal = add(goal, [up[0] * lift, up[1] * lift, up[2] * lift]);
         const A = P[a];
         const B = P[b];
         const C = P[c];
@@ -787,7 +911,7 @@ export function prepareRetarget(
       let w = 0;
       if (L.leg && plant) {
         const fp = frames(L.end).pos;
-        const h = quatRotate(rootQ, fp)[1] + rootP[1];
+        const h = quatRotate(rootQ, fp)[1] + rootP[1] - hs;
         const x = Math.min(1, Math.max(0, (h - PLANT_LOW) / (PLANT_HIGH - PLANT_LOW)));
         w = 1 - x * x * (3 - 2 * x);
         if (w > 0) Wc = slerp(W[c], qnorm(qmul(level, W0[c])), w);

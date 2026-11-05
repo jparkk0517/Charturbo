@@ -157,6 +157,31 @@
  * rewrite, so a camera `follow` sees the mannequin pivot in every pass.
  * Docs without `model.retarget` make exactly the calls they made before.
  *
+ * RETARGET FROM A MODEL (`retarget.source` = a model node id, `retarget.sourceMap`; rules in validate.ts)
+ * The same solver, fed with canonical joint frames read from the SOURCE model's posed bones (`modelSourceFrames`) instead
+ * of mannequin pivots:
+ *   PRESENCE: a pass that draws the target also holds the source. When the look drops the source (`look.show`), `docForLook`
+ *             keeps it as a POSE-ONLY copy (`visible: false`, no visible track: loaded, posed every frame, never drawn, see
+ *             POSE-ONLY); nodes of that pass may hang from it (sockets). Its state is part of that pass's FrameState.
+ *   LOAD:     the source gets the source map's bones in `posable` (a missing bone fails the source's load); a pose-only
+ *             copy loads with `textures: false` (never drawn). Every load starts at once; a target awaits ITS source's load
+ *             before deciding the tiny-scale reload, which needs the source rest pose (read with a temporary animator on
+ *             the source's load, before its own animator exists) and its FIT scale ks (contain fit of its static `size`,
+ *             engine units per loader unit). Rest frames = `modelSourceRest` x ks / worldScale (meters; the source feet are
+ *             its ANKLES, so legScale is hip -> knee -> ankle on both rigs, and the ankle rest height x ks / worldScale is
+ *             the `sourceAnkleHeight` that moves foot goals and plant heights to the ground point); k = legScale x
+ *             worldScale as for a mannequin. Targets are attached after the other models. A missing sourceMap or a source
+ *             that is itself model-sourced throws before the scene is set up. No pose is sent at load (the first frame()
+ *             sends it).
+ *   FRAME:    after every node's pose and the GROUND LOCK pass (the source is fully posed and lifted), per target: q, p = the
+ *             source node's state rotation / position (validate.ts: the source has no parent), which is also the target's
+ *             PIVOT; loader-space frames from `animator.nodeMatrix` of the source bones (`modelSourceFrames`: feet are the
+ *             ankles), mapped through the source FIT: pos_m = (ks * pos + fitPos) / worldScale (fitPos includes the ground-lock
+ *             offset); then `solvePose(frames, k / worldScale, { root: { q, p }, sourceAnkleHeight })` (the source's rest ankle
+ *             height in meters: foot goals and plant heights from the ground point under its ankles), ONE absolute
+ *             setNodeRotations and the FIT (hips on the source hips bone), each only when changed, like a mannequin source.
+ * Docs without a model source make exactly the calls they made before.
+ *
  * CAMERA
  * Each frame calls `sdk.setCameraView({ eye, target, up, roll })` (meters * worldScale, roll in radians): an
  * exact look-at with no distance or pitch clamp (close-ups and straight-down shots render as authored;
@@ -231,7 +256,21 @@ import {
 
 export { eulerYXZToQuat, matrixToEulerYXZ };
 import { jointedJointIds, type JointedJoints } from './mannequin';
-import { mannequinFrames, prepareRetarget, quatRotate, rigFromWorldMatrices, RETARGET_MAPS, type MannequinJointFrame, type Retargeter } from './retarget';
+import {
+  mannequinFrames,
+  modelSourceFrames,
+  modelSourceRest,
+  prepareRetarget,
+  quatRotate,
+  rigFromWorldMatrices,
+  scaleFrames,
+  RETARGET_MAPS,
+  RETARGET_SOURCE_MAPS,
+  type MannequinJointFrame,
+  type RetargetRig,
+  type RetargetSourceJoint,
+  type Retargeter,
+} from './retarget';
 import type { ClipWeight, FrameState, NodeState, PrevisDoc, PrevisModelAnimation, PrevisModelFit, PrevisNode, Rgb, Vec3 } from './types';
 
 export interface PrevisPlayer {
@@ -326,12 +365,10 @@ interface ModelObjects {
 /** Per-node state of `model.retarget` (see RETARGET). */
 interface RetargetObjects {
   retargeter: Retargeter;
-  /** Mannequin pivot ids (`jointedJointIds(source)`). */
-  joints: JointedJoints;
-  /** Full-doc nodes the pose reads (the pivots, their static chains to the root, the root's possible parents). */
-  closure: PrevisNode[];
-  /** World transforms over the FULL doc (the mannequin may not be drawn in this look); no joint poses needed. */
-  resolver: ParentResolver;
+  /** Mannequin source (see RETARGET); null for a model source. */
+  mannequin: MannequinSource | null;
+  /** Model source (see RETARGET FROM A MODEL); null for a mannequin source. */
+  model: ModelSource | null;
   /** Mapped rig nodes: name and rig index, map order. */
   bones: { name: string; index: number }[];
   /** FIT scale, engine units per loader unit: legScale (meters per loader unit) x worldScale. */
@@ -340,6 +377,30 @@ interface RetargetObjects {
   hipsRest: Vec3;
   /** Rotations last sent (4 per bone); null before the first send. */
   sent: Float64Array | null;
+}
+
+interface MannequinSource {
+  /** Mannequin pivot ids (`jointedJointIds(source)`). */
+  joints: JointedJoints;
+  /** Full-doc nodes the pose reads (the pivots, their static chains to the root, the root's possible parents). */
+  closure: PrevisNode[];
+  /** World transforms over the FULL doc (the mannequin may not be drawn in this look); no joint poses needed. */
+  resolver: ParentResolver;
+}
+
+interface ModelSource {
+  /** The source model node of this pass (drawn or pose-only); posed before the target in every frame. */
+  node: NodeObjects;
+  /** `RETARGET_SOURCE_MAPS[sourceMap]`. */
+  map: readonly RetargetSourceJoint[];
+  /** Rest ankle height of the source as drawn, meters (`modelSourceRest` x ks / worldScale): `sourceAnkleHeight`. */
+  ankleHeight: number;
+}
+
+/** Rest of a loaded source model (see RETARGET FROM A MODEL), meters as drawn: frames and ankle height. */
+interface SourceRest {
+  frames: Record<string, MannequinJointFrame>;
+  ankleHeight: number;
 }
 
 /** Alpha-0 object that follows one joint of a model node (see SOCKETS). */
@@ -465,25 +526,83 @@ function checkLook(fn: string, look: unknown): PrevisPlayerLook {
   return look;
 }
 
-/** The doc with only the nodes `look` draws (`look.show`, see LOOKS); the same object when it draws every node. */
+/**
+ * The doc with only the nodes `look` draws (`look.show`, see LOOKS), plus a POSE-ONLY copy of every model source of a drawn
+ * retarget that the look does not draw (see RETARGET FROM A MODEL); the same object when it draws every node.
+ */
 function docForLook(doc: PrevisDoc, look: PrevisPlayerLook): PrevisDoc {
-  const drawn = (n: PrevisNode): boolean => {
-    const show = n.look?.show ?? 'both';
-    return show === 'both' || show === look;
-  };
-  return doc.nodes.every(drawn) ? doc : { ...doc, nodes: doc.nodes.filter(drawn) };
+  const drawn = (n: PrevisNode): boolean => drawnIn(n, look);
+  if (doc.nodes.every(drawn)) return doc;
+  const byId = new Map(doc.nodes.map((n) => [n.id, n]));
+  const poseOnly = new Set<string>();
+  for (const n of doc.nodes) {
+    const s = drawn(n) ? modelSourceOf(n, byId) : undefined;
+    if (s && !drawn(s)) poseOnly.add(s.id);
+  }
+  const nodes = doc.nodes.filter((n) => drawn(n) || poseOnly.has(n.id));
+  return { ...doc, nodes: poseOnly.size === 0 ? nodes : nodes.map((n) => (poseOnly.has(n.id) ? poseOnlyNode(n) : n)) };
+}
+
+/** Whether `look` draws node `n` (`look.show`, see LOOKS). */
+function drawnIn(n: PrevisNode, look: PrevisPlayerLook): boolean {
+  const show = n.look?.show ?? 'both';
+  return show === 'both' || show === look;
+}
+
+/** A node that exists (pivot, model, pose) but is never drawn: `visible` false and no visible track. */
+function poseOnlyNode(n: PrevisNode): PrevisNode {
+  if (!n.tracks) return { ...n, visible: false };
+  const { visible: _visible, ...tracks } = n.tracks;
+  return { ...n, visible: false, tracks };
+}
+
+/** The model node a retarget of `n` reads (`retarget.source` names a model node), else undefined. */
+function modelSourceOf(n: PrevisNode, byId: ReadonlyMap<string, PrevisNode>): PrevisNode | undefined {
+  const r = n.shape === 'model' ? n.model?.retarget : undefined;
+  const s = r ? byId.get(r.source) : undefined;
+  return s?.shape === 'model' && s !== n ? s : undefined;
+}
+
+/**
+ * Bones every model source of `doc` must expose (`posable`), by source node id (see RETARGET FROM A MODEL). Only targets
+ * that are loaded count (they ever show a shape: nothing hangs from a retargeted model), as in models.ts `nodeLoadsModel`.
+ */
+function modelSourceBones(doc: PrevisDoc): Map<string, string[]> {
+  const byId = new Map(doc.nodes.map((n) => [n.id, n]));
+  const out = new Map<string, string[]>();
+  for (const n of doc.nodes) {
+    const s = hasShape(n) ? modelSourceOf(n, byId) : undefined;
+    if (!s) continue;
+    // A chain would make a load wait for itself (validate.ts rejects it too)
+    if (modelSourceOf(s, byId)) throw new Error(`node "${n.id}": model.retarget source "${s.id}" is itself retargeted from a model; a model source must be posed by its own clips / joints`);
+    const map = sourceMapOf(n);
+    const bones = out.get(s.id) ?? [];
+    for (const e of map) if (!bones.includes(e.bone)) bones.push(e.bone);
+    out.set(s.id, bones);
+  }
+  return out;
+}
+
+function sourceMapOf(n: PrevisNode): readonly RetargetSourceJoint[] {
+  const name = n.model?.retarget?.sourceMap;
+  const map = name !== undefined ? RETARGET_SOURCE_MAPS[name] : undefined;
+  if (!map) throw new Error(`model.retarget: source "${n.model?.retarget?.source}" is a model node and needs sourceMap (walker, ue or kaykit); got ${JSON.stringify(name)}`);
+  return map;
 }
 
 /**
  * `model.retarget.attach` (see RETARGET): the drawn doc with every `tracks.parent` key (no joint, not snap) that targets a
- * driven pivot of an attaching model's source mannequin turned into a joint ref of that model's mapped bone. The same
- * object when nothing changes (docs without attach are untouched).
+ * driven pivot of an attaching model's source mannequin turned into a joint ref of that model's mapped bone. Only models
+ * the pass draws attach: in the look's doc and ever visible (`hasShape`); a model hidden for good keeps the mannequin
+ * pivots. The same object when nothing changes (docs without attach are untouched).
  */
 function attachForLook(doc: PrevisDoc): PrevisDoc {
   const to = new Map<string, { node: string; joint: string }>();
   for (const n of doc.nodes) {
     const r = n.shape === 'model' ? n.model?.retarget : undefined;
-    if (!r?.attach) continue;
+    // Only a model this pass DRAWS (in the look's doc and ever visible): a never-visible one is not loaded (models.ts
+    // nodeLoadsModel), so its bones must not become sockets
+    if (!r?.attach || !hasShape(n)) continue;
     const ids = jointedJointIds(r.source) as unknown as Record<string, string>;
     for (const e of RETARGET_MAPS[r.map] ?? []) if (ids[e.joint] !== undefined) to.set(ids[e.joint], { node: n.id, joint: e.bone });
   }
@@ -717,8 +836,10 @@ function captureParents(doc: PrevisDoc, ws: number, objects: Map<string, NodeObj
     if (m.retarget) {
       // The model node's world is the identity (the PIVOT carries the mannequin root): return the bone frame in world
       const rt = m.retarget;
+      // validate.ts: nothing hangs from a model-sourced retarget (no attach), so no capture reads one
+      if (!rt.mannequin) throw new Error(`joint "${joint}" of node "${model}" cannot be captured: the model is retargeted from a model source`);
       const pose = retargetPose(rt, time);
-      const { next, fitPos } = retargetSolve(rt, pose, ws);
+      const { next, fitPos } = retargetSolve(rt, pose.frames, { q: pose.q, p: pose.root.position }, ws);
       sendRetarget(m, rt, next);
       const c: Vec3 = [-fitPos[0] / rt.k, -fitPos[1] / rt.k, -fitPos[2] / rt.k];
       const t = socketTransform(m.animator.nodeMatrix(joint, m.scratch), [rt.k, rt.k, rt.k], c, [NaN, NaN, NaN]);
@@ -791,6 +912,10 @@ function attachModel(
   look: PrevisPlayerLook,
   fullDoc: PrevisDoc,
   ws: number,
+  /** Bones this node exposes as a model source (see RETARGET FROM A MODEL); empty otherwise. */
+  sourceBones: readonly string[] = [],
+  /** Model source of this node's retarget (loaded and attached, with its rest); undefined for a mannequin source. */
+  source?: { node: NodeObjects; rest: SourceRest },
 ): void {
   const n = o.node;
   const { center, extent } = boundsOf(result);
@@ -831,7 +956,7 @@ function attachModel(
   const anim = n.model?.animation;
   const jointTracks = n.tracks?.joints;
   const jointNames = jointTracks ? Object.keys(jointTracks) : [];
-  const posable = posableNames(o);
+  const posable = posableNames(o, sourceBones);
   const groundLock = n.model?.groundLock === true;
   if (anim || posable.length > 0 || groundLock) animator = sdk.createGltfAnimator(result, { autoUpdate: false });
   if (animator && posable.length > 0) {
@@ -879,11 +1004,15 @@ function attachModel(
     model.clips = clips = clipWeightsAt(anim, 0);
     animator.setBlend(toBlend(segments, clips)); // initial pose = frame 0
   }
-  if (n.model?.retarget) {
+  if (n.model?.retarget && source) {
+    // Model source: posed from the source in every frame() (see RETARGET FROM A MODEL), nothing sent at load
+    model.retarget = setupModelRetarget(model, n, source.node, source.rest, ws);
+  } else if (n.model?.retarget) {
     // Frame-0 pose and FIT at load, like the clips (see RETARGET); the pivot follows in the first frame()
     const rt = setupRetarget(model, n, fullDoc, ws);
     model.retarget = rt;
-    applyRetarget(sdk, model, rt, retargetPose(rt, 0), ws);
+    const pose = retargetPose(rt, 0);
+    applyRetarget(sdk, model, rt, pose.frames, { q: pose.q, p: pose.root.position }, ws);
   }
   o.model = model;
   updateSockets(sdk, o.sockets, model); // frame-0 pose; nodeMatrix errors fail the load
@@ -893,6 +1022,23 @@ function attachModel(
 function setupRetarget(m: ModelObjects, n: PrevisNode, fullDoc: PrevisDoc, ws: number): RetargetObjects {
   if (!m.animator) throw new Error('model.retarget: the model has no rig to pose');
   const { retargeter, joints, closure, map } = buildRetarget(m.animator, m.result, n, fullDoc);
+  return retargetObjects(retargeter, map, ws, { joints, closure, resolver: createParentResolver(fullDoc) }, null);
+}
+
+/** RetargetObjects of a model-sourced retarget (see RETARGET FROM A MODEL); throws a load error. */
+function setupModelRetarget(m: ModelObjects, n: PrevisNode, source: NodeObjects, rest: SourceRest, ws: number): RetargetObjects {
+  if (!m.animator) throw new Error('model.retarget: the model has no rig to pose');
+  const retargeter = prepareRetarget(retargetRig(m.animator, m.result), RETARGET_MAPS[n.model!.retarget!.map], (j) => rest.frames[j]);
+  return retargetObjects(retargeter, RETARGET_MAPS[n.model!.retarget!.map], ws, null, { node: source, map: sourceMapOf(n), ankleHeight: rest.ankleHeight });
+}
+
+function retargetObjects(
+  retargeter: Retargeter,
+  map: readonly { bone: string }[],
+  ws: number,
+  mannequin: MannequinSource | null,
+  model: ModelSource | null,
+): RetargetObjects {
   if (retargeter.legScale === undefined) throw new Error('model.retarget: the map has no full leg chain to scale by');
   const k = retargeter.legScale * ws;
   if (!(k >= MIN_OBJECT_SCALE) || !Number.isFinite(k)) {
@@ -900,9 +1046,8 @@ function setupRetarget(m: ModelObjects, n: PrevisNode, fullDoc: PrevisDoc, ws: n
   }
   return {
     retargeter,
-    joints,
-    closure,
-    resolver: createParentResolver(fullDoc),
+    mannequin,
+    model,
     bones: map.map((e) => ({ name: e.bone, index: retargeter.indexOf(e.bone) })),
     k,
     hipsRest: [...retargeter.rest.pos[retargeter.hipsIndex]],
@@ -914,27 +1059,54 @@ function setupRetarget(m: ModelObjects, n: PrevisNode, fullDoc: PrevisDoc, ws: n
  * Engine units per file unit the retarget FIT of a freshly loaded model would need (legScale x worldScale), read with a
  * temporary animator (disposed again; the model is left at rest). Infinity when it cannot tell (no skin: the attach fails
  * with its own error). The load decides on this, not on `size`, whether to reload with a baked scale (see RETARGET).
+ * `source`: the rest of a model source (see RETARGET FROM A MODEL) instead of the mannequin's.
  */
-function retargetLoadFactor(sdk: Charturbo, r: GltfLoadResult, n: PrevisNode, fullDoc: PrevisDoc, ws: number): number {
+function retargetLoadFactor(sdk: Charturbo, r: GltfLoadResult, n: PrevisNode, fullDoc: PrevisDoc, ws: number, source?: SourceRest): number {
   const a = sdk.createGltfAnimator(r, { autoUpdate: false });
   try {
     if (!a.skinned) return Infinity;
-    return (buildRetarget(a, r, n, fullDoc).retargeter.legScale ?? Infinity) * ws;
+    const rt = source
+      ? prepareRetarget(retargetRig(a, r), RETARGET_MAPS[n.model!.retarget!.map], (j) => source.frames[j])
+      : buildRetarget(a, r, n, fullDoc).retargeter;
+    return (rt.legScale ?? Infinity) * ws;
   } finally {
     a.dispose();
   }
 }
 
-/** The retargeter of a loaded, unposed model (rig from the rest `nodeMatrix`) and the mannequin nodes its pose reads. */
-function buildRetarget(animator: GltfAnimator, result: GltfLoadResult, n: PrevisNode, fullDoc: PrevisDoc) {
-  const spec = n.model!.retarget!;
+/**
+ * Rest of a loaded, not yet attached model source (see RETARGET FROM A MODEL): the source map's bone frames from a
+ * temporary animator (disposed again), feet at the ankles; positions and the ankle rest height in meters (x its FIT scale
+ * ks / worldScale; the height becomes `sourceAnkleHeight`).
+ */
+function sourceRestOf(sdk: Charturbo, src: NodeObjects, r: GltfLoadResult, map: readonly RetargetSourceJoint[], ws: number): SourceRest {
+  const fit = src.node.model?.fit ?? 'contain';
+  const ks = modelFitScale(fit, src.meshScale, boundsOf(r).extent);
+  if (ks[0] !== ks[1] || ks[0] !== ks[2]) throw new Error(`model.retarget: the source "${src.node.id}" must be drawn at a uniform scale (fit 'contain')`);
+  const a = sdk.createGltfAnimator(r, { autoUpdate: false });
+  try {
+    const rest = modelSourceRest(map, (bone) => a.nodeMatrix(bone));
+    return { frames: scaleFrames(rest.frames, ks[0] / ws), ankleHeight: (rest.ankleHeight * ks[0]) / ws };
+  } finally {
+    a.dispose();
+  }
+}
+
+/** Rig of a loaded, unposed skinned model: rest local TRS from the rest world matrices (loader space). */
+function retargetRig(animator: GltfAnimator, result: GltfLoadResult): RetargetRig {
   if (!animator.skinned) throw new Error('model.retarget needs a skinned model (a glTF skin); this model has none');
   const names = animator.nodeNames.map((x) => x ?? '');
   const parents = animator.nodeParents;
   if (parents.length !== names.length) throw new Error(`model.retarget: the rig has ${parents.length} nodes, the scene ${names.length}`);
-  // Rest local TRS from the rest world matrices (loader space; nothing is posed yet)
   const gltf = result.nodes.map((x) => x.index);
-  const rig = rigFromWorldMatrices(names, parents, (i) => animator.nodeMatrix(gltf[i]));
+  return rigFromWorldMatrices(names, parents, (i) => animator.nodeMatrix(gltf[i]));
+}
+
+/** The retargeter of a loaded, unposed model (rig from the rest `nodeMatrix`) and the mannequin nodes its pose reads. */
+function buildRetarget(animator: GltfAnimator, result: GltfLoadResult, n: PrevisNode, fullDoc: PrevisDoc) {
+  const spec = n.model!.retarget!;
+  // Rest local TRS from the rest world matrices (loader space; nothing is posed yet)
+  const rig = retargetRig(animator, result);
   const joints = jointedJointIds(spec.source);
   // Every node the pose reads: the pivots, their chains to the root and whatever the root can hang from
   const byId = new Map(fullDoc.nodes.map((x) => [x.id, x]));
@@ -958,10 +1130,11 @@ function buildRetarget(animator: GltfAnimator, result: GltfLoadResult, n: Previs
 
 /** Mannequin root world transform (meters) and root-frame joint frames at `time` (see RETARGET). */
 function retargetPose(rt: RetargetObjects, time: number): RetargetFrame {
+  const mq = rt.mannequin!;
   const states: Record<string, NodeState> = {};
-  for (const n of rt.closure) states[n.id] = nodeStateAt(n, time);
-  const w = rt.resolver.world(states, rt.joints.root);
-  return { root: { position: w.position, rotation: w.rotation }, q: w.quaternion, frames: mannequinFrames(rt.closure, rt.joints, (n) => states[n.id]) };
+  for (const n of mq.closure) states[n.id] = nodeStateAt(n, time);
+  const w = mq.resolver.world(states, mq.joints.root);
+  return { root: { position: w.position, rotation: w.rotation }, q: w.quaternion, frames: mannequinFrames(mq.closure, mq.joints, (n) => states[n.id]) };
 }
 
 interface RetargetFrame {
@@ -972,10 +1145,25 @@ interface RetargetFrame {
   frames: Record<string, MannequinJointFrame>;
 }
 
-/** Solved bone rotations (4 per mapped bone, map order) and FIT position (engine units) of a retarget frame. */
-function retargetSolve(rt: RetargetObjects, pose: RetargetFrame, ws: number): { next: Float64Array; fitPos: Vec3 } {
-  const frames = pose.frames;
-  const { local } = rt.retargeter.solvePose((j) => frames[j], rt.k / ws, { root: { q: pose.q, p: pose.root.position } });
+/**
+ * Root-frame joint frames (meters) of a model source posed for this frame (see RETARGET FROM A MODEL): its bones'
+ * `nodeMatrix` through its FIT (scale ks, position fitPos incl. the ground-lock offset).
+ */
+function modelSourcePose(src: ModelSource, ws: number): Record<string, MannequinJointFrame> {
+  const m = src.node.model;
+  if (!m?.animator) throw new Error(`model.retarget: the source "${src.node.node.id}" has no loaded rig to read`);
+  const loader = modelSourceFrames(src.map, (bone) => m.animator!.nodeMatrix(bone, m.scratch));
+  return scaleFrames(loader, m.k[0] / ws, [m.fitPos[0] / ws, m.fitPos[1] / ws, m.fitPos[2] / ws]);
+}
+
+/** Solved bone rotations (4 per mapped bone, map order) and FIT position (engine units) of root-frame frames. */
+function retargetSolve(
+  rt: RetargetObjects,
+  frames: Record<string, MannequinJointFrame>,
+  root: { q: Quat; p: Vec3 },
+  ws: number,
+): { next: Float64Array; fitPos: Vec3 } {
+  const { local } = rt.retargeter.solvePose((j) => frames[j], rt.k / ws, rt.model ? { root, sourceAnkleHeight: rt.model.ankleHeight } : { root });
   const next = new Float64Array(rt.bones.length * 4);
   rt.bones.forEach((b, i) => next.set(local[b.index], i * 4));
   const h = frames.hips.pos;
@@ -997,9 +1185,16 @@ function retargetCenter(m: ModelObjects): Vec3 {
   return [-m.fitPos[0] / m.k[0], -m.fitPos[1] / m.k[1], -m.fitPos[2] / m.k[2]];
 }
 
-/** Sends the solved bone rotations (one absolute setNodeRotations) and the FIT (hips on the mannequin hips), each only when changed. */
-function applyRetarget(sdk: Charturbo, m: ModelObjects, rt: RetargetObjects, pose: RetargetFrame, ws: number): void {
-  const { next, fitPos } = retargetSolve(rt, pose, ws);
+/** Sends the solved bone rotations (one absolute setNodeRotations) and the FIT (hips on the source hips), each only when changed. */
+function applyRetarget(
+  sdk: Charturbo,
+  m: ModelObjects,
+  rt: RetargetObjects,
+  frames: Record<string, MannequinJointFrame>,
+  root: { q: Quat; p: Vec3 },
+  ws: number,
+): void {
+  const { next, fitPos } = retargetSolve(rt, frames, root, ws);
   sendRetarget(m, rt, next);
   const k: Vec3 = [rt.k, rt.k, rt.k];
   if (!eqVec(fitPos, m.fitPos) || !eqVec(k, m.fitScale)) {
@@ -1010,13 +1205,17 @@ function applyRetarget(sdk: Charturbo, m: ModelObjects, rt: RetargetObjects, pos
   }
 }
 
-/** `posable` of a model node: `tracks.joints` names, then socket joints not already listed. */
-function posableNames(o: NodeObjects): string[] {
+/**
+ * `posable` of a model node: `tracks.joints` names, then socket joints not already listed, the retarget map's bones and the
+ * bones it exposes as a model source (`sourceBones`, see RETARGET FROM A MODEL).
+ */
+function posableNames(o: NodeObjects, sourceBones: readonly string[] = []): string[] {
   const names = o.node.tracks?.joints ? Object.keys(o.node.tracks.joints) : [];
   for (const s of o.sockets) if (!names.includes(s.joint)) names.push(s.joint);
   // Retarget: the mapped bones (a missing bone fails the load: `posable node "x" not found`)
   const rt = o.node.model?.retarget;
   if (rt) for (const e of RETARGET_MAPS[rt.map] ?? []) if (!names.includes(e.bone)) names.push(e.bone);
+  for (const b of sourceBones) if (!names.includes(b)) names.push(b);
   return names;
 }
 
@@ -1175,6 +1374,8 @@ function makePlayer(
   const reparented = [...objects.values()].filter((o) => o.node.tracks?.parent !== undefined);
   // Ground-locked loaded models and the owners of pivot / socket objects (their world chain, see GROUND LOCK)
   const locked = [...objects.values()].filter((o) => o.model?.groundLock === true && o.model.animator !== null);
+  // Model-sourced retargets: posed after every source pose and ground lock (see RETARGET FROM A MODEL)
+  const fromModel = [...objects.values()].filter((o) => o.model?.retarget?.model);
   const pivotOwner = new Map<number, NodeObjects>();
   const socketOwner = new Map<number, { host: NodeObjects; socket: SocketObjects }>();
   if (locked.length > 0) {
@@ -1216,10 +1417,12 @@ function makePlayer(
       for (const [id, o] of objects) {
         const st = fs.nodes[id];
         if (!st) continue;
-        // Retarget: the pivot takes the mannequin root's world transform (see RETARGET)
+        // Retarget: the pivot takes the mannequin root's world transform (see RETARGET), or the model source's
+        // (validate.ts: it has no parent; see RETARGET FROM A MODEL)
         const rt = o.model?.retarget ?? null;
-        const pose = rt ? retargetPose(rt, time) : null;
-        const local = pose ? pose.root : st.parentRef && resolver ? resolver.local(o.node, st) : st;
+        const pose = rt?.mannequin ? retargetPose(rt, time) : null;
+        const srcState = rt?.model ? sourceState(fs, rt.model) : null;
+        const local = pose ? pose.root : srcState ? srcState : st.parentRef && resolver ? resolver.local(o.node, st) : st;
         const pos = scaled(local.position, ws);
         if (!eqVec(pos, o.pos) || !eqVec(local.rotation, o.rot)) {
           sdk.setObjectTransform(o.pivotId, { position: pos, rotation: [...local.rotation] });
@@ -1265,7 +1468,7 @@ function makePlayer(
             m.animator.setDrawEnabled(st.visible);
             m.drawn = st.visible;
           }
-          if (rt && pose) applyRetarget(sdk, m, rt, pose, ws);
+          if (rt && pose) applyRetarget(sdk, m, rt, pose.frames, { q: pose.q, p: pose.root.position }, ws);
           // Rotations first: setBlend then re-applies the pose with the new offsets
           if (st.joints && m.jointNames.length > 0) {
             const next = m.jointNames.map((name) => st.joints![name]);
@@ -1317,6 +1520,14 @@ function makePlayer(
         for (const o of locked) lock(o);
       }
 
+      for (const o of fromModel) {
+        // Every source is posed (clips, joints) and lifted (ground lock) by now; the target's pivot was set above
+        const rt = o.model!.retarget!;
+        const st = sourceState(fs, rt.model!);
+        const q = eulerYXZToQuat(st.rotation);
+        applyRetarget(sdk, o.model!, rt, modelSourcePose(rt.model!, ws), { q, p: st.position }, ws);
+      }
+
       const eye = scaled(fs.camera.eye, ws);
       const target = scaled(fs.camera.target, ws);
       const roll = fs.camera.roll;
@@ -1352,6 +1563,13 @@ function makePlayer(
 }
 
 const hasModels = (doc: PrevisDoc): boolean => doc.nodes.some((n) => n.shape === 'model');
+
+/** The model source's node state in this frame (it is in the pass's doc, drawn or pose-only). */
+function sourceState(fs: FrameState, src: ModelSource): NodeState {
+  const st = fs.nodes[src.node.node.id];
+  if (!st) throw new Error(`model.retarget: the source "${src.node.node.id}" has no state in this frame`);
+  return st;
+}
 
 /** Sync player for docs without `model` nodes drawn in its look (use `loadPrevisPlayer` for those). */
 export function createPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, options: PrevisPlayerOptions = {}): PrevisPlayer {
@@ -1404,6 +1622,15 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
   const lookDoc = docForLook(fullDoc, look);
   const doc = attachForLook(lookDoc);
   const ws = doc.worldScale ?? DEFAULT_WORLD_SCALE;
+  // RETARGET FROM A MODEL: the sources' bones (throws on a missing sourceMap, before anything is set up) and the pose-only
+  // copies (they are never drawn: no textures)
+  let sourceBones: Map<string, string[]>;
+  try {
+    sourceBones = modelSourceBones(doc);
+  } catch (e) {
+    throw new Error(`loadPrevisPlayer: ${messageOf(e)}`, { cause: e });
+  }
+  const poseOnly = new Set(lookDoc.nodes.filter((n) => !drawnIn(n, look)).map((n) => n.id));
   let restore: () => void;
   try {
     restore = setupScene(sdk, doc, look, ws);
@@ -1427,13 +1654,34 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
     return p;
   };
   const results = new Map<NodeObjects, GltfLoadResult>();
+  const loads = new Map<NodeObjects, Promise<void>>();
   let failure: { node: PrevisNode; cause: unknown } | null = null;
+  // RETARGET FROM A MODEL: each target's source node and the sources' rest (read once per load result; validate.ts allows
+  // one sourceMap per source)
+  const byId = new Map(doc.nodes.map((n) => [n.id, n]));
+  let objects: Map<string, NodeObjects> | null = null;
+  const sourceNodeOf = (o: NodeObjects): NodeObjects | undefined => {
+    const s = modelSourceOf(o.node, byId);
+    return s ? objects?.get(s.id) : undefined;
+  };
+  const rests = new Map<GltfLoadResult, SourceRest>();
+  const sourceRest = (target: NodeObjects): SourceRest => {
+    const src = sourceNodeOf(target)!;
+    const r = results.get(src);
+    if (!r) throw new Error(`model.retarget: the source "${src.node.id}" is not loaded`);
+    let rest = rests.get(r);
+    if (!rest) {
+      rest = sourceRestOf(sdk, src, r, sourceMapOf(target.node), ws);
+      rests.set(r, rest);
+    }
+    return rest;
+  };
 
   const loadNode = async (o: NodeObjects): Promise<void> => {
     const n = o.node;
     const model = n.model!;
     const anim = model.animation;
-    const posable = posableNames(o);
+    const posable = posableNames(o, sourceBones.get(n.id));
     const check = (): void => {
       if (ctl.signal.aborted) throw abortError(ctl.signal);
     };
@@ -1444,7 +1692,7 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
         signal: ctl.signal,
         animations: anim !== undefined,
         // Flat colors drop every map: skip images (texture budget, texture-only extensions); textured keeps them
-        textures: look === 'textured',
+        textures: look === 'textured' && !poseOnly.has(n.id),
         ...(posable.length > 0 ? { posable } : {}),
         ...(options.decoders ? { decoders: options.decoders } : {}),
         ...(scale !== undefined ? { scale } : {}),
@@ -1459,8 +1707,16 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
       check();
       let r = await load();
       if (r.objects.length === 0) throw new Error('the model has no triangle meshes');
+      // Model source: its load must be done (rest pose, FIT scale); only that one is awaited (see RETARGET FROM A MODEL)
+      const src = sourceNodeOf(o);
+      if (src) {
+        await loads.get(src);
+        check();
+      }
       // Retarget: the FIT scale is the leg ratio, not a `size` fit
-      const kMin = model.retarget ? retargetLoadFactor(sdk, r, n, fullDoc, ws) : minFitFactor(n, ws, boundsOf(r).extent);
+      const kMin = model.retarget
+        ? retargetLoadFactor(sdk, r, n, fullDoc, ws, src ? sourceRest(o) : undefined)
+        : minFitFactor(n, ws, boundsOf(r).extent);
       if (kMin < MIN_OBJECT_SCALE) {
         // Too small for the object scale clamp: bake the factor into the vertices (see header)
         loaded.delete(r);
@@ -1487,7 +1743,6 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
     }
   };
 
-  let objects: Map<string, NodeObjects>;
   try {
     objects = buildNodes(sdk, doc, ws, created, look);
   } catch (e) {
@@ -1496,9 +1751,16 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
     restore();
     throw e;
   }
-  // A pure pivot model is still loaded (invisible) when a node hangs from one of its joints
-  const jobs = [...objects.values()].filter((o) => o.node.shape === 'model' && o.node.model && (hasShape(o.node) || o.sockets.length > 0));
-  await Promise.allSettled(jobs.map(loadNode));
+  // A pure pivot model is still loaded (invisible) when a node hangs from one of its joints, and so is a model source
+  const jobs = [...objects.values()].filter(
+    (o) => o.node.shape === 'model' && o.node.model && (hasShape(o.node) || o.sockets.length > 0 || sourceBones.has(o.node.id)),
+  );
+  // All loads start together; a model-sourced retarget waits for its source's load only, and attaches after the others
+  // (see RETARGET FROM A MODEL)
+  for (const o of jobs) loads.set(o, loadNode(o));
+  await Promise.allSettled(loads.values());
+  const late = jobs.filter((o) => sourceNodeOf(o) !== undefined);
+  const early = late.length > 0 ? jobs.filter((o) => !late.includes(o)) : jobs;
   signal?.removeEventListener('abort', onAbort);
 
   const fail = (node: PrevisNode, cause: unknown): never => {
@@ -1511,9 +1773,10 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
     const f: { node: PrevisNode; cause: unknown } = failure;
     return fail(f.node, f.cause);
   }
-  for (const o of jobs) {
+  for (const o of [...early, ...late]) {
     try {
-      attachModel(sdk, o, results.get(o)!, created, look, fullDoc, ws);
+      const src = sourceNodeOf(o);
+      attachModel(sdk, o, results.get(o)!, created, look, fullDoc, ws, sourceBones.get(o.node.id), src ? { node: src, rest: sourceRest(o) } : undefined);
     } catch (e) {
       return fail(o.node, e);
     }
@@ -1527,5 +1790,5 @@ export async function loadPrevisPlayer(sdk: Charturbo, fullDoc: PrevisDoc, optio
     restore();
     throw new Error(`loadPrevisPlayer: ${messageOf(e)}`, { cause: e });
   }
-  return makePlayer(sdk, lookDoc, ws, restore, objects, created, resolver);
+  return makePlayer(sdk, lookDoc, ws, restore, objects!, created, resolver);
 }

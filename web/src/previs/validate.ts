@@ -260,7 +260,7 @@ export function validateDoc(
   });
   const parentOf = new Map<string, string>();
   /** Model nodes with a `retarget` (valid source string). */
-  const retargets: { i: number; id: string; source: string; attach: boolean }[] = [];
+  const retargets: { i: number; id: string; source: string; attach: boolean; sourceMap: unknown }[] = [];
   /** Nodes with a valid `parentJoint`: id -> joint name (the camera cannot follow them, see shots). */
   const jointOf = new Map<string, string>();
   /** Valid `tracks.parent` keys per node (node null = world), in key order. */
@@ -291,11 +291,14 @@ export function validateDoc(
           const r = m.retarget;
           if (!isObj(r)) add(rp, 'retarget must be an object { source, map }, e.g. { "source": "hero", "map": "ue" }');
           else {
-            for (const key of Object.keys(r)) if (!['source', 'map', 'attach'].includes(key)) add(`${rp}.${key}`, `unknown retarget key "${key}"; allowed: source, map, attach`);
+            for (const key of Object.keys(r)) if (!['source', 'map', 'sourceMap', 'attach'].includes(key)) add(`${rp}.${key}`, `unknown retarget key "${key}"; allowed: source, map, sourceMap, attach`);
             if (r.attach !== undefined && typeof r.attach !== 'boolean') add(`${rp}.attach`, `attach must be true or false; got ${JSON.stringify(r.attach)}`);
+            if (r.sourceMap !== undefined && r.sourceMap !== 'walker' && r.sourceMap !== 'ue' && r.sourceMap !== 'kaykit') {
+              add(`${rp}.sourceMap`, `sourceMap must be walker (models/walker.glb), ue or kaykit; got ${JSON.stringify(r.sourceMap)}`);
+            }
             if (typeof r.source !== 'string' || r.source === '') {
-              add(`${rp}.source`, `source must be the id prefix of a jointed mannequin in the doc (e.g. "hero" for hero.root, hero.hips, ...); got ${JSON.stringify(r.source)}`);
-            } else if (typeof n.id === 'string') retargets.push({ i, id: n.id, source: r.source, attach: r.attach === true });
+              add(`${rp}.source`, `source must be the id prefix of a jointed mannequin in the doc (e.g. "hero" for hero.root, hero.hips, ...) or the id of a model node; got ${JSON.stringify(r.source)}`);
+            } else if (typeof n.id === 'string') retargets.push({ i, id: n.id, source: r.source, attach: r.attach === true, sourceMap: r.sourceMap });
             if (r.map !== 'ue' && r.map !== 'kaykit') add(`${rp}.map`, `map must be ue (pelvis, spine_01, upperarm_l, ...) or kaykit (hips, upperarm.l, ...); got ${JSON.stringify(r.map)}`);
             // The model follows the mannequin: its own transform, fitting, clips and joint offsets would fight it
             const own = (path: string, what: string) =>
@@ -565,8 +568,37 @@ export function validateDoc(
         add(`nodes[${i}].model.retarget.attach`, `models "${other}" and "${id}" both attach to mannequin "${source}"; props can follow only one model's bones. Set attach on one of them`);
       } else attachOf.set(source, id);
     }
-    for (const { i, source } of retargets) {
+    for (const { i, id, source, attach, sourceMap } of retargets) {
       const sp = `nodes[${i}].model.retarget.source`;
+      if (shapeOf.get(source) === 'model' && nodeAt.has(source)) {
+        // MODEL SOURCE: another model node's posed bones drive this one (any other node id is a mannequin prefix, e.g. a
+        // group box "hero" next to hero.root)
+        const rp = `nodes[${i}].model.retarget`;
+        const src = nodeAt.get(source)!;
+        if (source === id) {
+          add(sp, `source "${source}" is the model itself; retarget from another model node`);
+          continue;
+        }
+        if (sourceMap === undefined) add(`${rp}.sourceMap`, `source "${source}" is a model node: sourceMap (walker, ue or kaykit: the bone names of "${source}") is required`);
+        else {
+          // One reading of a source's bones per load (the player caches the source's rest per load)
+          const other = retargets.find((x) => x.source === source && x.sourceMap !== undefined && x.sourceMap !== sourceMap);
+          if (other) add(`${rp}.sourceMap`, `sourceMap ${JSON.stringify(sourceMap)} differs from ${JSON.stringify(other.sourceMap)} of "${other.id}" for the same source "${source}"; a model source has one bone naming. Use the same sourceMap`);
+        }
+        if (attach) add(`${rp}.attach`, `attach is not supported with a model source ("${source}"); hang props from "${source}" joints instead (they are posed in every pass that draws this model)`);
+        const sm = isObj(src.model) ? src.model : {};
+        if (retargeted.has(source)) {
+          add(sp, `source "${source}" is itself a retargeted model (model.retarget); a model source must be posed by its own clips / joints, not by another retarget`);
+        }
+        const why = 'a model source must be placed in the world: its node transform is the retargeted model\'s frame';
+        if (src.parent !== undefined) add(sp, `source "${source}" has a parent; ${why}`);
+        if (src.parentJoint !== undefined) add(sp, `source "${source}" has a parentJoint; ${why}`);
+        if (isObj(src.tracks) && src.tracks.parent !== undefined) add(sp, `source "${source}" has tracks.parent; ${why}`);
+        if (sm.fit !== undefined && sm.fit !== 'contain') add(sp, `source "${source}" has fit ${JSON.stringify(sm.fit)}; a model source must use fit "contain" (uniform scale: its bone rotations are read unscaled)`);
+        if (isObj(src.tracks) && src.tracks.size !== undefined) add(sp, `source "${source}" has a size track; a model source must keep its size (the leg ratio is fixed at load)`);
+        continue;
+      }
+      if (sourceMap !== undefined) add(`nodes[${i}].model.retarget.sourceMap`, `sourceMap is only for a model source; "${source}" is a jointed mannequin id prefix (no shape "model" node "${source}"). Remove sourceMap`);
       const ids = jointedJointIds(source);
       const missing = Object.values(ids).filter((x) => !nodeIds.has(x));
       if (missing.length > 0) {
@@ -644,17 +676,24 @@ export function validateDoc(
     const s = isObj(n.look) && typeof n.look.show === 'string' && ['both', 'flat', 'textured'].includes(n.look.show) ? n.look.show : 'both';
     showOf.set(n.id, s);
   }
-  const inLook = (id: string, look: 'flat' | 'textured') => {
+  const drawnIn = (id: string, look: 'flat' | 'textured') => {
     const s = showOf.get(id);
     return s === undefined || s === 'both' || s === look;
   };
+  // A model source of a retarget drawn in a pass exists there too (posed, never drawn), so nodes may hang from it
+  const poseOnlyIn = { flat: new Set<string>(), textured: new Set<string>() };
+  for (const r of retargets) {
+    if (shapeOf.get(r.source) !== 'model' || r.source === r.id) continue;
+    for (const look of ['flat', 'textured'] as const) if (drawnIn(r.id, look)) poseOnlyIn[look].add(r.source);
+  }
+  const inLook = (id: string, look: 'flat' | 'textured') => drawnIn(id, look) || poseOnlyIn[look].has(id);
   nodes.forEach((n, i) => {
     if (!isObj(n) || typeof n.id !== 'string') return;
     const id = n.id;
     const own = showOf.get(id);
     if (own === undefined) return;
     for (const look of ['flat', 'textured'] as const) {
-      if (!inLook(id, look)) continue;
+      if (!drawnIn(id, look)) continue;
       const check = (ref: unknown, path: string, what: string) => {
         if (typeof ref !== 'string' || !nodeIds.has(ref) || ref === id || inLook(ref, look)) return;
         add(path, `look.show "${own}": ${what} "${ref}" is not drawn in the ${look} pass (it has look.show "${showOf.get(ref)}"), but node "${id}" is. Give both nodes the same look.show, or set "${ref}" look.show to "both"`);

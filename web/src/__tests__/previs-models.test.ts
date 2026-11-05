@@ -18,6 +18,12 @@ describe('modelSrcsToLoad', () => {
   it('hidden with a visible key true later is loaded', () => {
     expect(modelSrcsToLoad(doc([model('a', { visible: false, tracks: { visible: [{ t: 0, v: false }, { t: 1, v: true }] } })]))).toEqual(['a.glb']);
   });
+  it('a hidden model source loads when its retarget target loads (and not when the target never shows)', () => {
+    const src = model('w', { visible: false });
+    const tgt = (extra: object = {}) => ({ id: 's', shape: 'model', model: { src: 's.glb', retarget: { source: 'w', map: 'ue', sourceMap: 'walker' } }, ...extra });
+    expect(modelSrcsToLoad(doc([src, tgt()]))).toEqual(['w.glb', 's.glb']);
+    expect(modelSrcsToLoad(doc([src, tgt({ visible: false })]))).toEqual([]);
+  });
   it('parentJoint child of a non-model parent does not load anything', () => {
     expect(modelSrcsToLoad(doc([{ id: 'p', shape: 'box', visible: false }, { id: 'c', shape: 'box', parent: 'p', parentJoint: 'j' }]))).toEqual([]);
   });

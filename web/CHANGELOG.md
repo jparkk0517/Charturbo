@@ -5,9 +5,15 @@
 
 ## [Unreleased]
 
+### 추가 — 모델에서 리타깃 (model.retarget.sourceMap)
+
+- `model.retarget.source`에 관절 마네킹 대신 다른 glTF 모델 노드를 지정할 수 있습니다. 이때 `sourceMap`('walker' | 'ue' | 'kaykit')으로 원본 뼈를 정합니다. 원본 모델의 클립 · `tracks.joints` · `groundLock` · 노드 이동과 회전을 모두 반영한 자세를 매 프레임 읽어, 마네킹 원본과 같은 방법(rest 방향 정렬, 회전 변화량 전달, two-bone IK, 발 수평 유지)으로 옮깁니다. 대상이 그려지는 패스에 원본이 그려지지 않으면(`look.show: 'flat'`), 원본은 그 패스에서 자세만 계산하고 그리지 않습니다. 원본 모델은 `fit: 'contain'`이어야 하고, `parent` · `parentJoint` · `tracks.parent` · `size` 트랙을 쓸 수 없으며, 그 자신이 retarget 모델이면 안 됩니다. 원본 하나에는 `sourceMap`을 하나만 쓸 수 있고, `attach`는 지원하지 않습니다. 자세만 계산하는 원본은 텍스처를 불러오지 않습니다. 모델 원본 retarget이 없는 문서는 이전과 같은 SDK 호출을 냅니다.
+- gate-raid의 텍스처 거인을 KayKit Skeleton_Warrior에서 플랫 거인(`walker.glb`)을 따라가는 Quaternius 캐릭터로 바꾸고, 몽둥이는 두 패스에서 같은 상자(`look.color` 돌색)를 씁니다. 거인 영역의 플랫과 텍스처 실루엣 IoU가 0.42에서 0.76으로 올랐습니다. 그림자 병사는 KayKit Skeleton_Minion을 유지합니다. Quaternius 캐릭터를 셋 이상 넣으면 엔진 텍스처 메모리 한도(256 MiB)를 넘기 때문입니다. 플랫 beauty와 depth 출력은 이전과 바이트 단위로 같습니다. 텍스처 패스의 최저 밝기를 기준(0.25) 안으로 올리려고 `lighting.exposure`를 1.35에서 1.45로 올렸습니다. 한계: 캐릭터가 walker보다 약 5 % 크고, 앞으로 뻗은 팔은 walker 손끝에 못 미칩니다(측정한 한 자세에서 0.22 m).
+- 수정: `attach: true`인 retarget 모델이 패스 내내 숨겨져 있으면, 소품을 그 모델의 뼈로 옮기지 않고 마네킹 손에 둡니다. 전에는 쓰지 않는 모델을 불러오려다 렌더러가 404(`failed to fetch …`)로 실패했습니다.
+
 ### 변경 — gate-raid 텍스처 버전
 
-- `previs/examples/gate-raid.json`에 텍스처 패스용 노드와 `lighting`을 추가했습니다. 주인공은 Quaternius 캐릭터(`model.retarget`, `attach`)가 검(KayKit `sword_1handed`)을 들고, 거인과 그림자 병사는 KayKit Skeleton_Warrior(도끼) · Skeleton_Minion 클립으로 그립니다. 기존 대역 블록은 `look.show: 'flat'`, 배경은 `look.color`로 텍스처 색만 지정합니다. 플랫 beauty와 depth 출력은 이전과 바이트 단위로 같습니다. 한계: KayKit 거인은 chibi 비율이라 플랫 대역과 실루엣이 크게 다르고, 손이 닿지 않는 줍기 구간(0.75–1.35 s)에서 검은 마네킹 손을 따라갑니다.
+- `previs/examples/gate-raid.json`에 텍스처 패스용 노드와 `lighting`을 추가했습니다. 주인공은 Quaternius 캐릭터(`model.retarget`, `attach`)가 검(KayKit `sword_1handed`)을 들고, 그림자 병사는 KayKit Skeleton_Minion 클립으로 그립니다(거인은 위 「모델에서 리타깃」 항목 참고). 기존 대역 블록은 `look.show: 'flat'`, 배경은 `look.color`로 텍스처 색만 지정합니다. 플랫 beauty와 depth 출력은 이전과 바이트 단위로 같습니다. 한계: 손이 닿지 않는 줍기 구간(0.75–1.35 s)에서 검은 마네킹 손을 따라갑니다.
 
 ### 추가 — 스킨 캐릭터 리타깃 (model.retarget)
 

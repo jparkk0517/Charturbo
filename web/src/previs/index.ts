@@ -90,11 +90,16 @@ export {
   KAYKIT_RETARGET_MAP,
   UE_RETARGET_MAP,
   RETARGET_MAPS,
+  WALKER_SOURCE_MAP,
+  RETARGET_SOURCE_MAPS,
   mannequinFrames,
+  modelSourceFrames,
+  modelSourceRest,
+  scaleFrames,
   prepareRetarget,
   rigFromWorldMatrices,
   rigRestPose,
   shortestArc,
   quatRotate,
 } from './retarget.ts';
-export type { RetargetTrs, RetargetRig, RetargetJoint, MannequinJointFrame, Retargeter } from './retarget.ts';
+export type { RetargetTrs, RetargetRig, RetargetJoint, RetargetSourceJoint, MannequinJointFrame, Retargeter } from './retarget.ts';
