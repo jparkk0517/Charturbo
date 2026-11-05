@@ -11,5 +11,6 @@ Modifications:
 
 - The pack's `.gltf` referenced an eye normal image that is not in the pack (`T_Eye_Normal_png.png`); its `uri` was changed to the existing `T_Eye_Normal.png`.
 - Textures downscaled to 1024 (sips): the five 2048² maps (`T_Superhero_Female_Dark_BaseColor.png`, `T_Superhero_Female_Normal.png`, `T_Superhero_Female_Roughness.png`, `T_Hair_2_BaseColor.png`, `T_Hair_2_Normal.png`; normal maps included) were resized with macOS `sips -Z 1024` (same file names, PNG, same channels), and the `sRGB` / `eXIf` chunks sips adds were removed (the originals carry none). The 256² eye maps are unchanged. One instance then needs about 27 MiB of texture memory instead of about 107 MiB (see `docs/previs/guide.md`, "Texture memory").
+- `Superhero_Female_FullBody.gltf`: `"baseColorFactor": [0.16, 0.09, 0.06, 1.0]` added to the material `MI_Hair_2` (the eyebrows; the grey hair texture is meant to be tinted), the same dark brown as her hair `../../../models/quaternius/hair/Hair_Buns.gltf` (see that folder's `README.md`).
 
 All other files are unmodified copies.

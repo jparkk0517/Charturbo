@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyMotion, createMannequin, crouch, pickUp, raiseArm, validateDoc, walk } from '../../src/previs/index.ts';
+import { applyMotion, createMannequin, crouch, pickUp, raiseArm, retargetParts, validateDoc, walk } from '../../src/previs/index.ts';
 import type { PrevisDoc, PrevisNode, Rgb, Vec3 } from '../../src/previs/index.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +72,9 @@ const skin: PrevisNode = {
   rotation: [0, 0, 0],
   size: [1, 1.8, 0.4],
 };
+// Hair: a Quaternius "Rigged to Head Bone" hairstyle on the same skeleton, retargeted from the same mannequin, so its
+// Head bone gets exactly the skin's pose (the character's own eyebrows are part of the body file)
+const hair = retargetParts(skin, [{ id: 'hero_hair', src: 'models/quaternius/hair/Hair_SimpleParted.gltf' }]);
 
 const box: PrevisNode = {
   id: 'box',
@@ -110,7 +113,7 @@ const doc: PrevisDoc = {
     { id: 'hero', label: 'hero', color: cHero },
     { id: 'box', label: 'box', color: cBox },
   ],
-  nodes: [...set, ...nodes, skin, box],
+  nodes: [...set, ...nodes, skin, ...hair, box],
   shots: [
     {
       id: 'wide',

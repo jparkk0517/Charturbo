@@ -24,6 +24,7 @@ import {
   pickUp,
   quatToEulerYXZ,
   raiseArm,
+  retargetParts,
   suggestRoleColors,
   validateDoc,
   walk,
@@ -791,7 +792,12 @@ club.look = { color: [0.34, 0.32, 0.3], roughness: 0.95 };
 // -- primitives: a lit stone look for the textured pass (the flat role colors are kept for beauty / depth) --
 for (const n of set) n.look = { color: n.id.startsWith('pillar') ? [0.36, 0.34, 0.33] : n.id === 'floor' ? [0.3, 0.29, 0.28] : [0.32, 0.31, 0.3], roughness: 0.9 };
 gate.look = { color: [0.5, 0.42, 0.9], roughness: 0.6 };
-const texturedNodes: PrevisNode[] = [heroSkin, swordTex, giantTex, ...shadowTex];
+// -- hair: Quaternius "Rigged to Head Bone" hairstyles (same skeleton as the Superhero), retargeted from the same source as
+// the skin they belong to, so their Head bone gets exactly the skin's pose (eyebrows are part of the body file) --
+const H_DIR = 'models/quaternius/hair/';
+const heroHair = retargetParts(heroSkin, [{ id: 'hero_hair', src: H_DIR + 'Hair_SimpleParted.gltf' }]);
+const giantHair = retargetParts(giantTex, [{ id: 'giant_beard', src: H_DIR + 'Hair_Beard.gltf' }]);
+const texturedNodes: PrevisNode[] = [heroSkin, ...heroHair, swordTex, giantTex, ...giantHair, ...shadowTex];
 
 // ---- cameras ----
 const sample = (a: number, b: number, step: number, f: (t: number) => Vec3): Track<Vec3> => {

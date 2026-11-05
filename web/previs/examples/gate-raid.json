@@ -6846,6 +6846,41 @@
       ]
     },
     {
+      "id": "hero_hair",
+      "shape": "model",
+      "role": "hero",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "models/quaternius/hair/Hair_SimpleParted.gltf",
+        "retarget": {
+          "source": "hero",
+          "map": "ue"
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.8,
+        0.4
+      ]
+    },
+    {
       "id": "sword_tex",
       "shape": "model",
       "role": "sword",
@@ -7122,6 +7157,55 @@
       },
       "model": {
         "src": "models/quaternius/Superhero_Male_FullBody.gltf",
+        "retarget": {
+          "source": "giant",
+          "map": "ue",
+          "sourceMap": "walker"
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.6,
+        3.2,
+        1
+      ],
+      "visible": false,
+      "tracks": {
+        "visible": [
+          {
+            "t": 0,
+            "v": false
+          },
+          {
+            "t": 1.5,
+            "v": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "giant_beard",
+      "shape": "model",
+      "role": "giant",
+      "color": [
+        0,
+        1,
+        1
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "models/quaternius/hair/Hair_Beard.gltf",
         "retarget": {
           "source": "giant",
           "map": "ue",

@@ -3,7 +3,7 @@
 // Run a scene from web/: node --experimental-strip-types previs/examples/film/s01-hall.gen.ts
 import fs from 'node:fs';
 import path from 'node:path';
-import { createMannequin, jointedJointIds, suggestRoleColors, validateDoc, docDuration } from '../../../src/previs/index.ts';
+import { createMannequin, jointedJointIds, suggestRoleColors, validateDoc, docDuration, retargetParts } from '../../../src/previs/index.ts';
 import type { PrevisDoc, PrevisNode, Rgb, Track, Vec3 } from '../../../src/previs/index.ts';
 
 // ---- format (identical in every scene) ----
@@ -26,6 +26,16 @@ export const SRC = {
   wallGated: '../models/kaykit/wall_gated.gltf.glb', // 4 x 4 x 1, arched opening
   pillar: '../models/kaykit/pillar.gltf.glb', // 1.5 x 4 x 1.5
 } as const;
+/**
+ * Hair of each skin (Quaternius CC0 "Rigged to Head Bone" hairstyles on the same skeleton as the body, see
+ * ../models/quaternius/hair/README.md): `writeDoc` adds them after every `<who>_skin` node (`retargetParts`: same
+ * retarget source, look and visible track as the skin). Eyebrows are part of the body files. 하온: dark-tinted buns (her
+ * body file's eyebrow material has the same tint); 도원: untinted (silver) beard and buzzed hair.
+ */
+export const HAIR: Record<'haon' | 'mentor', readonly string[]> = {
+  haon: ['../models/quaternius/hair/Hair_Buns.gltf'],
+  mentor: ['../models/quaternius/hair/Hair_Beard.gltf', '../models/quaternius/hair/Hair_Buzzed.gltf'],
+};
 
 // ---- characters ----
 export const HAON_H = 1.68; // 하온, apprentice ember keeper (Quaternius Superhero Female)
@@ -154,6 +164,7 @@ export type Who = 'haon' | 'mentor';
  * Builds the jointed mannequin `<who>` (ids `<who>.root`, `<who>.handL`, ...) and its skin node `<who>_skin`.
  * Apply motions to `m.nodes`, then call `flatOnly(nodes)` on the result. Only ONE haon and ONE mentor per doc
  * (one Quaternius skin of each per doc; the 1024² textures would allow up to 9 instances, see docs/previs/guide.md "Texture memory").
+ * `writeDoc` adds the skin's hair nodes (`HAIR`, `hairOf`); a scene that writes its doc another way calls `hairOf(skin)`.
  */
 export function character(who: Who, position: Vec3, yaw = 0) {
   const m = createMannequin({ id: who, color: C[who], role: who, height: who === 'haon' ? HAON_H : MENTOR_H, position, limbs: 'jointed' });
@@ -180,8 +191,23 @@ export function flatOnly(nodes: PrevisNode[]): PrevisNode[] {
 }
 
 // ---- output ----
-/** Validates and writes `<name>.json` next to the generators; exits 2 on issues. Returns the duration. */
-export function writeDoc(name: string, doc: PrevisDoc, dir: string): number {
+/** Hair part nodes of a skin: `<who>_hair_<file name in lower case without "hair_">`, e.g. `mentor_hair_beard`. */
+export function hairOf(skin: PrevisNode): PrevisNode[] {
+  const who = skin.id.replace(/_skin$/, '') as Who;
+  return retargetParts(
+    skin,
+    HAIR[who].map((src) => ({ id: `${who}_hair_${path.basename(src, '.gltf').replace(/^Hair_/, '').toLowerCase()}`, src })),
+  );
+}
+/** `doc` with the hair of every character skin (`<who>_skin`) inserted right after it (the skin's final visible track). */
+function withHair(doc: PrevisDoc): PrevisDoc {
+  const skins = new Set(Object.keys(HAIR).map((who) => `${who}_skin`));
+  return { ...doc, nodes: doc.nodes.flatMap((n) => (skins.has(n.id) ? [n, ...hairOf(n)] : [n])) };
+}
+
+/** Validates and writes `<name>.json` next to the generators (hair added, see `HAIR`); exits 2 on issues. Returns the duration. */
+export function writeDoc(name: string, docIn: PrevisDoc, dir: string): number {
+  const doc = withHair(docIn);
   const v = validateDoc(JSON.parse(JSON.stringify(doc)));
   if (!v.ok) {
     for (const i of v.issues) console.error(`${i.path}: ${i.message}`);

@@ -299,6 +299,7 @@ describe('previs player review fixes (attach of an undrawn model, pose-only text
     const doc: PrevisDoc = JSON.parse(readFileSync(fileURLToPath(new URL(EX + 'retarget-demo.json', import.meta.url)), 'utf8'));
     const skin = doc.nodes.find((n) => n.id === 'hero_skin')!;
     skin.visible = false;
+    doc.nodes.find((n) => n.id === 'hero_hair')!.visible = false; // its hair part (retargetParts) is hidden with it
     expect(validateDoc(doc).ok).toBe(true);
     expect(modelSrcsToLoad(doc)).not.toContain(skin.model!.src);
     const fetched: string[] = [];

@@ -24,3 +24,42 @@ export function modelSrcsToLoad(doc: PrevisDoc): string[] {
   for (const n of doc.nodes) if (nodeLoadsModel(doc, n) && n.model) out.add(n.model.src);
   return [...out];
 }
+
+/** One extra part of a retargeted character for `retargetParts`: node id and glTF `src`. */
+export interface RetargetPart {
+  id: string;
+  src: string;
+}
+
+/**
+ * Extra skinned parts of a retargeted character (hair, beard, a helmet): one `shape: 'model'` node per part that follows
+ * the same `model.retarget` source as `skin` (same `source`, `map`, `sourceMap`; never `attach`, which at most one model
+ * per mannequin may set), with the skin's role, color, `look`, `size`, `visible` and `visible` track (deep copies, taken
+ * NOW: call it after the skin's last edit). The part must be a skinned glTF on the same skeleton as the skin: the same
+ * bone names, and the same rest pose for the bones the part is skinned to, their ancestors and the leg bones (the solver
+ * scales and places every retargeted model by its own legs and hips), e.g. the Quaternius Universal Base Characters
+ * "Rigged to Head Bone" hairstyles on the body of the same build. Then every bone of the part gets exactly the skin's
+ * pose. Throws when `skin` has no `model.retarget` or a part id equals the skin id.
+ */
+export function retargetParts(skin: PrevisNode, parts: readonly RetargetPart[]): PrevisNode[] {
+  const r = skin.model?.retarget;
+  if (skin.shape !== 'model' || !r) throw new Error(`retargetParts: node "${skin.id}" has no model.retarget`);
+  const copy = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+  return parts.map((p) => {
+    if (p.id === skin.id) throw new Error(`retargetParts: part id "${p.id}" equals the skin id`);
+    const n: PrevisNode = {
+      id: p.id,
+      shape: 'model',
+      ...(skin.role !== undefined ? { role: skin.role } : {}),
+      color: [...skin.color] as PrevisNode['color'],
+      ...(skin.look !== undefined ? { look: copy(skin.look) } : {}),
+      model: { src: p.src, retarget: { source: r.source, map: r.map, ...(r.sourceMap !== undefined ? { sourceMap: r.sourceMap } : {}) } },
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      size: [...skin.size] as PrevisNode['size'],
+    };
+    if (skin.visible !== undefined) n.visible = skin.visible;
+    if (skin.tracks?.visible !== undefined) n.tracks = { visible: copy(skin.tracks.visible) };
+    return n;
+  });
+}

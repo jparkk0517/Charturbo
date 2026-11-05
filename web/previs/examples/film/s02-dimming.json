@@ -8255,6 +8255,41 @@
       ]
     },
     {
+      "id": "haon_hair_buns",
+      "shape": "model",
+      "role": "haon",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "../models/quaternius/hair/Hair_Buns.gltf",
+        "retarget": {
+          "source": "haon",
+          "map": "ue"
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.68,
+        0.4
+      ]
+    },
+    {
       "id": "mentor.root",
       "shape": "box",
       "color": [
@@ -9429,6 +9464,76 @@
           "source": "mentor",
           "map": "ue",
           "attach": true
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.8,
+        0.4
+      ]
+    },
+    {
+      "id": "mentor_hair_beard",
+      "shape": "model",
+      "role": "mentor",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "../models/quaternius/hair/Hair_Beard.gltf",
+        "retarget": {
+          "source": "mentor",
+          "map": "ue"
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.8,
+        0.4
+      ]
+    },
+    {
+      "id": "mentor_hair_buzzed",
+      "shape": "model",
+      "role": "mentor",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "../models/quaternius/hair/Hair_Buzzed.gltf",
+        "retarget": {
+          "source": "mentor",
+          "map": "ue"
         }
       },
       "position": [

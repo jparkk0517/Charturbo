@@ -6,6 +6,7 @@
 | --- | --- |
 | `Superhero_Male_FullBody.gltf` + `.bin` | skinned character (UE-style skeleton, 1.82 m, T-pose), retargeted in `../../retarget-demo.gen.ts` (`retarget-demo.json`) and `../../gate-raid.gen.ts` (`gate-raid.json`, textured pass: the hero, and the giant retargeted from the walker model with `sourceMap: 'walker'`) with `model.retarget.map: 'ue'` |
 | `T_Superhero_Male_Dark.png`, `T_Superhero_Male_Normal.png`, `T_Superhero_Male_Roughness.png`, `T_Hair_1_BaseColor.png`, `T_Hair_1_Normal.png`, `T_Eye_Brown.png`, `T_Eye_Normal.png` | textures referenced by the `.gltf` |
+| `hair/` | hairstyles of the same kit (`Hairstyles/`), drawn as extra retargeted parts of the body; see `hair/README.md` |
 
 Modification: the pack's `.gltf` referenced two images that are not in the pack (`T_Hair_1_Normal_png.png`, `T_Eye_Normal_png.png`). Their `uri` was changed to the existing `T_Hair_1_Normal.png` and `T_Eye_Normal.png`.
 

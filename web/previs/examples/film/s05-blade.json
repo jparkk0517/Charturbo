@@ -7375,6 +7375,41 @@
       ]
     },
     {
+      "id": "haon_hair_buns",
+      "shape": "model",
+      "role": "haon",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "../models/quaternius/hair/Hair_Buns.gltf",
+        "retarget": {
+          "source": "haon",
+          "map": "ue"
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.68,
+        0.4
+      ]
+    },
+    {
       "id": "ember",
       "shape": "sphere",
       "role": "ember",

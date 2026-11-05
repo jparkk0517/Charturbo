@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 추가 — 리타깃 캐릭터 머리카락 (retargetParts)
+
+- `retargetParts(skin, [{ id, src }])` 헬퍼를 추가했습니다. 같은 골격에 스킨된 부품(머리카락, 수염 등)을 몸과 같은 `model.retarget` 원본을 따르는 모델 노드로 만들어, 부품의 뼈가 몸과 정확히 같은 자세를 받습니다. 스키마와 검증 규칙은 바뀌지 않습니다. 부품 골격이 몸과 다르면 검사 없이 어긋나므로, 같은 체형의 Quaternius "Rigged to Head Bone" 머리 모델을 쓰세요.
+- Quaternius 머리 모델 4종(`models/quaternius/hair/`: Beard, Buzzed, SimpleParted, Buns, 텍스처 1024)을 추가해 retarget-demo와 gate-raid 주인공, gate-raid 거인(수염), 영화의 하온(올림머리, 갈색)과 도원(수염과 짧은 머리)에 붙였습니다. 눈썹은 원래 몸 파일에 있어 따로 추가하지 않고, 하온의 눈썹과 머리 색은 glTF `baseColorFactor`로 지정했습니다. 플랫 beauty와 depth 출력은 바이트 단위로 같습니다.
+
 ### 추가 — 단편 예제 「불씨지기」와 브라우저 뷰어 재생 개선
 
 - `previs/examples/film/`에 8씬, 330초 분량의 단편 예제 「불씨지기」를 추가했습니다. 씬마다 생성기(`sNN-*.gen.ts`)와 문서(`.json`)가 있고, 공용 규약은 `common.ts`에 있습니다. 하온 캐릭터는 Quaternius Superhero Female(CC0, `film/models/haon/`)입니다. `playlist.json`은 8씬의 재생 순서입니다.

@@ -84,7 +84,8 @@ export type {
   TwoToneBoxOptions,
 } from './mannequin.ts';
 
-export { nodeLoadsModel, modelSrcsToLoad } from './models.ts';
+export { nodeLoadsModel, modelSrcsToLoad, retargetParts } from './models.ts';
+export type { RetargetPart } from './models.ts';
 
 export {
   KAYKIT_RETARGET_MAP,
