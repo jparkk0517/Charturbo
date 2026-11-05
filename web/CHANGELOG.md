@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### 추가 — 단편 예제 「불씨지기」와 브라우저 뷰어 재생 개선
+
+- `previs/examples/film/`에 8씬, 330초 분량의 단편 예제 「불씨지기」를 추가했습니다. 씬마다 생성기(`sNN-*.gen.ts`)와 문서(`.json`)가 있고, 공용 규약은 `common.ts`에 있습니다. 하온 캐릭터는 Quaternius Superhero Female(CC0, `film/models/haon/`)입니다. `playlist.json`은 8씬의 재생 순서입니다.
+- `npm run previs:viewer`를 개선했습니다. 개발 서버의 `examples/` 문서를 목록에서 고르면 모델을 문서 URL 기준으로 불러오므로, 외부 `.bin`과 텍스처가 딸린 `.gltf`도 파일을 직접 넣지 않고 재생됩니다. 플랫과 텍스처 화면을 버튼이나 `t` 키로 전환하며, 전환 중에도 시간이 유지되고 화면이 끊기지 않습니다. 재생목록(`{ title?, docs[] }`)은 전체 길이 탐색 바와 씬 경계를 보여 주고, 다음 씬을 미리 불러와 경계에서 멈추지 않습니다. `?doc=…&look=textured`로 바로 열 수 있습니다. 파일을 끌어다 놓는 기존 방식도 그대로 동작합니다(이 방식의 `.gltf` 외부 파일 제한은 그대로입니다).
+
+### 변경 — Quaternius 텍스처 1024 축소
+
+- Quaternius 캐릭터 텍스처(2048²)를 1024²로 줄였습니다(`sips -Z 1024`). 캐릭터 하나에 필요한 텍스처 메모리가 약 107 MiB에서 약 27 MiB로 줄어, 엔진 한도(256 MiB) 안에서 한 문서에 9개까지 불러올 수 있습니다(전에는 2개). 텍스처 패스 출력은 조금 달라지고(retarget-demo 한 프레임 기준 최대 12/255), 플랫 beauty와 depth 출력은 바이트 단위로 같습니다.
+
 ### 추가 — 모델에서 리타깃 (model.retarget.sourceMap)
 
 - `model.retarget.source`에 관절 마네킹 대신 다른 glTF 모델 노드를 지정할 수 있습니다. 이때 `sourceMap`('walker' | 'ue' | 'kaykit')으로 원본 뼈를 정합니다. 원본 모델의 클립 · `tracks.joints` · `groundLock` · 노드 이동과 회전을 모두 반영한 자세를 매 프레임 읽어, 마네킹 원본과 같은 방법(rest 방향 정렬, 회전 변화량 전달, two-bone IK, 발 수평 유지)으로 옮깁니다. 대상이 그려지는 패스에 원본이 그려지지 않으면(`look.show: 'flat'`), 원본은 그 패스에서 자세만 계산하고 그리지 않습니다. 원본 모델은 `fit: 'contain'`이어야 하고, `parent` · `parentJoint` · `tracks.parent` · `size` 트랙을 쓸 수 없으며, 그 자신이 retarget 모델이면 안 됩니다. 원본 하나에는 `sourceMap`을 하나만 쓸 수 있고, `attach`는 지원하지 않습니다. 자세만 계산하는 원본은 텍스처를 불러오지 않습니다. 모델 원본 retarget이 없는 문서는 이전과 같은 SDK 호출을 냅니다.

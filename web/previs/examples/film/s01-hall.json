@@ -1,0 +1,9742 @@
+{
+  "version": 1,
+  "title": "불씨지기 S01 불씨의 전당",
+  "fps": 24,
+  "size": {
+    "width": 1280,
+    "height": 720
+  },
+  "background": [
+    0.03,
+    0.03,
+    0.045
+  ],
+  "avoidColors": [
+    [
+      0.2,
+      0.2,
+      0.22
+    ],
+    [
+      0.27,
+      0.26,
+      0.28
+    ],
+    [
+      0.03,
+      0.03,
+      0.045
+    ],
+    [
+      0.05,
+      0.05,
+      0.06
+    ],
+    [
+      0.87,
+      0.68,
+      0.55
+    ],
+    [
+      0.6,
+      0.42,
+      0.3
+    ],
+    [
+      0.85,
+      0.82,
+      0.72
+    ],
+    [
+      1,
+      0.62,
+      0.22
+    ],
+    [
+      0.45,
+      0.55,
+      1
+    ]
+  ],
+  "lighting": {
+    "key": {
+      "dir": [
+        0.3,
+        0.9,
+        0.45
+      ],
+      "intensity": 1.1,
+      "shadows": true
+    },
+    "env": {
+      "sky": [
+        0.5,
+        0.46,
+        0.42
+      ],
+      "ground": [
+        0.2,
+        0.17,
+        0.14
+      ],
+      "intensity": 1.15
+    },
+    "rim": [
+      {
+        "position": [
+          0,
+          1.9,
+          0
+        ],
+        "color": [
+          1,
+          0.62,
+          0.25
+        ],
+        "intensity": 3.2,
+        "range": 9
+      },
+      {
+        "position": [
+          -10,
+          1.37,
+          1.95
+        ],
+        "color": [
+          1,
+          0.62,
+          0.25
+        ],
+        "intensity": 2.2,
+        "range": 7
+      },
+      {
+        "position": [
+          -10,
+          1.37,
+          -1.95
+        ],
+        "color": [
+          1,
+          0.62,
+          0.25
+        ],
+        "intensity": 2.2,
+        "range": 7
+      },
+      {
+        "position": [
+          6,
+          1.37,
+          1.95
+        ],
+        "color": [
+          1,
+          0.62,
+          0.25
+        ],
+        "intensity": 2.2,
+        "range": 7
+      },
+      {
+        "position": [
+          6,
+          1.37,
+          -1.95
+        ],
+        "color": [
+          1,
+          0.62,
+          0.25
+        ],
+        "intensity": 2.2,
+        "range": 7
+      },
+      {
+        "position": [
+          10.8,
+          2.2,
+          0
+        ],
+        "color": [
+          0.45,
+          0.55,
+          1
+        ],
+        "intensity": 3,
+        "range": 6
+      },
+      {
+        "position": [
+          0,
+          3.4,
+          3.9
+        ],
+        "color": [
+          1,
+          0.78,
+          0.55
+        ],
+        "intensity": 5,
+        "range": 7
+      }
+    ],
+    "exposure": 1.8,
+    "toneMapping": "aces"
+  },
+  "roles": [
+    {
+      "id": "haon",
+      "label": "하온 (apprentice ember keeper, woman)",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ]
+    },
+    {
+      "id": "mentor",
+      "label": "도원 (old keeper, man)",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ]
+    },
+    {
+      "id": "ember",
+      "label": "ember orb (glowing stone)",
+      "color": [
+        0.5019607843137255,
+        0,
+        1
+      ]
+    },
+    {
+      "id": "sword",
+      "label": "old sword",
+      "color": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "skeleton",
+      "label": "skeletons",
+      "color": [
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "id": "warden",
+      "label": "giant skeleton warden",
+      "color": [
+        1,
+        0.8784313725490196,
+        0
+      ]
+    },
+    {
+      "id": "gate",
+      "label": "sealed gate / portcullis",
+      "color": [
+        0,
+        0.7529411764705882,
+        0.18823529411764706
+      ]
+    },
+    {
+      "id": "altar",
+      "label": "altar / pedestal / braziers",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "floor",
+      "shape": "box",
+      "color": [
+        0.2,
+        0.2,
+        0.22
+      ],
+      "position": [
+        -1,
+        -0.25,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        30,
+        0.5,
+        13
+      ],
+      "look": {
+        "color": [
+          0.3,
+          0.29,
+          0.28
+        ],
+        "roughness": 0.92
+      }
+    },
+    {
+      "id": "aisle",
+      "shape": "box",
+      "color": [
+        0.2,
+        0.2,
+        0.22
+      ],
+      "position": [
+        0,
+        -0.005,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        24,
+        0.02,
+        1.9
+      ],
+      "look": {
+        "color": [
+          0.22,
+          0.21,
+          0.21
+        ],
+        "roughness": 0.95
+      }
+    },
+    {
+      "id": "wallN",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        0,
+        2.25,
+        6
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        25,
+        4.5,
+        1
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "wallS",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        0,
+        2.25,
+        -6
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        25,
+        4.5,
+        1
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "wallE_n",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        -12,
+        2.25,
+        4
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        4.5,
+        4
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "wallE_s",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        -12,
+        2.25,
+        -4
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        4.5,
+        4
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "wallE_lintel",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        -12,
+        3.6,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.8,
+        4
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "wallG_n",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        12,
+        2.25,
+        4
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        4.5,
+        4
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "wallG_s",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        12,
+        2.25,
+        -4
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        4.5,
+        4
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "wallG_top",
+      "shape": "box",
+      "color": [
+        0.27,
+        0.26,
+        0.28
+      ],
+      "position": [
+        12,
+        4.25,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        0.5,
+        4
+      ],
+      "look": {
+        "color": [
+          0.32,
+          0.31,
+          0.3
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "gate",
+      "shape": "model",
+      "color": [
+        0,
+        0.7529411764705882,
+        0.18823529411764706
+      ],
+      "model": {
+        "src": "../models/kaykit/wall_gated.gltf.glb",
+        "fit": "contain"
+      },
+      "position": [
+        12,
+        2,
+        0
+      ],
+      "rotation": [
+        0,
+        -1.5707963267948966,
+        0
+      ],
+      "size": [
+        4,
+        4,
+        1
+      ],
+      "role": "gate"
+    },
+    {
+      "id": "pil_n-10_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -10,
+        0.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-10_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -10,
+        2.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-10_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -10,
+        4.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-10_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -10,
+        0.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-10_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -10,
+        2.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-10_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -10,
+        4.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-6_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -6,
+        0.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-6_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -6,
+        2.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-6_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -6,
+        4.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-6_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -6,
+        0.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-6_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -6,
+        2.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-6_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -6,
+        4.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-2_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -2,
+        0.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-2_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -2,
+        2.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n-2_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -2,
+        4.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-2_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -2,
+        0.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-2_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -2,
+        2.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s-2_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        -2,
+        4.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n2_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        2,
+        0.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n2_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        2,
+        2.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n2_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        2,
+        4.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s2_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        2,
+        0.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s2_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        2,
+        2.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s2_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        2,
+        4.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n6_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        6,
+        0.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n6_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        6,
+        2.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n6_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        6,
+        4.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s6_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        6,
+        0.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s6_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        6,
+        2.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s6_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        6,
+        4.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n10_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        10,
+        0.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n10_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        10,
+        2.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_n10_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        10,
+        4.2,
+        3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s10_base",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        10,
+        0.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.4,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s10_shaft",
+      "shape": "cylinder",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        10,
+        2.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.9,
+        3.6,
+        0.9
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "pil_s10_cap",
+      "shape": "box",
+      "color": [
+        0.45,
+        0.44,
+        0.46
+      ],
+      "position": [
+        10,
+        4.2,
+        -3
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.3,
+        0.6,
+        1.3
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      }
+    },
+    {
+      "id": "ped_base",
+      "shape": "box",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        0,
+        0.06,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.72,
+        0.12,
+        0.72
+      ],
+      "look": {
+        "color": [
+          0.22,
+          0.21,
+          0.21
+        ],
+        "roughness": 0.95
+      },
+      "role": "altar"
+    },
+    {
+      "id": "ped_col",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        0,
+        0.51,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.4,
+        0.78,
+        0.4
+      ],
+      "look": {
+        "color": [
+          0.36,
+          0.34,
+          0.33
+        ],
+        "roughness": 0.9
+      },
+      "role": "altar"
+    },
+    {
+      "id": "ped_cap",
+      "shape": "box",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        0,
+        0.95,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.5,
+        0.1,
+        0.5
+      ],
+      "look": {
+        "color": [
+          0.22,
+          0.21,
+          0.21
+        ],
+        "roughness": 0.95
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz0_stand",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        -10,
+        0.45,
+        1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.12,
+        0.9,
+        0.12
+      ],
+      "look": {
+        "color": [
+          0.25,
+          0.25,
+          0.27
+        ],
+        "roughness": 0.5,
+        "metallic": 0.8
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz0_bowl",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        -10,
+        0.97,
+        1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.5,
+        0.14,
+        0.5
+      ],
+      "look": {
+        "color": [
+          0.55,
+          0.4,
+          0.22
+        ],
+        "roughness": 0.45,
+        "metallic": 0.7
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz0_flame",
+      "shape": "sphere",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        -10,
+        1.12,
+        1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.3,
+        0.22,
+        0.3
+      ],
+      "look": {
+        "color": [
+          1,
+          0.78,
+          0.35
+        ],
+        "roughness": 0.25
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz1_stand",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        -10,
+        0.45,
+        -1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.12,
+        0.9,
+        0.12
+      ],
+      "look": {
+        "color": [
+          0.25,
+          0.25,
+          0.27
+        ],
+        "roughness": 0.5,
+        "metallic": 0.8
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz1_bowl",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        -10,
+        0.97,
+        -1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.5,
+        0.14,
+        0.5
+      ],
+      "look": {
+        "color": [
+          0.55,
+          0.4,
+          0.22
+        ],
+        "roughness": 0.45,
+        "metallic": 0.7
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz1_flame",
+      "shape": "sphere",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        -10,
+        1.12,
+        -1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.3,
+        0.22,
+        0.3
+      ],
+      "look": {
+        "color": [
+          1,
+          0.78,
+          0.35
+        ],
+        "roughness": 0.25
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz2_stand",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        6,
+        0.45,
+        1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.12,
+        0.9,
+        0.12
+      ],
+      "look": {
+        "color": [
+          0.25,
+          0.25,
+          0.27
+        ],
+        "roughness": 0.5,
+        "metallic": 0.8
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz2_bowl",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        6,
+        0.97,
+        1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.5,
+        0.14,
+        0.5
+      ],
+      "look": {
+        "color": [
+          0.55,
+          0.4,
+          0.22
+        ],
+        "roughness": 0.45,
+        "metallic": 0.7
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz2_flame",
+      "shape": "sphere",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        6,
+        1.12,
+        1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.3,
+        0.22,
+        0.3
+      ],
+      "look": {
+        "color": [
+          1,
+          0.78,
+          0.35
+        ],
+        "roughness": 0.25
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz3_stand",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        6,
+        0.45,
+        -1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.12,
+        0.9,
+        0.12
+      ],
+      "look": {
+        "color": [
+          0.25,
+          0.25,
+          0.27
+        ],
+        "roughness": 0.5,
+        "metallic": 0.8
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz3_bowl",
+      "shape": "cylinder",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        6,
+        0.97,
+        -1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.5,
+        0.14,
+        0.5
+      ],
+      "look": {
+        "color": [
+          0.55,
+          0.4,
+          0.22
+        ],
+        "roughness": 0.45,
+        "metallic": 0.7
+      },
+      "role": "altar"
+    },
+    {
+      "id": "braz3_flame",
+      "shape": "sphere",
+      "color": [
+        0,
+        0.7019607843137254,
+        0.6431372549019608
+      ],
+      "position": [
+        6,
+        1.12,
+        -1.95
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.3,
+        0.22,
+        0.3
+      ],
+      "look": {
+        "color": [
+          1,
+          0.78,
+          0.35
+        ],
+        "roughness": 0.25
+      },
+      "role": "altar"
+    },
+    {
+      "id": "ember",
+      "shape": "sphere",
+      "role": "ember",
+      "color": [
+        0.5019607843137255,
+        0,
+        1
+      ],
+      "look": {
+        "color": [
+          1,
+          0.62,
+          0.22
+        ],
+        "roughness": 0.3
+      },
+      "position": [
+        0,
+        1.12,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.24,
+        0.24,
+        0.24
+      ]
+    },
+    {
+      "id": "sk_n1",
+      "shape": "model",
+      "role": "skeleton",
+      "color": [
+        0,
+        1,
+        1
+      ],
+      "model": {
+        "src": "../models/kaykit/Skeleton_Minion.glb",
+        "fit": "contain",
+        "groundLock": true,
+        "animation": {
+          "clip": "Lie_Pose"
+        }
+      },
+      "position": [
+        -8.1,
+        0.875,
+        3
+      ],
+      "rotation": [
+        0,
+        -0.2,
+        0
+      ],
+      "size": [
+        1.6,
+        1.75,
+        0.8
+      ]
+    },
+    {
+      "id": "sk_n2",
+      "shape": "model",
+      "role": "skeleton",
+      "color": [
+        0,
+        1,
+        1
+      ],
+      "model": {
+        "src": "../models/kaykit/Skeleton_Minion.glb",
+        "fit": "contain",
+        "groundLock": true,
+        "animation": {
+          "clip": "Lie_Pose"
+        }
+      },
+      "position": [
+        -4,
+        0.875,
+        2.9
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1.6,
+        1.75,
+        0.8
+      ]
+    },
+    {
+      "id": "sk_n3",
+      "shape": "model",
+      "role": "skeleton",
+      "color": [
+        0,
+        1,
+        1
+      ],
+      "model": {
+        "src": "../models/kaykit/Skeleton_Minion.glb",
+        "fit": "contain",
+        "groundLock": true,
+        "animation": {
+          "clip": "Skeletons_Inactive_Floor_Pose"
+        }
+      },
+      "position": [
+        4.1,
+        0.875,
+        3
+      ],
+      "rotation": [
+        0,
+        0.3,
+        0
+      ],
+      "size": [
+        1.6,
+        1.75,
+        0.8
+      ]
+    },
+    {
+      "id": "sk_f1",
+      "shape": "model",
+      "role": "skeleton",
+      "color": [
+        0,
+        1,
+        1
+      ],
+      "model": {
+        "src": "../models/kaykit/Skeleton_Minion.glb",
+        "fit": "contain",
+        "groundLock": true,
+        "animation": {
+          "clip": "Skeletons_Inactive_Floor_Pose"
+        }
+      },
+      "position": [
+        -7.9,
+        0.875,
+        -3
+      ],
+      "rotation": [
+        0,
+        3.291592653589793,
+        0
+      ],
+      "size": [
+        1.6,
+        1.75,
+        0.8
+      ]
+    },
+    {
+      "id": "sk_f2",
+      "shape": "model",
+      "role": "skeleton",
+      "color": [
+        0,
+        1,
+        1
+      ],
+      "model": {
+        "src": "../models/kaykit/Skeleton_Minion.glb",
+        "fit": "contain",
+        "groundLock": true,
+        "animation": {
+          "clip": "Lie_Pose"
+        }
+      },
+      "position": [
+        0.6,
+        0.875,
+        -2.9
+      ],
+      "rotation": [
+        0,
+        3.041592653589793,
+        0
+      ],
+      "size": [
+        1.6,
+        1.75,
+        0.8
+      ]
+    },
+    {
+      "id": "sk_f3",
+      "shape": "model",
+      "role": "skeleton",
+      "color": [
+        0,
+        1,
+        1
+      ],
+      "model": {
+        "src": "../models/kaykit/Skeleton_Minion.glb",
+        "fit": "contain",
+        "groundLock": true,
+        "animation": {
+          "clip": "Lie_Pose"
+        }
+      },
+      "position": [
+        8,
+        0.875,
+        -3
+      ],
+      "rotation": [
+        0,
+        3.391592653589793,
+        0
+      ],
+      "size": [
+        1.6,
+        1.75,
+        0.8
+      ]
+    },
+    {
+      "id": "haon.root",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        -13.2,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        1.44229484599156,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "rotationPath": "shortest",
+      "tracks": {
+        "position": [
+          {
+            "t": 1,
+            "v": [
+              -13.2,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 12.5,
+            "v": [
+              -4.3,
+              0,
+              1.15
+            ]
+          },
+          {
+            "t": 20.9,
+            "v": [
+              -4.3,
+              0,
+              1.15
+            ]
+          },
+          {
+            "t": 25.6,
+            "v": [
+              0.45,
+              0,
+              0.85
+            ],
+            "ease": "ease-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0.5,
+              0,
+              0.14
+            ]
+          }
+        ],
+        "rotation": [
+          {
+            "t": 0,
+            "v": [
+              0,
+              1.44229484599156,
+              0
+            ]
+          },
+          {
+            "t": 12.5,
+            "v": [
+              0,
+              1.44229484599156,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 13.3,
+            "v": [
+              0,
+              0.358770670270572,
+              0
+            ]
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0.358770670270572,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.9,
+            "v": [
+              0,
+              1.6338704446918089,
+              0
+            ]
+          },
+          {
+            "t": 25.6,
+            "v": [
+              0,
+              1.6338704446918089,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.1,
+            "v": [
+              0,
+              3.0712861894711687,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0,
+              -1.8086322542523476,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.hips",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        0.84,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.root",
+      "tracks": {
+        "position": [
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0.84,
+              0
+            ]
+          },
+          {
+            "t": 13.416666666666666,
+            "v": [
+              0,
+              0.8396846600651577,
+              0
+            ]
+          },
+          {
+            "t": 13.458333333333334,
+            "v": [
+              0,
+              0.8362273408028977,
+              0
+            ]
+          },
+          {
+            "t": 13.5,
+            "v": [
+              0,
+              0.8291782407407408,
+              0
+            ]
+          },
+          {
+            "t": 13.541666666666666,
+            "v": [
+              0,
+              0.8188136507094481,
+              0
+            ]
+          },
+          {
+            "t": 13.583333333333334,
+            "v": [
+              0,
+              0.8054098615397803,
+              0
+            ]
+          },
+          {
+            "t": 13.625,
+            "v": [
+              0,
+              0.7892431640625001,
+              0
+            ]
+          },
+          {
+            "t": 13.666666666666666,
+            "v": [
+              0,
+              0.7705898491083679,
+              0
+            ]
+          },
+          {
+            "t": 13.708333333333334,
+            "v": [
+              0,
+              0.7497262075081444,
+              0
+            ]
+          },
+          {
+            "t": 13.75,
+            "v": [
+              0,
+              0.7269285300925926,
+              0
+            ]
+          },
+          {
+            "t": 13.791666666666666,
+            "v": [
+              0,
+              0.702473107692473,
+              0
+            ]
+          },
+          {
+            "t": 13.833333333333334,
+            "v": [
+              0,
+              0.6766362311385455,
+              0
+            ]
+          },
+          {
+            "t": 13.875,
+            "v": [
+              0,
+              0.6496941912615741,
+              0
+            ]
+          },
+          {
+            "t": 13.916666666666666,
+            "v": [
+              0,
+              0.6219232788923186,
+              0
+            ]
+          },
+          {
+            "t": 13.958333333333334,
+            "v": [
+              0,
+              0.5935997848615393,
+              0
+            ]
+          },
+          {
+            "t": 14,
+            "v": [
+              0,
+              0.565,
+              0
+            ]
+          },
+          {
+            "t": 14.041666666666666,
+            "v": [
+              0,
+              0.5364002151384606,
+              0
+            ]
+          },
+          {
+            "t": 14.083333333333334,
+            "v": [
+              0,
+              0.5080767211076813,
+              0
+            ]
+          },
+          {
+            "t": 14.125,
+            "v": [
+              0,
+              0.48030580873842577,
+              0
+            ]
+          },
+          {
+            "t": 14.166666666666666,
+            "v": [
+              0,
+              0.45336376886145424,
+              0
+            ]
+          },
+          {
+            "t": 14.208333333333334,
+            "v": [
+              0,
+              0.4275268923075269,
+              0
+            ]
+          },
+          {
+            "t": 14.25,
+            "v": [
+              0,
+              0.4030714699074073,
+              0
+            ]
+          },
+          {
+            "t": 14.291666666666666,
+            "v": [
+              0,
+              0.38027379249185544,
+              0
+            ]
+          },
+          {
+            "t": 14.333333333333334,
+            "v": [
+              0,
+              0.359410150891632,
+              0
+            ]
+          },
+          {
+            "t": 14.375,
+            "v": [
+              0,
+              0.3407568359374999,
+              0
+            ]
+          },
+          {
+            "t": 14.416666666666666,
+            "v": [
+              0,
+              0.32459013846021956,
+              0
+            ]
+          },
+          {
+            "t": 14.458333333333334,
+            "v": [
+              0,
+              0.3111863492905518,
+              0
+            ]
+          },
+          {
+            "t": 14.5,
+            "v": [
+              0,
+              0.300821759259259,
+              0
+            ]
+          },
+          {
+            "t": 14.541666666666666,
+            "v": [
+              0,
+              0.29377265919710216,
+              0
+            ]
+          },
+          {
+            "t": 14.583333333333334,
+            "v": [
+              0,
+              0.29031533993484215,
+              0
+            ]
+          },
+          {
+            "t": 14.6,
+            "v": [
+              0,
+              0.2899999999999999,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              0,
+              0.2899999999999999,
+              0
+            ]
+          },
+          {
+            "t": 19.041666666666668,
+            "v": [
+              0,
+              0.291943245509688,
+              0
+            ]
+          },
+          {
+            "t": 19.083333333333332,
+            "v": [
+              0,
+              0.2975887881515772,
+              0
+            ]
+          },
+          {
+            "t": 19.125,
+            "v": [
+              0,
+              0.30666033709490736,
+              0
+            ]
+          },
+          {
+            "t": 19.166666666666668,
+            "v": [
+              0,
+              0.31888160150891665,
+              0
+            ]
+          },
+          {
+            "t": 19.208333333333332,
+            "v": [
+              0,
+              0.3339762905628424,
+              0
+            ]
+          },
+          {
+            "t": 19.25,
+            "v": [
+              0,
+              0.3516681134259259,
+              0
+            ]
+          },
+          {
+            "t": 19.291666666666668,
+            "v": [
+              0,
+              0.3716807792674046,
+              0
+            ]
+          },
+          {
+            "t": 19.333333333333332,
+            "v": [
+              0,
+              0.39373799725651515,
+              0
+            ]
+          },
+          {
+            "t": 19.375,
+            "v": [
+              0,
+              0.41756347656250004,
+              0
+            ]
+          },
+          {
+            "t": 19.416666666666668,
+            "v": [
+              0,
+              0.4428809263545962,
+              0
+            ]
+          },
+          {
+            "t": 19.458333333333332,
+            "v": [
+              0,
+              0.4694140558020399,
+              0
+            ]
+          },
+          {
+            "t": 19.5,
+            "v": [
+              0,
+              0.4968865740740742,
+              0
+            ]
+          },
+          {
+            "t": 19.541666666666668,
+            "v": [
+              0,
+              0.5250221903399358,
+              0
+            ]
+          },
+          {
+            "t": 19.583333333333332,
+            "v": [
+              0,
+              0.5535446137688609,
+              0
+            ]
+          },
+          {
+            "t": 19.625,
+            "v": [
+              0,
+              0.5821775535300928,
+              0
+            ]
+          },
+          {
+            "t": 19.666666666666668,
+            "v": [
+              0,
+              0.610644718792868,
+              0
+            ]
+          },
+          {
+            "t": 19.708333333333332,
+            "v": [
+              0,
+              0.6386698187264226,
+              0
+            ]
+          },
+          {
+            "t": 19.75,
+            "v": [
+              0,
+              0.6659765625000003,
+              0
+            ]
+          },
+          {
+            "t": 19.791666666666668,
+            "v": [
+              0,
+              0.6922886592828371,
+              0
+            ]
+          },
+          {
+            "t": 19.833333333333332,
+            "v": [
+              0,
+              0.7173298182441696,
+              0
+            ]
+          },
+          {
+            "t": 19.875,
+            "v": [
+              0,
+              0.740823748553241,
+              0
+            ]
+          },
+          {
+            "t": 19.916666666666668,
+            "v": [
+              0,
+              0.7624941593792874,
+              0
+            ]
+          },
+          {
+            "t": 19.958333333333332,
+            "v": [
+              0,
+              0.7820647598915463,
+              0
+            ]
+          },
+          {
+            "t": 20,
+            "v": [
+              0,
+              0.7992592592592594,
+              0
+            ]
+          },
+          {
+            "t": 20.041666666666668,
+            "v": [
+              0,
+              0.8138013666516638,
+              0
+            ]
+          },
+          {
+            "t": 20.083333333333332,
+            "v": [
+              0,
+              0.8254147912379971,
+              0
+            ]
+          },
+          {
+            "t": 20.125,
+            "v": [
+              0,
+              0.8338232421875,
+              0
+            ]
+          },
+          {
+            "t": 20.166666666666668,
+            "v": [
+              0,
+              0.8387504286694103,
+              0
+            ]
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0.84,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.spine",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.hips",
+      "tracks": {
+        "position": [
+          {
+            "t": 1,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 1.2875,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 1.575,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 1.8625,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.15,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.4375,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.725,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.0125,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.3,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.5875,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.875,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 4.1625,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 4.45,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 4.7375,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.025,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.3125,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.8875,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.175,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.4625,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.75,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.0375,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.325,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.6125,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.9,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 8.1875,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 8.475,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 8.7625,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.05,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.3375,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.625,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.9125,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.2,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.4875,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.775,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.0625,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.35,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.6375,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.925,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 12.2125,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 12.5,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.9,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 21.193749999999998,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 21.487499999999997,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 21.78125,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.075,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.36875,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.6625,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.95625,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.25,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.54375,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.8375,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 24.13125,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 24.425,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 24.71875,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.012500000000003,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.306250000000002,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.85,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.1,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.35,
+            "v": [
+              0,
+              0.02,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          }
+        ],
+        "rotation": [
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 14.799999999999999,
+            "v": [
+              0.3,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              0.3,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.head",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        0.588,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.spine",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 0,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.200000000000001,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 14.9,
+            "v": [
+              0.45,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 16.4,
+            "v": [
+              0.45,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 17,
+            "v": [
+              0.4,
+              0.22,
+              0.1
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 18.2,
+            "v": [
+              0.4,
+              0.22,
+              0.1
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 19.2,
+            "v": [
+              0.3,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 27.3,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 28.2,
+            "v": [
+              0.38,
+              0.05,
+              0
+            ]
+          },
+          {
+            "t": 29.4,
+            "v": [
+              0.38,
+              0.05,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 30.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.lower",
+      "shape": "box",
+      "parent": "haon.hips",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.05039999999999999,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.3192,
+        0.20159999999999997,
+        0.20159999999999997
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.upper",
+      "shape": "box",
+      "parent": "haon.spine",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        0.294,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.40319999999999995,
+        0.588,
+        0.2184
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.head.mesh",
+      "shape": "box",
+      "parent": "haon.head",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        0.126,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.1848,
+        0.252,
+        0.20159999999999997
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.shoulderL",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0.23939999999999997,
+        0.5376,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.spine",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 1,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 1.575,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.15,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.725,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.3,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.875,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 4.45,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.025,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.6,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.175,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.75,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.325,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.9,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 8.475,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.05,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.625,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.2,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.775,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.35,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.925,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 12.5,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 14.6,
+            "v": [
+              -0.55,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              -0.55,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.9,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 21.487499999999997,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.075,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.6625,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.25,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.8375,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 24.425,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.012500000000003,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.1,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.upperArmL",
+      "shape": "box",
+      "parent": "haon.shoulderL",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.15059277108433736,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.0756,
+        0.3011855421686747,
+        0.0756
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.elbowL",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.3011855421686747,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.shoulderL",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 14.6,
+            "v": [
+              -0.7,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              -0.7,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.forearmL",
+      "shape": "box",
+      "parent": "haon.elbowL",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.11820722891566263,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.0756,
+        0.23641445783132525,
+        0.0756
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.handL",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.23641445783132525,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.elbowL"
+    },
+    {
+      "id": "haon.shoulderR",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        -0.23939999999999997,
+        0.5376,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.spine",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 1,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 1.575,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.15,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.725,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.3,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.875,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 4.45,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.025,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.6,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.175,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.75,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.325,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.9,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 8.475,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.05,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.625,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.2,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.775,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.35,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.925,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 12.5,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 14.6,
+            "v": [
+              -0.55,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              -0.55,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.9,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 21.487499999999997,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.075,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.6625,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.25,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.8375,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 24.425,
+            "v": [
+              0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.012500000000003,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.1,
+            "v": [
+              -0.5,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.upperArmR",
+      "shape": "box",
+      "parent": "haon.shoulderR",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.15059277108433736,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.0756,
+        0.3011855421686747,
+        0.0756
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.elbowR",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.3011855421686747,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.shoulderR",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 14.6,
+            "v": [
+              -0.7,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              -0.7,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.forearmR",
+      "shape": "box",
+      "parent": "haon.elbowR",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.11820722891566263,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.0756,
+        0.23641445783132525,
+        0.0756
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.handR",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.23641445783132525,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.elbowR"
+    },
+    {
+      "id": "haon.hipL",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0.084,
+        -0.0336,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.hips",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 1,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 1.575,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.15,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.725,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.3,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.875,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 4.45,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.025,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.6,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.175,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.75,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.325,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.9,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 8.475,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.05,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.625,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.2,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.775,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.35,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.925,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 12.5,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.416666666666666,
+            "v": [
+              -0.028023870688189068,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.458333333333334,
+            "v": [
+              -0.09696617575742089,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.5,
+            "v": [
+              -0.16434938095305945,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.541666666666666,
+            "v": [
+              -0.23020971629542855,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.583333333333334,
+            "v": [
+              -0.29457203858947334,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.625,
+            "v": [
+              -0.357450344517445,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.666666666666666,
+            "v": [
+              -0.41884809086468333,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.708333333333334,
+            "v": [
+              -0.47875834806109174,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.75,
+            "v": [
+              -0.5371638071452575,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.791666666666666,
+            "v": [
+              -0.5940366559140577,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.833333333333334,
+            "v": [
+              -0.6493383369900032,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.875,
+            "v": [
+              -0.7030191985231822,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.916666666666666,
+            "v": [
+              -0.7550180470116212,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.958333333333334,
+            "v": [
+              -0.8052616110668263,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14,
+            "v": [
+              -0.8536639246604312,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.041666666666666,
+            "v": [
+              -0.9001256382345997,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.083333333333334,
+            "v": [
+              -0.9445332658104243,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.125,
+            "v": [
+              -0.9867583757212299,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.166666666666666,
+            "v": [
+              -1.0266567319170834,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.208333333333334,
+            "v": [
+              -1.0640673926216706,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.25,
+            "v": [
+              -1.098811775328746,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.291666666666666,
+            "v": [
+              -1.1306927053987528,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.333333333333334,
+            "v": [
+              -1.1594934856707035,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.375,
+            "v": [
+              -1.184977063024128,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.416666666666666,
+            "v": [
+              -1.2068854262808197,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.458333333333334,
+            "v": [
+              -1.2249394326408767,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.5,
+            "v": [
+              -1.2388392769693004,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.541666666666666,
+            "v": [
+              -1.2482656966769514,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.583333333333334,
+            "v": [
+              -1.2528816387162078,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.6,
+            "v": [
+              -1.253302425892853,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              -1.253302425892853,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.041666666666668,
+            "v": [
+              -1.2507087674925779,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.083333333333332,
+            "v": [
+              -1.2431651504755097,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.125,
+            "v": [
+              -1.2310153297395692,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.166666666666668,
+            "v": [
+              -1.214585887531716,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.208333333333332,
+            "v": [
+              -1.194184594283846,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.25,
+            "v": [
+              -1.1700989557542052,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.291666666666668,
+            "v": [
+              -1.142595446544282,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.333333333333332,
+            "v": [
+              -1.1119194497609521,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.375,
+            "v": [
+              -1.0782957141568223,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.416666666666668,
+            "v": [
+              -1.041929114916412,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.458333333333332,
+            "v": [
+              -1.0030055572539671,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.5,
+            "v": [
+              -0.9616929255864586,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.541666666666668,
+            "v": [
+              -0.9181420279573312,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.583333333333332,
+            "v": [
+              -0.8724875121964365,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.625,
+            "v": [
+              -0.8248487425290192,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.666666666666668,
+            "v": [
+              -0.7753306294137335,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.708333333333332,
+            "v": [
+              -0.7240244058617251,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.75,
+            "v": [
+              -0.6710083428813506,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.791666666666668,
+            "v": [
+              -0.6163483960825513,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.833333333333332,
+            "v": [
+              -0.5600987751340566,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.875,
+            "v": [
+              -0.5023024276020283,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.916666666666668,
+            "v": [
+              -0.4429914284913342,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.958333333333332,
+            "v": [
+              -0.382187266326042,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20,
+            "v": [
+              -0.31990101562769807,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.041666666666668,
+            "v": [
+              -0.25613338397307167,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.083333333333332,
+            "v": [
+              -0.19087461921957424,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.125,
+            "v": [
+              -0.12410425871007438,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.166666666666668,
+            "v": [
+              -0.05579069694636155,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.9,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 21.487499999999997,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.075,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.6625,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.25,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.8375,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 24.425,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.012500000000003,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.1,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.thighL",
+      "shape": "box",
+      "parent": "haon.hipL",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.20118940936863544,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.126,
+        0.4023788187372709,
+        0.126
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.kneeL",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.4023788187372709,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.hipL",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.416666666666666,
+            "v": [
+              0.05593379355381156,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.458333333333334,
+            "v": [
+              0.19353694760722062,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.5,
+            "v": [
+              0.32802463174761254,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.541666666666666,
+            "v": [
+              0.45946683721002834,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.583333333333334,
+            "v": [
+              0.5879109790605197,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.625,
+            "v": [
+              0.7133828473559829,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.666666666666666,
+            "v": [
+              0.8358871871256106,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.708333333333334,
+            "v": [
+              0.9554079555708421,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.75,
+            "v": [
+              1.0719082944653597,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.791666666666666,
+            "v": [
+              1.1853302485088946,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.833333333333334,
+            "v": [
+              1.295594255772228,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.875,
+            "v": [
+              1.402598433998948,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.916666666666666,
+            "v": [
+              1.5062176861723375,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.958333333333334,
+            "v": [
+              1.606302650261504,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14,
+            "v": [
+              1.7026785212964823,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.041666666666666,
+            "v": [
+              1.7951437787047406,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.083333333333334,
+            "v": [
+              1.8834688578577516,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.125,
+            "v": [
+              1.9673948114771833,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.166666666666666,
+            "v": [
+              2.046632013021782,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.208333333333334,
+            "v": [
+              2.1208589589861937,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.25,
+            "v": [
+              2.1897212280707254,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.291666666666666,
+            "v": [
+              2.2528306494432524,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.333333333333334,
+            "v": [
+              2.309764715817426,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.375,
+            "v": [
+              2.360066244710494,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.416666666666666,
+            "v": [
+              2.403243236763276,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.458333333333334,
+            "v": [
+              2.4387687959814808,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.5,
+            "v": [
+              2.4660808544752495,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.541666666666666,
+            "v": [
+              2.484581273167926,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.583333333333334,
+            "v": [
+              2.493633655987404,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.6,
+            "v": [
+              2.494458631013182,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              2.494458631013182,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.041666666666668,
+            "v": [
+              2.489372997368752,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.083333333333332,
+            "v": [
+              2.474573165328723,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.125,
+            "v": [
+              2.450711911597806,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.166666666666668,
+            "v": [
+              2.418402314805493,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.208333333333332,
+            "v": [
+              2.3782207091627696,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.25,
+            "v": [
+              2.330708003228805,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.291666666666668,
+            "v": [
+              2.2763701418492337,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.333333333333332,
+            "v": [
+              2.2156782248654894,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.375,
+            "v": [
+              2.1490686019214147,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.416666666666668,
+            "v": [
+              2.0769431222900607,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.458333333333332,
+            "v": [
+              1.9996696204460664,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.5,
+            "v": [
+              1.9175826527691437,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.541666666666668,
+            "v": [
+              1.830984460370774,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.583333333333332,
+            "v": [
+              1.7401461108702307,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.625,
+            "v": [
+              1.645308762444627,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.666666666666668,
+            "v": [
+              1.5466849922108028,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.708333333333332,
+            "v": [
+              1.444460134592965,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.75,
+            "v": [
+              1.338793581343696,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.791666666666668,
+            "v": [
+              1.2298200016300582,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.833333333333332,
+            "v": [
+              1.117650446969523,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.875,
+            "v": [
+              1.002373311125074,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.916666666666668,
+            "v": [
+              0.8840551189504424,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.958333333333332,
+            "v": [
+              0.7627411203909471,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20,
+            "v": [
+              0.6384556662495555,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.041666666666668,
+            "v": [
+              0.5112023407836115,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.083333333333332,
+            "v": [
+              0.38096382251380234,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.125,
+            "v": [
+              0.24770143849969362,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.166666666666668,
+            "v": [
+              0.11135436828184586,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.shinL",
+      "shape": "box",
+      "parent": "haon.kneeL",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.20201059063136456,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.126,
+        0.4040211812627291,
+        0.126
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.footL",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.4040211812627291,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.kneeL"
+    },
+    {
+      "id": "haon.hipR",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        -0.084,
+        -0.0336,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.hips",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 1,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 1.575,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.15,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 2.725,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.3,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 3.875,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 4.45,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.025,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 5.6,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.175,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 6.75,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.325,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 7.9,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 8.475,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.05,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 9.625,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.2,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 10.775,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.35,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 11.925,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 12.5,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.416666666666666,
+            "v": [
+              -0.028023870688189068,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.458333333333334,
+            "v": [
+              -0.09696617575742089,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.5,
+            "v": [
+              -0.16434938095305945,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.541666666666666,
+            "v": [
+              -0.23020971629542855,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.583333333333334,
+            "v": [
+              -0.29457203858947334,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.625,
+            "v": [
+              -0.357450344517445,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.666666666666666,
+            "v": [
+              -0.41884809086468333,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.708333333333334,
+            "v": [
+              -0.47875834806109174,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.75,
+            "v": [
+              -0.5371638071452575,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.791666666666666,
+            "v": [
+              -0.5940366559140577,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.833333333333334,
+            "v": [
+              -0.6493383369900032,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.875,
+            "v": [
+              -0.7030191985231822,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.916666666666666,
+            "v": [
+              -0.7550180470116212,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.958333333333334,
+            "v": [
+              -0.8052616110668263,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14,
+            "v": [
+              -0.8536639246604312,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.041666666666666,
+            "v": [
+              -0.9001256382345997,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.083333333333334,
+            "v": [
+              -0.9445332658104243,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.125,
+            "v": [
+              -0.9867583757212299,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.166666666666666,
+            "v": [
+              -1.0266567319170834,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.208333333333334,
+            "v": [
+              -1.0640673926216706,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.25,
+            "v": [
+              -1.098811775328746,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.291666666666666,
+            "v": [
+              -1.1306927053987528,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.333333333333334,
+            "v": [
+              -1.1594934856707035,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.375,
+            "v": [
+              -1.184977063024128,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.416666666666666,
+            "v": [
+              -1.2068854262808197,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.458333333333334,
+            "v": [
+              -1.2249394326408767,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.5,
+            "v": [
+              -1.2388392769693004,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.541666666666666,
+            "v": [
+              -1.2482656966769514,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.583333333333334,
+            "v": [
+              -1.2528816387162078,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.6,
+            "v": [
+              -1.253302425892853,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              -1.253302425892853,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.041666666666668,
+            "v": [
+              -1.2507087674925779,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.083333333333332,
+            "v": [
+              -1.2431651504755097,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.125,
+            "v": [
+              -1.2310153297395692,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.166666666666668,
+            "v": [
+              -1.214585887531716,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.208333333333332,
+            "v": [
+              -1.194184594283846,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.25,
+            "v": [
+              -1.1700989557542052,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.291666666666668,
+            "v": [
+              -1.142595446544282,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.333333333333332,
+            "v": [
+              -1.1119194497609521,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.375,
+            "v": [
+              -1.0782957141568223,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.416666666666668,
+            "v": [
+              -1.041929114916412,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.458333333333332,
+            "v": [
+              -1.0030055572539671,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.5,
+            "v": [
+              -0.9616929255864586,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.541666666666668,
+            "v": [
+              -0.9181420279573312,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.583333333333332,
+            "v": [
+              -0.8724875121964365,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.625,
+            "v": [
+              -0.8248487425290192,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.666666666666668,
+            "v": [
+              -0.7753306294137335,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.708333333333332,
+            "v": [
+              -0.7240244058617251,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.75,
+            "v": [
+              -0.6710083428813506,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.791666666666668,
+            "v": [
+              -0.6163483960825513,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.833333333333332,
+            "v": [
+              -0.5600987751340566,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.875,
+            "v": [
+              -0.5023024276020283,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.916666666666668,
+            "v": [
+              -0.4429914284913342,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.958333333333332,
+            "v": [
+              -0.382187266326042,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20,
+            "v": [
+              -0.31990101562769807,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.041666666666668,
+            "v": [
+              -0.25613338397307167,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.083333333333332,
+            "v": [
+              -0.19087461921957424,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.125,
+            "v": [
+              -0.12410425871007438,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.166666666666668,
+            "v": [
+              -0.05579069694636155,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.9,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 21.487499999999997,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.075,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 22.6625,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.25,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 23.8375,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 24.425,
+            "v": [
+              -0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.012500000000003,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.1,
+            "v": [
+              0.6,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.thighR",
+      "shape": "box",
+      "parent": "haon.hipR",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.20118940936863544,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.126,
+        0.4023788187372709,
+        0.126
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.kneeR",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.4023788187372709,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.hipR",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 13.4,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.416666666666666,
+            "v": [
+              0.05593379355381156,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.458333333333334,
+            "v": [
+              0.19353694760722062,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.5,
+            "v": [
+              0.32802463174761254,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.541666666666666,
+            "v": [
+              0.45946683721002834,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.583333333333334,
+            "v": [
+              0.5879109790605197,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.625,
+            "v": [
+              0.7133828473559829,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.666666666666666,
+            "v": [
+              0.8358871871256106,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.708333333333334,
+            "v": [
+              0.9554079555708421,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.75,
+            "v": [
+              1.0719082944653597,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.791666666666666,
+            "v": [
+              1.1853302485088946,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.833333333333334,
+            "v": [
+              1.295594255772228,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.875,
+            "v": [
+              1.402598433998948,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.916666666666666,
+            "v": [
+              1.5062176861723375,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 13.958333333333334,
+            "v": [
+              1.606302650261504,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14,
+            "v": [
+              1.7026785212964823,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.041666666666666,
+            "v": [
+              1.7951437787047406,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.083333333333334,
+            "v": [
+              1.8834688578577516,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.125,
+            "v": [
+              1.9673948114771833,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.166666666666666,
+            "v": [
+              2.046632013021782,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.208333333333334,
+            "v": [
+              2.1208589589861937,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.25,
+            "v": [
+              2.1897212280707254,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.291666666666666,
+            "v": [
+              2.2528306494432524,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.333333333333334,
+            "v": [
+              2.309764715817426,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.375,
+            "v": [
+              2.360066244710494,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.416666666666666,
+            "v": [
+              2.403243236763276,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.458333333333334,
+            "v": [
+              2.4387687959814808,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.5,
+            "v": [
+              2.4660808544752495,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.541666666666666,
+            "v": [
+              2.484581273167926,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.583333333333334,
+            "v": [
+              2.493633655987404,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 14.6,
+            "v": [
+              2.494458631013182,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19,
+            "v": [
+              2.494458631013182,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.041666666666668,
+            "v": [
+              2.489372997368752,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.083333333333332,
+            "v": [
+              2.474573165328723,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.125,
+            "v": [
+              2.450711911597806,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.166666666666668,
+            "v": [
+              2.418402314805493,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.208333333333332,
+            "v": [
+              2.3782207091627696,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.25,
+            "v": [
+              2.330708003228805,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.291666666666668,
+            "v": [
+              2.2763701418492337,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.333333333333332,
+            "v": [
+              2.2156782248654894,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.375,
+            "v": [
+              2.1490686019214147,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.416666666666668,
+            "v": [
+              2.0769431222900607,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.458333333333332,
+            "v": [
+              1.9996696204460664,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.5,
+            "v": [
+              1.9175826527691437,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.541666666666668,
+            "v": [
+              1.830984460370774,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.583333333333332,
+            "v": [
+              1.7401461108702307,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.625,
+            "v": [
+              1.645308762444627,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.666666666666668,
+            "v": [
+              1.5466849922108028,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.708333333333332,
+            "v": [
+              1.444460134592965,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.75,
+            "v": [
+              1.338793581343696,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.791666666666668,
+            "v": [
+              1.2298200016300582,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.833333333333332,
+            "v": [
+              1.117650446969523,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.875,
+            "v": [
+              1.002373311125074,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.916666666666668,
+            "v": [
+              0.8840551189504424,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 19.958333333333332,
+            "v": [
+              0.7627411203909471,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20,
+            "v": [
+              0.6384556662495555,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.041666666666668,
+            "v": [
+              0.5112023407836115,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.083333333333332,
+            "v": [
+              0.38096382251380234,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.125,
+            "v": [
+              0.24770143849969362,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.166666666666668,
+            "v": [
+              0.11135436828184586,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 20.2,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "haon.shinR",
+      "shape": "box",
+      "parent": "haon.kneeR",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.20201059063136456,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.126,
+        0.4040211812627291,
+        0.126
+      ],
+      "role": "haon",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "haon.footR",
+      "shape": "box",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "position": [
+        0,
+        -0.4040211812627291,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "haon.kneeR"
+    },
+    {
+      "id": "haon_skin",
+      "shape": "model",
+      "role": "haon",
+      "color": [
+        0.5019607843137255,
+        1,
+        0
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "models/haon/Superhero_Female_FullBody.gltf",
+        "retarget": {
+          "source": "haon",
+          "map": "ue",
+          "attach": true
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.68,
+        0.4
+      ]
+    },
+    {
+      "id": "mentor.root",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        -0.82,
+        0,
+        -0.18
+      ],
+      "rotation": [
+        0,
+        1.3329603993374457,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "rotationPath": "shortest"
+    },
+    {
+      "id": "mentor.hips",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        0.9,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.root"
+    },
+    {
+      "id": "mentor.spine",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.hips"
+    },
+    {
+      "id": "mentor.head",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        0.63,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.spine",
+      "tracks": {
+        "rotation": [
+          {
+            "t": 0,
+            "v": [
+              0.4,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 24.2,
+            "v": [
+              0.4,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25,
+            "v": [
+              0.15,
+              -0.7771048319282494,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 25.8,
+            "v": [
+              0.05,
+              -0.30349648108609273,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 26.6,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "t": 34.6,
+            "v": [
+              0,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 35.2,
+            "v": [
+              0.22,
+              0,
+              0
+            ],
+            "ease": "ease-in-out"
+          },
+          {
+            "t": 35.8,
+            "v": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "mentor.lower",
+      "shape": "box",
+      "parent": "mentor.hips",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.054,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.342,
+        0.216,
+        0.216
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.upper",
+      "shape": "box",
+      "parent": "mentor.spine",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        0.315,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.432,
+        0.63,
+        0.234
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.head.mesh",
+      "shape": "box",
+      "parent": "mentor.head",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        0.135,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.198,
+        0.27,
+        0.216
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.shoulderL",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0.2565,
+        0.576,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.spine"
+    },
+    {
+      "id": "mentor.upperArmL",
+      "shape": "box",
+      "parent": "mentor.shoulderL",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.1613493975903615,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.081,
+        0.322698795180723,
+        0.081
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.elbowL",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.322698795180723,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.shoulderL"
+    },
+    {
+      "id": "mentor.forearmL",
+      "shape": "box",
+      "parent": "mentor.elbowL",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.12665060240963855,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.081,
+        0.2533012048192771,
+        0.081
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.handL",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.2533012048192771,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.elbowL"
+    },
+    {
+      "id": "mentor.shoulderR",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        -0.2565,
+        0.576,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.spine"
+    },
+    {
+      "id": "mentor.upperArmR",
+      "shape": "box",
+      "parent": "mentor.shoulderR",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.1613493975903615,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.081,
+        0.322698795180723,
+        0.081
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.elbowR",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.322698795180723,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.shoulderR"
+    },
+    {
+      "id": "mentor.forearmR",
+      "shape": "box",
+      "parent": "mentor.elbowR",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.12665060240963855,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.081,
+        0.2533012048192771,
+        0.081
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.handR",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.2533012048192771,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.elbowR"
+    },
+    {
+      "id": "mentor.hipL",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0.09000000000000001,
+        -0.036000000000000004,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.hips"
+    },
+    {
+      "id": "mentor.thighL",
+      "shape": "box",
+      "parent": "mentor.hipL",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.2155600814663951,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.135,
+        0.4311201629327902,
+        0.135
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.kneeL",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.4311201629327902,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.hipL"
+    },
+    {
+      "id": "mentor.shinL",
+      "shape": "box",
+      "parent": "mentor.kneeL",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.2164399185336049,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.135,
+        0.4328798370672098,
+        0.135
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.footL",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.4328798370672098,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.kneeL"
+    },
+    {
+      "id": "mentor.hipR",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        -0.09000000000000001,
+        -0.036000000000000004,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.hips"
+    },
+    {
+      "id": "mentor.thighR",
+      "shape": "box",
+      "parent": "mentor.hipR",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.2155600814663951,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.135,
+        0.4311201629327902,
+        0.135
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.kneeR",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.4311201629327902,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.hipR"
+    },
+    {
+      "id": "mentor.shinR",
+      "shape": "box",
+      "parent": "mentor.kneeR",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.2164399185336049,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.135,
+        0.4328798370672098,
+        0.135
+      ],
+      "role": "mentor",
+      "look": {
+        "show": "flat"
+      }
+    },
+    {
+      "id": "mentor.footR",
+      "shape": "box",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "position": [
+        0,
+        -0.4328798370672098,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        0.02,
+        0.02,
+        0.02
+      ],
+      "visible": false,
+      "parent": "mentor.kneeR"
+    },
+    {
+      "id": "mentor_skin",
+      "shape": "model",
+      "role": "mentor",
+      "color": [
+        1,
+        0,
+        0.6666666666666666
+      ],
+      "look": {
+        "show": "textured"
+      },
+      "model": {
+        "src": "../models/quaternius/Superhero_Male_FullBody.gltf",
+        "retarget": {
+          "source": "mentor",
+          "map": "ue",
+          "attach": true
+        }
+      },
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        1,
+        1.8,
+        0.4
+      ]
+    }
+  ],
+  "shots": [
+    {
+      "id": "s01-1-crane",
+      "note": "high establishing crane down at the entrance end: the long pillared hall, sleeping skeletons, the ember glowing on the pedestal mid-hall, the sealed gate far away; 하온 walks in under the camera",
+      "start": 0,
+      "end": 7,
+      "camera": {
+        "position": [
+          {
+            "t": 0,
+            "v": [
+              -11,
+              8.6,
+              1.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 3.5,
+            "v": [
+              -11.1,
+              5.2,
+              1.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 7,
+            "v": [
+              -11.2,
+              2.3,
+              1.6
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 0,
+              "v": [
+                3,
+                0,
+                0
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 4.5,
+              "v": [
+                -2,
+                0.6,
+                0
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 7,
+              "v": [
+                -5.556521739130435,
+                0.9,
+                0.6
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 0,
+            "v": 55
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-2-follow",
+      "note": "low tracking follow from behind-left: 하온 walks down the aisle between the rows of sleeping skeletons toward the distant ember",
+      "start": 7,
+      "end": 10,
+      "camera": {
+        "position": [
+          {
+            "t": 7,
+            "v": [
+              -10.756521739130434,
+              0.7,
+              1.05
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 7.25,
+            "v": [
+              -10.56304347826087,
+              0.7,
+              1.075
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 7.5,
+            "v": [
+              -10.369565217391305,
+              0.7,
+              1.0999999999999999
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 7.75,
+            "v": [
+              -10.17608695652174,
+              0.7,
+              1.125
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 8,
+            "v": [
+              -9.982608695652175,
+              0.7,
+              1.15
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 8.25,
+            "v": [
+              -9.78913043478261,
+              0.7,
+              1.175
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 8.5,
+            "v": [
+              -9.595652173913043,
+              0.7,
+              1.2
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 8.75,
+            "v": [
+              -9.402173913043478,
+              0.7,
+              1.2249999999999999
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 9,
+            "v": [
+              -9.208695652173914,
+              0.7,
+              1.25
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 9.25,
+            "v": [
+              -9.015217391304349,
+              0.7,
+              1.275
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 9.5,
+            "v": [
+              -8.821739130434784,
+              0.7,
+              1.2999999999999998
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 9.75,
+            "v": [
+              -8.628260869565217,
+              0.7,
+              1.325
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 10,
+            "v": [
+              -8.434782608695652,
+              0.7,
+              1.35
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 7,
+              "v": [
+                -7.356521739130435,
+                1.1,
+                0.6
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 7.25,
+              "v": [
+                -7.16304347826087,
+                1.1,
+                0.6249999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 7.5,
+              "v": [
+                -6.969565217391305,
+                1.1,
+                0.6499999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 7.75,
+              "v": [
+                -6.7760869565217385,
+                1.1,
+                0.675
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 8,
+              "v": [
+                -6.582608695652174,
+                1.1,
+                0.7
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 8.25,
+              "v": [
+                -6.389130434782609,
+                1.1,
+                0.725
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 8.5,
+              "v": [
+                -6.195652173913043,
+                1.1,
+                0.75
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 8.75,
+              "v": [
+                -6.002173913043478,
+                1.1,
+                0.7749999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 9,
+              "v": [
+                -5.808695652173913,
+                1.1,
+                0.7999999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 9.25,
+              "v": [
+                -5.615217391304348,
+                1.1,
+                0.8249999999999998
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 9.5,
+              "v": [
+                -5.4217391304347835,
+                1.1,
+                0.8499999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 9.75,
+              "v": [
+                -5.228260869565217,
+                1.1,
+                0.875
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 10,
+              "v": [
+                -5.034782608695652,
+                1.1,
+                0.9
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 7,
+            "v": 50
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-3-track",
+      "note": "low side tracking (left to right): she slows, notices a skeleton beside the aisle and turns to it",
+      "start": 10,
+      "end": 13.4,
+      "camera": {
+        "position": [
+          {
+            "t": 10,
+            "v": [
+              -4.634782608695652,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 10.25,
+            "v": [
+              -4.441304347826087,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 10.5,
+            "v": [
+              -4.247826086956522,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 10.75,
+            "v": [
+              -4.054347826086957,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 11,
+            "v": [
+              -3.8608695652173917,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 11.25,
+            "v": [
+              -3.667391304347827,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 11.5,
+            "v": [
+              -3.473913043478262,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 11.75,
+            "v": [
+              -3.2804347826086953,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 12,
+            "v": [
+              -3.0869565217391304,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 12.25,
+            "v": [
+              -2.8934782608695655,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 12.5,
+            "v": [
+              -2.6999999999999997,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 12.75,
+            "v": [
+              -2.6999999999999997,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 13,
+            "v": [
+              -2.6999999999999997,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 13.25,
+            "v": [
+              -2.6999999999999997,
+              0.85,
+              4.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 13.4,
+            "v": [
+              -2.6999999999999997,
+              0.85,
+              4.6
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 10,
+              "v": [
+                -5.934782608695652,
+                0.95,
+                0.9
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 10.25,
+              "v": [
+                -5.7413043478260875,
+                0.95,
+                0.9249999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 10.5,
+              "v": [
+                -5.547826086956523,
+                0.95,
+                0.95
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 10.75,
+              "v": [
+                -5.354347826086958,
+                0.95,
+                0.9749999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 11,
+              "v": [
+                -5.160869565217392,
+                0.95,
+                0.9999999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 11.25,
+              "v": [
+                -4.967391304347827,
+                0.95,
+                1.025
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 11.5,
+              "v": [
+                -4.773913043478262,
+                0.95,
+                1.0499999999999998
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 11.75,
+              "v": [
+                -4.5804347826086955,
+                0.95,
+                1.075
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 12,
+              "v": [
+                -4.386956521739131,
+                0.95,
+                1.0999999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 12.25,
+              "v": [
+                -4.193478260869566,
+                0.95,
+                1.125
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 12.5,
+              "v": [
+                -4,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 12.75,
+              "v": [
+                -4,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 13,
+              "v": [
+                -4,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 13.25,
+              "v": [
+                -4,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 13.4,
+              "v": [
+                -4,
+                0.95,
+                1.15
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 10,
+            "v": 45
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-4-skull",
+      "note": "close two-layer low shot: the sleeping skull in the foreground, 하온 crouching behind it, studying it; slow push",
+      "start": 13.4,
+      "end": 19.6,
+      "camera": {
+        "position": [
+          {
+            "t": 13.4,
+            "v": [
+              -2.65,
+              1.45,
+              3.1
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 19.6,
+            "v": [
+              -2.8,
+              1.4,
+              2.9
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 13.4,
+              "v": [
+                -4,
+                0.8,
+                1.5499999999999998
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 15,
+              "v": [
+                -4,
+                0.72,
+                1.5999999999999999
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 19.6,
+              "v": [
+                -4,
+                0.76,
+                1.5999999999999999
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 13.4,
+            "v": 50
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-5-onward",
+      "note": "medium-wide pan from the skeleton bay: she rises and walks on toward the pedestal and her teacher (left to right)",
+      "start": 19.6,
+      "end": 22.4,
+      "camera": {
+        "position": [
+          {
+            "t": 19.6,
+            "v": [
+              -3.3,
+              1.55,
+              4.7
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 19.6,
+              "v": [
+                -3.8,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 19.85,
+              "v": [
+                -3.8,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 20.1,
+              "v": [
+                -3.8,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 20.35,
+              "v": [
+                -3.8,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 20.6,
+              "v": [
+                -3.8,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 20.85,
+              "v": [
+                -3.8,
+                0.95,
+                1.15
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 21.1,
+              "v": [
+                -3.5978723404255293,
+                0.95,
+                1.1372340425531913
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 21.35,
+              "v": [
+                -3.345212765957444,
+                0.95,
+                1.1212765957446806
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 21.6,
+              "v": [
+                -3.092553191489359,
+                0.95,
+                1.10531914893617
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 21.85,
+              "v": [
+                -2.839893617021274,
+                0.95,
+                1.0893617021276594
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 22.1,
+              "v": [
+                -2.587234042553189,
+                0.95,
+                1.0734042553191487
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 22.35,
+              "v": [
+                -2.334574468085104,
+                0.95,
+                1.057446808510638
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 22.4,
+              "v": [
+                -2.2840425531914903,
+                0.95,
+                1.054255319148936
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 19.6,
+            "v": 52
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-6-arrive",
+      "note": "front medium-wide at the pedestal: 도원 stands looking down at the ember; 하온 passes in front and comes round to the far side; he lifts his head to her",
+      "start": 22.4,
+      "end": 26.8,
+      "camera": {
+        "position": [
+          {
+            "t": 22.4,
+            "v": [
+              0.6,
+              1.6,
+              3.1
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 26.8,
+            "v": [
+              0.4,
+              1.55,
+              2.8
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 22.4,
+              "v": [
+                -1,
+                1.15,
+                0.3
+              ],
+              "ease": "smooth"
+            },
+            {
+              "t": 26.8,
+              "v": [
+                -0.15,
+                1.15,
+                0
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 22.4,
+            "v": 50
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-7-ember",
+      "note": "low insert on the pedestal: the warm ember glowing between the two keepers; 하온 looks down at it",
+      "start": 26.8,
+      "end": 30,
+      "camera": {
+        "position": [
+          {
+            "t": 26.8,
+            "v": [
+              0.2,
+              0.95,
+              1.45
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 30,
+            "v": [
+              0.15,
+              0.97,
+              1.2
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 26.8,
+              "v": [
+                0,
+                1.37,
+                0
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 26.8,
+            "v": 48
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-8-ots",
+      "note": "over 하온's shoulder onto 도원: the old keeper looks at his apprentice across the ember",
+      "start": 30,
+      "end": 33.6,
+      "camera": {
+        "position": [
+          {
+            "t": 30,
+            "v": [
+              1.45,
+              1.66,
+              0.75
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 33.6,
+            "v": [
+              1.35,
+              1.64,
+              0.68
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 30,
+              "v": [
+                -0.82,
+                1.5,
+                -0.18
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 30,
+            "v": 40
+          }
+        ]
+      }
+    },
+    {
+      "id": "s01-9-two",
+      "note": "two-shot across the pedestal: 도원 (left) and 하온 (right) face each other, the ember between them; slow push-in; 도원 nods",
+      "start": 33.6,
+      "end": 40,
+      "camera": {
+        "position": [
+          {
+            "t": 33.6,
+            "v": [
+              -0.15,
+              1.5,
+              3.6
+            ],
+            "ease": "smooth"
+          },
+          {
+            "t": 40,
+            "v": [
+              -0.15,
+              1.45,
+              3.1
+            ]
+          }
+        ],
+        "target": {
+          "track": [
+            {
+              "t": 33.6,
+              "v": [
+                -0.15,
+                1.15,
+                0
+              ]
+            }
+          ]
+        },
+        "fov": [
+          {
+            "t": 33.6,
+            "v": 40
+          }
+        ]
+      }
+    }
+  ],
+  "markers": [
+    {
+      "t": 1,
+      "label": "하온 steps out of the dark entrance into the hall"
+    },
+    {
+      "t": 12.5,
+      "label": "she notices a skeleton asleep beside the aisle and turns to it"
+    },
+    {
+      "t": 13.4,
+      "label": "she crouches beside the skull and studies it"
+    },
+    {
+      "t": 19,
+      "label": "she rises and walks on toward the pedestal"
+    },
+    {
+      "t": 24.2,
+      "label": "도원 hears her and lifts his head from the ember"
+    },
+    {
+      "t": 26.6,
+      "label": "하온 stops across the pedestal, facing 도원"
+    },
+    {
+      "t": 27.3,
+      "label": "하온 glances down at the ember"
+    },
+    {
+      "t": 34.6,
+      "label": "도원 nods to her"
+    }
+  ]
+}
